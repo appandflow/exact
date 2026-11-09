@@ -10,6 +10,7 @@ pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerErr
         let allowed: Option<&[&str]> = match name {
             "preload" => Some(&["", "none", "metadata", "auto"]),
             "crossorigin" => Some(&["", "anonymous", "use-credentials"]),
+            "loading" => Some(&["lazy", "eager"]),
             _ => None,
         };
         if allowed.is_some_and(|choices| !choices.contains(&text.as_str())) {

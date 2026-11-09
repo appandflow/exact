@@ -984,7 +984,7 @@ impl Em<'_> {
             self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
-        if element == "img" && exact_runner::rows::repeated(plan, exact_plan::NodesId(i)) {
+        if element == "img" && exact_runner::rows::lazy(plan, exact_plan::NodesId(i)) {
             attrs.push(("loading".into(), "lazy".into()));
         }
         let mut css = parts.css.clone();

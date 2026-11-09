@@ -239,7 +239,7 @@ pub fn project_tree<D: DataSource>(
     let lazy = |id: ViewId| {
         tree.node(id)
             .and_then(|n| n.site)
-            .is_some_and(|site| exact_runner::rows::repeated(runner.plan(), site))
+            .is_some_and(|site| exact_runner::rows::lazy(runner.plan(), site))
     };
     let (out, keyframes, scroll_document, _, sent) = write(
         tree,
@@ -312,7 +312,7 @@ fn walk<D: DataSource>(
     let lazy = |id: ViewId| {
         runner
             .site_of(id)
-            .is_some_and(|(site, _)| exact_runner::rows::repeated(runner.plan(), site))
+            .is_some_and(|(site, _)| exact_runner::rows::lazy(runner.plan(), site))
     };
     let (out, keyframes, scroll_document, computed, _) = write(
         &src,

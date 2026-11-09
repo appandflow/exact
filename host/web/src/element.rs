@@ -971,6 +971,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
             // Read by rt.js's image fade.
             PropId::FadeDuration => "data-exact-fade",
+            PropId::Loading => "loading",
             // Read by wakelock-glue.js.
             PropId::Wakelock => "data-exact-wakelock",
             // Read by orientationlock-glue.js.

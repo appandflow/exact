@@ -35,3 +35,14 @@ pub fn repeated(plan: &Plan, node: exact_plan::NodesId) -> bool {
         (parent, arm) = (region.parent, region.arm);
     }
 }
+
+/// Whether plan node `node`'s image loads lazily when the app says nothing:
+/// a row's does ([`repeated`]), unless the node writes or binds `loading`.
+pub fn lazy(plan: &Plan, node: exact_plan::NodesId) -> bool {
+    use exact_plan::BindingKind;
+    repeated(plan, node)
+        && !plan.node(node).bindings.iter().any(|b| {
+            let b = plan.binding(b);
+            b.kind == BindingKind::Prop && b.id == exact_kernel::PropId::Loading as u16
+        })
+}
