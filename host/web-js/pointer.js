@@ -27,6 +27,8 @@ export function record(e, ev, lifted = false) {
 }
 let walking = false;
 export function pointer(e, kind, f) {
+  // The server's render has no window and no pointer: nothing to listen for.
+  if (typeof window === "undefined") return;
   if (!walking) {
     walking = true;
     // Every holder is fixed before any down runs, as the native hosts fix the path: a node a handler further in disables or removes still hears the up.
