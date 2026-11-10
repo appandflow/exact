@@ -555,7 +555,12 @@ extension NavigationHost {
             searchField(shows ? shape?.search : nil, in: c, covered: index < routes.count - 1)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
-            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
+            #if os(iOS)
+            let fonts = shows ? NavigationTitleInk.fonts(of: shape?.heading, level: shape?.level ?? 0, traits: c.traitCollection) : nil
+            #else
+            let fonts: NavigationTitleInk.Fonts? = nil // tvOS's bar title font is not measured: its own stays.
+            #endif
+            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, fonts: fonts, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }

@@ -4641,7 +4641,14 @@ weight and leading. The web, neutral and terminal looks use bold for levels 1
 and 2, semibold for 3. Omit heading sizes and weights unless customizing them.
 An authored `font`, `font-size` or `font-weight` wins; an inherited one does not.
 
-Native navigation bars and grouped-list headers own title typography and spacing.
+Native navigation bars and grouped-list headers own title spacing, and title
+typography the author leaves unsaid. A `font-family`, `font-weight`, `font-style`
+or `font-size` written on a bar's heading replaces that one part of the
+platform's title font: on iOS in the navigation title (a level-1 heading's size
+is the large title's, any other's the inline title's), on the Mac in a modal
+route's sheet title. The Mac's window title keeps AppKit's font, which no public
+API changes, and on iOS a heading inside a pressable title group keeps the
+platform's.
 On iOS, a route's level-1 heading gives a large navigation title; other levels
 give an inline title. Set UIKit's `largeTitleDisplayMode` through a native access
 hatch to change presentation while keeping the semantic rank. Check the host's

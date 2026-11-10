@@ -495,6 +495,56 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(f.status.contains("saved 1 "), f.status)
     }
 
+    /// LLP 1115 §2, "what the author writes wins": the heading's authored
+    /// typography is the title row's font. A row its author left unsaid stays
+    /// the platform's (bold, at the system size), and a heading with none
+    /// keeps the platform's font.
+    func testTheTitleRowTakesItsHeadingsAuthoredTypography() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state screen = "home"
+          action open(s: string)
+            screen = s
+          view
+            column navigationKey=screen navigationBack="back" width="100%" height="100%"
+              column navigationKey="home" testId="home"
+                button testId="open-font" press=open("font")
+                  text "Font"
+                button testId="open-weight" press=open("weight")
+                  text "Weight"
+                button testId="open-plain" press=open("plain")
+                  text "Plain"
+              if screen != "home"
+                column navigationKey=screen navigationPresentation="modal" width=400
+                  header
+                    button id="back" press=open("home")
+                      text "Cancel"
+                    if screen == "font"
+                      text "Font" role="heading" font-family="Menlo" font-size=18 font-weight=700
+                    if screen == "weight"
+                      text "Weight" role="heading" font-weight=400
+                    if screen == "plain"
+                      text "Plain" role="heading"
+                  box width=200 height=80
+        """)
+        fixture = f
+        func title(_ open: String) throws -> NSFont {
+            try f.press(open)
+            let chrome = try sheet(f).chrome, font = try XCTUnwrap(chrome.title.font)
+            chrome.cancel.performClick(nil)
+            f.settle()
+            return font
+        }
+        let font = try title("open-font")
+        XCTAssertEqual(font.familyName, "Menlo")
+        XCTAssertEqual(font.pointSize, 18)
+        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.bold), "\(font)")
+        let weight = try title("open-weight")
+        XCTAssertEqual(weight.pointSize, NSFont.systemFontSize)
+        XCTAssertEqual(TextEngine.cssWeight(of: weight), 400)
+        XCTAssertEqual(try title("open-plain"), RouteChrome.titleFont)
+    }
+
     /// A header whose heading cannot be taken out of it keeps the route
     /// painted in the window, on its ground, and says why; so does the
     /// driver's own chrome. A route with no header is a sheet of its content.

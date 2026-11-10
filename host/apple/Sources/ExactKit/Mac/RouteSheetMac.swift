@@ -150,10 +150,12 @@ final class RouteChrome: NSView {
     /// sheet's edges and from its neighbour; and the title's label, its words' ink starting 49 points in on a
     /// baseline 30 points down.
     static let titleRow: CGFloat = 48, buttonRow: CGFloat = 64, edge: CGFloat = 20, gap: CGFloat = 8, titleStart: CGFloat = 46, titleBaseline: CGFloat = 30
+    /// The title's font where its heading's author wrote none.
+    static let titleFont = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
 
     init() {
         super.init(frame: .zero)
-        title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        title.font = Self.titleFont
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
         for button in [cancel, confirm] {
@@ -195,12 +197,13 @@ final class RouteChrome: NSView {
     }
 
     /// What the rows show now; true when a row came or went, so the sheet's size is another.
-    func show(title words: String?, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
+    func show(title words: String?, font: NSFont, back offered: Bool, cancel: (String, UInt32, Bool)?, confirm: (String, UInt32, Bool)?, escapes: Bool) -> Bool {
         let before = rows
         back.isHidden = !offered
         title.isHidden = (words ?? "").isEmpty
         above.isHidden = top == 0
         if let words, title.stringValue != words { title.stringValue = words }
+        if title.font != font { title.font = font }
         for (button, said) in [(self.cancel, cancel), (self.confirm, confirm)] {
             button.isHidden = said == nil
             guard let (words, id, enabled) = said else { continue }
@@ -391,7 +394,9 @@ extension DialogHost {
         chrome.onBack = { [weak presenter] in _ = presenter?.navigation.goBack() }
         let back = entry.dialog.props["navigationBar"] != "none" && entry.routeBase !== entry.dialog && presenter.navigation.backOffered
         chrome.back.isEnabled = presenter.navigation.back != nil
-        let changed = chrome.show(title: header?.title, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
+        // The heading's authored typography on the title's words (LLP 1115 §2).
+        let font = header?.heading.authoredTitleFont(over: RouteChrome.titleFont) ?? RouteChrome.titleFont
+        let changed = chrome.show(title: header?.title, font: font, back: back, cancel: back ? nil : row(header?.cancel), confirm: row(header?.confirm),
                                   escapes: dismissalOwner(of: entry.dialog).props["closedby"] != "none")
         chrome.cancel.setAccessibilityIdentifier(back ? nil : header?.cancel?.props["testId"])
         chrome.confirm.setAccessibilityIdentifier(header?.confirm?.props["testId"])
