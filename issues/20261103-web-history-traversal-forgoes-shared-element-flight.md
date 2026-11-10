@@ -1,5 +1,11 @@
 # Web: a history traversal forgoes the shared-element flight
 
+**Status:** Open
+**Systems:** web host history (`host/web/navigation.js`), JS target shared elements (`host/web-js/shared.js`, `host/web-js/rt.js`)
+**Severity:** P3
+**Author:** unrecorded (filed without a header)
+**Date:** 2026-11-03
+
 **Found:** 2026-11-03, building an app whose product photo carries a `sharedElement` name on the
 shop grid's card and on the product page (each route's content mounted only while shown in a browser,
 so the pair leaves and arrives in one commit).
