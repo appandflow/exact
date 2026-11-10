@@ -84,6 +84,9 @@ public final class Agent {
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.
     var canvasPoint: CGPoint?
+    /// The canvas contact's own time (iOS), seconds on `CACurrentMediaTime`'s clock: a timed
+    /// move's samples and its lift are stamped at their pace, not at their arrival.
+    var canvasTime: Double?
     package var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.

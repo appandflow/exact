@@ -132,6 +132,20 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
     e => e.malformed === true && e.message.endsWith('state: --json is a flag of the drive, not of the step: write it before the steps, as `web --json "state thread"`'));
 });
 
+test('a move the carrier refuses partway keeps the contact where its delivered samples left it', async () => {
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {}, async ask() { return {}; },
+    async input() { return reply; } };
+  let reply = { error: 'surface refused pointer', at: [10, 30] };
+  const s = await open({ reuse: carrier });
+  s.landed = async r => r;
+  s.contact = { x: 10, y: 50 };
+  assert.equal((await s.pointer('move', { dx: 0, dy: -40, ms: 200 })).error, 'surface refused pointer');
+  assert.deepEqual(s.contact, { x: 10, y: 30 });
+  reply = { error: 'surface refused pointer' };
+  assert.equal((await s.pointer('move', { dx: 0, dy: -40 })).error, 'surface refused pointer');
+  assert.deepEqual(s.contact, { x: 10, y: 30 });
+});
+
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {
   const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
     async ask(req) { calls.push(req); return req.op === 'clock' ? { clock: req.to ?? 0 } : { nodes: [{ id: 1, props: { testId: 'a' }, depth: 0 }] }; },

@@ -4134,7 +4134,11 @@ so the next step can tap a row outside the rendered window),
 (a finger, `pointerType` touch, where the carrier has one, unless `mouse` names the left button; `during`
 is last: quoted reads or `clock` while that contact is down, after the move and
 before the hold; `press` and `hold` advance the virtual clock, except under
-`--timing platform`; on an iOS simulator it is a real UIKit gesture, so a swipe row's
+`--timing platform`, and `over` does not, so on the virtual clock a GPU surface's
+samples of one move share its time, `at_ms`: give them times with `--timing platform`,
+or with a contact's phases, each hold before the step it times, as `tap sky down`,
+`tap hold 16`, `tap move by 0 -20`, `tap hold 16`, `tap move by 0 -20`, `tap hold 16`,
+`tap up` (the last hold lifts the finger a frame after its last move); on an iOS simulator it is a real UIKit gesture, so a swipe row's
 full swipe performs its action),
 `tap "id" drag to "other" [at x y] […]` (it ends on the other node's middle, or
 at a point in its box; a card dropped on another list; on iOS a `tap` naming a

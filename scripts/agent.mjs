@@ -631,7 +631,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
             // session plays a held contact as one real touch instead (agent-drag.mjs `heldPhase`), with a world
             // entity's tap the one contact still sent here.
             const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...(opts.pan ? { pan: true } : {}) });
-            if (r.error) throw new Error(r.error);
+            // A move refused partway answers with where its delivered samples left the contact (`pointer` keeps it).
+            if (r.error && !(kind === 'move' && Array.isArray(r.at))) throw new Error(r.error);
             if (r.delivery !== 'unsupported' || canvasContact) {
               canvasContact = !['up', 'cancel'].includes(kind);
               return r;
@@ -1049,7 +1050,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.delivery !== 'unsupported') {
         if (Number.isFinite(r.clock)) s.now = r.clock;
         if (r.contact === false || phase === 'up' || phase === 'cancel') s.contact = null;
-        else if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
+        // A move refused partway answers where the delivered samples left the contact.
+        else if (phase === 'move' && Array.isArray(r.at)) s.contact = { x: r.at[0], y: r.at[1] };
       }
       // A drag's press and hold are virtual time (platformer R7). Linux already sought and reports `clock`.
       if (phase === 'hold' && opts.virtual && opts.ms > 0 && !(Number.isFinite(r.clock) && r.clock > before)) await s.clock(`+${opts.ms}`);
