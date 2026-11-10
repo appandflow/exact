@@ -630,7 +630,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         if (readRRect(b, i + 15)) c.clipOutRect(rect) else { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipOutPath(path) }
         val square = readRRect(b, i + 3)
         // Under a scale and translation: the mask made once on the CPU ([Shadows]), not a GPU blur.
-        if (values[1] == 0f && values[3] == 0f && values[0] > 0f && Math.abs(values[0] - values[4]) < 1e-3f && sigma > 0.5f / values[0]) {
+        if (values[1] == 0f && values[3] == 0f && values[6] == 0f && values[7] == 0f && values[0] > 0f && Math.abs(values[0] - values[4]) < 1e-3f && sigma > 0.5f / values[0]) {
             val mf = shadowPaint.maskFilter
             shadowPaint.maskFilter = null
             val drawn = Shadows.draw(c, shadowPaint, rect, radii, sigma, values[0])
@@ -700,6 +700,15 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     current.set(matrix)
                     c.setMatrix(matrix)
                     i += 7
+                }
+                45 -> {
+                    // A box turned in space: the whole matrix, perspective included.
+                    for (k in 0 until 9) values[k] = f(b, i + 1 + k)
+                    matrix.setValues(values)
+                    if (shiftX != 0f || shiftY != 0f) matrix.postTranslate(-shiftX, -shiftY)
+                    current.set(matrix)
+                    c.setMatrix(matrix)
+                    i += 10
                 }
                 27 -> { backdrop(c, b, from, i); i += 14 }
                 42 -> { backdrop(c, b, from, i); i += 14 + 2 * b.get(i + 1) }

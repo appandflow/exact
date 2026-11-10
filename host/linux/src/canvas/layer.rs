@@ -111,14 +111,18 @@ impl Layers {
 pub(super) const RECOLORED: u32 = u32::MAX - 1;
 
 impl Recorder {
-    /// Open layer `key` (see [`crate::paint::Backend::layer_begin`]).
+    /// Open layer `key` (see [`crate::paint::Backend::layer_begin`]). Not in
+    /// a box turned in space: the reader moves a layer in the page's plane.
     pub(super) fn layer_open(
         &mut self,
         key: u64,
         ts: Transform,
         pivot: (f32, f32),
         base: [f32; 7],
-    ) {
+    ) -> bool {
+        if !self.planes.is_empty() {
+            return false;
+        }
         let l = &mut self.layers;
         let id = *l.ids.entry(key).or_insert_with(|| {
             l.next += 1;
@@ -157,6 +161,7 @@ impl Recorder {
             matrix,
             emitted,
         });
+        true
     }
 
     /// Close the innermost open layer.

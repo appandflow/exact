@@ -66,7 +66,7 @@ internal class Structure {
 
     /** Where the op at [i] ends. */
     fun end(b: IntBuffer, i: Int): Int = when (b.get(i)) {
-        1 -> i + 7; 2 -> i + 14; 3 -> skipPath(b, i + 3); 4 -> i + 13; 5 -> skipPath(b, i + 2); 6 -> i + 1; 7 -> i + 2
+        1 -> i + 7; 45 -> i + 10; 2 -> i + 14; 3 -> skipPath(b, i + 3); 4 -> i + 13; 5 -> skipPath(b, i + 2); 6 -> i + 1; 7 -> i + 2
         8 -> i + 6; 9 -> i + 6 + 3 * b.get(i + 5); 10 -> i + 5 + (b.get(i + 4) + 3) / 4; 11 -> i + 4; 12 -> i + 2
         13 -> skipPath(b, i + 5); 14 -> i + 18; 15 -> i + 6 + b.get(i + 5); 16 -> i + 1; 17 -> i + 4; 18 -> i + 2
         19 -> i + 26; 20 -> i + 2; 21 -> i + 1; 23 -> i + 2; 24, 30, 31 -> i + 3 + b.get(i + 2); 25 -> i + 3 + b.get(i + 2); 43 -> i + 2 + b.get(i + 1); 44 -> i + 2

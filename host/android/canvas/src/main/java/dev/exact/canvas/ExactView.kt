@@ -1086,6 +1086,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         while (i < n) {
             when (b.get(i)) {
                 1 -> i += 7
+                45 -> i += 10
                 2 -> i += 14
                 3 -> i = skipPath(b, i + 3)
                 4 -> i += 13

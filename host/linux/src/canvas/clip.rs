@@ -98,7 +98,7 @@ impl Recorder {
         props: &str,
         direct: bool,
     ) {
-        let bounds = map(shape.rect, ts);
+        let bounds = self.on_page(shape.rect, ts);
         if self.culled(bounds) {
             return;
         }
@@ -134,7 +134,7 @@ impl Recorder {
     }
 
     pub(super) fn clip_push(&mut self, s: &Shape, ts: Transform) {
-        let page = map(s.rect, ts).map(|r| {
+        let page = self.on_page(s.rect, ts).map(|r| {
             let (sx, sy, _, _) = axis(ts).expect("mapped");
             (r, s.radii.map(|(x, y)| (x * sx, y * sy)))
         });
@@ -220,7 +220,9 @@ impl Recorder {
         own: &[Shape],
         ts: Transform,
     ) -> bool {
-        let Some(d) = map(dst, ts) else { return false };
+        let Some(d) = self.on_page(dst, ts) else {
+            return false;
+        };
         let (sx, sy, _, _) = axis(ts).expect("mapped");
         let mut region = d;
         let mut shapes: Vec<(Rect4, [(f32, f32); 4])> = Vec::new();

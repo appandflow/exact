@@ -49,6 +49,7 @@
 //!   outside the border box `b…` (`canvas/shadow.rs`)
 //! - `43 SHADER len …` — the next RRECT, PATH or STROKE paints with a gradient shader (`canvas/gradient.rs`)
 //! - `44 BLUR sigma` — the next GLYPHS draws through a blur of `sigma`, local units (`canvas/glyphs.rs`)
+//! - `45 MATRIX3 a b c d e f g h i` — `MATRIX` with perspective, row-major (`canvas/plane.rs`)
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -71,6 +72,7 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
 const MATRIX: u32 = 1;
+const MATRIX3: u32 = 45;
 const RRECT: u32 = 2;
 const PATH: u32 = 3;
 const CLIP_RRECT: u32 = 4;
@@ -170,6 +172,8 @@ mod gradient;
 #[cfg(target_os = "android")]
 #[path = "canvas/input.rs"]
 mod input;
+#[path = "canvas/plane.rs"]
+mod plane;
 #[cfg(target_os = "android")]
 #[path = "canvas/presence.rs"]
 pub mod presence;
@@ -252,6 +256,8 @@ pub struct Recorder {
     ops: Vec<u32>,
     /// The matrix last written into `ops` (points → device pixels).
     matrix: Option<[f32; 6]>,
+    /// The planes of boxes turned in space drawing, innermost last (`plane.rs`).
+    planes: Vec<[f32; 9]>,
     /// Faces announced to the reader, by (file, index, weight, axes).
     fonts: HashMap<FontKey, u32>,
     /// Files standing in for faces loaded from bytes, by blob id.
@@ -331,6 +337,7 @@ impl Recorder {
             direct: stream::Direct::default(),
             ops: Vec::new(),
             matrix: None,
+            planes: Vec::new(),
             fonts: HashMap::new(),
             face_files: HashMap::new(),
             optical: HashMap::new(),
@@ -368,6 +375,9 @@ impl Recorder {
     /// Write the transform for the next op if it differs from the last.
     fn transform(&mut self, ts: Transform) {
         let s = self.scale;
+        if self.plane_matrix(ts) {
+            return;
+        }
         let m = [
             ts.sx * s,
             ts.ky * s,
@@ -551,7 +561,7 @@ impl Backend for Recorder {
         if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 || color[3] == 0 {
             return;
         }
-        let bounds = clip::map(s.rect, ts);
+        let bounds = self.on_page(s.rect, ts);
         if self.culled(bounds) {
             return;
         }
@@ -566,7 +576,7 @@ impl Backend for Recorder {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
-        let bounds = path_bounds(&part.region).and_then(|b| clip::map(b, ts));
+        let bounds = path_bounds(&part.region).and_then(|b| self.on_page(b, ts));
         if self.culled(bounds) {
             return;
         }
@@ -641,7 +651,7 @@ impl Backend for Recorder {
         if filter.is_none() || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
             return;
         }
-        let bounds = clip::map(shape.rect, ts);
+        let bounds = self.on_page(shape.rect, ts);
         if self.culled(bounds) {
             return;
         }
@@ -717,7 +727,7 @@ impl Backend for Recorder {
             .collect();
         let grow = if s.stroke.is_some() { s.width } else { 0.0 };
         self.need(path_bounds(&ops).and_then(|(x, y, w, h)| {
-            clip::map((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
+            self.on_page((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
         }));
         self.transform(ts);
         if let Some(c) = s.fill.as_ref().and_then(|ink| self.ink(ink)) {
@@ -852,8 +862,15 @@ impl Backend for Recorder {
     }
 
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
-        self.layer_open(key, ts, pivot, base);
-        true
+        self.layer_open(key, ts, pivot, base)
+    }
+
+    fn plane_begin(&mut self, h: [f32; 9]) -> bool {
+        self.plane_open(h)
+    }
+
+    fn plane_end(&mut self) {
+        self.plane_close();
     }
 
     fn layer_recolored(&mut self) {

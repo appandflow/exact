@@ -23,15 +23,15 @@ impl Recorder {
     ) -> bool {
         let reach = 3.0 * sigma;
         let (x, y, w, h) = shape.rect;
-        let Some(bounds) =
-            super::clip::map((x - reach, y - reach, w + 2.0 * reach, h + 2.0 * reach), ts)
-        else {
+        let bounds = self.on_page((x - reach, y - reach, w + 2.0 * reach, h + 2.0 * reach), ts);
+        // Turned in a plane, the reader blurs it under the plane's matrix.
+        if bounds.is_none() && self.planes.is_empty() {
             return false;
-        };
-        if self.culled(Some(bounds)) {
+        }
+        if self.culled(bounds) {
             return true;
         }
-        self.need(Some(bounds));
+        self.need(bounds);
         self.transform(ts);
         self.ops.extend([SHADOW, Self::color(color)]);
         self.f(sigma);
