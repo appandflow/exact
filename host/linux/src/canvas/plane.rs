@@ -143,4 +143,27 @@ mod tests {
         assert_eq!(p.hit(200., 150.), Some(card));
         assert_ne!(p.hit(lx / 2. - 4., 150.), Some(card));
     }
+
+    #[test]
+    fn a_turned_box_in_a_scrollers_row_is_hit_where_the_row_is() {
+        let card = |n: u32| {
+            format!(
+                "      view perspective=600 width=150 height=100 flex-shrink=0\n        \
+                 view rotate=\"y 20deg\" width=150 height=100 background-color=\"#ff0000\" testId=\"c{n}\"\n"
+            )
+        };
+        let (mut p, _) = ops(&format!(
+            "component App\n  view\n    row overflow-x=\"auto\" width=400 height=100 margin-top=50\n{}{}{}",
+            card(0),
+            card(1),
+            card(2)
+        ));
+        let id = |p: &Presenter<()>, n: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(n)[0]).unwrap().id
+        };
+        let (c1, c2) = (id(&p, "c1"), id(&p, "c2"));
+        assert_eq!(p.hit(225., 100.), Some(c1));
+        assert_eq!(p.hit(375., 100.), Some(c2));
+    }
 }
