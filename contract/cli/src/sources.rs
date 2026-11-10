@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod data;
 mod home;
 mod library;
 mod load;
@@ -189,7 +190,10 @@ impl Loader<'_> {
                 .map(|e| sources.resolve(e))
                 .collect::<Vec<_>>()
         };
-        if let Err(all) = self.load_source(&root_key, src, 0) {
+        if let Err(all) = self
+            .load_source(&root_key, src, 0)
+            .and_then(|()| self.load_data_packages())
+        {
             return Err(resolve(&self.sources, all));
         }
         // Each component's `param.` names, as their tokens (LLP 1121 D15),

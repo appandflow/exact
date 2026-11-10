@@ -66,6 +66,9 @@ pub struct ModuleDecl {
     /// D10 item 1): a Contract `use` of it is refused, so its answer never
     /// becomes a mutation's value in `state`.
     pub data_only: bool,
+    /// The app's TypeScript data code imports its package, so the module is
+    /// in the plan though no Contract file reads one of its names.
+    pub imported: bool,
     /// The agent's substitute as the package declares it, a JSON object
     /// (LLP 1133.002 §6): `default`, `from`, `ticket`, `short`, `fill`,
     /// `cancel`, `timeout`, and the interface's `permission`.

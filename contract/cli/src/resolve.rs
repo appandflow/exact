@@ -176,7 +176,7 @@ fn relative(
 /// `path` with its `.` and `..` segments folded as written, the way a
 /// watcher names the file (Node's `resolve`): the path to watch, not the
 /// file to read, which resolution canonicalizes.
-fn lexical(path: &Path) -> PathBuf {
+pub(crate) fn lexical(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {

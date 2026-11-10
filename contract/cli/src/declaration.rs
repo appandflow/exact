@@ -442,6 +442,7 @@ fn module(
         request: request.to_owned(),
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
         data_only,
+        imported: false,
         substitute,
         span,
     })
@@ -537,6 +538,7 @@ fn member_decl(
         request: "always".to_owned(),
         sync: None,
         data_only: true,
+        imported: false,
         substitute: Value::Object(sub).to_string(),
         span,
     })

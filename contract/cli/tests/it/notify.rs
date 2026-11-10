@@ -301,3 +301,80 @@ fn a_target_with_no_implementation_refuses_and_reads_unavailable() {
         assert!(journal.contains(line), "{line} in {journal}");
     }
 }
+
+/// A package only data code calls (issue 20261030): `app.ts` reaches a file
+/// that imports `@exact/notifications`, and no Contract file names it. The
+/// package is in the plan as a `use` would put it, so under the agent its
+/// permission is preferred and data code's post is listed. Without the
+/// import it is not in the plan.
+#[test]
+fn a_package_only_data_code_imports_is_in_the_plan() {
+    let app = App::new("data");
+    let contract = app.0.join("app.contract");
+    std::fs::write(&contract, "component App\n  view\n    text \"t3\"\n").unwrap();
+    std::fs::create_dir_all(app.0.join("src/shell")).unwrap();
+    std::fs::write(
+        app.0.join("app.ts"),
+        "import type { Answer } from './app.contract.d.ts';\nimport { notify } from './src/shell/shell-notify.js';\n",
+    )
+    .unwrap();
+    let compile = || {
+        contract::compile_path_all(&contract, false)
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .0
+    };
+    let extensions = |plan: &exact_plan::Plan| {
+        let mut all: Vec<String> = (plan.modules.iter())
+            .map(|m| plan.str(m.extension).to_owned())
+            .collect();
+        all.dedup();
+        all
+    };
+    assert!(
+        extensions(&compile()).is_empty(),
+        "no file imports the package yet"
+    );
+    std::fs::write(
+        app.0.join("src/shell/shell-notify.ts"),
+        "// import { never } from '@exact/clipboard';\nimport { showNotification } from '@exact/notifications';\nexport const notify = () => showNotification({ title: 'Thread 3 is done' });\n",
+    )
+    .unwrap();
+    assert_eq!(extensions(&compile()), ["notifications"]);
+    let mut r = Runner::boot(
+        compile(),
+        Grants(GRANTED),
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.set_module_target("macos");
+    let granted = r#"{"op":"prefer","permission":{"notifications":"granted"}}"#;
+    r.extension_agent(granted).unwrap().1.unwrap();
+    let body = r#"{"extension":"notifications","send":"showNotification","args":{"title":"Thread 3 is done"}}"#;
+    let request = exact_runner::Request::native(body.as_bytes().to_vec());
+    let exact_runner::Dispatch::Run(work) = r.native_work(&request) else {
+        panic!("a module call is work: {}", logs(&r));
+    };
+    let outcome = match work {
+        exact_runner::Work::Now(work) => work(),
+        exact_runner::Work::Later(work) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(exact_runner::Reply::new(move |o| tx.send(o).unwrap()));
+            rx.recv().unwrap()
+        }
+    };
+    assert!(
+        matches!(outcome, exact_runner::Outcome::Response(_)),
+        "{outcome:?}: {}",
+        logs(&r)
+    );
+    r.apply_announced();
+    let listed = state(&r)["notifications"].clone();
+    assert_eq!(
+        listed[0]["title"],
+        "Thread 3 is done",
+        "{listed}: {}",
+        logs(&r)
+    );
+}

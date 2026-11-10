@@ -604,9 +604,12 @@ fn lower_body(
     // An event the root hears uses its module too (LLP 1133.004 D6), and so
     // does a name data code alone calls (LLP 1133.011 D12), which Contract
     // never reads: a package of such names alone (`@exact/clipboard`, LLP
-    // 1133.006) is used once a `use` reads its declaration.
+    // 1133.006) is used once a `use` reads its declaration. So does a
+    // package the app's TypeScript imports, whatever Contract reads.
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some() || m.data_only)
+        .filter(|m| {
+            sources.contains_key(&m.name) || m.handler.is_some() || m.data_only || m.imported
+        })
         .map(|m| m.extension.as_str())
         .collect();
     // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
