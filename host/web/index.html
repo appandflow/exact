@@ -35,6 +35,8 @@
      `APPLE_ON_THE_WEB`). Elsewhere a corner is round at the radius written. A capsule stays round: its ends are
      half-circles on every platform. */
   :root { --exact-curve: round; --exact-curve-reach: 1; }
+  /* A search field its author drew (`appearance: none`) keeps its own clear button, not the browser's too. */
+  #exact-root input[type="search"][data-exact-said~="appearance"]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
   @property --exact-turn-axis { syntax: "*"; inherits: false; }
   @supports (view-timeline: --a) { :root { --exact-view-ok: running; } }
   @supports (corner-shape: superellipse(2)) { :root { --exact-curve: superellipse(1.6); --exact-curve-reach: 1.52; } }
