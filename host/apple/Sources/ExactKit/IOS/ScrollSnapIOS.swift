@@ -5,7 +5,7 @@
 import UIKit
 
 extension NodeView {
-    /// CSS's admitted `x mandatory` / `start`, `center` and `end` scroll snap. UIKit supplies
+    /// CSS's admitted `x mandatory` or `y mandatory` / `start`, `center` and `end` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === self.scrollView else { return }
@@ -17,26 +17,31 @@ extension NodeView {
     }
 
     /// The native resting position, optionally constrained to the snap area
-    /// holding a target the agent reveals.
+    /// holding a target the agent reveals: along x for `x mandatory`, along y
+    /// for `y mandatory`.
     func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil) -> CGPoint {
-        guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return proposed }
-        let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let type = style["scroll_snap_type"]?.string
+        guard type == "x mandatory" || type == "y mandatory" else { return proposed }
+        let vertical = type == "y mandatory"
+        let port = vertical ? scrollView.bounds.height : scrollView.bounds.width
+        let maximum = max(0, (vertical ? scrollView.contentSize.height : scrollView.contentSize.width) - port)
+        let wanted = vertical ? proposed.y : proposed.x
         var positions: [CGFloat] = [], targetPositions: [CGFloat] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
                 let align = node.style["scroll_snap_align"]?.string
                 if align == "start" || align == "end" || align == "center" {
                     let rect = node.convert(node.bounds, to: scrollView)
-                    let width = scrollView.bounds.width
-                    // A snap area wider than the viewport can be explored
+                    let (lo, mid, hi, size) = vertical ? (rect.minY, rect.midY, rect.maxY, rect.height) : (rect.minX, rect.midX, rect.maxX, rect.width)
+                    // A snap area larger than the viewport can be explored
                     // freely while it covers the viewport (CSS Snap §5.2.2);
-                    // a narrower one rests with its start, centre or end at
+                    // a smaller one rests with its start, centre or end at
                     // the viewport's.
-                    let wide = rect.width >= width
-                    let at = wide ? rect.minX : align == "end" ? rect.maxX - width : align == "center" ? rect.midX - width / 2 : rect.minX
+                    let wide = size >= port
+                    let at = wide ? lo : align == "end" ? hi - port : align == "center" ? mid - port / 2 : lo
                     let start = min(maximum, max(0, at))
-                    let end = wide ? min(maximum, max(start, rect.maxX - width)) : start
-                    let position = min(end, max(start, proposed.x))
+                    let end = wide ? min(maximum, max(start, hi - port)) : start
+                    let position = min(end, max(start, wanted))
                     positions.append(position)
                     if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
                 }
@@ -47,7 +52,9 @@ extension NodeView {
         visit(scrollView)
         let choices = targetPositions.isEmpty ? positions : targetPositions
         var result = proposed
-        if let nearest = choices.min(by: { abs($0 - proposed.x) < abs($1 - proposed.x) }) { result.x = nearest }
+        if let nearest = choices.min(by: { abs($0 - wanted) < abs($1 - wanted) }) {
+            if vertical { result.y = nearest } else { result.x = nearest }
+        }
         return result
     }
 }

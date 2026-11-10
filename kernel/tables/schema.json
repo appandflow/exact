@@ -2345,7 +2345,8 @@
     "ScrollSnapType": {
       "values": [
         "none",
-        "x mandatory"
+        "x mandatory",
+        "y mandatory"
       ],
       "default": "none"
     },
