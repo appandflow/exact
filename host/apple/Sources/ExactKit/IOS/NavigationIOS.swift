@@ -1242,7 +1242,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         var hit = view.hitTest(start, with: nil)
         if CanvasInputs.owns(hit) { return false }
         while let current = hit {
-            if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
+            // A rightward pan is a `swiperight` node's, and a `swipeleft`
+            // node's while its swipe is caught left of rest, on its way back.
+            if let node = current as? NodeView, node.handlers.contains("swiperight")
+                || (node.handlers.contains("swipeleft") && node.translate.x < -0.5) { overSwipeRight = true; break }
             if current === view { break }
             hit = current.superview
         }

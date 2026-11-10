@@ -435,6 +435,7 @@ package final class Runtime {
         }
     }
     package func swiperight(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 12, 0, now)) } }
+    package func swipeleft(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 61, 0, now)) } }
     /// The history swipe the Mac tracks (LLP 1115.000 D5.5): its phase,
     /// `back` or `forward`, how far along that way (0 or more), and where
     /// the pointer was as it began, in the viewport.
@@ -475,6 +476,17 @@ package final class Runtime {
     }
     /// A scroll finished (DOM's `scrollend`), after its last `scroll`.
     package func scrollend(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 51, 0, now)) } }
+    /// A drag of the scroller began (`scrollViewWillBeginDragging`).
+    package func scrolldragstart(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 62, 0, now)) } }
+    /// That drag let go: velocity in points per millisecond, positive as the
+    /// offset grows, and the offset the scroll will rest at, when known.
+    package func scrolldragend(_ view: UInt32, velocity: CGPoint, target: CGPoint?, now: Double) -> Batch {
+        on {
+            var text = "\(Double(velocity.x)),\(Double(velocity.y))"
+            if let target { text += ",\(Double(target.x)),\(Double(target.y))" }
+            return read(exact_dispatch(rt, view, 63, write(text), now))
+        }
+    }
     /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
     package func intoView(_ view: UInt32, key: String, block: String, inline: String) -> Batch {
         return on {

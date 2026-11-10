@@ -1182,11 +1182,18 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Complete the authored swipe while its translate hold still owns the
-    /// live node. An action may destroy that node; its later end is then stale.
-    pub fn dispatch_held(&mut self, serial: u64, now_ms: f64) -> Option<String> {
+    /// live node: `swiperight` for a presented offset `shown` to the right,
+    /// `swipeleft` to the left. An action may destroy that node; its later
+    /// end is then stale.
+    pub fn dispatch_held(&mut self, serial: u64, shown: f64, now_ms: f64) -> Option<String> {
         if !self.has_hold(serial) || !now_ms.is_finite() || now_ms / 1000.0 < self.springs.now() {
             return None;
         }
+        let swipe = match shown {
+            x if x > 0.0 => Event::Swiperight,
+            x if x < 0.0 => Event::Swipeleft,
+            _ => return None,
+        };
         let token = self.springs.token(serial)?;
         if token.property() != Property::Translate {
             return None;
@@ -1199,7 +1206,7 @@ impl<D: DataSource> Host<D> {
                 generation: (token.node() >> 32) as u32,
             })?
             .id;
-        Some(self.dispatch_at(view, Event::Swiperight, now_ms))
+        Some(self.dispatch_at(view, swipe, now_ms))
     }
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):

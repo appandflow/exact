@@ -1680,6 +1680,7 @@ host.
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
 | Zero or one `HistorySwipeEvent` (the action takes it or leaves it) | `historyswipe`, on the navigation root |
+| Zero or one `ScrollDragEvent` (the action takes it or leaves it) | `scrolldragend`: the release velocity and where the scroll will stop (below) |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop`, `dragenter`, `dragleave` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
@@ -1688,7 +1689,7 @@ host.
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MIDIMessageEvent` (the action takes it or leaves it) | `midimessage`, on an element with `midiinputs=` ([MIDI](#midi-exactmidi-sendmidi-midimessage)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation), and where the pointer was, `clientX`, `clientY`, from the viewport (0, 0 from a keyboard or assistive activation, as Chrome's; a popover's `left`/`top` can open it there, LLP 1021 D2) |
-| None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `close`, `scrollend`, `scrolldragstart`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `swipeleft`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 On text fields and textareas, `input` reports every edit. An `input` handler
 should update raw draft state so live search, validation and button enablement
@@ -1791,6 +1792,40 @@ instant jumps at the next delivery point; reader samples use 100 ms quiet.
 Delivery uses the existing host clock after its runner work, so a late wake may
 run a later timer first. Android device qualification remains open (LLP 1005,
 “Linux, first step”).
+
+`scrolldragstart` and `scrolldragend`, on a scroller, bracket a drag of it by
+the reader: UIKit's `scrollViewWillBeginDragging` and
+`scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` (Charlie,
+2026-11-10). The start comes once the drag moves the scroller and takes no
+payload; the end comes as the finger lifts, before that drag's momentum
+`scroll`s and its `scrollend`. An action taking one parameter hears the end's
+`ScrollDragEvent`: `velocityX` and `velocityY`, UIKit's velocity in its own
+units, CSS pixels (points) per millisecond, positive in the direction
+`scrollLeft` and `scrollTop` grow (a flick up the page that will scroll further
+down is positive `velocityY`), and `targetLeft` and `targetTop`, `some` offset
+where the scroll will come to rest when the host knows it before the momentum
+runs (UIKit), else `none`. A collapsing header tells a flick from a bounce by
+it:
+
+```text
+action released(e: ScrollDragEvent)
+  headerShown = e.velocityY < -0.5
+scroll scrolldragend=released …
+```
+
+A mouse wheel, the keyboard and a programmatic scroll send neither event.
+iOS hears UIKit's delegate calls, and its target is where the scroll will rest
+after any snap. AppKit has no such calls: macOS takes a trackpad's two fingers
+as the drag, from the first move the scroller takes to the lift, and estimates
+the velocity from the moves of the last 100 ms, with no target. The web takes a
+touch on the scroller, from its first `scroll` under the finger to the last
+finger's lift, with no target and the finger's velocity over its last 100 ms
+of moves (UIKit's is the pan's too), 0 if it rested that long before
+lifting; a mouse or a pen sends neither. Linux and Windows scroll by no drag
+and send neither. The presenter they share with Android
+takes a drag's start and release from Android's scroller, with its velocity
+and the fling's resting offset as the target, but that scroller does not
+report them yet, so Android sends neither either.
 
 `intersect=action` offers an optional final `IntersectionObserverEntry` after
 any authored arguments. The record contains `isIntersecting: bool` and

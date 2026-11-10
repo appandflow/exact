@@ -511,6 +511,10 @@ component App
 - On a row of a grouped list's `section`, or of a `list` whose rows go down the page;
   anywhere else it does nothing (warning `lower-delete-row`). A `list` with sections is a
   grouped list only with `appearance="auto"` (warning `lower-list-section`).
+- `swipeleft=action` and `swiperight=action` are not swipe actions: the node follows the
+  finger and the one action runs when it lifts past 64 points, with no button revealed
+  (a message's swipe to reply; `contract vocab swipeleft`). A row that shows Delete is
+  `delete=`.
 - Other actions than Delete (Pin, Flag, a leading action, several) are the long form: a
   horizontal snap `scroll` laid out as a row (`display="flex"`), naming its content
   (`swipeContent`) and its actions (`swipeTrailing`, `swipeLeading`: buttons' `id`s, inside

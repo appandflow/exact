@@ -9,6 +9,15 @@ extension NodeView {
     /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === self.scrollView else { return }
+        // `scrolldragend` (Charlie, 2026-11-10): UIKit's velocity, points per
+        // millisecond and positive as the offset grows, as the web's
+        // scrollLeft/scrollTop, and the rest decided below, in those coordinates.
+        defer {
+            if handlers.contains("scrolldragend"), velocity.x.isFinite, velocity.y.isFinite {
+                let rest = targetContentOffset.pointee
+                presenter?.scrollDrag(id, (velocity, CGPoint(x: rest.x, y: rest.y + scrollTopInset(scrollView))))
+            }
+        }
         #if os(iOS)
         // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
         defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }

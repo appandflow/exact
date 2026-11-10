@@ -102,12 +102,16 @@ fn stale_completion_cannot_dispatch_and_action_deletion_invalidates_release() {
         )
         .unwrap()
         .is_none());
-    assert!(host.dispatch_held(old.token.serial(), f64::NAN).is_none());
+    assert!(host
+        .dispatch_held(old.token.serial(), 85.0, f64::NAN)
+        .is_none());
     assert!(host
         .update_hold(current.token.serial(), MotionValue::new(85.0, 0.0), 120.0)
         .unwrap()
         .is_some());
-    let batch = host.dispatch_held(current.token.serial(), 120.0).unwrap();
+    let batch = host
+        .dispatch_held(current.token.serial(), 85.0, 120.0)
+        .unwrap();
     assert!(batch.contains("\"op\":\"destroy\""), "{batch}");
     assert!(!host.has_hold(current.token.serial()));
     assert!(host
@@ -331,4 +335,44 @@ fn hold_input_drains_other_advanced_properties_without_animating_the_hold() {
             .x,
         0.5
     );
+}
+
+/// A held swipe completes as the way it went (Charlie, 2026-11-10): to the
+/// right `swiperight`, to the left `swipeleft`, and at rest neither.
+#[test]
+fn a_completed_hold_runs_the_swipe_its_offset_points_to() {
+    exact_web::link(exact_web_capabilities::ALL);
+    let source = "component App\n  state said = \"\"\n  action say(way: string)\n    said = said + way\n  view\n    column\n      text said\n      column testId=\"row\" swiperight=say(\"r\") swipeleft=say(\"l\") touch-action=\"pan-y\" transition=\"translate -exact-spring(180, 12, 1)\"\n        text \"row\"\n";
+    let mut host = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+    .0;
+    let row = id(&host, "row");
+    let mut now = 100.0;
+    for (shown, said) in [(-70.0, "l"), (70.0, "lr"), (0.0, "lr")] {
+        let (held, _) = host
+            .begin_hold(row, Property::Translate, MotionValue::new(0.0, 0.0), now)
+            .unwrap()
+            .unwrap();
+        host.update_hold(
+            held.token.serial(),
+            MotionValue::new(shown, 0.0),
+            now + 10.0,
+        )
+        .unwrap();
+        let ran = host.dispatch_held(held.token.serial(), shown, now + 20.0);
+        assert_eq!(ran.is_some(), shown != 0.0, "{shown}");
+        host.end_hold(held.token.serial(), HoldEnd::Cancel, now + 30.0)
+            .unwrap();
+        let state = host.agent(r#"{"op":"state"}"#);
+        assert!(
+            state.contains(&format!("\"said\":\"{said}\"")),
+            "{shown}: {state}"
+        );
+        now += 100.0;
+    }
 }

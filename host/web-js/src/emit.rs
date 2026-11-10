@@ -1344,8 +1344,7 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
-                // @ref LLP 1042 — through `media.js`, a bool payload.
-                | EventKind::Fullscreenchange
+                | EventKind::Fullscreenchange // @ref LLP 1042: through `media.js`, a bool payload
                 // @ref LLP 1042 §9 — an image's, which picture-in-picture.js dispatches on it.
                 | EventKind::Enterpictureinpicture
                 | EventKind::Leavepictureinpicture
@@ -1364,6 +1363,8 @@ impl Em<'_> {
                 | EventKind::Cancel
                 | EventKind::Close
                 | EventKind::Scrollend
+                | EventKind::Scrolldragstart
+                | EventKind::Scrolldragend
                 | EventKind::Resize
                 | EventKind::Intersect
                 | EventKind::Currententrychange
@@ -1373,11 +1374,11 @@ impl Em<'_> {
                 | EventKind::Download // the browser opening its own and downloading,
                 | EventKind::Capture // and the runtime refusing a capture (`onFrameCapture`)
                 | EventKind::Userpromptopened // @ref LLP 1020.002 D9: the browser's own dialogs
-                // @ref LLP 1115.000 D5.5 — the browser's history swipe, which shows its own arrow
-                | EventKind::Historyswipe
+                | EventKind::Historyswipe // @ref LLP 1115.000 D5.5: the browser shows its own arrow
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
+                | EventKind::Swipeleft
                 | EventKind::Panrelease
                 | EventKind::Heightrelease
                 | EventKind::Transformgeometry

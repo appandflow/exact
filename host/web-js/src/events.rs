@@ -25,6 +25,7 @@ pub(crate) fn declared(plan: &Plan, h: &HandlersRow) -> Option<(String, Vec<Stri
 pub(crate) fn piece(event: EventKind) -> Option<&'static str> {
     match event {
         EventKind::Swiperight => Some("onSwipe"),
+        EventKind::Swipeleft => Some("onSwipeLeft"),
         EventKind::Pan => Some("onPan"),
         EventKind::Panrelease => Some("onPanRelease"),
         EventKind::Select => Some("onSelect"),
@@ -53,6 +54,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Message => Some("onMessage"),
         EventKind::Scroll => Some("onScroll"),
         EventKind::Scrollend => Some("onScrollend"),
+        EventKind::Scrolldragstart | EventKind::Scrolldragend => Some("onScrollDrag"),
         EventKind::Refresh => Some("onRefresh"),
         EventKind::Dblclick => Some("onDblclick"),
         EventKind::Pointerdown | EventKind::Pointerup | EventKind::Pointermove => Some("onPointer"),
@@ -100,6 +102,8 @@ mod tests {
             Message,
             Scroll,
             Scrollend,
+            Scrolldragstart,
+            Scrolldragend,
             Refresh,
             Dblclick,
             Pointerdown,

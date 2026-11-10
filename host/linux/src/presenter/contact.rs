@@ -45,6 +45,7 @@ pub(super) enum HeldKind {
     },
     Swipe {
         companions: [Option<HoldStart>; 2],
+        ways: super::swipe::Ways,
     },
     Height {
         handle: NodeKey,
@@ -310,7 +311,7 @@ impl<D: DataSource> Presenter<D> {
         found.sort_by_key(|&(depth, rank, _)| (depth, rank));
         found.into_iter().map(|(_, _, c)| c).collect()
     }
-    fn depth(&self, hit: NodeKey, candidate: NodeKey) -> Option<usize> {
+    pub(super) fn depth(&self, hit: NodeKey, candidate: NodeKey) -> Option<usize> {
         let kernel = self.host.kernel();
         let mut at = kernel.node_by_key(hit);
         let mut steps = 0;
@@ -575,7 +576,7 @@ impl<D: DataSource> Presenter<D> {
                 if !self.retained_contact_live(&retained) {
                     return Ok(false);
                 }
-                let candidate = retained.swipe.as_ref().map(|t| Candidate::Swipe(t.key));
+                let candidate = retained.swipe_target().map(|t| Candidate::Swipe(t.key));
                 self.contact = Some(Contact {
                     hit,
                     candidate,
@@ -888,7 +889,13 @@ impl<D: DataSource> Presenter<D> {
                     if dx.abs() > dy.abs()
                         && (contact.retained.is_some() || self.input_live(key)) =>
                 {
-                    if dx < 0. {
+                    let ways = match &contact.retained {
+                        Some(retained) => retained.swipe_ways(),
+                        None => self.swipe_ways(key),
+                    };
+                    // A start against the node's ways is its only while a
+                    // caught hold returns that way.
+                    if !ways.starts(dx, 0.) {
                         self.tick(now_ms);
                         if contact
                             .retained
@@ -899,12 +906,12 @@ impl<D: DataSource> Presenter<D> {
                             return Ok(false);
                         }
                         let view = self.host.kernel().node_by_key(key).unwrap().id;
-                        if self.host.presented(view).translate.0 <= 0. {
+                        if !ways.starts(dx, self.host.presented(view).translate.0 as f64) {
                             self.set_collection_interaction(None);
                             return Ok(false);
                         }
                     }
-                    self.begin_swipe(key, now_ms)
+                    self.begin_swipe(key, ways, now_ms)
                 }
                 _ => {
                     if (contact.press_activates && contact.feedback.is_some())
@@ -925,7 +932,7 @@ impl<D: DataSource> Presenter<D> {
             };
             match begin {
                 Ok(Some(held)) => {
-                    if let Some(target) = contact.retained.as_ref().and_then(|c| c.swipe.as_ref()) {
+                    if let Some(target) = contact.retained.as_ref().and_then(|c| c.swipe_target()) {
                         if !self.begin_retained_motion(target, held.primary.token) {
                             self.end_contact(&held, HoldEnd::Cancel, self.host.now())?;
                             self.set_collection_interaction(None);
@@ -1049,7 +1056,7 @@ impl<D: DataSource> Presenter<D> {
                     HeldKind::Arrange(_) => self.end_arrange(&held, true, now_ms),
                     HeldKind::Height { .. } => self.finish_height_drag(&held, now_ms),
                     HeldKind::Transform { .. } => self.finish_transform_drag(&held, now_ms),
-                    HeldKind::Swipe { .. } => {
+                    HeldKind::Swipe { ways, .. } => {
                         let current = self
                             .host
                             .engine()
@@ -1057,11 +1064,12 @@ impl<D: DataSource> Presenter<D> {
                             .unwrap_or(Value::ZERO)
                             .x;
                         let mut error = None;
-                        if current >= exact_motion::gesture::SWIPE_KNEE
-                            && self.host.has_hold(held.primary.token)
+                        if let Some(kind) = ways
+                            .completes(current)
+                            .filter(|_| self.host.has_hold(held.primary.token))
                         {
                             if let Some(retained) = &contact.retained {
-                                let delivered = match &retained.swipe {
+                                let delivered = match retained.swipe_for(kind) {
                                     Some(target) => self.retained_swipe_dispatch(
                                         target,
                                         held.primary.token,
@@ -1080,7 +1088,10 @@ impl<D: DataSource> Presenter<D> {
                                     Ok(true) => {}
                                 }
                             } else {
-                                error = self.host.dispatch_held(held.primary.token, now_ms).err();
+                                error = self
+                                    .host
+                                    .dispatch_held(held.primary.token, kind, now_ms)
+                                    .err();
                                 error = error.or(self.after_commit());
                             }
                         }

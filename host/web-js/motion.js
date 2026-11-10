@@ -88,14 +88,15 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       case 'release': return replyEnd(facts, 0);
       case 'cancel': return replyEnd(facts, 1);
       case 'release-measured': return replyEnd(facts, 2);
-      // A swipe past the knee: the held node's `swiperight`, while its hold
-      // still owns the presentation (Host::dispatch_held).
+      // A swipe past the knee: the held node's `swiperight`, or `swipeleft`
+      // for an offset `x` to the left, while its hold still owns the
+      // presentation (Host::dispatch_held).
       case 'action': {
         const node = w.m_held(serial(facts.token));
         if (!node || w.m_scratch(0) !== 0 || !(facts.now >= 0)) return { accepted: false };
-        const el = views.get(node);
-        if (!el?.$swipe) return { accepted: false };
-        el.$swipe();
+        const swipe = facts.x > 0 ? views.get(node)?.$swipe : facts.x < 0 ? views.get(node)?.$swipeleft : null;
+        if (!swipe) return { accepted: false };
+        swipe();
         return { accepted: true, committed: true, batch: ops(lower()) };
       }
       // A height drag (host/web/src/height_drag.rs): the handle's binding
@@ -193,7 +194,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       reconcileHeights();
     },
     gone(id) { T.gone(id); A.gone(id); if (handles.delete(id) | heights.delete(id)) reconcileHeights(); nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
-    swipe(el) { const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); },
+    swipe(el) { if (el.$swiping) return; el.$swiping = true; const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); }, // once for `swiperight` and `swipeleft` both
     pan: { sample: (id, x, y, t, first) => w.m_pan_sample(id, first ? 1 : 0, x, y, t), velocity: (id, t) => (w.m_pan_release(id, t), [w.m_scratch(0), w.m_scratch(1)]) },
   };
 }

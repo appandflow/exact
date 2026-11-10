@@ -698,14 +698,10 @@ test('accepted pin release with an edge refusal permits the replacement pin repo
 });
 
 function motionFixture() {
-  const f=fixture(), node=f.views.get(2); f.motion?.reset();
+  const f=fixture(), node=f.views.get(2); f.motion?.reset(); node.exactHandlers=['swiperight']; // attachSwipe's ways (glue.js sets them)
   let serial=9007199254740993n, time=100, epoch=1;
   const held=new Map(), calls=[];
-  const apply=batch=>{ for(const op of batch?.ops??[]) {
-    if(op.op==='animate') motion.animate(op);
-    if(op.op==='height-drag') motion.heightBinding(op);
-    if(op.op==='style') motion.style(op.id,op.value);
-  } };
+  const apply=batch=>{ for(const op of batch?.ops??[]) { if(op.op==='animate') motion.animate(op); if(op.op==='height-drag') motion.heightBinding(op); if(op.op==='style') motion.style(op.id,op.value); } };
   const request=r=>{
     if(r.op==='gesture') return {knee:64,resistance:0.2,edge:20,slop:4}; // exact_motion::gesture::CONSTANTS
     calls.push(r);
@@ -794,6 +790,11 @@ test('CSS easing takeover samples browser presentation and releases toward newes
     m.style(2,'translate:200px;transition:translate 1s linear');const held=getComputedStyle(n).translate;m.end(h,[0,0],true);
     const next=n.getAnimations().find(a=>a.transitionProperty==='translate');next.pause();next.currentTime=500;return {held,old:old.playState,mid:getComputedStyle(n).translate};})()`);
   expect(result).toEqual({held:'50px',old:'idle',mid:'125px'});
+});
+
+test('swipeleft mirrors swiperight and a node with both takes either way (Charlie, 2026-11-10)',async()=>{
+  const result=await evaluate(`(() => {const run=(handlers,end)=>{const f=(${motionFixture})();const m=f.motion,n=f.node,events={};n.exactHandlers=handlers;n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false; m.style(2,'translate:0px');m.attachSwipe(n,2,(name,fn)=>events[name]=fn);const event=(type,x)=>({type,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0,target:n,preventDefault(){},stopPropagation(){}}); events.pointerdown(event('pointerdown',0));events.pointermove(event('pointermove',Math.sign(end)*10));f.advance(20);events.pointermove(event('pointermove',end));f.advance(20);events.pointerup(event('pointerup',end)); const action=f.calls.find(c=>c.op==='action');return {begins:f.calls.filter(c=>c.op==='begin').length,action:action?Math.round(action.x*10)/10:null};}; return [run(['swipeleft'],-200),run(['swipeleft'],-40),run(['swipeleft'],200),run(['swiperight'],-200),run(['swiperight','swipeleft'],-200),run(['swiperight','swipeleft'],200)];})()`);
+  expect(result).toEqual([{begins:1,action:-89.2},{begins:1,action:null},{begins:0,action:null},{begins:0,action:null},{begins:1,action:-89.2},{begins:1,action:89.2}]);
 });
 
 test('immediate left catch uses displayed release threshold and cancellation never commits',async()=>{

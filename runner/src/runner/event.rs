@@ -16,7 +16,7 @@ const BINDING_ARGS: usize = 8;
 const BINDING_STRING: usize = 1024;
 const BINDING_STRING_TOTAL: usize = 4096;
 
-/// A bounded retained Press/Swiperight binding. Contains no frame, tree, plan,
+/// A bounded retained Press/Swiperight/Swipeleft binding. Contains no frame, tree, plan,
 /// resource or History owner. A fresh Runner (including reload) invalidates it.
 #[derive(Debug, Clone)]
 pub struct ActionBinding {
@@ -216,6 +216,10 @@ pub enum Event {
     /// A scroll finished (DOM's `scrollend`): the person's, its momentum
     /// included, or an animated one.
     Scrollend,
+    /// A drag of a scroller began (UIKit's `scrollViewWillBeginDragging`).
+    Scrolldragstart,
+    /// That drag let go: its velocity and, where known, where it will rest.
+    Scrolldragend(super::host_kinds::ScrollDrag),
     /// The platform's history swipe, as the host tracks it.
     Historyswipe(super::host_kinds::HistorySwipe),
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
@@ -317,6 +321,8 @@ pub enum Event {
     Pointermove(super::PointerEvent),
     /// A platform-recognized right swipe.
     Swiperight,
+    /// Its mirror, a left swipe (Charlie, 2026-11-10).
+    Swipeleft,
     /// A pull past the top of a scroll container asked for fresh content
     /// (UIKit's `UIRefreshControl`); the app answers through `refreshing`.
     Refresh,
@@ -587,6 +593,7 @@ impl Event {
             ),
             Event::Wheel(w) => Some(w.value()),
             Event::Historyswipe(s) => Some(s.value()),
+            Event::Scrolldragend(d) => Some(d.value()),
             Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) | Event::Dragenter(d) | Event::Dragleave(d) => Some(d.value()),
             Event::FrameNavigation(_, n) => Some(n.value()),
@@ -773,7 +780,7 @@ fn valid_height_release(height: f64, velocity: f64) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Capture a retained Press/Swiperight target at its painted publication.
+    /// Capture a retained Press/Swiperight/Swipeleft target at its painted publication.
     /// Admits only scalar literal/direct field projections and closed root-store
     /// actions. Tree lookup retains its existing mounted-tree traversal cost;
     /// accepted captures own at most eight scalars and 4096 UTF-8 string bytes.
@@ -786,7 +793,10 @@ impl<D: DataSource> Runner<D> {
         if self.poisoned {
             return Err(Poisoned);
         }
-        if !matches!(event, EventKind::Press | EventKind::Swiperight) {
+        if !matches!(
+            event,
+            EventKind::Press | EventKind::Swiperight | EventKind::Swipeleft
+        ) {
             return Err(Unsupported);
         }
         let view = self.kernel.node_by_key(key).ok_or(Stale)?.id;
@@ -859,6 +869,7 @@ impl<D: DataSource> Runner<D> {
         let kind = match event {
             Event::Press => EventKind::Press,
             Event::Swiperight => EventKind::Swiperight,
+            Event::Swipeleft => EventKind::Swipeleft,
             _ => {
                 return Err(ActionBindingError::Refused(
                     ActionBindingRefusal::Unsupported,
@@ -1104,6 +1115,8 @@ impl<D: DataSource> Runner<D> {
             Event::Close => "close",
             Event::Toggle { .. } => "toggle",
             Event::Scrollend => "scrollend",
+            Event::Scrolldragstart => "scrolldragstart",
+            Event::Scrolldragend(_) => "scrolldragend",
             Event::Historyswipe(_) => "historyswipe",
             Event::Select { .. } | Event::FieldSelect(..) => "select",
             Event::Hover(true) => "hover in",
@@ -1134,6 +1147,7 @@ impl<D: DataSource> Runner<D> {
             Event::Pointerup(_) => "pointerup",
             Event::Pointermove(_) => "pointermove",
             Event::Swiperight => "swiperight",
+            Event::Swipeleft => "swipeleft",
             Event::Refresh => "refresh",
             Event::Scroll(_) => "scroll",
             Event::Resize(_) => "resize",
@@ -1197,14 +1211,21 @@ impl<D: DataSource> Runner<D> {
             })
             .ok_or(RunnerError::UnknownView(view))?;
         // Events without a listener do nothing: a picker's `cancel` (LLP
-        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end, a swipe.
+        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end or drag, a swipe.
         if matches!(
             event,
-            Event::Cancel | Event::Close | Event::Scrollend | Event::Historyswipe(_)
+            Event::Cancel
+                | Event::Close
+                | Event::Scrollend
+                | Event::Scrolldragstart
+                | Event::Scrolldragend(_)
+                | Event::Historyswipe(_)
         ) {
             let kind = match event {
                 Event::Close => EventKind::Close,
                 Event::Scrollend => EventKind::Scrollend,
+                Event::Scrolldragstart => EventKind::Scrolldragstart,
+                Event::Scrolldragend(_) => EventKind::Scrolldragend,
                 Event::Historyswipe(_) => EventKind::Historyswipe,
                 _ => EventKind::Cancel,
             };
@@ -1272,6 +1293,8 @@ impl<D: DataSource> Runner<D> {
             Event::Close => (EventKind::Close, None, "close"),
             Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
             Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
+            Event::Scrolldragstart => (EventKind::Scrolldragstart, None, "scrolldragstart"),
+            Event::Scrolldragend(_) => (EventKind::Scrolldragend, None, "scrolldragend"),
             Event::Historyswipe(_) => (EventKind::Historyswipe, None, "historyswipe"),
             Event::Select {
                 formats,
@@ -1323,6 +1346,7 @@ impl<D: DataSource> Runner<D> {
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
             Event::Pointermove(_) => (EventKind::Pointermove, None, "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
+            Event::Swipeleft => (EventKind::Swipeleft, None, "swipeleft"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
             Event::Resize(_) => (EventKind::Resize, None, "resize"),

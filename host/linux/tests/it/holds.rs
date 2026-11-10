@@ -71,8 +71,12 @@ fn held_action_commits_before_release_and_duplicate_or_foreign_tokens_are_stale(
     assert!(!h
         .hold_update(old.token, Value::new(f64::NAN, 0.), f64::NAN)
         .unwrap());
-    assert!(!h.dispatch_held(old.token, f64::NAN).unwrap());
-    assert!(h.dispatch_held(current.token, 0.).unwrap());
+    use exact_plan::EventKind::{Press, Swipeleft, Swiperight};
+    assert!(!h.dispatch_held(old.token, Swiperight, f64::NAN).unwrap());
+    // Only the node's own swipe, and only a swipe.
+    assert!(!h.dispatch_held(current.token, Swipeleft, 0.).unwrap());
+    assert!(!h.dispatch_held(current.token, Press, 0.).unwrap());
+    assert!(h.dispatch_held(current.token, Swiperight, 0.).unwrap());
     assert!(h.has_hold(current.token));
     assert_eq!(h.presented(row).translate.0, 90.);
     assert!(h.hold_end(current.token, HoldEnd::Cancel, 0.).unwrap());

@@ -254,8 +254,10 @@ fn a_bound_tint_clear_restores_the_symbol_role() {
     );
 }
 
-/// The role's CSS, as the literal path writes it.
+/// The role's CSS, as the literal path writes it, in the web's column, which
+/// [`SYSTEM_COLOR_MAP`] is built in.
 pub(crate) fn role(name: &str) -> String {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let id = exact_kernel::COLOR_ROLES
         .iter()
         .position(|r| r.name == name)

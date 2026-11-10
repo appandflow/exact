@@ -65,6 +65,55 @@ impl HistorySwipe {
     }
 }
 
+/// A scroll drag's release (Charlie, 2026-11-10;
+/// `issues/20261021-scroll-drag-events-and-hit-slop.md`), as UIKit's
+/// `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` gives it:
+/// the scroller's velocity in CSS pixels (UIKit's points) per millisecond,
+/// positive the way `scrollLeft` and `scrollTop` grow, and where its
+/// momentum will come to rest, where the host knows that before it does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollDrag {
+    /// Horizontal velocity, CSS px/ms, positive as `scrollLeft` grows.
+    pub velocity_x: f64,
+    /// Vertical velocity, CSS px/ms, positive as `scrollTop` grows.
+    pub velocity_y: f64,
+    /// The `scrollLeft` and `scrollTop` the scroll will come to rest at
+    /// (UIKit's `targetContentOffset`); `None` where the host cannot say.
+    pub target: Option<(f64, f64)>,
+}
+
+impl ScrollDrag {
+    /// ABI kind 63's payload: `velocityX,velocityY`, then
+    /// `,targetLeft,targetTop` where the host knows them; all finite.
+    fn parse(payload: &str) -> Option<Self> {
+        let numbers = payload
+            .split(',')
+            .map(|n| exact_num::parse_f64(n).ok().filter(|n| n.is_finite()))
+            .collect::<Option<Vec<f64>>>()?;
+        let target = match numbers[..] {
+            [_, _] => None,
+            [_, _, left, top] => Some((left, top)),
+            _ => return None,
+        };
+        Some(Self {
+            velocity_x: numbers[0],
+            velocity_y: numbers[1],
+            target,
+        })
+    }
+
+    /// The `ScrollDragEvent` record, its fields in the compiler's order.
+    pub(super) fn value(&self) -> Value {
+        let at = |n: Option<f64>| n.map_or(Value::NONE, |n| Value::some(Value::Number(n)));
+        Value::record(vec![
+            Value::Number(self.velocity_x),
+            Value::Number(self.velocity_y),
+            at(self.target.map(|t| t.0)),
+            at(self.target.map(|t| t.1)),
+        ])
+    }
+}
+
 impl Event {
     /// Decode ABI kind 6 (`key`), 43 (`keyup`) or 44 (`keycapture`),
     /// 10 (contextmenu, its point when it has one), 13
@@ -78,8 +127,9 @@ impl Event {
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
     /// 51 (scrollend, none), 52 (field selectionchange), 53/54
-    /// (beforeinput/input metadata), or 60 (historyswipe) from its UTF-8
-    /// payload.
+    /// (beforeinput/input metadata), 60 (historyswipe), 61 (swipeleft,
+    /// none), or 62 and 63 (a scroll drag's start, none, and its release,
+    /// `ScrollDrag`) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code,
@@ -114,6 +164,13 @@ impl Event {
             60 => HistorySwipe::parse(payload)
                 .map(Event::Historyswipe)
                 .ok_or("invalid history swipe"),
+            // Charlie, 2026-11-10: the mirror of `swiperight` (12), and a
+            // scroll drag's start and release.
+            61 => Ok(Event::Swipeleft),
+            62 => Ok(Event::Scrolldragstart),
+            63 => ScrollDrag::parse(payload)
+                .map(Event::Scrolldragend)
+                .ok_or("invalid scroll drag"),
             37 => super::WheelEvent::parse(payload)
                 .map(Event::Wheel)
                 .ok_or("invalid wheel event"),
@@ -331,7 +388,7 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, HistorySwipe};
+    use super::{Event, HistorySwipe, ScrollDrag};
 
     #[test]
     fn selection_rectangles_preserve_geometry_and_verbatim_text() {
@@ -463,6 +520,31 @@ mod tests {
             assert_eq!(
                 Event::of_host_kind(60, bad).err(),
                 Some("invalid history swipe"),
+                "{bad}"
+            );
+        }
+        assert_eq!(Event::of_host_kind(61, ""), Ok(Event::Swipeleft));
+        assert_eq!(Event::of_host_kind(62, ""), Ok(Event::Scrolldragstart));
+        assert_eq!(
+            Event::of_host_kind(63, "0.5,-2.25"),
+            Ok(Event::Scrolldragend(ScrollDrag {
+                velocity_x: 0.5,
+                velocity_y: -2.25,
+                target: None,
+            }))
+        );
+        assert_eq!(
+            Event::of_host_kind(63, "0,1.5,0,840"),
+            Ok(Event::Scrolldragend(ScrollDrag {
+                velocity_x: 0.0,
+                velocity_y: 1.5,
+                target: Some((0.0, 840.0)),
+            }))
+        );
+        for bad in ["", "1", "1,2,3", "1,2,3,4,5", "NaN,0", "0,inf", "1,x"] {
+            assert_eq!(
+                Event::of_host_kind(63, bad).err(),
+                Some("invalid scroll drag"),
                 "{bad}"
             );
         }

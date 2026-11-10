@@ -2952,6 +2952,12 @@ has no named symbol, so an app declares it as an icon token. The iOS host plays 
 haptic as the swipe crosses 64 points, so the action plays none. `apps/messages`' bubble
 is a whole example.
 
+`swipeleft` is the mirror, for Discord's reply or a bubble of your own on the right: the
+node follows a leftward drag and the action runs at or past 64 points to the left. A node
+may have both, each direction running its own action. The directions are the screen's,
+in a right-to-left layout too. Neither reveals buttons: a row's Delete is `delete=`
+(`contract vocab swipe`).
+
 ```contract
 component Thread
   state replyTo = ""

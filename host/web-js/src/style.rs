@@ -609,6 +609,10 @@ pub struct Write {
 /// `url(label.png)` stay as written.
 pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     use exact_kernel::{ColorValue, COLOR_ROLES};
+    // `main` sets the web's column before it emits; a test process does here,
+    // so the map does not depend on which test builds it first.
+    #[cfg(test)]
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let mut pairs = Vec::new();
     for (i, r) in COLOR_ROLES.iter().enumerate() {
         let mut css = String::new();

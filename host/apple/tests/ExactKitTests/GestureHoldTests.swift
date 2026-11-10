@@ -8,6 +8,27 @@ final class GestureHoldTests: XCTestCase {
         XCTAssertFalse(SwipeRecognition.accepts(x: -12, y: 20, presentedX: 87.2))
         XCTAssertTrue(SwipeRecognition.accepts(x: 12, y: 1, presentedX: 0))
     }
+    /// `swipeleft` is `swiperight`'s mirror (Charlie, 2026-11-10): a node
+    /// begins only toward a direction it hears, or back from a catch on
+    /// that side, and acts at or past the knee on that side.
+    func testSwipeleftMirrorsSwiperight() {
+        XCTAssertTrue(SwipeRecognition.accepts(x: -12, y: 1, presentedX: 0, right: false, left: true))
+        XCTAssertFalse(SwipeRecognition.accepts(x: 12, y: 1, presentedX: 0, right: false, left: true))
+        XCTAssertTrue(SwipeRecognition.accepts(x: 12, y: 1, presentedX: -87.2, right: false, left: true))
+        XCTAssertFalse(SwipeRecognition.accepts(x: 12, y: 20, presentedX: -87.2, right: false, left: true))
+        XCTAssertFalse(SwipeRecognition.accepts(x: -12, y: 1, presentedX: 0, right: true, left: false))
+        XCTAssertTrue(SwipeRecognition.accepts(x: -12, y: 1, presentedX: 0, right: true, left: true))
+        XCTAssertTrue(SwipeRecognition.accepts(x: 12, y: 1, presentedX: 0, right: true, left: true))
+        let knee = Gesture.knee
+        XCTAssertTrue(SwipeRecognition.armed(-knee, right: false, left: true))
+        XCTAssertFalse(SwipeRecognition.armed(knee, right: false, left: true))
+        XCTAssertFalse(SwipeRecognition.armed(-knee + 1, right: true, left: true))
+        XCTAssertTrue(SwipeRecognition.armed(knee, right: true, left: true))
+        XCTAssertEqual(SwipeRecognition.progress(-knee / 2, right: false, left: true), 0.5)
+        XCTAssertEqual(SwipeRecognition.progress(-knee / 2, right: true, left: false), 0)
+        XCTAssertEqual(SwipeRecognition.progress(-knee / 2, right: true, left: true), 0.5)
+        XCTAssertEqual(SwipeRecognition.progress(-2 * knee, right: false, left: true), 1)
+    }
     func testCatchBeyondResistanceKeepsExactOriginAndReverses() {
         let catchValue = 91.125
         let catchMap = SwipeDisplacement(base: catchValue)

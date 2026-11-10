@@ -18,6 +18,8 @@ pub(super) struct Target {
 pub(super) struct RetainedContact {
     pub(super) press: Option<Target>,
     pub(super) swipe: Option<Target>,
+    /// `swipeleft`'s, the mirror of `swipe` (Charlie, 2026-11-10).
+    pub(super) swipe_left: Option<Target>,
 }
 enum MotionPhase {
     Held,
@@ -54,6 +56,26 @@ impl MotionPermit {
                     && engine.target(self.token.node(), Property::Translate) == Some(target)
                     && engine.spring_descriptor(self.token.node(), Property::Translate) == spring
             }
+        }
+    }
+}
+impl RetainedContact {
+    /// The swipe target; both of `retained_swipes`' are on one node.
+    pub(super) fn swipe_target(&self) -> Option<&Target> {
+        self.swipe.as_ref().or(self.swipe_left.as_ref())
+    }
+    pub(super) fn swipe_ways(&self) -> super::swipe::Ways {
+        super::swipe::Ways {
+            right: self.swipe.is_some(),
+            left: self.swipe_left.is_some(),
+        }
+    }
+    /// The target that dispatches `kind`, a direction's swipe.
+    pub(super) fn swipe_for(&self, kind: EventKind) -> Option<&Target> {
+        match kind {
+            EventKind::Swiperight => self.swipe.as_ref(),
+            EventKind::Swipeleft => self.swipe_left.as_ref(),
+            _ => None,
         }
     }
 }
@@ -103,6 +125,7 @@ impl<D: DataSource> Presenter<D> {
                 let slot = match kind {
                     EventKind::Press => &old.press,
                     EventKind::Swiperight => &old.swipe,
+                    EventKind::Swipeleft => &old.swipe_left,
                     _ => return Err(()),
                 };
                 match slot {
@@ -112,7 +135,7 @@ impl<D: DataSource> Presenter<D> {
                         if !self.display.allows(self.host.kernel(), node.id) {
                             return Err(());
                         }
-                        if kind == EventKind::Swiperight
+                        if matches!(kind, EventKind::Swiperight | EventKind::Swipeleft)
                             && !old.swipe_matches(&node, self.host.kernel())
                         {
                             return Err(());
@@ -132,7 +155,7 @@ impl<D: DataSource> Presenter<D> {
                     ActionSlot::Absent => {}
                 }
                 if selected.is_none()
-                    && kind == EventKind::Swiperight
+                    && matches!(kind, EventKind::Swiperight | EventKind::Swipeleft)
                     && !matches!(old.press, ActionSlot::Absent)
                 {
                     return Err(()); // a child Press, including an unsupported one
@@ -160,20 +183,36 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn retained_down(&self, hit: NodeKey) -> Option<RetainedContact> {
         let press = self.retained_route(hit, EventKind::Press).ok().flatten();
-        let swipe = self
-            .retained_route(hit, EventKind::Swiperight)
-            .ok()
-            .flatten();
-        (press.is_some() || swipe.is_some()).then_some(RetainedContact { press, swipe })
+        let (swipe, swipe_left) = self.retained_swipes(hit);
+        (press.is_some() || swipe.is_some() || swipe_left.is_some()).then_some(RetainedContact {
+            press,
+            swipe,
+            swipe_left,
+        })
+    }
+    /// The captured `swiperight` and `swipeleft` targets for a contact on
+    /// `hit`, of the innermost node that has either: both are kept only
+    /// when that node has both.
+    fn retained_swipes(&self, hit: NodeKey) -> (Option<Target>, Option<Target>) {
+        let route = |kind| self.retained_route(hit, kind).ok().flatten();
+        let (right, left) = (route(EventKind::Swiperight), route(EventKind::Swipeleft));
+        match (right, left) {
+            (Some(r), Some(l)) if r.key != l.key => {
+                if self.depth(hit, r.key) <= self.depth(hit, l.key) {
+                    (Some(r), None)
+                } else {
+                    (None, Some(l))
+                }
+            }
+            pair => pair,
+        }
     }
     pub(super) fn retained_swipe_candidate(&self, hit: NodeKey) -> Option<NodeKey> {
-        self.retained_route(hit, EventKind::Swiperight)
-            .ok()
-            .flatten()
-            .map(|t| t.key)
+        let (right, left) = self.retained_swipes(hit);
+        right.or(left).map(|t| t.key)
     }
     pub(super) fn retained_contact_live(&self, contact: &RetainedContact) -> bool {
-        [&contact.press, &contact.swipe]
+        [&contact.press, &contact.swipe, &contact.swipe_left]
             .into_iter()
             .flatten()
             .all(|old| {
@@ -198,7 +237,7 @@ impl<D: DataSource> Presenter<D> {
     }
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn retained_contact_picture_current(&self, contact: &RetainedContact) -> bool {
-        [&contact.press, &contact.swipe]
+        [&contact.press, &contact.swipe, &contact.swipe_left]
             .into_iter()
             .flatten()
             .all(|target| self.retained_picture_current(target.key, &target.picture))
@@ -309,6 +348,7 @@ impl<D: DataSource> Presenter<D> {
         }
         Some(view)
     }
+    /// The target's own swipe, `swiperight` or `swipeleft`.
     pub(super) fn retained_swipe_dispatch(
         &mut self,
         target: &Target,
@@ -318,9 +358,9 @@ impl<D: DataSource> Presenter<D> {
         let Some(binding) = self.prepare_retained_target(target, Some(token), now_ms) else {
             return Ok(false);
         };
-        let accepted =
-            self.host
-                .dispatch_retained(target.key, &binding, EventKind::Swiperight, Some(token));
+        let accepted = self
+            .host
+            .dispatch_retained(target.key, &binding, target.kind, Some(token));
         if accepted != Ok(false) {
             if let Some(error) = self.after_commit() {
                 return Err(error);

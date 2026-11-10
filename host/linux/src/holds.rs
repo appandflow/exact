@@ -12,7 +12,9 @@ impl<D: DataSource> Host<D> {
     ) -> bool {
         matches!(
             kind,
-            exact_plan::EventKind::Press | exact_plan::EventKind::Swiperight
+            exact_plan::EventKind::Press
+                | exact_plan::EventKind::Swiperight
+                | exact_plan::EventKind::Swipeleft
         ) && self.retained_action_eligible(key)
             && self.runner.validate_action_binding(binding, kind).is_ok()
             && held.is_none_or(|token| {
@@ -68,6 +70,7 @@ impl<D: DataSource> Host<D> {
         let event = match kind {
             exact_plan::EventKind::Press => Event::Press,
             exact_plan::EventKind::Swiperight => Event::Swiperight,
+            exact_plan::EventKind::Swipeleft => Event::Swipeleft,
             _ => return Ok(false),
         };
         let result = self.runner.dispatch_bound(binding, event);
@@ -218,9 +221,20 @@ impl<D: DataSource> Host<D> {
         Ok(accepted)
     }
 
-    /// Dispatch the authored swipe only while this live translate token owns it.
-    /// Destruction during that action makes the following release harmless.
-    pub fn dispatch_held(&mut self, token: HoldToken, now_ms: f64) -> Result<bool, String> {
+    /// Dispatch the authored swipe, `swiperight` or `swipeleft` (`kind`), only
+    /// while this live translate token owns it. Destruction during that
+    /// action makes the following release harmless.
+    pub fn dispatch_held(
+        &mut self,
+        token: HoldToken,
+        kind: exact_plan::EventKind,
+        now_ms: f64,
+    ) -> Result<bool, String> {
+        let event = match kind {
+            exact_plan::EventKind::Swiperight => Event::Swiperight,
+            exact_plan::EventKind::Swipeleft => Event::Swipeleft,
+            _ => return Ok(false),
+        };
         if token.property() != Property::Translate || !self.has_hold(token) {
             return Ok(false);
         }
@@ -232,12 +246,7 @@ impl<D: DataSource> Host<D> {
             return Ok(false);
         };
         let view = node.id;
-        if self.route_visibility(view).1
-            || !self
-                .runner
-                .handlers_of(view)
-                .contains(&exact_plan::EventKind::Swiperight)
-        {
+        if self.route_visibility(view).1 || !self.runner.handlers_of(view).contains(&kind) {
             return Ok(false);
         }
         let mut at = Some(view);
@@ -253,7 +262,7 @@ impl<D: DataSource> Host<D> {
         if !now_ms.is_finite() || now_ms < self.now_ms {
             return Err("invalid held action clock".into());
         }
-        match self.dispatch_at(view, Event::Swiperight, now_ms) {
+        match self.dispatch_at(view, event, now_ms) {
             Some(error) => Err(error),
             None => Ok(true),
         }

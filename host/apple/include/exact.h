@@ -593,6 +593,10 @@ uint32_t exact_share_land(ExactRuntime rt);
  *      the whole value verbatim; x2apps codeedit #2);
  * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
  * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
+ * 61 = swipeleft (no payload; the mirror of 12); 62 = scrolldragstart (no payload);
+ * 63 = scrolldragend: UTF-8 velocityX,velocityY[,targetLeft,targetTop]: UIKit's
+ *      release velocity in points (CSS px) per millisecond, positive as
+ *      scrollLeft/scrollTop grow, and where the momentum will rest, when known.
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat, and optionally newline, true|false for isComposing;

@@ -385,7 +385,9 @@ pub fn uses(plan: &Plan) -> Uses {
         match handler.event {
             // A pan's release velocity is the engine's tracker where the
             // platform measures none (LLP 1057 §10.6; LLP 1047 stage 3).
-            EventKind::Swiperight | EventKind::Panrelease => uses = uses.with(Capability::Motion),
+            EventKind::Swiperight | EventKind::Swipeleft | EventKind::Panrelease => {
+                uses = uses.with(Capability::Motion)
+            }
             EventKind::Heightrelease
             | EventKind::Transformgeometry
             | EventKind::Transformrelease

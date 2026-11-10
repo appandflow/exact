@@ -1134,13 +1134,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
   diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
-- **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
-  `panrelease` and `translate` reveals its Delete button, but by hand on every host.
-  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`): on iOS
-  UIKit's own swipe action, which a full swipe performs. Cause: `swiperight` is the
-  reply gesture (a message bubble), not a direction pair. Actions other than Delete
-  are a swipe row written by hand (the next pitfall). (Ledger2 DIARY, "Needed: swipe
-  gesture", about 15 minutes, 2026-10-04.)
+- **`swipeleft` is not swipe-to-delete.** A row given `swipeleft`, or built from
+  `pan`, `panrelease` and `translate`, follows the finger and runs one action when it
+  lifts, but reveals no Delete button and is not the platform's swipe action. Fix:
+  `delete=remove(item.id)` on the list's row (`contract vocab swipe`): on iOS UIKit's
+  own swipe action, which a full swipe performs. Cause: `swipeleft` and `swiperight`
+  are the reply gesture's (a message bubble), one action at the gesture's end.
+  Actions other than Delete are a swipe row written by hand (the next pitfall).
+  (Ledger2 DIARY, "Needed: swipe gesture", about 15 minutes, 2026-10-04.)
 
 - **A hand-written swipe row shows its buttons under the row, and nothing swipes.** iOS
   refuses the swipe and `logs` says why (`swipeContent on #11 is refused: swipeContent
@@ -1172,7 +1173,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
     a time and the actions VoiceOver reads (`apps/messages` paints its own circles in
     hex and is no model for the rest).
 
-- **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
+- **A `swiperight` or `swipeleft` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
   does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
   platform's, as in a browser, so the swipe never begins. Fix:

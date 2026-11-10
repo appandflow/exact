@@ -481,6 +481,12 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if matches!(name, "focusin" | "focusout") {
             println!("  bubbles from the focused child without making this node a Tab stop; an action may take `FocusEvent(target: string, relatedTarget: option<string>)` on every host (`focusout` also fires on a move between descendants and on the focused node's removal)");
         }
+        if matches!(name, "swiperight" | "swipeleft") {
+            println!("  the node follows a sideways drag in that direction (a node may have both), 64 points freely and then a fifth of the finger's travel; its action runs once, when the finger lifts at or past 64 points. The direction is the screen's, in a right-to-left layout too. A finger reaches it only with `touch-action=\"pan-y\"`. A list row's Delete is `delete=` (the concept `swipe`). docs/contract-for-agents.md#swipe-to-reply");
+        }
+        if matches!(name, "scrolldragstart" | "scrolldragend") {
+            println!("  on a scroller: a finger (or a trackpad's two fingers) began dragging it, and let go; UIKit's `scrollViewWillBeginDragging` and `scrollViewWillEndDragging`. `scrolldragend`'s action may take `ScrollDragEvent(velocityX: number, velocityY: number, targetLeft: option<number>, targetTop: option<number>)`: UIKit's velocity, CSS pixels per millisecond, positive as `scrollLeft`/`scrollTop` grow, and where the momentum will stop where the host knows (iOS), else `none`. A wheel, a keyboard or a programmatic scroll sends neither");
+        }
         if name == "type" {
             println!("  {SEARCH_TYPE}");
         }

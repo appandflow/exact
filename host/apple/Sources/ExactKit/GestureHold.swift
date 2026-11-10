@@ -26,8 +26,29 @@ package struct NativeHold {
 /// Invert resistance at the caught presentation, then apply finger displacement.
 /// Zero displacement is exactly the captured value, even beyond the knee.
 enum SwipeRecognition {
-    static func accepts(x: Double, y: Double, presentedX: Double) -> Bool {
-        abs(x) > abs(y) && (x > 0 || presentedX > 0.5)
+    /// A sideways pan begins the swipe toward a direction the node hears
+    /// (`swiperight`, `swipeleft`, or both), or back from a hold caught on
+    /// that side. Directions are the screen's, in a right-to-left layout too.
+    static func accepts(x: Double, y: Double, presentedX: Double, right: Bool = true, left: Bool = false) -> Bool {
+        abs(x) > abs(y) && ((right && (x > 0 || presentedX > 0.5)) || (left && (x < 0 || presentedX < -0.5)))
+    }
+    /// Which of the two the node hears: `swiperight`, `swipeleft`.
+    static func directions(_ handlers: Set<String>) -> (right: Bool, left: Bool) {
+        (handlers.contains("swiperight"), handlers.contains("swipeleft"))
+    }
+    static func hears(_ handlers: Set<String>) -> Bool {
+        handlers.contains("swiperight") || handlers.contains("swipeleft")
+    }
+    /// Whether a release presented at `value` runs an action: at or past the
+    /// knee on a side the node hears.
+    static func armed(_ value: Double, right: Bool, left: Bool) -> Bool {
+        (right && value >= Gesture.knee) || (left && value <= -Gesture.knee)
+    }
+    /// An indicator's progress: toward the side the node hears, either way
+    /// when it hears both.
+    static func progress(_ value: Double, right: Bool, left: Bool) -> Double {
+        let toward = right && left ? abs(value) : left ? -value : value
+        return min(1, max(0, toward / Gesture.knee))
     }
 }
 
@@ -114,7 +135,7 @@ final class SwipeHold {
 
     init?(_ view: NodeView) {
         guard let session = view.presenter?.session, !session.isApplyingPresentation,
-              SwipeInput.allows(view), view.handlers.contains("swiperight") else { return nil }
+              SwipeInput.allows(view), SwipeRecognition.hears(view.handlers) else { return nil }
         self.session = session; self.view = view; generation = session.generation
         let (hold, batch) = session.runtime.holdBegin(view.id, property: 0, now: session.now())
         guard let hold else { session.apply(batch); return nil }
@@ -141,7 +162,14 @@ final class SwipeHold {
 
     var inputEligible: Bool {
         guard incarnationLive, let view else { return false }
-        return SwipeInput.allows(view) && view.handlers.contains("swiperight")
+        return SwipeInput.allows(view) && SwipeRecognition.hears(view.handlers)
+    }
+    /// The directions the view hears now; none once it is gone.
+    var directions: (right: Bool, left: Bool) { view.map { SwipeRecognition.directions($0.handlers) } ?? (false, false) }
+    /// Whether a release now, presented at `displacement`'s value, runs an action.
+    func armed(_ displacement: Double) -> Bool {
+        let (right, left) = directions
+        return SwipeRecognition.armed(mapping.value(displacement), right: right, left: left)
     }
     func cancelIfInputIneligible() {
         if !ended && !inputEligible { cancel() }
@@ -162,9 +190,11 @@ final class SwipeHold {
         let batch = session.runtime.holdUpdate(primary.token, x: value, y: primary.y, now: session.now())
         session.apply(batch)
         guard batch.error == nil, live else { return false }
-        let progress = min(1, max(0, value / Gesture.knee))
+        let (right, left) = directions
+        let progress = SwipeRecognition.progress(value, right: right, left: left)
+        let caught = SwipeRecognition.progress(primary.x, right: right, left: left)
         for (hold, base) in indicators {
-            session.apply(session.runtime.holdUpdate(hold.token, x: SwipeIndicator(base: base, progressAtCatch: min(1, max(0, primary.x / Gesture.knee))).value(progress), y: 0, now: session.now()))
+            session.apply(session.runtime.holdUpdate(hold.token, x: SwipeIndicator(base: base, progressAtCatch: caught).value(progress), y: 0, now: session.now()))
         }
         return live
     }
@@ -181,9 +211,10 @@ final class SwipeHold {
         // Apply the last pointer sample before checking eligibility for action.
         let updated = move(displacement)
         guard let session else { ended = true; return }
-        if updated && !cancel && fingerVelocity?.isFinite != false && mapping.value(displacement) >= Gesture.knee,
+        if updated && !cancel && fingerVelocity?.isFinite != false && armed(displacement),
            live, inputEligible, let view {
-            session.applyInput(session.runtime.swiperight(view.id, now: session.now()))
+            let id = view.id, now = session.now()
+            session.applyInput(mapping.value(displacement) > 0 ? session.runtime.swiperight(id, now: now) : session.runtime.swipeleft(id, now: now))
         }
         ended = true
         session.retireInputHold(self)

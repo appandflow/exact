@@ -105,6 +105,7 @@ mod retained_action;
 mod reveal;
 #[cfg(test)]
 mod scroll_anchor_tests;
+mod scroll_drag;
 mod scroll_end;
 mod scrollbar;
 mod scrollers;
@@ -135,6 +136,8 @@ mod kept_rows_tests;
 mod longpoll_tests;
 #[cfg(test)]
 mod spacing_tests;
+#[cfg(test)]
+mod swipe_left_tests;
 #[cfg(test)]
 mod swipe_tests;
 #[cfg(test)]

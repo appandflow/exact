@@ -286,6 +286,8 @@ package final class ChainingScrollView: NSScrollView {
     /// `d` momentum, `t` a finger's phased scroll, `-` a plain wheel or a phase's end. The clip's bounds change is
     /// posted inside the handler, so it is set for that move alone and is `-` for any other (a layout's).
     var trackPhase: Character = "-"
+    /// The trackpad drag this scroller took, until its lift (`ScrollDragMac.swift`).
+    var dragTrack: ScrollDragTrack?
 
     package override func scrollWheel(with event: NSEvent) {
         let moving: NSEvent.Phase = [.began, .changed]
@@ -326,6 +328,7 @@ package final class ChainingScrollView: NSScrollView {
             }
             if over { Self.unsentBegan = nil }
         }
+        noteDrag(event, delta: CGPoint(x: dx, y: dy), taken: route == .appKit || route == .here)
         switch route {
         case .drop:
             return

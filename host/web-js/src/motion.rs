@@ -48,10 +48,12 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .find(|b| b.kind == kind && b.id == id)
         };
-        let swiped = row
-            .handlers
-            .iter()
-            .any(|h| plan.handler(h).event == EventKind::Swiperight);
+        let swiped = row.handlers.iter().any(|h| {
+            matches!(
+                plan.handler(h).event,
+                EventKind::Swiperight | EventKind::Swipeleft
+            )
+        });
         let indicator =
             binding(PropId::SwipeIndicator as u16, BindingKind::Prop).is_some_and(|b| {
                 !matches!(

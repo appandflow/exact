@@ -2,7 +2,7 @@ import { markdownText } from './markdown.js';
 import { resourceInspection } from "./resource-inspection.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
-import { viewChildren, listRow, listItem, syncListItemRoles, listOwner, unwrapListItem, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { viewChildren, listRow, listItem, syncListItemRoles, listOwner, unwrapListItem, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt, scrollDrag } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; export { canSetStatus, statusSubject } from "./document.js"; import { conforms, eq, equal, failureCode, failureReason, loneSurrogate } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies, longPollReplied, longPollEnded, trackAnswer } from "./held.js"; export { heldAsks, heldReplies }; export { unfinishedAnswers } from "./held.js"; // optimistic writes shown over answers (the runner's writes.rs)
@@ -911,6 +911,8 @@ const fromJSON = (j, t) => typeof t === "string" ? j : Array.isArray(t) ? (t[0] 
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
 export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } e.$bootScrollEnd = false; f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); }; export const onScrollend = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScrollEnd) { e.$bootScrollEnd = false; return; } f(); }); }; // the boot's restored offset ends no reader's scroll, unless a smooth restore went on to deliver scrolls
+// A scroll drag's start and release, one tracker for both (navigation.js `scrollDrag`; Charlie, 2026-11-10): the release's `ScrollDragEvent` is its velocity and no target, which a browser never says.
+export const onScrollDrag = (e, kind, f, l) => { if (!e.$scrollDrag) { e.$scrollDrag = {}; scrollDrag(e, l, () => e.$scrollDrag.scrolldragstart?.(), (vx, vy) => e.$scrollDrag.scrolldragend?.([vx, vy, null, null])); } e.$scrollDrag[kind] = f; };
 // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
 export const onRefresh = () => {};
 export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.preventDefault(); f(); }); };
@@ -1002,9 +1004,9 @@ export function mo(e, f) {
   onEnd(() => motion(m => m.gone(id)));
   effect(() => { const v = f(); motion(m => m.observe(id, v)); });
 }
-/** `swiperight`: the motion piece's (motion-glue.js `attachSwipe`); the
- * action runs when the hold passes the knee (motion.js `action`). */
-export function onSwipe(e, f) { e.$swipe = f; motion(m => m.swipe(e)); }
+/** `swiperight` and `swipeleft`: the motion piece's (motion-glue.js `attachSwipe`, one
+ * for both); the action runs when the hold passes the knee that way (motion.js `action`). */
+export function onSwipe(e, f) { e.$swipe = f; motion(m => m.swipe(e)); } export function onSwipeLeft(e, f) { e.$swipeleft = f; motion(m => m.swipe(e)); }
 /** A height drag's owner (the node a handle's `heightDragFor` names): its
  * numeric height and `transition`, told the motion engine as they change. */
 export function mh(e, f) {

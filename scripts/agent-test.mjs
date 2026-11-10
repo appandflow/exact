@@ -97,7 +97,7 @@ export async function refuseDisabled(s, node, target, opts = {}) {
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
 // or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
 const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
-const GESTURES = new Set(['contextmenu', 'focus', 'swiperight', 'pan', 'drop']);
+const GESTURES = new Set(['contextmenu', 'focus', 'swiperight', 'swipeleft', 'pan', 'drop']);
 const tier = (n) => n.type === 'Control' || n.type === 'TextInput' || (n.handlers ?? []).some((h) => PRESSES.has(h)) ? 2 : (n.handlers ?? []).some((h) => GESTURES.has(h)) ? 1 : 0;
 const interactive = (n) => tier(n) > 0;
 const name = (n) => n.props.testId ?? (n.props.accessibilityLabel ? `"${n.props.accessibilityLabel}"` : null);

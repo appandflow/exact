@@ -534,8 +534,9 @@ impl<D: DataSource> Bridge<D> {
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
             // their targets, toggle (50), scrollend (51), a file drag's enter
-            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 => {
+            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59),
+            // a left swipe (61), and a scroll drag's start (62) and release (63) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 | 61..=63 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),
@@ -900,7 +901,8 @@ impl<D: DataSource> Bridge<D> {
                 2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
                 3 => host.end_hold(serial, HoldEnd::Cancel, now),
                 4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
-                5 => Ok(host.dispatch_held(serial, now)),
+                // x: the presented offset, whose sign says which swipe.
+                5 => Ok(host.dispatch_held(serial, value.x, now)),
                 // Release at the engine's measured velocity (LLP 1057.001 §3).
                 10 => host.end_hold_measured(serial, now),
                 // The constrained value a display shows for the hold.

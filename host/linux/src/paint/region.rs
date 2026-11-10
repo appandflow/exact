@@ -26,6 +26,8 @@ pub(crate) struct ActionNode {
     pub blocked: bool,
     pub press: ActionSlot,
     pub swipe: ActionSlot,
+    /// `swipeleft`'s, the mirror of `swipe` (Charlie, 2026-11-10).
+    pub swipe_left: ActionSlot,
     swipe_policy: Option<(exact_kernel::TouchAction, Option<exact_motion::Transition>)>,
 }
 impl ActionNode {
@@ -353,7 +355,10 @@ impl Picture {
             };
             let press = slot(EventKind::Press)?;
             let swipe = slot(EventKind::Swiperight)?;
-            let swipe_policy = (matches!(swipe, ActionSlot::Bound(_))
+            let swipe_left = slot(EventKind::Swipeleft)?;
+            let swipe_policy = ([&swipe, &swipe_left]
+                .iter()
+                .any(|s| matches!(s, ActionSlot::Bound(_)))
                 && Presented::from_style(node.style) == Presented::IDENTITY
                 && !node.children().iter().any(|id| {
                     scene
@@ -386,6 +391,7 @@ impl Picture {
                 blocked: !(actions.eligible)(node.key),
                 press,
                 swipe,
+                swipe_left,
                 swipe_policy,
             };
             by_id.insert(id, i);
@@ -612,9 +618,12 @@ impl<'a> Replay<'a> {
                     if let Some(node) = scene.kernel.node_by_key(n.key) {
                         let p = (scene.presented)(node.id);
                         if p.moves() {
-                            let ActionSlot::Bound(_) = &n.action.swipe else {
+                            if ![&n.action.swipe, &n.action.swipe_left]
+                                .iter()
+                                .any(|s| matches!(s, ActionSlot::Bound(_)))
+                            {
                                 return Err("content replay refuses unbound motion".into());
-                            };
+                            }
                             moving += 1;
                             if moving > 1
                                 || !n.action.swipe_matches(&node, scene.kernel)

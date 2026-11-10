@@ -364,6 +364,11 @@ impl<D: DataSource> Presenter<D> {
         self.reader.tracked.remove(&id);
     }
 
+    /// Whether the reader was told of scroller `id`, and so may drag it.
+    pub(super) fn reader_knows(&self, id: ViewId) -> bool {
+        self.reader.tracked.contains_key(&id)
+    }
+
     /// The scrollers the clamp leaves alone: each a list kept while its route is hidden (a
     /// full-screen route over it), or shown again but not yet painted where it shows. The
     /// picture holds no travel for such a list, so the clamp would put it at its top and it

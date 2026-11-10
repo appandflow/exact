@@ -146,7 +146,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return values.contains("pan-y") || values.contains(velocity.y < 0 ? "pan-down" : "pan-up")
     }
     func updateSwipeGesture() {
-        if handlers.contains("swiperight"), swipeRecognizer == nil {
+        if SwipeRecognition.hears(handlers), swipeRecognizer == nil {
             let gesture = UIPanGestureRecognizer(target: self, action: #selector(swiping(_:)))
             #if !os(tvOS)
             gesture.maximumNumberOfTouches = 1
@@ -154,7 +154,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             gesture.delegate = self
             addGestureRecognizer(gesture)
             swipeRecognizer = gesture
-        } else if !handlers.contains("swiperight"), let gesture = swipeRecognizer {
+        } else if !SwipeRecognition.hears(handlers), let gesture = swipeRecognizer {
             let prior = swipeHold; swipeHold = nil
             DispatchQueue.main.async { prior?.cancel() }
             removeGestureRecognizer(gesture)
@@ -186,7 +186,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // before recognition, so a swipe from x = 2 read as starting past
             // the edge and a back swipe over a message became a reply.
             let start = swipeDownX ?? pan.location(in: window).x - pan.translation(in: window).x
-            return !disabled && start >= Gesture.edge && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
+            return !disabled && start >= Gesture.edge && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x), right: handlers.contains("swiperight"), left: handlers.contains("swipeleft")) && !allowsTouchPan(velocity)
         }
         return super.gestureRecognizerShouldBegin(gesture)
     }
@@ -201,7 +201,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             guard let hold = swipeHold else { return }
             let delta = translation - swipeOrigin
             guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
-            let armed = hold.mapping.value(delta) >= Gesture.knee
+            let armed = hold.armed(delta)
             #if os(tvOS)
             swipeArmed = armed
             #else
@@ -773,6 +773,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
+        if handlers.contains("scrolldragstart") { presenter?.scrollDrag(id, nil) }
         #if os(iOS)
         if #available(iOS 27.1, *) { presenter?.arrangements.cancelScrollHandoff(id) }
         if swipeOwner { presenter?.swipeActions.painted.began(self) }

@@ -5,6 +5,47 @@ use exact_kernel::{NodeKey, TouchAction};
 use exact_motion::{HoldEnd, Property, Value, VelocityTracker};
 
 use exact_motion::gesture::{swipe_displacement as displacement, SWIPE_KNEE};
+
+/// The ways a swipe node goes: right for its `swiperight`, left for its
+/// `swipeleft` (Charlie, 2026-11-10). The screen's directions, in a
+/// right-to-left layout too.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Ways {
+    pub(super) right: bool,
+    pub(super) left: bool,
+}
+impl Ways {
+    /// Whether a sideways start by `dx` is the swipe's, the node presented
+    /// at `presented`: a way it goes, or back toward rest from a caught one.
+    pub(super) fn starts(self, dx: f64, presented: f64) -> bool {
+        if dx > 0. {
+            self.right || presented < 0.
+        } else {
+            self.left || presented > 0.
+        }
+    }
+    /// The indicator's progress at `x`: toward the node's way, and either
+    /// way for a node with both.
+    fn progress(self, x: f64) -> f64 {
+        let toward = match (self.right, self.left) {
+            (true, true) => x.abs(),
+            (false, true) => -x,
+            _ => x,
+        };
+        (toward / SWIPE_KNEE).clamp(0., 1.)
+    }
+    /// The swipe a release at `x` completes: at or past the knee its way.
+    pub(super) fn completes(self, x: f64) -> Option<EventKind> {
+        if self.right && x >= SWIPE_KNEE {
+            Some(EventKind::Swiperight)
+        } else if self.left && x <= -SWIPE_KNEE {
+            Some(EventKind::Swipeleft)
+        } else {
+            None
+        }
+    }
+}
+
 fn indicator(base: f64, caught: f64, progress: f64) -> f64 {
     if progress == caught {
         base
@@ -32,7 +73,8 @@ impl<D: DataSource> Presenter<D> {
         while let Some(id) = at {
             let node = self.host.kernel().node(id)?;
             let handlers = self.host.runner().handlers_of(id);
-            if handlers.contains(&EventKind::Swiperight) {
+            if handlers.contains(&EventKind::Swiperight) || handlers.contains(&EventKind::Swipeleft)
+            {
                 return matches!(
                     node.style.touch_action.pans(),
                     TouchAction::None
@@ -51,9 +93,24 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// The ways a live swipe node goes, by its handlers now.
+    pub(super) fn swipe_ways(&self, key: NodeKey) -> Ways {
+        let handlers = self
+            .host
+            .kernel()
+            .node_by_key(key)
+            .map(|n| self.host.runner().handlers_of(n.id))
+            .unwrap_or_default();
+        Ways {
+            right: handlers.contains(&EventKind::Swiperight),
+            left: handlers.contains(&EventKind::Swipeleft),
+        }
+    }
+
     pub(super) fn begin_swipe(
         &mut self,
         key: NodeKey,
+        ways: Ways,
         now_ms: f64,
     ) -> Result<Option<Hold>, String> {
         let node = self.host.kernel().node_by_key(key).unwrap();
@@ -75,6 +132,7 @@ impl<D: DataSource> Presenter<D> {
             primary,
             kind: HeldKind::Swipe {
                 companions: [None, None],
+                ways,
             },
             velocity: VelocityTracker::new(),
         };
@@ -82,7 +140,7 @@ impl<D: DataSource> Presenter<D> {
             for (i, property) in [Property::Opacity, Property::Scale].into_iter().enumerate() {
                 match self.host.hold_begin(companion, property, now_ms) {
                     Ok(start) => {
-                        let HeldKind::Swipe { companions } = &mut held.kind else {
+                        let HeldKind::Swipe { companions, .. } = &mut held.kind else {
                             unreachable!()
                         };
                         companions[i] = start;
@@ -119,11 +177,11 @@ impl<D: DataSource> Presenter<D> {
         }
         // Tracking presentation after resistance produces displayed units/sec.
         held.velocity.push(now_ms / 1000., value);
-        let progress = (value.x / SWIPE_KNEE).clamp(0., 1.);
-        let caught = (held.primary.value.x / SWIPE_KNEE).clamp(0., 1.);
-        let HeldKind::Swipe { companions } = &held.kind else {
+        let HeldKind::Swipe { companions, ways } = &held.kind else {
             unreachable!()
         };
+        let progress = ways.progress(value.x);
+        let caught = ways.progress(held.primary.value.x);
         for companion in companions.iter().flatten() {
             let value = Value::scalar(indicator(companion.value.x, caught, progress));
             self.host
@@ -145,7 +203,7 @@ impl<D: DataSource> Presenter<D> {
             self.retained_motion_returned(held.primary.token);
         }
         let mut error = ended.err();
-        let HeldKind::Swipe { companions } = &held.kind else {
+        let HeldKind::Swipe { companions, .. } = &held.kind else {
             unreachable!()
         };
         for companion in companions.iter().flatten() {

@@ -76,6 +76,9 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "atompress" => Some("AtomEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
+        // A scroll drag's release, as UIKit's `scrollViewWillEndDragging` gives
+        // it (Charlie, 2026-11-10; the runner's `ScrollDrag::value`).
+        "scrolldragend" => Some("ScrollDragEvent"),
         "toggle" => Some("ToggleEvent"),
         // @ref LLP 1115.000 D5.5 — the history swipe the host tracks.
         "historyswipe" => Some("HistorySwipeEvent"),
@@ -234,6 +237,20 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("amount".into(), Ty::Number),
             ("clientX".into(), Ty::Number),
             ("clientY".into(), Ty::Number),
+        ],
+    );
+    // The runner's `ScrollDrag::value` builds it in this order (Charlie,
+    // 2026-11-10): UIKit's release velocity, in CSS pixels per millisecond
+    // and signed as `scrollLeft` and `scrollTop` grow, then its
+    // `targetContentOffset` where the host knows it.
+    let target = || Ty::Option(Box::new(Ty::Number));
+    shapes.map.insert(
+        "ScrollDragEvent".into(),
+        vec![
+            ("velocityX".into(), Ty::Number),
+            ("velocityY".into(), Ty::Number),
+            ("targetLeft".into(), target()),
+            ("targetTop".into(), target()),
         ],
     );
     shapes.map.insert(

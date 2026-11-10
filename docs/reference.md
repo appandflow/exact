@@ -2988,6 +2988,26 @@ Native inline runs, moving presentation geometry, rotated roots and SVG clip ref
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
 
+### Scroll drags and swipes
+
+`scrolldragstart` and `scrolldragend` on a scroller bracket the reader's drag
+of it, as UIKit's `scrollViewWillBeginDragging` and
+`scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)` do. The end's
+`ScrollDragEvent` carries `velocityX` and `velocityY` in UIKit's units, CSS
+pixels per millisecond, positive in the direction `scrollLeft` and `scrollTop`
+grow, and `targetLeft` and `targetTop`, where the momentum will stop, `some` on
+iOS and `none` where the host cannot say before it gets there. macOS takes a
+trackpad's two fingers as the drag and the web a touch, each estimating the
+velocity from the last 100 ms of the fingers' moves; Linux, Windows and
+Android send neither yet. A wheel, the keyboard and a programmatic scroll send
+neither
+([events](contract-grammar.md#events)).
+
+`swipeleft` mirrors `swiperight`: the node follows the finger, and one action
+runs when it lifts 64 points or more that way. Both directions are the
+screen's, in a right-to-left layout too, and a node may have both
+([Swipe to reply](contract-for-agents.md#swipe-to-reply)).
+
 ## Timer options
 
 ### A timer that can wait

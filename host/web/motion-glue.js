@@ -585,7 +585,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     finish(h,value,velocity,commit=false,cancel=false) {
       if(local(h)&&!eligible(h.el)) { api.end(h,[0,0],true); return false; }
       if(!live(h)||!api.move(h,value)) return false;
-      if(commit) { const reply=call('action',h); if(reply.batch) applyBatch(reply.batch); }
+      // The presented offset's sign says which swipe it was: right or left.
+      if(commit) { const reply=call('action',h,value); if(reply.batch) applyBatch(reply.batch); }
       // The action may delete the held node. That makes this a harmless no-op.
       api.end(h,velocity,cancel); return true;
     },
@@ -909,7 +910,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       const {knee,resistance}=gesture();
       const rubber=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)*resistance);
       const inverse=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)/resistance);
-      const progressOf=x=>Math.max(0,Math.min(1,x/knee));
+      // `swiperight`, `swipeleft` or both (Charlie, 2026-11-10): the screen's
+      // directions, a right-to-left layout's too, as on the native hosts.
+      const ways=()=>{const on=el.exactHandlers??el.dataset.exactOn?.split(' ')??[];return [on.includes('swiperight'),on.includes('swipeleft')];};
+      const progressOf=x=>{const [right,left]=ways();return Math.max(0,Math.min(1,(right&&left?Math.abs(x):left?-x:x)/knee));};
       // A swiped card may drive a drag timeline (LLP 1057.003 D4's list):
       // its consumers follow in this event, as the transform drag's `present`.
       const track=(h,value)=>{
@@ -941,7 +945,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           const slop=gesture().slop;
           if(Math.abs(dy)>slop&&Math.abs(dy)>=Math.abs(dx)){stop();return false;}
           if(Math.abs(dx)<=slop||Math.abs(dx)<=Math.abs(dy))return false;
-          if(dx<0 && !(sample(el,'translate')?.[0]>0)){stop();return false;}
+          // Its own direction, or back toward rest from a hold caught away from it.
+          const [right,left]=ways(),shown=sample(el,'translate')?.[0]??0;
+          if(dx>0?!(right||shown<0):!(left||shown>0)){stop();return false;}
           const h=api.begin(id,'translate'); if(!h){stop();return false;}
           contacts().set(e.pointerId,'claimed'); globalThis.exact?.pressClaimed?.(e.pointerId);
           drag.holds=[h]; drag.origin=e.clientX; drag.base=[...h.value]; drag.raw=inverse(h.value[0]);
@@ -974,7 +980,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         const ended=drag; drag=null; active.delete(id); suppressClick=true;
         contacts().delete(ended.pointer);
         const [h,...companions]=ended.holds, cancel=e.type!=='pointerup';
-        api.finish(h,h.value,'measured',!cancel&&h.value[0]>=knee,cancel);
+        const [right,left]=ways(), past=right&&h.value[0]>=knee||left&&h.value[0]<=-knee;
+        api.finish(h,h.value,'measured',!cancel&&past,cancel);
         for(const companion of companions) api.end(companion,'measured',cancel);
         if(el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       };
