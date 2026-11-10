@@ -507,7 +507,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         current.getValues(iconValues)
         val v = iconValues
         val sx = v[0]; val sy = v[4]
-        if (v[1] != 0f || v[3] != 0f || sx <= 0f || sy <= 0f) return false
+        if (v[1] != 0f || v[3] != 0f || v[6] != 0f || v[7] != 0f || sx <= 0f || sy <= 0f) return false
         path.computeBounds(iconBounds, true)
         val grow = if (paint.style == Paint.Style.STROKE) paint.strokeWidth * (if (paint.strokeJoin == Paint.Join.MITER) 2f else 0.5f) else 0f
         val l = Math.floor(((iconBounds.left - grow) * sx + v[2]).toDouble()).toFloat() - 1f
