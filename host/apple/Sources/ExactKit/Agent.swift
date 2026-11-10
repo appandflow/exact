@@ -812,7 +812,10 @@ public final class Agent {
     /// clock waited on (LLP 1016.000 D9): `held` and `heldTargets`, as the
     /// web hosts' do. An error reply is left as it is.
     func clock(_ req: [String: Any]) -> [String: Any] {
-        if session.frameHealth.liveCapture {
+        // An input's landing on the wall's clock takes nothing (`clockStep`),
+        // so a capture lets real input finish (LLP 1079.000 §7).
+        let landsOnWall = req["land"] as? Bool == true && session.clock == nil && !ExactEnv.agentFreezes
+        if session.frameHealth.liveCapture, !landsOnWall {
             return ["error": "Live frame capture requires the platform clock. Stop it with perf frames capture stop before using clock, held-clock or virtual-film operations.", "code": "frame-health-clock-takeover"]
         }
         var out = clockStep(req)

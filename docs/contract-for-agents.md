@@ -3562,18 +3562,28 @@ teardown removes it. The core creates no expiry timer, extra display link, stack
 sampling, screenshots or log collection. The optional scroll observer is described below.
 
 An attached agent can use the existing device carrier (`ios --device`, optionally
-`--phone <name|udid>`) and these operations:
+`--phone <name|udid>`), or a simulator, with `--timing platform`: on the agent's
+clock a capture stays paused (`virtual-clock`). A drive runs these operations
+(`sky` is a canvas):
 
 ```text
 perf frames capture start 60000
 perf frames health
-perf frames health scroll during "tap list drag 0 -400 over 500"
-perf frames live 5000
+perf frames health during "tap sky drag 0 -100 over 500"
 perf frames report
-perf frames report scroll
 perf frames capture stop
 perf frames capture clear
+perf frames live 5000
 ```
+
+While the lease holds, an input's landing is allowed and takes nothing: its
+answers land on the platform's clock. Every other `clock` operation is refused,
+and `perf frames live` takes a lease of its own, so it comes after `capture
+stop`. The
+`scroll` source (`health scroll`, `report scroll`) reads native scrolling, which
+an agent's drag without real touches does not start: on iOS it moves a list's
+offset at once, whatever its `over`, and the source answers
+`native-scroll-unobserved`.
 
 A capture lease lasts 1–120000 ms, default 60000. The card and the agent
 lease own capture independently. Existing callbacks, applies and reads check expiry;
