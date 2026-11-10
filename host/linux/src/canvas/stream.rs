@@ -31,6 +31,11 @@ pub(super) fn reader_replaced() {
     pending().clear();
 }
 
+/// Held by a test that fills or reads the process's stream queue, so another
+/// test's frames never land in it meanwhile.
+#[cfg(test)]
+pub(super) static QUEUE: Mutex<()> = Mutex::new(());
+
 pub(super) fn next_stream() -> Option<Vec<u32>> {
     streams().pop_front()
 }
@@ -380,6 +385,7 @@ mod tests {
 
     #[test]
     fn overwritten_recordings_keep_definitions_and_order_unsplittable_frames() {
+        let _queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
         FINISHED.with(|f| *f.borrow_mut() = None);
         streams().clear();
         let mut recorder = Recorder::new();

@@ -69,7 +69,23 @@ mod tests {
     use super::*;
     use crate::presenter::{PainterChoice, Presenter};
 
-    fn ops(source: &str) -> (Presenter<()>, Vec<u32>) {
+    /// A presenter painting on the recorder and its last stream, with the
+    /// process's stream queue held (its later paints fill it) and emptied
+    /// when the test ends.
+    struct Booted {
+        p: Presenter<()>,
+        ops: Vec<u32>,
+        _queue: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for Booted {
+        fn drop(&mut self) {
+            stream::reader_replaced();
+        }
+    }
+
+    fn ops(source: &str) -> Booted {
+        let queue = stream::QUEUE.lock().unwrap_or_else(|e| e.into_inner());
         let (mut p, error) = Presenter::boot_with(
             &crate::test_plan(source),
             (),
@@ -82,7 +98,11 @@ mod tests {
         assert!(error.is_none(), "{error:?}");
         p.frame();
         let ops = FINISHED.with(|f| f.borrow_mut().take()).expect("a stream");
-        (p, ops)
+        Booted {
+            p,
+            ops,
+            _queue: queue,
+        }
     }
 
     fn map(m: &[f32], x: f32, y: f32) -> (f32, f32) {
@@ -95,10 +115,11 @@ mod tests {
 
     #[test]
     fn a_box_turned_under_a_perspective_is_its_ops_under_matrix3() {
-        let (mut p, ops) = ops(
+        let mut booted = ops(
             "component App\n  view\n    view perspective=600 width=200 height=100 margin=100\n      \
              view rotate=\"y 40deg\" width=200 height=100 background-color=\"#ff0000\" testId=\"card\"\n",
         );
+        let (p, ops) = (&mut booted.p, std::mem::take(&mut booted.ops));
         let mut found = None;
         let mut i = 0;
         while i < ops.len() {
@@ -152,17 +173,18 @@ mod tests {
                  view rotate=\"y 20deg\" width=150 height=100 background-color=\"#ff0000\" testId=\"c{n}\"\n"
             )
         };
-        let (mut p, _) = ops(&format!(
+        let mut booted = ops(&format!(
             "component App\n  view\n    row overflow-x=\"auto\" width=400 height=100 margin-top=50\n{}{}{}",
             card(0),
             card(1),
             card(2)
         ));
+        let p = &mut booted.p;
         let id = |p: &Presenter<()>, n: &str| {
             let k = p.host().kernel();
             k.node_by_key(k.find_by_test_id(n)[0]).unwrap().id
         };
-        let (c1, c2) = (id(&p, "c1"), id(&p, "c2"));
+        let (c1, c2) = (id(p, "c1"), id(p, "c2"));
         assert_eq!(p.hit(225., 100.), Some(c1));
         assert_eq!(p.hit(375., 100.), Some(c2));
     }
