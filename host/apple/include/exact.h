@@ -694,6 +694,7 @@ uint32_t exact_reorder_group_end(ExactRuntime rt, uint64_t token, uint32_t drop,
 uint32_t exact_reorder_group_finish(ExactRuntime rt, uint64_t token, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
+uint32_t exact_view_scrolled(ExactRuntime rt, uint32_t view, double left, double top);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
 /* cancel: 0 releases at vx, vy; 1 cancels; 2 releases at the velocity the
  * engine measured over the hold's values (LLP 1057.001 §3). */

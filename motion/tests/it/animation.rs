@@ -515,6 +515,52 @@ fn a_drag_timeline_holds_its_consumer_at_the_drag() {
     assert!(!e.timeline_bound(NODE));
 }
 
+// A view timeline holds its consumer at the progress the host gives its
+// subject, and is inactive (the node's own value shows) until it gives one.
+#[test]
+fn a_view_timeline_holds_its_consumer_at_the_subjects_progress() {
+    const SUBJECT: u64 = 9;
+    let mut e = Engine::new();
+    observe(&mut e, Property::Opacity, 0.25);
+    e.set_animations(NODE, &row("fade 1s linear both")).unwrap();
+    e.set_animation_timeline(NODE, Some((NamedTimeline::View(SUBJECT), [0.0, 1.0])));
+    assert_eq!(opacity(&mut e), Some(0.25), "unplaced: inactive");
+    e.set_view_progress(SUBJECT, 0.5);
+    assert_eq!(opacity(&mut e), Some(0.5));
+    e.set_view_progress(SUBJECT, 0.5);
+    assert_eq!(opacity(&mut e), None, "the same progress moves nothing");
+    e.set_view_progress(SUBJECT, 1.5);
+    assert_eq!(
+        opacity(&mut e),
+        Some(1.0),
+        "past the range, the fill holds the end"
+    );
+    e.advance(3.0).unwrap();
+    assert_eq!(opacity(&mut e), None, "the clock does not move it");
+    e.remove(SUBJECT);
+    e.set_animation_timeline(NODE, Some((NamedTimeline::View(SUBJECT), [0.0, 1.0])));
+    assert_eq!(
+        opacity(&mut e),
+        Some(0.25),
+        "a removed subject is unplaced again"
+    );
+}
+
+#[test]
+fn a_keyframe_rotate_takes_an_axis() {
+    let k = Keyframes::parse("from{rotate:y 32deg}to{rotate:0 1 0 -8deg}").unwrap();
+    assert_eq!(
+        k,
+        Keyframes::parse("from{rotate:32deg}to{rotate:-8deg}").unwrap()
+    );
+    for bad in ["w 3deg", "0 1 3deg", "a b c 3deg", "y"] {
+        assert!(
+            Keyframes::parse(&format!("to{{rotate:{bad}}}")).is_err(),
+            "{bad}"
+        );
+    }
+}
+
 // LLP 1057.003 D2: the range spans the delay and the active interval
 // together, unclamped, on the horizontal axis, as a CSS scroll timeline maps
 // them (the parity fixture's `tl-` cases); an endless animation holds its

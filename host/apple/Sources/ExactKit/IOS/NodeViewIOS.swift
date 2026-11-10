@@ -789,7 +789,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // Keep the physical UI inset basis, but do not count native padding twice.
         let room = extras?.nativeScrollContentInsets ?? .zero
         presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top + pageBand.top))
-        presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
+        presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true); viewTimelinesScrolled()
         #if os(iOS)
         if swipeOwner, scrollView.isTracking { presenter?.swipeActions.painted.scrolled(self) }
         #endif

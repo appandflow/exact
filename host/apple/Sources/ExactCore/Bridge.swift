@@ -423,6 +423,11 @@ package final class Runtime {
         }
     }
     package func hasHold(_ token: UInt64) -> Bool { on(busy: false) { !destroyed && exact_has_hold(rt, token) != 0 } }
+    /// A scroller marked `viewTimeline` now stands at `left`, `top`: the view
+    /// timelines it moves, to apply before this frame commits.
+    package func viewScrolled(_ view: UInt32, left: Double, top: Double) -> Batch {
+        on { read(exact_view_scrolled(rt, view, left, top)) }
+    }
     package func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         return on {
             read(exact_hold_update(rt, token, x, y, now))

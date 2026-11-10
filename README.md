@@ -660,8 +660,8 @@ else here was admitted because a real app needed it.
   swipe, pinch) with release velocity, layout transitions, exit animations, and
   drag-linked timelines (LLP 1002,
   LLP 1063,
-  LLP 1057.003); a scroller is not yet a
-  timeline's source.
+  LLP 1057.003); a scroller is a
+  timeline's source only through `view-timeline`.
 - **Lists.** Virtualized lists, vertical or horizontal, one level deep
   (LLP 1070). The rows of a vertical
   `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one

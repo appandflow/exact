@@ -51,9 +51,10 @@ pub enum Capability {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
-    /// Drag timelines (LLP 1057.003): `-exact-drag-timeline`, `animation-timeline`,
-    /// `animation-range` and `timeline-scope`, their grammar, lowering and
-    /// name lookup. A timeline follows a held value, so it uses motion too.
+    /// Drag and view timelines (LLP 1057.003): `-exact-drag-timeline`, `view-timeline`,
+    /// `animation-timeline`, `animation-range` and `timeline-scope`, their
+    /// grammar, lowering and name lookup. A timeline follows a held value or
+    /// a scroll, so it uses motion too.
     Timelines,
     /// `text-transform` (LLP 1064 D5): its Unicode case mapping, for a plan
     /// that binds the row.
@@ -321,6 +322,7 @@ pub fn uses(plan: &Plan) -> Uses {
                     StyleId::from_bit(u32::from(binding.id)),
                     Some(
                         StyleId::DragTimeline
+                            | StyleId::ViewTimeline
                             | StyleId::AnimationTimeline
                             | StyleId::AnimationRange
                             | StyleId::TimelineScope

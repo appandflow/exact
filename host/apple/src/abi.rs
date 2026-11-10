@@ -1186,6 +1186,15 @@ impl<D: DataSource> Bridge<D> {
         self.host.as_ref().is_some_and(|h| h.has_hold(token))
     }
 
+    /// `exact_view_scrolled`: a scroller's view timelines, presented.
+    pub fn view_scrolled(&mut self, view: u32, left: f64, top: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.view_scrolled(view, left, top));
+        self.emit(out)
+    }
+
     /// Update presentation using a runtime-owned opaque handle.
     pub fn hold_update(&mut self, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| {

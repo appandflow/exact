@@ -101,7 +101,7 @@ impl Tree {
     fn answer(&self) -> String {
         let key = self.k.node(self.id("c")).unwrap().key;
         match self.k.timeline_of(key).expect("c follows a name") {
-            NamedTimeline::Source(n) => self
+            NamedTimeline::Source(n) | NamedTimeline::View(n) => self
                 .labels
                 .iter()
                 .find(|l| self.k.node(l.1).map(|v| motion_node(v.key)) == Some(n))

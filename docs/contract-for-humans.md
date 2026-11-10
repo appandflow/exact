@@ -1533,8 +1533,18 @@ the row is built, so the row arrives settled. The web build does not hold it
 yet.
 
 `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines
-(`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
-declared extensions with bounded behavior, not arbitrary layout animation.
+(`-exact-drag-timeline`, `view-timeline`, `animation-timeline`, `animation-range`,
+`timeline-scope`) are declared extensions with bounded behavior, not arbitrary layout
+animation.
+
+`view-timeline="--card x"` is CSS's view progress timeline: the node's progress through
+its nearest scroll container, 0% as it enters at the end edge, 50% centred, 100% as it
+leaves at the start edge (`cover`). The node and its descendants bind animations to it
+with `animation-timeline="--card"`; `animation-range` is not read for it. The engine
+moves them in the frame the scroller moves, with no action per scroll. iOS places it;
+elsewhere the timeline is inactive and the nodes show their own values. A keyframe's
+`rotate` may name an axis (`y 32deg`), but the angle turns about the node's own
+`rotate` axis, so give the node the same one (`rotate="y 0deg"`).
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.

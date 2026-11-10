@@ -1,8 +1,8 @@
-//! Drag timelines in Contract (LLP 1057.003 D1, D4): `-exact-drag-timeline`,
-//! `animation-timeline`, `animation-range` and `timeline-scope` reach the
-//! kernel's rows, the siblings' name resolves through the scope, and a
-//! timeline drives paint rows only (Q1): a bound animation whose keyframes
-//! animate layout or geometry is refused when the app compiles.
+//! Drag and view timelines in Contract (LLP 1057.003 D1, D4): `-exact-drag-timeline`, `view-timeline`, `animation-timeline`,
+//! `animation-range` and `timeline-scope` reach the kernel's rows, the
+//! siblings' name resolves through the scope, and a timeline drives paint rows
+//! only: a bound animation whose keyframes animate layout or geometry is
+//! refused when the app compiles.
 
 use exact_kernel::timeline::{
     AnimationRange, AnimationTimeline, Axis, DragTimeline, TimelineScope,
@@ -153,4 +153,60 @@ fn a_row_outside_its_grammar_is_refused_by_name() {
         .unwrap_err();
         assert!(error.message.contains(says), "{attr}: {error}");
     }
+}
+
+/// `view-timeline` on a rail's cards: a card's descendant resolves the name to
+/// its own card, and the layout places each card's `cover` range in the
+/// rail's scroll offsets: 0 as it enters at the end edge, 1 as it leaves at
+/// the start edge.
+#[test]
+fn a_view_timeline_resolves_to_its_subject_and_the_layout_places_it() {
+    const RAIL: &str = "keyframes turn\n  from rotate=\"y 32deg\"\n  50% rotate=\"y 0deg\"\n  to rotate=\"y -32deg\"\ncomponent App\n  view\n    row testId=\"rail\" overflow-x=\"scroll\" width=300 height=100 padding=0\n      for i in [0, 1, 2, 3] key=i\n        view testId=`card-${i}` view-timeline=\"--card x\" width=100 height=100 flex-shrink=0\n          view testId=`face-${i}` rotate=\"y 0deg\" animation=\"turn 1s linear both\" animation-timeline=\"--card\" width=100 height=100\n";
+    let plan = contract::compile(RAIL).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    let key = |id: &str| k.find_by_test_id(id)[0];
+    assert_eq!(
+        k.node_by_key(key("card-1"))
+            .unwrap()
+            .style
+            .rare
+            .view_timeline,
+        DragTimeline {
+            name: Some("--card".into()),
+            axis: Axis::X
+        }
+    );
+    assert_eq!(
+        k.timeline_of(key("face-2")),
+        Some(exact_motion::NamedTimeline::View(
+            exact_kernel::motion_node(key("card-2"))
+        ))
+    );
+    let timelines = k.view_timelines();
+    assert_eq!(timelines.len(), 4);
+    let card = |i: u64| {
+        *timelines
+            .iter()
+            .find(|t| t.subject == exact_kernel::motion_node(key(&format!("card-{i}"))))
+            .unwrap()
+    };
+    let second = card(1);
+    assert_eq!(second.scroller, key("rail"));
+    assert!(second.x);
+    // At x 100 in a 300-wide port: 0 at offset -200, 1 at offset 200.
+    assert_eq!(second.range, [-200.0, 200.0]);
+    assert_eq!(second.progress(0.0, 0.0), 0.5);
+    assert_eq!(card(3).progress(200.0, 0.0), 0.5, "centred in the port");
 }

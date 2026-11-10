@@ -1,4 +1,4 @@
-//! Animation timelines a drag drives (LLP 1057.003 D1, D4).
+//! Animation timelines a drag or a scroller drives (LLP 1057.003 D1, D4).
 //!
 //! CSS scroll-driven animations (CSS Animations 2, Scroll-driven Animations
 //! §3) name a timeline on a scroller (`scroll-timeline: <name> <axis>`) and
@@ -10,13 +10,20 @@
 //!   translate a drag moves: the timeline's position is that translate on
 //!   the axis (`y` if unsaid), as presented, so a release's spring moves it
 //!   too.
+//! - `view-timeline: none | <dashed-ident> [block | inline | x | y]?`, CSS's,
+//!   one timeline: the node's progress through its nearest scroll container
+//!   on the axis, over CSS's `cover` range. The kernel places it from the
+//!   layout ([`ViewTimeline`]); the host gives the engine its progress after
+//!   each layout and in the scroll callback, so its consumers move in the
+//!   frame the scroller does. A host that never gives one leaves it
+//!   inactive: its consumers show their own values.
 //! - `animation-timeline: auto | <dashed-ident>` on a consumer: its
 //!   `animation`s follow the named timeline instead of the clock. Its third
 //!   value, `-exact-clock(<ident>)`, keeps them on the clock and only syncs their
 //!   starts (LLP 1055.002); the lookup never sees it.
 //! - `animation-range: normal | <length> <length>` on the consumer: the
 //!   positions where its animations are at 0% and 100%; outside them the
-//!   progress clamps.
+//!   progress clamps. A view timeline runs over `cover` whatever it says.
 //! - `timeline-scope: none | all | <dashed-ident>#`, CSS's: names declared
 //!   below a node, in scope for the node's subtree.
 //!
@@ -27,7 +34,7 @@
 //! engine hears a node, never a name.
 //!
 //! The grammar and the lookup are linked by use (LLP 1047 D2): until a host
-//! calls [`link`], a text value for any of the four rows is refused as a
+//! calls [`link`], a text value for any of the five rows is refused as a
 //! bad value and no name resolves. The compiler and the native hosts link
 //! it at start; a web artifact links it when its plan sets one of the rows,
 //! which a plan that sets none never reaches (D6).
@@ -35,6 +42,7 @@
 mod lookup;
 /// What a name resolves to, as the engine takes it ([`crate::Kernel::timeline_of`]).
 pub use exact_motion::NamedTimeline;
+pub use lookup::ViewTimeline;
 pub(crate) use lookup::{refresh, rows, Registry};
 
 use std::fmt::Write;

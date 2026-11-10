@@ -308,7 +308,7 @@ pub struct Engine {
     // and the nodes whose own appearance differs from it.
     dark: bool,
     node_dark: BTreeMap<u64, bool>,
-    // Drag timelines (LLP 1057.003): sources and bound consumers.
+    // Drag and view timelines (LLP 1057.003): sources and bound consumers.
     timelines: timeline::Timelines,
     // Clock timelines (LLP 1055.002): each node's, and each one's origin.
     clocks: clock::Clocks,
