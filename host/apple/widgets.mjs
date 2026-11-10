@@ -257,11 +257,11 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     if (existsSync(resolve(resources, tree))) cpSync(resolve(resources, tree), resolve(extensionResources, tree), { recursive: true });
     else if (expected) throw new Error(`host/apple: the bake wrote no ${tree} tree for the widget extension (${resolve(resources, tree)})`);
   }
-  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')]).stdout);
+  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')], { read: true }).stdout);
   const capabilities = appInfo.UIRequiredDeviceCapabilities ? { UIRequiredDeviceCapabilities: appInfo.UIRequiredDeviceCapabilities } : {};
   const versions = Object.fromEntries(['CFBundleVersion', 'CFBundleShortVersionString', mac ? 'LSMinimumSystemVersion' : 'MinimumOSVersion'].map(key => [key, appInfo[key]]));
   const runtimeInfo = resolve(contents, 'Frameworks/ExactCore.framework', mac ? 'Resources/Info.plist' : 'Info.plist');
-  const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo]).stdout);
+  const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo], { read: true }).stdout);
   writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions, ...capabilities }));
   const frameworks = resolve(contents, 'Frameworks'), reload = 'libexact_widget_reload.dylib';
   if (platform !== 'watchos') {
@@ -326,7 +326,7 @@ export function packageAlarmExtension({ app, bundle, directory, sdk, triple, dev
   const extension = resolve(bundle, 'PlugIns/ExactWidgets.appex');
   mkdirSync(extension, { recursive: true });
   if (profile) copyFileSync(profile.path, resolve(extension, 'embedded.mobileprovision'));
-  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Info.plist')]).stdout);
+  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Info.plist')], { read: true }).stdout);
   const source = resolve(directory, 'AlarmWidgetBundle.swift');
   writeFileSync(source, 'import SwiftUI\nimport WidgetKit\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { if #available(iOS 26.0, *) { ExactAlarmCountdown() } } }\n');
   const entitlementPath = resolve(directory, 'alarm-widget-entitlements.plist');

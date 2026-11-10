@@ -82,9 +82,10 @@ const hasStd = (flag, target) => read('rustup', ['target', 'list', '--installed'
 // Fail on deployment-target and sysroot warnings because Apple tools can still link incompatible inputs
 // @ref LLP 1008
 const runApple = (cmd, args, opts = {}) => {
-  const { cargoMessages = false, ...spawnOptions } = opts;
+  // `read`: the caller parses stdout (a plist as JSON), which is not build output.
+  const { cargoMessages = false, read = false, ...spawnOptions } = opts;
   const r = spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions }));
-  if (!cargoMessages) process.stdout.write(quiet(r.stdout ?? ''));
+  if (!cargoMessages && !read) process.stdout.write(quiet(r.stdout ?? ''));
   process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
   refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);
