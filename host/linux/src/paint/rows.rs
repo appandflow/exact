@@ -638,9 +638,19 @@ impl Painter {
                 b.rect.0 += origin.0;
                 b.rect.1 += origin.1;
                 b.clip = b.clip.map(|c| (c.0 + origin.0, c.1 + origin.1, c.2, c.3));
-                b.affine = b
-                    .affine
-                    .map(|(t, r)| (t.post_translate(origin.0, origin.1), r));
+                // A box in a plane is hit back into the plane, where its
+                // affine part stays: the row's move goes before the plane.
+                match &mut b.projective {
+                    Some((inv, ..)) => {
+                        let back = [1., 0., -origin.0, 0., 1., -origin.1, 0., 0., 1.];
+                        *inv = space::mul3(inv, &back);
+                    }
+                    None => {
+                        b.affine = b
+                            .affine
+                            .map(|(t, r)| (t.post_translate(origin.0, origin.1), r));
+                    }
+                }
             }
             for (id, inline) in &mut capture.inline {
                 *inline = inline.translated(origin.0, origin.1);
