@@ -21,6 +21,8 @@ pub mod jni_extensions;
 mod jni_keys;
 #[path = "jni_picture.rs"]
 pub mod jni_picture;
+#[path = "jni_scroll.rs"]
+mod jni_scroll;
 #[path = "jni_pad.rs"]
 mod pad;
 
@@ -720,33 +722,7 @@ macro_rules! canvas_jni {
                 with(|h| h.module_event(id as u32, key, &kind, payload));
             }
 
-            /// The reader moved scroller `id` by (`dx`, `dy`) pixels,
-            /// knowing revision `rev` of it.
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrolled(
-                _env: *mut JNIEnv,
-                _class: jclass,
-                id: jint,
-                dx: jfloat,
-                dy: jfloat,
-                rev: jint,
-            ) {
-                with(|h| h.scrolled(id as u32, dx, dy, rev as u32));
-            }
-
-            /// A finger began dragging scroller `id`, or (`ended`) let go of it
-            /// (`CanvasHost::drag_began`, `drag_ended`; px/s, px).
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrollDrag(
-                _env: *mut JNIEnv, _class: jclass, id: jint, ended: jboolean,
-                vx: jfloat, vy: jfloat, rest: jboolean, rest_x: jfloat, rest_y: jfloat,
-            ) {
-                let rest = (rest != 0).then_some((rest_x, rest_y));
-                match ended != 0 {
-                    false => with(|h| h.drag_began(id as u32)),
-                    true => with(|h| h.drag_ended(id as u32, vx, vy, rest)),
-                };
-            }
+            $crate::canvas_jni_scroll!();
 
             /// What the reader is told of the scrollers it knows, nine
             /// words each (`Presenter::reader_scrollers`), when that is not
