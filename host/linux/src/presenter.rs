@@ -113,6 +113,7 @@ mod scroll_drag;
 mod scroll_end;
 mod scrollbar;
 mod scrollers;
+mod sheet;
 pub(crate) mod split;
 mod wheel;
 use scroll_end::Completion;
@@ -191,6 +192,7 @@ pub struct Presenter<D: DataSource> {
     /// A touch down's press, to lay out ahead (`ahead.rs`).
     ahead: Option<ahead::Ahead>,
     pub(crate) brush: Painter,
+    sheets: sheet::Sheets,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
     scroll_end: scroll_end::State,
@@ -510,6 +512,7 @@ impl<D: DataSource> Presenter<D> {
             arrange: None,
             group: None,
             brush: Painter::new(text.clone(), scale, backend),
+            sheets: Default::default(),
             text,
             ahead: None,
             viewport,
@@ -840,6 +843,7 @@ impl<D: DataSource> Presenter<D> {
     }
     fn service_commit(&mut self) -> Option<String> {
         self.sync_split();
+        self.sync_sheet();
         // A resource refused, a request or a send failed (LLP 1142 D4): on
         // stderr as well as in the journal. The runner queues none unless it
         // measures, so a production binary prints none.

@@ -1417,8 +1417,11 @@ smaller and larger side), as CSS's `vh` is the viewport's and never a
 dialog's, so `height: 50vh` is half the screen at any sheet height
 and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
 laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
-Linux show a modal route as authored and ignore the detent
-(LLP 1075.003 §9.11).
+desktop Linux show a modal route as authored and ignore the detent
+(LLP 1075.003 §9.11). Android shows
+one with detents as Material's bottom sheet: laid out at its first detent's height
+over a scrim, dragged by its top edge between detents or down to dismiss, and
+dismissed by Back or a press on the scrim (unless its `closedby` is `"none"`).
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string

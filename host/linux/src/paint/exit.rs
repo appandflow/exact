@@ -290,7 +290,8 @@ impl Painter {
         shown: Presented,
         clip_rect: Option<Rect4>,
     ) {
-        if self.exits.taping || node.style.rare.exit_animation.0.is_empty() {
+        let sheet = self.sheet.is_some_and(|s| s.route == Some(node.id));
+        if self.exits.taping || (node.style.rare.exit_animation.0.is_empty() && !sheet) {
             return;
         }
         if node.parent.is_none() {

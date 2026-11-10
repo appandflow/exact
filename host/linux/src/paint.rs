@@ -39,8 +39,10 @@ pub(crate) mod damage;
 pub(crate) mod dates;
 mod dialog_shadow;
 mod exit;
+mod sheet;
 pub(crate) use dialog_shadow::DialogShadow;
 pub(crate) use exit::Leaving;
+pub(crate) use sheet::SheetPaint;
 pub mod gradient;
 mod grouped;
 mod overlay;
@@ -568,6 +570,8 @@ pub struct Painter {
     pub(crate) labels: material::Labels,
     /// Leaving nodes' drawings (`exit.rs`).
     exits: exit::Exits,
+    /// A modal route shown as a bottom sheet (`sheet.rs`).
+    pub(crate) sheet: Option<SheetPaint>,
 }
 
 struct Walk<'a, 'b> {
@@ -661,6 +665,7 @@ impl Painter {
             numerals: Default::default(),
             labels: Default::default(),
             exits: Default::default(),
+            sheet: None,
         }
     }
 

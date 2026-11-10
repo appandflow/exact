@@ -447,6 +447,9 @@ impl<D: DataSource> Presenter<D> {
         #[cfg(any(target_os = "android", test))]
         self.cancel_fingers(now_ms);
         self.touched();
+        if self.sheet_down(y, now_ms) {
+            return Ok(true);
+        }
         if self.overlay_pointer(0, x, y, now_ms) || self.scrollbar_pointer(0, x, y) {
             return Ok(true);
         }
@@ -720,6 +723,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        if self.sheet_move(y, now_ms) {
+            return Ok(true);
+        }
         self.pointer_move_at(x, y, now_ms, now_ms)
     }
     // Agent events have timestamps for pan velocity while dispatch and held
@@ -999,6 +1005,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        if self.sheet_up(y, now_ms) {
+            return Ok(true);
+        }
         self.pointer_up_at(x, y, now_ms, now_ms)
     }
     pub(crate) fn pointer_up_at(
@@ -1252,6 +1261,7 @@ impl<D: DataSource> Presenter<D> {
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
+        self.sheet_cancel(now_ms);
         self.overlay_pointer_cancel();
         self.field_drag = None;
         self.end_range_drag();

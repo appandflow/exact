@@ -101,6 +101,7 @@ impl Painter {
         if group {
             self.group_end(walk);
         }
+        self.exit_scrim(node.key);
         self.paint_exits(node.key, ts, child_offset);
         if let Some(child) = lift {
             self.node(walk, child, ts, child_offset, child_rect);
