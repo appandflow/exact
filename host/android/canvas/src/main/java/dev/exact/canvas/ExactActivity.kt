@@ -371,7 +371,8 @@ open class ExactActivity : Activity() {
             android.view.WindowInsets.Type.ime(), android.view.WindowInsets.Type.systemGestures(),
         )
         for ((k, kind) in kinds.withIndex()) {
-            val i = insets.getInsets(kind)
+            // The bars' insets as they are shown: a status bar the app hides ([chrome]) does not move the page.
+            val i = if (k == 0) insets.getInsetsIgnoringVisibility(kind) else insets.getInsets(kind)
             out[k * 4] = i.top; out[k * 4 + 1] = i.right; out[k * 4 + 2] = i.bottom; out[k * 4 + 3] = i.left
         }
         return out
@@ -402,8 +403,9 @@ open class ExactActivity : Activity() {
 
     /** What the host says to draw around the page ([Native.chrome]): the page's place in the window (x, y, width and
      * height in pixels), where the view and the hosted views under it are put; the colour behind the page and in the
-     * edges it keeps out of, which is the window's background; and whether its scheme is dark, which the bars' icons
-     * follow (light icons over a dark page). */
+     * edges it keeps out of, which is the window's background; whether its scheme is dark, which the bars' icons
+     * follow (light icons over a dark page); and whether the status bar is hidden, as `status-bar-style="hidden"`
+     * asks, where a swipe from the edge shows it for a moment. */
     private fun chrome(c: IntArray) {
         for (child in listOfNotNull<View>(view, natives ?: return, fields)) {
             child.layoutParams = FrameLayout.LayoutParams(c[2], c[3]).apply {
@@ -415,7 +417,11 @@ open class ExactActivity : Activity() {
         if (Build.VERSION.SDK_INT < 30) { Legacy.lightBars(window, c[5] == 0); return }
         val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
             android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        window.insetsController?.setSystemBarsAppearance(if (c[5] != 0) 0 else light, light)
+        val bars = window.insetsController ?: return
+        bars.setSystemBarsAppearance(if (c[5] != 0) 0 else light, light)
+        bars.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (c[6] != 0) bars.hide(android.view.WindowInsets.Type.statusBars())
+        else bars.show(android.view.WindowInsets.Type.statusBars())
     }
 
     /** The device's settings as the host was last told them. */

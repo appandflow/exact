@@ -95,7 +95,7 @@ pub(super) struct Shell {
     /// page in it, and the view's own size is never told.
     told: bool,
     /// The chrome the reader was last given.
-    chrome: Option<[i32; 6]>,
+    chrome: Option<[i32; 7]>,
 }
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -163,9 +163,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// What the reader draws around the page, when that is not what it was
     /// last given: where the page is in the window (x, y, width, height, in
     /// pixels), the colour behind it and in the edges it keeps out of
-    /// (ARGB), and 1 when its scheme is dark (the bars' icons are then
-    /// light). `None` while nothing changed.
-    pub fn chrome(&mut self) -> Option<[i32; 6]> {
+    /// (ARGB), 1 when its scheme is dark (the bars' icons are then light),
+    /// and 1 when the status bar is hidden. `None` while nothing changed.
+    pub fn chrome(&mut self) -> Option<[i32; 7]> {
         let c = self.p.chrome();
         let px = |v: f32| (v * self.scale).round() as i32;
         let [r, g, b, a] = c.background;
@@ -176,6 +176,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             px(c.frame[3]),
             i32::from_be_bytes([a, r, g, b]),
             i32::from(c.dark),
+            i32::from(c.status_hidden),
         ];
         if self.shell.chrome == Some(now) {
             return None;
