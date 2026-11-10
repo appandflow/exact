@@ -431,8 +431,9 @@ impl<D: DataSource> Presenter<D> {
     /// of each from now on ([`Presenter::reader_scrollers`]).
     pub fn reader_under(&mut self, x: f32, y: f32, scale: f32) -> Vec<i32> {
         let under = self.scrollers_at(x / scale, y / scale);
+        let sheet = if self.sheet_claims(y / scale) { 3 } else { 0 };
         let mut out = vec![
-            i32::from(under.claims.0) | i32::from(under.claims.1) << 1,
+            sheet | i32::from(under.claims.0) | i32::from(under.claims.1) << 1,
             under.chain.len() as i32,
             under.field.unwrap_or(0) as i32,
         ];
@@ -516,7 +517,7 @@ impl<D: DataSource> Presenter<D> {
         out
     }
 
-    fn snap_rests(&mut self, id: ViewId) -> Option<(i32, Vec<(f32, f32, bool)>)> {
+    fn snap_rests(&mut self, id: ViewId) -> Option<(i32, Vec<Rest>)> {
         use exact_kernel::{ScrollSnapAlign as Align, ScrollSnapType as Type};
         let kernel = self.host.kernel();
         let node = kernel.node(id)?;
@@ -585,6 +586,9 @@ fn shown(r: Rect4, clip: Option<Rect4>) -> [f32; 4] {
     let bottom = (r.1 + r.3).min(c.1 + c.3);
     [x, y, (right - x).max(0.0), (bottom - y).max(0.0)]
 }
+
+/// Where a snap area rests, from and to, and whether a fling stops there.
+type Rest = (f32, f32, bool);
 
 fn bits(v: f32) -> i32 {
     v.to_bits() as i32
