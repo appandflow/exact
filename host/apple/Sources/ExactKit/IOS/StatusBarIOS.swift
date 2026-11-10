@@ -8,6 +8,8 @@ import UIKit
 /// that decided it (the agent's `layout`).
 struct StatusBarChoice: Equatable {
     var style: UIStatusBarStyle = .default
+    /// `status-bar-style="hidden"`: no status bar while the node shows.
+    var hidden = false
     var fade = false
     var source: UInt32?
 }
@@ -69,7 +71,7 @@ extension Presenter {
         }
         let candidates = declared.filter { node in
             let value = node.props["statusBarStyle"] ?? ""
-            guard ["light-content", "dark-content", "auto"].contains(value) else {
+            guard ["light-content", "dark-content", "auto", "hidden"].contains(value) else {
                 noteStatusBarValue(node, "status-bar-style", value)
                 return false
             }
@@ -83,7 +85,7 @@ extension Presenter {
         case "dark-content": .darkContent
         default: Self.schemeStatusBar(winner)
         }
-        return StatusBarChoice(style: style, fade: winner.props["statusBarAnimation"] == "fade", source: winner.id)
+        return StatusBarChoice(style: style, hidden: winner.props["statusBarStyle"] == "hidden", fade: winner.props["statusBarAnimation"] == "fade", source: winner.id)
     }
 
     /// A bound value outside the set counts as unset, said once per node and value.

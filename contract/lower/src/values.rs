@@ -1027,11 +1027,11 @@ pub(crate) fn check_prop_value(
         );
     }
     if prop == PropId::StatusBarStyle
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "light-content" | "dark-content" | "auto"))
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "light-content" | "dark-content" | "auto" | "hidden"))
     {
         return err(
             "lower-attr-value",
-            "`status-bar-style` takes \"light-content\" (light text, for a dark surface), \"dark-content\" or \"auto\"",
+            "`status-bar-style` takes \"light-content\" (light text, for a dark surface), \"dark-content\", \"auto\" or \"hidden\" (no status bar, over full-bleed photography)",
             span,
         );
     }

@@ -59,6 +59,9 @@ public final class ExactView: UIView {
     /// inside the change's animation (a fade, when the app asks for one) and
     /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
     public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
+    /// Whether the app hides the status bar (`status-bar-style="hidden"`), for
+    /// the hosting controller's `prefersStatusBarHidden`; the same hook says it changed.
+    public var statusBarHidden: Bool { session.presenter.statusBar.hidden }
     public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
     /// The session's orientation lock, for the controller
     /// that hosts this view to return from `supportedInterfaceOrientations`

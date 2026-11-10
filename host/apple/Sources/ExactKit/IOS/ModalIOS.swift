@@ -115,6 +115,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     // UIKit asks a presented controller that covers the screen;
     // it answers the presenter's one resolved style, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    override var prefersStatusBarHidden: Bool { host?.presenter.statusBar.hidden ?? false }
     // And the session's orientation lock, as the root does.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
