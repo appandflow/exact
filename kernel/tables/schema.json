@@ -1828,6 +1828,12 @@
       "name": "tabMinimize",
       "kind": "str",
       "_comment": "`-exact-tab-minimize` on a tablist: `on-scroll-down`, `on-scroll-up`, `never` or `automatic` (the default), UIKit's tabBarMinimizeBehavior on iOS 26: the bar collapses to the selected tab while content scrolls. Other hosts ignore it."
+    },
+    {
+      "id": 305,
+      "name": "tabAccessory",
+      "kind": "bool",
+      "_comment": "`-exact-tab-accessory` on a child of a tablist: on iOS 26 the system tab bar's bottom accessory (UITabAccessory), above the bar and inline beside it as the bar minimizes. Exact lays the child out as a root in the size UIKit gives the accessory, so `position: absolute; inset: 0` fills it. While the node is absent or `display: none` the bar has no accessory. Other hosts, and iOS where the authored tablist shows, keep it an ordinary child of the tablist."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

@@ -433,6 +433,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The controllers last given the tab bar controller, in tab order: with `UITab`s its `viewControllers` is
     /// empty, so Exact reads its own record.
     var tabControllers: [UIViewController] = []
+    /// The tablist's child shown as the tab bar's bottom accessory (`-exact-tab-accessory`, iOS 26),
+    /// moved into the view UIKit sizes for it, and that view and its accessory.
+    var tabAccessory: NodeView?
+    var accessoryView: TabAccessoryView?
+    var accessory: AnyObject?
+    /// A picture of the accessory node a batch destroys, which UIKit's
+    /// accessory fades out with instead of an empty capsule.
+    var accessorySnapshot: UIView?
     /// Where the authored tablist was when its covers were last measured.
     var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the
@@ -516,7 +524,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// controllers; newly added or no-longer-declared nodes use normal mounting.
     /// A route's logical parent is the root or, with tabs, its tabpanel.
     func ownsContainment(of node: NodeView, under parent: NodeView) -> Bool {
-        (parent === container || (parent !== container && logicalChildren[parent.id] != nil)) &&
+        if node === tabAccessory, parent.id == adoptedTablist { return true }
+        return (parent === container || (parent !== container && logicalChildren[parent.id] != nil)) &&
             container?.props["navigationBack"] != nil &&
             node.props["navigationKey"] != nil && controllers[node.id]?.node === node
     }
@@ -550,6 +559,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func prepare(_ batch: Batch) {
         checkOwned()
         presenter.elements.checkOwned()
+        if let node = tabAccessory, node.superview === accessoryView, batch.ops.contains(where: { $0.op == .destroy && $0.id == node.id }),
+           let picture = node.snapshotView(afterScreenUpdates: false) {
+            picture.frame = node.frame
+            accessorySnapshot?.removeFromSuperview()
+            accessoryView?.addSubview(picture)
+            accessorySnapshot = picture
+        }
         guard let top = navigation?.topViewController as? RouteController else { return }
         if batch.ops.contains(where: { $0.op == .destroy && $0.id == top.node.id }) {
             top.freeze()

@@ -186,6 +186,7 @@ extension NavigationHost {
             return
         }
         natives.tabsHatch(container, event: 1)
+        releaseAccessory()
         container.delegate = nil
         tablistRoot = nil
         tablistHidBar = false
@@ -243,6 +244,7 @@ extension NavigationHost {
                 tablistHidBar = hidden && !authored
             }
         }
+        syncAccessory(tabs)
         guard tabs.panels.allSatisfy({ tabStack($0.id) != nil }) else { return }
         // A held tab that now pushes or shows a bar, or whose controller a
         // hatch was handed, gets its navigation controller, its route moved
@@ -501,6 +503,7 @@ extension NavigationHost {
         for held in tabPanels.compactMap({ heldTabs[$0] }) { held.hold(nil) }
         if tabsHatched, tabController != nil { presenter.session?.natives.tabsHatch(tabController, event: 1) }
         if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHatch(nil, event: 3) }
+        releaseAccessory()
         if let holder = tabOwner {
             (holder as? UITabBarController)?.delegate = nil
             holder.willMove(toParent: nil)
@@ -560,6 +563,85 @@ extension NavigationHost {
     func adopts(tablist: NodeView) -> Bool {
         adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome &&
             !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
+    }
+}
+
+/// The view UIKit sizes for the tab bar's bottom accessory: the accessory node's
+/// containing block, told again whenever UIKit gives it another size (the bar
+/// minimizing puts the accessory inline beside it).
+final class TabAccessoryView: UIView {
+    weak var host: NavigationHost?
+    private var told: CGSize?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != told else { return }
+        told = bounds.size
+        host?.presenter.owners.publish()
+    }
+}
+
+extension NavigationHost {
+    /// The accessory's block, and the tablist's: an empty one, so the
+    /// tablist, no longer `display: none` while its child is laid out, takes
+    /// no room.
+    var accessoryBlocks: [UInt32: HostBlock] {
+        guard let node = tabAccessory, let view = accessoryView, let list = adoptedTablist else { return [:] }
+        return [list: .size(.zero), node.id: .size(view.bounds.size)]
+    }
+
+    /// Each batch: the tablist's `-exact-tab-accessory` child, shown and not
+    /// `display: none`, is the bar's bottom accessory; none, the bar has none.
+    /// iOS 26, and only where the system bar takes the tablist's place.
+    func syncAccessory(_ tabs: NavigationTabs) {
+        #if os(iOS)
+        guard #available(iOS 26.0, *) else { return }
+        let list = tabs.tablist
+        let shown = { (node: NodeView) in
+            self.presenter.views[node.id] === node && node.props["tabAccessory"] == "true" && node.style["display"]?.string != "none"
+        }
+        var wanted: NodeView?
+        if let container = tabController, tabOwner === container, tabBarShows, !tablistHidBar, adopts(tablist: list) {
+            if let held = tabAccessory, held.superview === accessoryView, shown(held) { wanted = held }
+            else { wanted = list.container.subviews.lazy.compactMap { $0 as? NodeView }.first(where: shown) }
+        }
+        guard wanted !== tabAccessory else { return }
+        if tabAccessory != nil { releaseAccessory(into: list) }
+        guard let node = wanted, let container = tabController else { return }
+        let view = accessoryView ?? TabAccessoryView()
+        view.host = self
+        accessoryView = view
+        accessorySnapshot?.removeFromSuperview()
+        accessorySnapshot = nil
+        view.addSubview(node)
+        tabAccessory = node
+        let made = (accessory as? UITabAccessory) ?? UITabAccessory(contentView: view)
+        accessory = made
+        container.setBottomAccessory(made, animated: container.view.window != nil)
+        reportCovers()
+        presenter.owners.publish()
+        #endif
+    }
+
+    /// The accessory goes: its node back under the tablist (`list`, else the
+    /// one adopted) while it is still the tablist's, and the bar's accessory with it.
+    func releaseAccessory(into list: NodeView? = nil) {
+        guard let node = tabAccessory else { return }
+        tabAccessory = nil
+        #if os(iOS)
+        if #available(iOS 26.0, *), let container = tabController, container.bottomAccessory != nil {
+            container.setBottomAccessory(nil, animated: container.view.window != nil)
+        }
+        #endif
+        if node.superview === accessoryView {
+            node.removeFromSuperview()
+            if presenter.views[node.id] === node, let parent = list ?? adoptedTablist.flatMap({ presenter.views[$0] }) {
+                parent.container.addSubview(node)
+                presenter.regrid(node)
+            }
+        }
+        reportCovers()
+        presenter.owners.publish()
     }
 }
 
