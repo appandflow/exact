@@ -335,6 +335,9 @@ export function install(exact) {
     images?.then(h => h.seek());
   };
   const seek = (sync = true) => { anim.register(exact.clock.now); anim.seek(exact.clock.now, sync); holdImages(); };
+  // Whether this clock runs `a` (a refused tap's advice, scripts/agent-aim.mjs `pageOutside`): on the document's timeline,
+  // and not held by its author, then or, not yet registered, at its registration.
+  exact.clockRuns = a => (!a.timeline || a.timeline instanceof DocumentTimeline) && (starts.has(a) ? !held.has(a) : a.playState !== 'paused' || exact.early?.has(a));
   // motion.js owns post-commit reconciliation. The agent registers a
   // commit's new animations here, and reconciles only when its clock moves.
   exact.After.push(() => seek(false));

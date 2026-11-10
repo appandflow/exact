@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap, springboard } from '../host/apple/touches.mjs';
-import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
+import { pageAim, pageOutside, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
 import { parseDrag, dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap, fileDrag, folderTree, driverFiles } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto, refuseDriveFlag } from './agent-keys.mjs';
@@ -373,7 +373,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
         if (id != null && ['press', 'contextmenu', 'dblclick', 'auxclick', 'clicks', 'mouse'].includes(kind)) {
           // An ancestor under the point takes the press itself, never the target's handlers: a miss, unless the target passes its
           // presses through (`pointer-events: none`), as a person's would be (reader: a tap between a run's lines reported success).
-          const why = await evaluate(`(() => { const view = exact.views.get(${id}), el = exact.backButton?.(view) ?? view, hit = (el?.getRootNode() ?? document).elementFromPoint(${x}, ${y}), name = hit && (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? null : hit.contains(el) ? name + ', which holds it, is under the point and would take the press: no box the target draws is there' : name + ' covers its middle'; })()`);
+          const why = await evaluate(`(() => { const view = exact.views.get(${id}), el = exact.backButton?.(view) ?? view, hit = (el?.getRootNode() ?? document).elementFromPoint(${x}, ${y}), name = hit && (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()); return !el ? null : !hit ? (${pageOutside})({ id: ${id} }) : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? null : hit.contains(el) ? name + ', which holds it, is under the point and would take the press: no box the target draws is there' : name + ' covers its middle'; })()`);
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         if (kind === 'mouse' && !await evaluate(`exact.views.get(${id})?.localName === 'canvas' || !!exact.views.get(${id})?.querySelector('canvas')`)) throw new Error('mouse requires a canvas target');
