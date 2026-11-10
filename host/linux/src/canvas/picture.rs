@@ -90,3 +90,41 @@ impl WeakPicture {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{stream, Recorder, FINISHED, IMAGE, IMAGE_DEF, IMAGE_RRECT};
+    use super::*;
+    use crate::paint::Backend;
+
+    /// A child placed by a `ChildrenMode::Each` surface reaches the reader as
+    /// a picture over the box the warp gave it, as a Canvas 2D bitmap does.
+    #[test]
+    fn a_placed_canvas_child_is_a_picture_in_the_stream() {
+        let mut r = Recorder::new();
+        r.begin(400., 800., 2.);
+        r.surface_image(Arc::new(Pixmap::new(8, 6).unwrap()), (10., 20., 4., 3.));
+        r.finish().unwrap();
+        let ops = FINISHED.with(|f| f.borrow_mut().take()).unwrap_or_default();
+        let (mut defined, mut drawn) = (None, None);
+        let mut at = 0;
+        while at < ops.len() {
+            match ops[at] {
+                IMAGE_DEF => defined = Some((ops[at + 1], ops[at + 2], ops[at + 3])),
+                // Both draw the picture over the four floats after its id.
+                IMAGE | IMAGE_RRECT => {
+                    let dst: Vec<f32> = ops[at + 2..at + 6]
+                        .iter()
+                        .map(|w| f32::from_bits(*w))
+                        .collect();
+                    drawn = Some((ops[at + 1], dst));
+                }
+                _ => {}
+            }
+            at = stream::end(&ops, at).unwrap();
+        }
+        let (id, w, h) = defined.expect("the picture is defined");
+        assert_eq!((w, h), (8, 6));
+        assert_eq!(drawn, Some((id, vec![10., 20., 4., 3.])));
+    }
+}

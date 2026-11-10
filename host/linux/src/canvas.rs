@@ -684,6 +684,11 @@ impl Backend for Recorder {
         self.picture(&Picture::Canvas(pixels.clone()), dst, clips, ts);
     }
 
+    /// A canvas child its surface placed (`paint/placed.rs`), already warped.
+    fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4) {
+        self.canvas(&pixels, dst, &[], Transform::identity());
+    }
+
     fn text(
         &mut self,
         text: &mut TextEngine,
