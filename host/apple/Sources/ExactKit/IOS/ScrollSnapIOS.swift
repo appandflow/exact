@@ -5,7 +5,7 @@
 import UIKit
 
 extension NodeView {
-    /// CSS's admitted `x mandatory` / `start` and `end` scroll snap. UIKit supplies
+    /// CSS's admitted `x mandatory` / `start`, `center` and `end` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === self.scrollView else { return }
@@ -25,15 +25,15 @@ extension NodeView {
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
                 let align = node.style["scroll_snap_align"]?.string
-                if align == "start" || align == "end" {
+                if align == "start" || align == "end" || align == "center" {
                     let rect = node.convert(node.bounds, to: scrollView)
                     let width = scrollView.bounds.width
                     // A snap area wider than the viewport can be explored
                     // freely while it covers the viewport (CSS Snap §5.2.2);
-                    // a narrower one rests with its start, or its end, at
+                    // a narrower one rests with its start, centre or end at
                     // the viewport's.
                     let wide = rect.width >= width
-                    let at = align == "end" && !wide ? rect.maxX - width : rect.minX
+                    let at = wide ? rect.minX : align == "end" ? rect.maxX - width : align == "center" ? rect.midX - width / 2 : rect.minX
                     let start = min(maximum, max(0, at))
                     let end = wide ? min(maximum, max(start, rect.maxX - width)) : start
                     let position = min(end, max(start, proposed.x))
