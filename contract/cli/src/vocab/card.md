@@ -64,7 +64,7 @@ scroll | scrollTop navigationScroll keyboardDismissMode | scroll scrollend
 dialog | closedby | cancel close
 
 ## rules
-- An event hands its action its payload after the captured arguments: text for a field, `select` or date; a bool for a checkbox or switch; a number for a range; nothing for `press` and `submit`. `change=set(i.id)` calls `set(id, payload)`.
+- An event hands its action its payload after the captured arguments: text for a field, `select` or date; a bool for a checkbox, switch; a number for a range; nothing for `press`, `submit`. `change=set(i.id)` calls `set(id, payload)`.
 
 ```contract
 component App
@@ -80,9 +80,9 @@ component App
       input type="checkbox" checked=on change=setOn
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
-- A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
+- A number field's `min`, `max`, `step` are numbers; with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
-- Not in Contract (`vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
+- Not in Contract (`vocab <name>` says instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
 
 ## how
 ### a second screen, a sheet
@@ -115,7 +115,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back"
             image "symbol:checkmark"
 ```
 ### a confirmation
-What can't be undone (Delete) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
+What can't be undone asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
 ```contract
 state n = 1
 action remove
@@ -139,7 +139,7 @@ action step
 text `${now}`
 ```
 ### keeping a value
-Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
+Root `state` only: a number, string or bool (or an option or list of one), to 16 KB. Records go in a source (`files-and-grants`).
 ```contract
 state units = "C" persist
 ```
@@ -152,7 +152,7 @@ main
     text "Over" color="-exact-system-red"
 ```
 ### reading and writing data
-app.ts's `loadItems`, `addItem` answer exactly their shape; a refusal is a reply (`ok: false, error`), not a throw. `then act` after `refreshes` clears the field on ok; `pending(added)` stops a second send, `parallel` runs both.
+app.ts's `loadItems`, `addItem` answer exactly their shape; a refusal is a reply (`ok: false, error`), not a throw. `then act` after `refreshes` clears the field on ok; `pending(added)` blocks a resend; `parallel` runs both.
 ```contract
 shape Reply
   ok: bool
@@ -163,7 +163,7 @@ action add
 text items.join(", ")
 ```
 ### a dated record
-The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone is 0 each launch. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
+The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone restarts at 0. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
 ```contract
 shape Time
   epochAtZero: number
@@ -175,8 +175,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-Tests start with empty storage. `clock data` lands replies, `clock settle` ends transitions, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens, relaunches; `verify ios` last; `--shots <dir>` keeps screenshots.
-It runs `contract verify` too; keep its receipt.
+Tests start with no storage. `clock data` lands replies, `clock settle` ends transitions, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens, relaunches; `verify ios` last; `--shots <dir>` keeps screenshots; it runs `contract verify` too, keep its receipt.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"
@@ -185,7 +184,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-One focal point. Emphasis is a part, not paint on a `button`; the main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
+One focal point. Emphasis is a part, not paint on a `button`; the main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, live. A form is a grouped list (`grouped-form`); no rows: an `EmptyState`, its `button` under it.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16
