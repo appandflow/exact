@@ -1,0 +1,101 @@
+# The Cargo tests on Linux and macOS and the script tests on Linux, for pushes
+# to main and for pull requests. Nothing waits for this workflow (ci.yml is what
+# a push waits for): a hosted runner takes over an hour for these.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A run on main is never stopped by a newer push. While one runs, the newest
+# push waits and takes the place of any push that was waiting before it, so the
+# tip is always tested and runs do not pile up. A pull request's newer push
+# replaces the run of the one before it.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        # The Linux host's DRM/KMS, input and font dependencies.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libudev-dev libinput-dev libdrm-dev libgbm-dev \
+            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libwayland-dev
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # A run with a failing test still leaves what it compiled for the next one.
+          cache-on-failure: true
+
+      - name: Hermes bundle
+        # Ordinary builds are offline (.cargo/config.toml); the installer fetches and
+        # verifies Ibex's pinned, attested release bundle once.
+        run: cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target x86_64-unknown-linux-gnu
+
+      - name: Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cargo dependencies
+        # The script tests check the web crates offline, so the registry must
+        # already hold every crate.
+        run: cargo fetch --locked
+
+      - name: test
+        run: cargo test --tests --no-fail-fast
+
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        if: ${{ !cancelled() }}
+
+      - name: script tests
+        # Runs after a failing Cargo test too: each reports its own failures.
+        if: ${{ !cancelled() }}
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: bun test scripts
+
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Hermes bundle
+        run: cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target aarch64-apple-darwin
+
+      - name: Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: test
+        run: cargo test --tests --no-fail-fast
