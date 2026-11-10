@@ -7,12 +7,12 @@ import XCTest
 /// start at the viewport's, `end` its end, and an area wider than the
 /// viewport is free while it covers it (CSS Scroll Snap §5.2.2).
 final class ScrollSnapIOSTests: XCTestCase {
-    private func strip(_ aligns: [(String, Double, Double)]) throws -> (NodeView, UIScrollView) {
+    private func strip(_ aligns: [(String, Double, Double)], stop: String = "normal") throws -> (NodeView, UIScrollView) {
         let p = Presenter()
         p.viewport.frame = CGRect(x: 0, y: 0, width: 300, height: 100)
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "scroll_snap_type": "x mandatory"]]]
         for (i, (align, x, w)) in aligns.enumerated() {
-            ops.append(["op": "create", "id": 10 + i, "kind": "view", "style": ["scroll_snap_align": align]])
+            ops.append(["op": "create", "id": 10 + i, "kind": "view", "style": ["scroll_snap_align": align, "scroll_snap_stop": stop]])
             ops.append(["op": "frame", "id": 10 + i, "x": x, "y": 0.0, "w": w, "h": 100.0])
         }
         ops += [["op": "children", "id": 1, "ids": aligns.indices.map { 10 + $0 }], ["op": "roots", "ids": [1]],
@@ -41,6 +41,20 @@ final class ScrollSnapIOSTests: XCTestCase {
         let (node, scroll) = try strip([("end", 0, 600), ("start", 600, 300)])
         XCTAssertEqual(rest(node, scroll, from: 120), 120)
         XCTAssertEqual(rest(node, scroll, from: 520), 600)
+    }
+
+    func testAlwaysStopsAFlingAtTheNextAreaInItsDirection() throws {
+        let areas = (0..<6).map { ("start", Double($0) * 150, 150.0) }
+        let (node, scroll) = try strip(areas, stop: "always")
+        scroll.contentOffset.x = 20
+        XCTAssertEqual(rest(node, scroll, from: 520), 150, "not past the next area's position")
+        scroll.contentOffset.x = 440
+        XCTAssertEqual(rest(node, scroll, from: 10), 300, "nor past the previous one's going back")
+        scroll.contentOffset.x = 160
+        XCTAssertEqual(rest(node, scroll, from: 170), 150, "a short release rests where it would")
+        let (free, freeScroll) = try strip(areas)
+        freeScroll.contentOffset.x = 20
+        XCTAssertEqual(rest(free, freeScroll, from: 520), 450, "`normal` passes over positions")
     }
 
     func testAgentRevealAndWheelRestAtAPagesSnapPosition() throws {

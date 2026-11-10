@@ -79,6 +79,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("shape-outside", "css CSS Shapes 1", AttrTarget::Styles(&[StyleId::ShapeOutside])),
     ("shape-margin", "css CSS Shapes 1", AttrTarget::Styles(&[StyleId::ShapeMargin])),
     ("scroll-snap-align", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapAlign])),
+    ("scroll-snap-stop", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapStop])),
     ("line-clamp", "css CSS Overflow 4", AttrTarget::Styles(&[StyleId::LineClamp])),
     ("text-overflow", "css CSS Overflow 3", AttrTarget::Styles(&[StyleId::TextOverflow])),
     // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.

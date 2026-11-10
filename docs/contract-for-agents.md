@@ -3039,6 +3039,12 @@ scroll's own frame; Android and Linux show the nodes' own values; the web does n
 yet. A keyframe `rotate` takes an axis
 (`y 32deg`) but turns about the node's own `rotate` axis: set it (`rotate="y 0deg"`).
 
+A carousel or pager that moves one card or one page per fling is `scroll-snap-type="x mandatory"`
+(or `y`) on the scroller and `scroll-snap-stop="always"` beside `scroll-snap-align` on each
+card: a fling then rests on the next snap position in its direction and never passes over
+one. iOS reads it when the drag ends; the web writes it through; other hosts still snap to
+the nearest position.
+
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
 node's content box, `button` and `buttons`, `pressure`, `pointerType`,
