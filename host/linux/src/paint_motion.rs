@@ -213,6 +213,15 @@ impl<D: DataSource> Host<D> {
         }
         out
     }
+    /// View timeline subjects at these progresses (`view-timeline`), their
+    /// consumers presented now; whether anything changed.
+    pub(crate) fn view_progress(&mut self, progress: &[(u64, f64)]) -> bool {
+        for (node, at) in progress {
+            self.engine.set_view_progress(*node, *at);
+        }
+        self.present()
+    }
+
     /// Every presentation value the engine changed, kept by node.
     pub(super) fn present(&mut self) -> bool {
         // Holds and commits both reconcile reader tracks before publishing.

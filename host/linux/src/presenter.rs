@@ -126,6 +126,7 @@ pub mod top;
 mod transform;
 mod transform_geometry;
 mod typing;
+mod view_timeline;
 mod window;
 #[cfg(windows)]
 mod word;
@@ -324,6 +325,8 @@ pub struct Presenter<D: DataSource> {
     arrange: Option<arrange::State>,
     group: Option<group::State>,
     transform_geometry: transform_geometry::State,
+    /// The view timelines' progress as last placed (`view_timeline.rs`).
+    view_progress: Vec<(u64, f64)>,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// Commands from the last commits, consumed by `run_commands`.
@@ -503,6 +506,7 @@ impl<D: DataSource> Presenter<D> {
             contact: None,
             retained_motion: None,
             transform_geometry: Default::default(),
+            view_progress: Vec::new(),
             arrange: None,
             group: None,
             brush: Painter::new(text.clone(), scale, backend),

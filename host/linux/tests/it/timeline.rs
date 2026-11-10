@@ -380,3 +380,41 @@ fn a_thrown_card_tilts_its_face_and_raises_the_next_in_every_frame() {
         (15., 1.)
     );
 }
+
+/// Three 200-wide cards in a 200-wide rail, each fading over its own view
+/// timeline: its progress is where it crosses the rail.
+const RAIL: &str = r##"keyframes fade
+  from opacity=0
+  to opacity=1
+component App
+  view
+    row testId="rail" width=200 height=100 overflow-x="scroll" overflow-y="hidden"
+      for i in [0, 1, 2] key=i
+        box testId=`card-${i}` width=200 height=100 flex-shrink=0 view-timeline="--card x" animation="fade 1s linear both" animation-timeline="--card"
+"##;
+
+#[test]
+fn a_view_timeline_follows_its_scroller_after_layout_and_in_each_scroll() {
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(RAIL).unwrap().encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let _ = p.frame();
+    let opacity =
+        |p: &Presenter<()>, i: u32| p.host().presented(id(p, &format!("card-{i}"))).opacity;
+    assert!((opacity(&p, 0) - 0.5).abs() < 1e-4, "{}", opacity(&p, 0));
+    assert!(opacity(&p, 1).abs() < 1e-4, "{}", opacity(&p, 1));
+    // At rest the first card fills the rail, halfway through its cover range;
+    // the second is entering at its start.
+    // Scrolled by a hundred: each a quarter on, before any paint.
+    let rail = id(&p, "rail");
+    p.scroll_to(rail, (100., 0.));
+    assert!((opacity(&p, 0) - 0.75).abs() < 1e-4, "{}", opacity(&p, 0));
+    assert!((opacity(&p, 1) - 0.25).abs() < 1e-4, "{}", opacity(&p, 1));
+}
