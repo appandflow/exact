@@ -24,13 +24,15 @@ package enum TextAnswerKey {
     }
     private static func fields(_ size: Double, _ weight: Int32, _ family: Int32, _ italic: Bool,
                                _ lineHeight: Double?, _ spacing: Double, _ numeric: Int32, _ ligatures: Int32,
-                               _ stretch: Double, _ variations: [FontAxis], _ out: inout [UInt8]) {
+                               _ stretch: Double, _ variations: [FontAxis], _ features: [FontFeature], _ out: inout [UInt8]) {
         put(size.bitPattern, &out); put(weight, &out); put(family, &out)
         out.append(italic ? 1 : 0); out.append(lineHeight == nil ? 0 : 1)
         put((lineHeight ?? 0).bitPattern, &out); put(spacing.bitPattern, &out); put(numeric, &out); put(ligatures, &out)
         put(stretch.bitPattern, &out)
         put(Int32(variations.count), &out)
         for v in variations { put(v.tag, &out); put(v.value.bitPattern, &out) }
+        put(Int32(features.count), &out)
+        for f in features { out.append(contentsOf: Array(f.tag.utf8)); put(f.value, &out) }
     }
     private static func paragraph(_ align: Int, _ clamp: Int, _ wrap: Int, _ direction: Int, _ space: Int,
                                   _ indent: Double, _ hyphens: Int, _ out: inout [UInt8]) {
@@ -61,7 +63,7 @@ package enum TextAnswerKey {
             }
             fields(single(r.size), Int32(truncatingIfNeeded: r.weight), Int32(truncatingIfNeeded: r.family), r.italic,
                    r.lineHeight.map(single), single(r.letterSpacing), Int32(truncatingIfNeeded: r.numeric),
-                   Int32(truncatingIfNeeded: r.ligatures), single(r.stretch), r.variations, &out)
+                   Int32(truncatingIfNeeded: r.ligatures), single(r.stretch), r.variations, r.features, &out)
             // A list item's lines start at its indent (LLP 1045 D4): only an
             // expanded Markdown spec has one, never a request's plain runs.
             if r.indent != 0 || r.hang { out.append(r.hang ? 2 : 1); put(single(r.indent).bitPattern, &out) }
@@ -71,7 +73,7 @@ package enum TextAnswerKey {
         if let s = spec.strut {
             fields(single(s.size), Int32(truncatingIfNeeded: s.weight), Int32(truncatingIfNeeded: s.family), s.italic,
                    s.lineHeight.map(single), single(s.letterSpacing), Int32(truncatingIfNeeded: s.numeric),
-                   Int32(truncatingIfNeeded: s.ligatures), single(s.stretch), s.variations, &out)
+                   Int32(truncatingIfNeeded: s.ligatures), single(s.stretch), s.variations, s.features, &out)
         }
         paragraph(spec.align, spec.lineClamp, spec.overflowWrap, spec.direction, spec.whiteSpace,
                   single(spec.textIndent), spec.hyphens, &out)
@@ -92,7 +94,7 @@ package enum TextAnswerKey {
         func run(_ r: ExactTextRun) {
             fields(Double(r.font_size), Int32(r.font_weight), Int32(r.font_family), r.italic != 0,
                    r.has_line_height != 0 ? Double(r.line_height) : nil, Double(r.letter_spacing),
-                   Int32(r.font_variant_numeric), Int32(r.font_variant_ligatures), Double(r.font_stretch), FontAxis.of(r), &out)
+                   Int32(r.font_variant_numeric), Int32(r.font_variant_ligatures), Double(r.font_stretch), FontAxis.of(r), FontFeature.of(r), &out)
         }
         put(Int32(truncatingIfNeeded: request.count), &out)
         for r in UnsafeBufferPointer(start: request.runs, count: request.count) {

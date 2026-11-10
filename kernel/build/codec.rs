@@ -193,6 +193,11 @@ fn parse_codec(s: &str) -> Codec {
             variant: "FontVariations",
             error: "BadFontVariations",
         },
+        "font-features" => Codec::CssValue {
+            path: "crate::style::FontFeatures",
+            variant: "FontFeatures",
+            error: "BadFontFeatures",
+        },
         "text-shadow" => Codec::CssValue {
             path: "crate::style::TextShadow",
             variant: "TextShadow",

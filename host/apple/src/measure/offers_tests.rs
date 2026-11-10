@@ -478,6 +478,7 @@ mod storage {
             letter_spacing: -0.125,
             font_variant_numeric: 0,
             font_variant_ligatures: 0,
+            font_features: exact_kernel::style::FontFeatures::parse(r#""cv05", "liga" 0"#).unwrap(),
             bold_text: false,
         };
         let strut = TextStyle {
@@ -492,6 +493,7 @@ mod storage {
             letter_spacing: -0.0,
             font_variant_numeric: 0,
             font_variant_ligatures: 0,
+            font_features: Default::default(),
             bold_text: false,
         };
         let runs = [
@@ -524,6 +526,13 @@ mod storage {
                 variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
                 variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 optical_sizing_none: 1,
+                feature_count: 2,
+                feature_tags: std::array::from_fn(|i| match i {
+                    0 => u32::from_be_bytes(*b"cv05"),
+                    1 => u32::from_be_bytes(*b"liga"),
+                    _ => 0,
+                }),
+                feature_values: std::array::from_fn(|i| u32::from(i == 0)),
                 inline_box: 0,
                 box_align: 0,
                 box_width: 0.0,
@@ -547,6 +556,9 @@ mod storage {
                 variation_tags: [0; 8],
                 variation_values: [0.0; 8],
                 optical_sizing_none: 0,
+                feature_count: 0,
+                feature_tags: [0; 16],
+                feature_values: [0; 16],
                 inline_box: 0,
                 box_align: 0,
                 box_width: 0.0,

@@ -1113,6 +1113,21 @@ address or code, and the other keywords (`no-contextual`,
 terminal draws no ligatures; Android's native text fields, UIKit's grouped list
 cells and content regions keep the font's own; widgets and the watch refuse it.
 
+Any other OpenType feature of the face is set by tag, as CSS sets it:
+`font-feature-settings="'cv05', 'cv11', 'zero'"` draws Inter's tailed `l`,
+single-storey `a` and slashed zero. A tag alone or `on` is 1, `off` is 0, and a
+larger number, up to 65535, picks an alternate (`'salt' 2`); a tag the face
+lacks does nothing. It is an element's property, not a `font` declaration's,
+and it is inherited: it applies to the text under the node it is on, in
+whatever face that text is drawn. Set it on the root to cover the app, or on
+the elements that use the face when another face under the same ancestor has a
+feature of the same tag (`cv05` is a different letter in each face). Up to
+sixteen features are named in one value.
+It applies after `font-variant-numeric` and `font-variant-ligatures` and wins
+for a feature it names, so `'tnum' 0` undoes `tabular-nums`; prefer those
+properties where they say it. It reaches text and text fields where
+`font-variant-ligatures` does.
+
 ## Input, events, and commands
 
 Bind a controlled text field's current value and its editing action:

@@ -25,7 +25,7 @@ package enum TextStyle {
                    numeric: Int(style["font_variant_numeric"]?.number ?? 0),
                    ligatures: Int(style["font_variant_ligatures"]?.number ?? 0),
                    stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)),
-                   variations: FontAxis.of(style))
+                   variations: FontAxis.of(style), features: FontFeature.of(style))
     }
     package static func spec(runs input: [Run], style: NodeStyle, props: [String: String], strut: Run,
                              color: [Double] = [0, 0, 0, 255], language: String = "", flow: Bool = false) -> Spec {

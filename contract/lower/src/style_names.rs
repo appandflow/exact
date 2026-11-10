@@ -84,6 +84,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
     ("font-variant-numeric", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantNumeric])),
     ("font-variant-ligatures", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantLigatures])),
+    ("font-feature-settings", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontFeatureSettings])),
     ("column-width", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnWidth])),
     ("column-fill", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnFill])),
     ("column-rule-style", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnRuleStyle])),

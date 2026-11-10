@@ -59,6 +59,12 @@ pub struct CRun {
     pub variation_values: [f32; 8],
     /// 1 for CSS `font-optical-sizing: none`: the face keeps its own `opsz`.
     pub optical_sizing_none: u8,
+    /// CSS `font-feature-settings`: how many features are set.
+    pub feature_count: u8,
+    /// Their tags, big-endian (`'tnum'` is `0x746e756d`).
+    pub feature_tags: [u32; 16],
+    /// Their values: 0 off, 1 on, more an alternate's index.
+    pub feature_values: [u32; 16],
     /// 1 when the run is an image in the paragraph's text (LLP 1011.002).
     pub inline_box: u8,
     /// Its `vertical-align` keyword, as `VerticalAlign`'s wire value.
@@ -365,7 +371,7 @@ fn offer(a: AxisOffer) -> f32 {
     }
 }
 
-fn c_run(text: &str, style: exact_kernel::TextStyle, inline: Option<InlineBox>) -> CRun {
+pub(crate) fn c_run(text: &str, style: exact_kernel::TextStyle, inline: Option<InlineBox>) -> CRun {
     let b = inline.unwrap_or(InlineBox {
         width: 0.0,
         height: 0.0,
@@ -400,6 +406,13 @@ fn c_run(text: &str, style: exact_kernel::TextStyle, inline: Option<InlineBox>) 
         optical_sizing_none: u8::from(
             style.font_optical_sizing == exact_kernel::FontOpticalSizing::None,
         ),
+        feature_count: style.font_features.features().len() as u8,
+        feature_tags: std::array::from_fn(|i| {
+            style.font_features.features().get(i).map_or(0, |f| f.0)
+        }),
+        feature_values: std::array::from_fn(|i| {
+            style.font_features.features().get(i).map_or(0, |f| f.1)
+        }),
     }
 }
 

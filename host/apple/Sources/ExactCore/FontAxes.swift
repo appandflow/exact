@@ -1,6 +1,7 @@
 // CSS `font-variation-settings` (LLP 1019 D9): the axes a run sets after its
 // weight, width and optical size, each winning for its own axis. A run under
-// `font-optical-sizing: none` carries `FontAxis.ownOpticalSize` first.
+// `font-optical-sizing: none` carries `FontAxis.ownOpticalSize` first. CSS
+// `font-feature-settings`, the OpenType features a run sets by tag, is here too.
 import Foundation
 import CoreText
 import CExact
@@ -61,6 +62,44 @@ extension FontAxis {
     /// Text for a font cache key; empty for none.
     package static func key(_ axes: [FontAxis]) -> String {
         axes.map { "\($0.tag)=\($0.value)" }.joined(separator: ",")
+    }
+}
+
+/// CSS `font-feature-settings` (CSS Fonts 4 §6.12): one OpenType feature of
+/// the chosen face, by tag, and its value (0 off, 1 on, more an alternate).
+package struct FontFeature: Hashable {
+    package let tag: String
+    package let value: UInt32
+    package init(tag: String, value: UInt32) { self.tag = tag; self.value = value }
+}
+
+extension FontFeature {
+    /// The features the kernel's run carries.
+    package static func of(_ run: ExactTextRun) -> [FontFeature] {
+        var tags = run.feature_tags, values = run.feature_values
+        let count = min(Int(run.feature_count), 16)
+        guard count > 0 else { return [] }
+        return withUnsafeBytes(of: &tags) { t in
+            withUnsafeBytes(of: &values) { v in
+                (0..<count).map { i in
+                    let tag = t.load(fromByteOffset: i * 4, as: UInt32.self)
+                    return FontFeature(tag: String(decoding: withUnsafeBytes(of: tag.bigEndian) { Array($0) }, as: UTF8.self),
+                                       value: v.load(fromByteOffset: i * 4, as: UInt32.self))
+                }
+            }
+        }
+    }
+
+    /// The features a node's style rows carry.
+    package static func of(_ style: NodeStyle) -> [FontFeature] { of(style["font_feature_settings"]) }
+
+    /// The features a style row carries: `[["cv05",1],…]`.
+    package static func of(_ value: BatchValue?) -> [FontFeature] {
+        (value?.array ?? []).compactMap { pair in
+            guard let p = pair.array, p.count == 2, let tag = p[0].string, tag.utf8.count == 4,
+                  let v = p[1].number, v >= 0, v <= Double(UInt32.max) else { return nil }
+            return FontFeature(tag: tag, value: UInt32(v))
+        }
     }
 }
 

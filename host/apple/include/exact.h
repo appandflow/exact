@@ -173,6 +173,9 @@ typedef struct ExactTextRun {
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
     float variation_values[8];    /* in the axis's own units */
     uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
+    uint8_t feature_count;        /* CSS font-feature-settings: features set */
+    uint32_t feature_tags[16];    /* each a big-endian OpenType tag ('tnum') */
+    uint32_t feature_values[16];  /* 0 off, 1 on, more an alternate's index */
     /* LLP 1011.002: 1 when the run is an image in the paragraph's text, its text U+FFFC
      * and its box these points wide and tall, raised box_shift from where box_align
      * (0 baseline, 1 middle, 2 text-top, 3 text-bottom, CSS vertical-align) puts it. */

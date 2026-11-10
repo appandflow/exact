@@ -121,6 +121,8 @@ pub(super) fn push_style(
     // substitute face; a face without it keeps its figures (LLP 1053 G4).
     // `font-variant-ligatures` turns the face's ligature features on or off
     // (CSS Fonts 4); HarfRust keeps its defaults for the kinds left unsaid.
+    // `font-feature-settings` comes last and wins for a feature either named
+    // (CSS Fonts 4 §7.2).
     let mut features = Vec::new();
     if run.font_variant_numeric & 1 != 0 {
         features.push(parley::FontFeature::new(
@@ -133,6 +135,13 @@ pub(super) fn push_style(
             parley::setting::Tag::new(tag),
             value,
         ));
+    }
+    for (tag, value) in run.font_features.features() {
+        let tag = parley::setting::Tag::new(&tag.to_be_bytes());
+        // The kernel keeps no value past 16 bits (`FontFeatures::MAX_VALUE`).
+        let value = u16::try_from(*value).unwrap_or(u16::MAX);
+        features.retain(|f: &parley::FontFeature| f.tag != tag);
+        features.push(parley::FontFeature::new(tag, value));
     }
     if !features.is_empty() {
         builder.push(

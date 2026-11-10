@@ -118,6 +118,9 @@ pub struct TextStyle {
     /// CSS `font-variant-ligatures` as [`crate::FontVariantLigatures`]'
     /// bits: which OpenType ligature features are turned on or off.
     pub font_variant_ligatures: u8,
+    /// CSS `font-feature-settings`, applied after `font_variant_numeric` and
+    /// `font_variant_ligatures` and winning for the same feature.
+    pub font_features: crate::style::FontFeatures,
     /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
     /// stepped already, and a weight a host gives a piece of it itself (a
     /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
@@ -126,7 +129,7 @@ pub struct TextStyle {
 
 impl TextStyle {
     /// The rows [`TextStyle::from_style`] reads.
-    pub const ROWS: [StyleId; 11] = [
+    pub const ROWS: [StyleId; 12] = [
         StyleId::FontSize,
         StyleId::FontWeight,
         StyleId::FontStyle,
@@ -138,6 +141,7 @@ impl TextStyle {
         StyleId::LetterSpacing,
         StyleId::FontVariantNumeric,
         StyleId::FontVariantLigatures,
+        StyleId::FontFeatureSettings,
     ];
 
     /// [`TextStyle::from_style`] of a computed style read row by row: the
@@ -179,6 +183,7 @@ impl TextStyle {
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
             font_variant_ligatures: s.font_variant_ligatures,
+            font_features: s.font_feature_settings,
             bold_text: false,
         }
     }
@@ -1127,6 +1132,7 @@ struct TextRows {
     letter_spacing: f32,
     font_variant_numeric: u8,
     font_variant_ligatures: u8,
+    font_features: crate::style::FontFeatures,
 }
 
 impl TextRows {
@@ -1143,6 +1149,7 @@ impl TextRows {
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
             font_variant_ligatures: s.font_variant_ligatures,
+            font_features: s.font_feature_settings,
         }
     }
     fn take(&mut self, s: &StyleProps, mask: StyleMask) {
@@ -1179,6 +1186,9 @@ impl TextRows {
         if mask.has(StyleId::FontVariantLigatures) {
             self.font_variant_ligatures = s.font_variant_ligatures;
         }
+        if mask.has(StyleId::FontFeatureSettings) {
+            self.font_features = s.font_feature_settings;
+        }
     }
     fn style(&self) -> TextStyle {
         TextStyle {
@@ -1193,6 +1203,7 @@ impl TextRows {
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
             font_variant_ligatures: self.font_variant_ligatures,
+            font_features: self.font_features,
             bold_text: false,
         }
     }

@@ -394,6 +394,7 @@ const FONT_LONGHANDS: &[StyleId] = &[
     StyleId::FontFamily,
     StyleId::FontVariationSettings,
     StyleId::FontOpticalSizing,
+    StyleId::FontFeatureSettings,
 ];
 
 /// `text-box` (`normal`, or a trim and an edge in either order, each

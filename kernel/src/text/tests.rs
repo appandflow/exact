@@ -13,6 +13,7 @@ fn style(font_size: f32) -> TextStyle {
         letter_spacing: 0.0,
         font_variant_numeric: 0,
         font_variant_ligatures: 0,
+        font_features: Default::default(),
         bold_text: false,
     }
 }

@@ -91,6 +91,9 @@ pub struct Run {
     pub font_variant_numeric: u8,
     /// CSS `font-variant-ligatures` as `FontVariantLigatures`' bits.
     pub font_variant_ligatures: u8,
+    /// CSS `font-feature-settings`, after the two above and winning for the
+    /// same feature.
+    pub font_features: exact_kernel::style::FontFeatures,
     /// A Markdown list item's head indent, points: where its paragraph's
     /// lines start (LLP 1045 D4).
     pub indent: f32,
@@ -126,6 +129,7 @@ impl Clone for Run {
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
             font_variant_ligatures: self.font_variant_ligatures,
+            font_features: self.font_features,
             indent: self.indent,
             hang: self.hang,
             mark: self.mark,
@@ -154,6 +158,7 @@ impl Run {
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
             font_variant_ligatures: style.font_variant_ligatures,
+            font_features: style.font_features,
             indent: 0.0,
             hang: false,
             mark: 0,

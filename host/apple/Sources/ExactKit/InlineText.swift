@@ -33,7 +33,7 @@ extension InlineText {
                       numeric: Int(number("font_variant_numeric")),
                       ligatures: Int(number("font_variant_ligatures")),
                       stretch: CGFloat(Float(number("font_stretch", 100))),
-                      variations: FontAxis.of(style),
+                      variations: FontAxis.of(style), features: FontFeature.of(style),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,

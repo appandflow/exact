@@ -608,14 +608,17 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
       const key = JSON.stringify([snapshot.width, snapshot.height, snapshot.lineHeight, snapshot.maxLines, snapshot.align,
         snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions, snapshot.cut]);
       if (s.geometry === key && s.rendered) return { s, unchanged: true };
-      // Canvas has no font-variant-numeric (LLP 1053 G4) or
-      // font-variant-ligatures: tabular figures and unjoined letters cannot be
-      // measured for the walker, so such a paragraph keeps ordinary layout.
+      // Canvas has no font-variant-numeric (LLP 1053 G4), font-variant-ligatures
+      // or font-feature-settings: tabular figures, unjoined letters and a
+      // feature's glyphs cannot be measured for the walker, so such a paragraph
+      // keeps ordinary layout.
       const fonts = [snapshot.font, ...s.runs.map(r => r.font)];
       if (fonts.some(f => f.extra.fontVariantNumeric !== 'normal'))
         return { s, skipped: 'font-variant-numeric cannot be measured by canvas; ordinary text retained' };
       if (fonts.some(f => f.extra.fontVariantLigatures !== 'normal'))
         return { s, skipped: 'font-variant-ligatures cannot be measured by canvas; ordinary text retained' };
+      if (fonts.some(f => (f.fontFeatureSettings || 'normal') !== 'normal'))
+        return { s, skipped: 'font-feature-settings cannot be measured by canvas; ordinary text retained' };
       if (!prepare(snapshot)) return { ...snapshot, pending: true };
       registerShapes(snapshot.exclusions);
       const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));

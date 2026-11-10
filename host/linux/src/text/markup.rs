@@ -62,6 +62,7 @@ pub fn expand(source: &Run) -> Vec<Run> {
                 letter_spacing: source.letter_spacing,
                 font_variant_numeric: source.font_variant_numeric,
                 font_variant_ligatures: source.font_variant_ligatures,
+                font_features: source.font_features,
                 indent: p.indent,
                 hang: p.hang,
                 mark,

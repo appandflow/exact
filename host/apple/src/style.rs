@@ -284,6 +284,7 @@ pub(crate) fn style_json_rows(
                 true
             }
             RowValue::FontVariations(v) => axes::font_axes_json(&mut out, v),
+            RowValue::FontFeatures(f) => axes::font_features_json(&mut out, f),
             // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
             // is currentcolor, the text's own.
             RowValue::TextShadow(t) => match t.shadow() {

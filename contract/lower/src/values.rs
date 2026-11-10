@@ -191,6 +191,9 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
         StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadBoxShadow { .. } => exact_kernel::style::BoxShadows::check(t).err(),
         StyleValueError::BadTextShadow { .. } => exact_kernel::style::TextShadow::check(t).err(),
+        StyleValueError::BadFontFeatures { .. } => {
+            exact_kernel::style::FontFeatures::check(t).err()
+        }
         StyleValueError::BadCornerShape { .. } => exact_kernel::corner::CornerShape::check(t).err(),
         StyleValueError::BadColor { .. } => exact_color::refusal(t),
         StyleValueError::BadMaskImage { .. } => {
@@ -220,6 +223,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadMaskImage { .. } => "expected none, or one linear-gradient(…), radial-gradient(…) or conic-gradient(…)".into(),
         StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
         StyleValueError::BadFontVariations { .. } => "expected normal, or up to eight axes as `\"wght\" 650, \"wdth\" 90`: a quoted four-character tag and a number".into(),
+        StyleValueError::BadFontFeatures { .. } => "expected normal, or up to sixteen OpenType features as `\"cv05\", \"tnum\" 1, \"liga\" off`: a quoted four-character tag and an optional non-negative integer, `on` or `off` (CSS Fonts 4 §6.12)".into(),
         StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -exact-continuous".into(),
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),

@@ -268,6 +268,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     letter_spacing: 0.0,
                     font_variant_numeric: 0,
                     font_variant_ligatures: 0,
+                    font_features: Default::default(),
                     indent: 0.0,
                     hang: false,
                     mark: 0,

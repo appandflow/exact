@@ -43,6 +43,7 @@ mod viewport;
 pub use viewport::ViewportUnit;
 pub mod cells;
 mod color_parse;
+mod features;
 pub mod metrics;
 pub mod profiled;
 pub mod relative;
@@ -57,6 +58,7 @@ pub(crate) mod table;
 pub mod theme;
 mod variations;
 pub mod wide;
+pub use features::FontFeatures;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 pub use variations::FontVariations;
 
@@ -909,6 +911,8 @@ pub enum RowValue<'a> {
     TextShadow(&'a TextShadow),
     /// CSS `font-variation-settings` (LLP 1019 D9).
     FontVariations(&'a FontVariations),
+    /// CSS `font-feature-settings` (CSS Fonts 4 §6.12).
+    FontFeatures(&'a FontFeatures),
     /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
     MaskImage(&'a crate::gradient::BackgroundImage),
     /// CSS `corner-shape` (LLP 1077 D1).
@@ -973,6 +977,7 @@ impl RowValue<'_> {
             | RowValue::BackgroundImage(_)
             | RowValue::TextShadow(_)
             | RowValue::FontVariations(_)
+            | RowValue::FontFeatures(_)
             | RowValue::BoxShadow(_)
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)

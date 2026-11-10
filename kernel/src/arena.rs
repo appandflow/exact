@@ -1334,6 +1334,7 @@ mod tests {
             (StyleId::LetterSpacing, number(2.0)),
             (StyleId::FontVariantNumeric, text("tabular-nums")),
             (StyleId::FontVariantLigatures, text("none")),
+            (StyleId::FontFeatureSettings, text(r#""cv05", "tnum""#)),
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),

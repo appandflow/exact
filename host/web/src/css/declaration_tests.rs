@@ -20,6 +20,16 @@ fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
     assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
 }
 
+/// CSS Fonts 4 §6.12: `font-feature-settings` is written as CSS serializes it.
+#[test]
+fn font_feature_settings_are_their_css() {
+    let value = StyleValue::Text("'cv05' 1,'tnum' on,'liga' off".into());
+    assert_eq!(
+        css(&[(StyleId::FontFeatureSettings, value)], &[]),
+        r#"font-feature-settings:"cv05", "tnum", "liga" 0;"#
+    );
+}
+
 #[test]
 fn backdrop_filters_keep_order_and_identity_in_css() {
     exact_kernel::style::link_backdrop_filter();

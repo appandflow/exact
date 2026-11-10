@@ -882,6 +882,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "fontStyle" => "font-style",
         "fontStretch" => "font-stretch",
         "fontVariationSettings" => "font-variation-settings",
+        "fontFeatureSettings" => "font-feature-settings",
         "fontOpticalSizing" => "font-optical-sizing",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",

@@ -240,6 +240,64 @@ fn font_variation_settings_reach_the_row_and_bad_ones_are_refused() {
     );
 }
 
+/// CSS Fonts 4 §6.12: `font-feature-settings` reaches the kernel's row as CSS
+/// writes it, and a value CSS refuses is refused at compile,
+/// naming the rule it breaks.
+#[test]
+fn font_feature_settings_reach_the_row_and_bad_ones_are_refused() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"Il1 0123\" font-family=\"Inter\" font-feature-settings=`'cv05' 1, \"cv11\", \"tnum\" on, \"liga\" off` testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    let f = node.style.font_feature_settings;
+    assert_eq!(
+        [
+            f.get(b"cv05"),
+            f.get(b"cv11"),
+            f.get(b"tnum"),
+            f.get(b"liga")
+        ],
+        [Some(1), Some(1), Some(1), Some(0)]
+    );
+    for (value, why) in [
+        ("cv05 1", "each feature is a quoted tag"),
+        ("'cv5' 1", "exactly four printable ASCII characters"),
+        ("'cv05' -1", "a non-negative integer, `on` or `off`"),
+        ("'cv05' 1.5", "a non-negative integer, `on` or `off`"),
+    ] {
+        let app = AppDir::new(&format!(
+            "component App\n  view\n    text \"x\" font-feature-settings=\"{value}\"\n"
+        ));
+        let error = app.compile().unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{error}");
+        assert!(error.message.contains(why), "{value}: {error}");
+    }
+    let seventeen = (0..17)
+        .map(|i| format!("'ss{i:02}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let app = AppDir::new(&format!(
+        "component App\n  view\n    text \"x\" font-feature-settings=\"{seventeen}\"\n"
+    ));
+    let error = app.compile().unwrap_err();
+    assert!(
+        error.message.contains("at most 16 distinct features"),
+        "{error}"
+    );
+}
+
 fn refusal(source: &str, id: &str) {
     let app = AppDir::new(source);
     let error = app.compile().unwrap_err();

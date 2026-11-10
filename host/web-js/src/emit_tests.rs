@@ -125,6 +125,22 @@ fn font_variation_settings_are_written_literal_and_bound() {
     assert!(out.js.contains("\"font-variation-settings\""), "{}", out.js);
 }
 
+/// CSS Fonts 4 §6.12: `font-feature-settings` is the property, literal or bound.
+#[test]
+fn font_feature_settings_are_written_literal_and_bound() {
+    let plan = contract::compile(
+        "component App\n  state alt = false\n  view\n    column\n      text \"a\" font-feature-settings=`'cv05' 1, 'tnum'`\n      text \"b\" font-feature-settings=(alt ? `\"ss01\" on` : \"normal\")\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.css, out.js);
+    assert!(
+        all.contains(r#"font-feature-settings:"cv05", "tnum";"#),
+        "{all}"
+    );
+    assert!(out.js.contains("\"font-feature-settings\""), "{}", out.js);
+}
+
 #[test]
 fn a_constant_template_family_emits_as_a_literal_stack() {
     let plan = contract::compile(

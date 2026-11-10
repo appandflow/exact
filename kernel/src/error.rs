@@ -62,6 +62,8 @@ pub enum DecodeError {
     BadTextShadow,
     /// Invalid CSS `font-variation-settings`, or more than eight axes (LLP 1019 D9).
     BadFontVariations,
+    /// Invalid CSS `font-feature-settings`, or more than sixteen features.
+    BadFontFeatures,
     /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
     BadMaskImage,
     /// Invalid CSS `corner-shape` (LLP 1077 D1).
@@ -532,6 +534,10 @@ pub enum StyleValueError {
     },
     /// Not `normal` or up to eight `"tag" <number>` axes (LLP 1019 D9).
     BadFontVariations {
+        style: StyleId,
+    },
+    /// Not `normal` or up to sixteen `"tag" [<integer> | on | off]` features.
+    BadFontFeatures {
         style: StyleId,
     },
     /// Not `none` or one gradient mask (LLP 1077 D2).

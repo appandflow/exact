@@ -201,6 +201,21 @@ fn a_class_brings_a_part_only_its_groups_rows() {
     assert!(with(&src, id).is_empty());
 }
 
+/// The `text` group is the part's type: its OpenType features too
+/// (`font-variant-numeric`, `font-variant-ligatures`, `font-feature-settings`).
+#[test]
+fn a_text_part_takes_the_faces_features() {
+    let src = "style Figures\n  font-variant-numeric = \"tabular-nums\"\n  font-variant-ligatures = \"none\"\n  font-feature-settings = \"'cv05', 'zero'\"\n\n".to_string()
+        + &spell(
+            "",
+            &[("label", "text")],
+            "    column\n      text \"Il1 0\" part=\"label\" class=Figures\n",
+        );
+    let got = with(&src, "lower-anatomy-row");
+    assert!(got.is_empty(), "{got:?}");
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
 #[test]
 fn a_native_controls_part_is_the_control_group_alone() {
     let id = "lower-anatomy-control";

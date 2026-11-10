@@ -388,6 +388,71 @@ fn font_variant_ligatures_turns_the_faces_ligatures_off() {
     assert!(!Rc::ptr_eq(&e.paragraph(&a, None), &e.paragraph(&b, None)));
 }
 
+fn featured(
+    e: &mut TextEngine,
+    text: &str,
+    numeric: u8,
+    ligatures: &str,
+    settings: &str,
+) -> Vec<u32> {
+    let mut s = spec(text, WhiteSpace::Normal);
+    s.runs[0].font_variant_numeric = numeric;
+    s.runs[0].font_variant_ligatures = exact_kernel::FontVariantLigatures::bits(ligatures).unwrap();
+    s.runs[0].font_features = exact_kernel::style::FontFeatures::parse(settings).unwrap();
+    let p = e.paragraph(&s, None);
+    p.layout_runs()
+        .flat_map(|r| r.glyphs.iter().map(|g| g.glyph_id).collect::<Vec<_>>())
+        .collect()
+}
+
+/// CSS Fonts 4 §6.12: `font-feature-settings` turns the face's features on
+/// by tag, after `font-variant-numeric` and `font-variant-ligatures`, and
+/// wins for a feature either names (§7.2).
+#[test]
+fn font_feature_settings_set_the_faces_features_and_win() {
+    let mut e = engine(INTER, "Inter");
+    // Inter's `cv05` gives `l` a tail, `cv08` gives `I` serifs, `zero` slashes 0.
+    let plain = featured(&mut e, "Il1 0", 0, "normal", "normal");
+    let set = featured(
+        &mut e,
+        "Il1 0",
+        0,
+        "normal",
+        r#""cv05", "cv08" 1, "zero" on"#,
+    );
+    assert_eq!(plain.len(), set.len());
+    assert_ne!(set[0], plain[0], "I takes cv08's form");
+    assert_ne!(set[1], plain[1], "l takes cv05's form");
+    assert_eq!(set[2], plain[2], "1 has no form in these features");
+    assert_ne!(set[4], plain[4], "0 is slashed");
+    assert_eq!(featured(&mut e, "Il1 0", 0, "normal", r#""cv05" 0"#), plain);
+    // `tnum` set by `tabular-nums` and turned off by the settings: the
+    // settings win, so the figures are proportional again.
+    let width = |e: &mut TextEngine, text: &str, settings: &str| {
+        let mut s = spec(text, WhiteSpace::Normal);
+        s.runs[0].font_variant_numeric = 1;
+        s.runs[0].font_features = exact_kernel::style::FontFeatures::parse(settings).unwrap();
+        e.measure(&s, AxisOffer::MaxContent).width
+    };
+    assert_eq!(
+        width(&mut e, "111", "normal"),
+        width(&mut e, "888", "normal")
+    );
+    assert!(width(&mut e, "111", r#""tnum" 0"#) < width(&mut e, "888", r#""tnum" 0"#));
+    // `common-ligatures` turned off by `"liga" 0`, on DejaVu, which joins fi.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    assert!(featured(&mut e, "fi", 0, "common-ligatures", "normal").len() < 2);
+    assert_eq!(
+        featured(&mut e, "fi", 0, "common-ligatures", r#""liga" 0, "clig" 0"#).len(),
+        2
+    );
+    // A distinct shape identity: the cache never answers one with the other.
+    let a = spec("Il1", WhiteSpace::Normal);
+    let mut b = a.clone();
+    b.runs[0].font_features = exact_kernel::style::FontFeatures::parse(r#""cv05""#).unwrap();
+    assert!(!Rc::ptr_eq(&e.paragraph(&a, None), &e.paragraph(&b, None)));
+}
+
 #[test]
 fn tabular_nums_is_a_distinct_shape_identity() {
     let mut e = engine(INTER, "Inter");
