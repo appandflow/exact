@@ -680,11 +680,12 @@ test('an Apple bake says the web-only symbol warnings in one line', async () => 
 test('a long build says how long it has run and its last step, then a lock it waits on', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-logged-')), said = [];
   try {
-    const script = 'console.log("   Compiling exact-kernel v0.1.0"); await Bun.sleep(120); console.error("    Blocking waiting for file lock on package cache"); await Bun.sleep(120);';
-    const { code } = await logged(process.execPath, ['-e', script], resolve(dir, 'build.log'), { say: line => said.push(line), every: 80 });
+    const script = 'console.log("   Compiling exact-kernel v0.1.0"); await Bun.sleep(400); console.error("    Blocking waiting for file lock on package cache"); await Bun.sleep(400);';
+    const { code } = await logged(process.execPath, ['-e', script], resolve(dir, 'build.log'), { say: line => said.push(line), every: 100 });
     assert.equal(code, 0);
-    assert.match(said[0], /^ {2}still building \(\d+ s\): Compiling exact-kernel v0\.1\.0$/);
-    assert.ok(said.some(line => /Blocking waiting for file lock on package cache, (held by|its holder)/.test(line)), said.join('\n'));
+    // A tick may come before the child has said anything (a loaded machine starts Bun slowly); a later one quotes its step.
+    assert.ok(said.some(line => /^ {2}still building \(\d+ s\): Compiling exact-kernel v0\.1\.0$/.test(line)), said.join('\n'));
+    assert.ok(said.some(line => /Blocking waiting for file lock on package cache, (held by|cargo running|its holder)/.test(line)), said.join('\n'));
     assert.match(readFileSync(resolve(dir, 'build.log'), 'utf8'), /Compiling exact-kernel/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

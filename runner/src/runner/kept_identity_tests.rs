@@ -297,8 +297,9 @@ fn a_refused_kept_answer_is_journaled_with_why() {
         .filter(|l| l.contains("did not use its kept answer"))
         .collect();
     assert!(
-        lines.iter().any(|l| l
-            .ends_with("account did not use its kept answer: kept for [1], this launch asks for [0]")),
+        lines.iter().any(|l| l.ends_with(
+            "account did not use its kept answer: kept for [1], this launch asks for [0]"
+        )),
         "{lines:?}"
     );
     assert!(

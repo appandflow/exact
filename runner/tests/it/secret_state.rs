@@ -30,7 +30,14 @@ component App
 #[test]
 fn state_masks_a_password_fields_text_unless_a_test_asks_to_compare() {
     let plan = contract::compile(SRC).expect("the fixture compiles");
-    let r = Runner::boot(plan, NoData, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let state: serde_json::Value = serde_json::from_str(&agent::state(&r)).unwrap();
     assert_eq!(state["slots"]["pw"], "•••");
     assert_eq!(state["derives"]["copy"], "•••");

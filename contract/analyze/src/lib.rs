@@ -262,9 +262,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         };
         errors.push(AnalyzeError {
             id: "analyze-root-props",
-            message: format!(
-                "the root component (the first in the file) takes no props{below}"
-            ),
+            message: format!("the root component (the first in the file) takes no props{below}"),
             span: root.span,
             related: Vec::new(),
         });
