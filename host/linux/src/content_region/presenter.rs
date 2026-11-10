@@ -134,6 +134,7 @@ impl<D: DataSource> Presenter<D> {
         let stage = self.stage_paint();
         self.brush.set_stage(self.host.kernel(), stage);
         let shows = self.stage_shows();
+        (self.brush).set_leaving(self.host.kernel(), self.host.leaving_paint());
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()

@@ -51,7 +51,7 @@ component App
   Leaving restores the base.
 - **Keyframes:** literals or app `fn` on constants.
 - **Exit:** an `if` arm or `for` row leaves layout at once, inert; siblings use their layout
-  transitions. The exit must end. Unsupported in a screen being popped, and on Linux.
+  transitions. The exit must end. Unsupported in a screen being popped.
 - **Layout transition:** moves and resizes the surface; children jump, unscaled.
   `sharedElement=` flies between boxes on iOS, macOS and web, not Linux.
 - **Expand/collapse:** keep content mounted (`Shown`) in a clipped wrapper with `height`
