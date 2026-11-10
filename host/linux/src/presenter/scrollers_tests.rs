@@ -589,3 +589,54 @@ fn a_tap_scrolls_the_page_clear_of_its_own_sticky_header() {
     assert!(mid >= 60.0, "{mid}");
     p.tap(under).unwrap();
 }
+
+#[test]
+fn a_mandatory_snap_tells_the_offsets_its_areas_rest_at() {
+    let mut p = boot(
+        r#"component App
+  view
+    column width=400 height=400
+      scroll testId="rail" width=400 height=100 overflow-x="scroll" overflow-y="hidden" scroll-snap-type="x mandatory"
+        row
+          for i in [0, 1, 2, 3]
+            box width=300 height=100 flex-shrink=0 scroll-snap-align="center"
+      scroll testId="pager" width=400 height=200 scroll-snap-type="y mandatory"
+        column
+          for i in [0, 1, 2]
+            box width=400 height=200 flex-shrink=0 scroll-snap-align="start"
+          box width=400 height=500 flex-shrink=0 scroll-snap-align="start"
+"#,
+    );
+    let (rail, pager) = (id(&p, "rail"), id(&p, "pager"));
+    let words = p.reader_snaps(&[rail, pager, PAGE], 2.);
+    let f = |w: i32| f32::from_bits(w as u32) / 2.;
+    let mut at = 0;
+    let mut read = || {
+        let (axis, n) = (words[at], words[at + 1] as usize);
+        let rests: Vec<(f32, f32)> = (0..n)
+            .map(|k| (f(words[at + 2 + 2 * k]), f(words[at + 3 + 2 * k])))
+            .collect();
+        at += 2 + 2 * n;
+        (axis, rests)
+    };
+    // Each 300-wide card's centre at the 400-wide port's: the first and the
+    // last are held by the ends (travel 800).
+    let (axis, mut rests) = read();
+    rests.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert_eq!(axis, X);
+    assert_eq!(
+        rests,
+        vec![(0., 0.), (250., 250.), (550., 550.), (800., 800.)]
+    );
+    // A page at the port's top; the last, taller than the port, is explored
+    // from its start to its end (travel 1,100).
+    let (axis, mut rests) = read();
+    rests.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert_eq!(axis, Y);
+    assert_eq!(
+        rests,
+        vec![(0., 0.), (200., 200.), (400., 400.), (600., 1100.)]
+    );
+    assert_eq!(read(), (0, vec![]));
+    assert_eq!(at, words.len());
+}

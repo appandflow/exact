@@ -481,6 +481,81 @@ impl<D: DataSource> Presenter<D> {
         self.reader.last.clone_from(&out);
         Some(out)
     }
+
+    /// Each of scrollers `ids`' mandatory snap (CSS Scroll Snap), for a
+    /// reader that aims a fling: its axis (0 none, 1 sideways, 2 up and
+    /// down), a count, and per snap area the offsets it can rest at, from
+    /// and to, as float bits in the reader's pixels. An area no larger than
+    /// the port rests at one offset, its start, centre or end at the port's;
+    /// a larger one is explored freely while it covers the port (§5.2.2).
+    pub fn reader_snaps(&mut self, ids: &[ViewId], scale: f32) -> Vec<i32> {
+        let mut out = Vec::new();
+        for &id in ids {
+            let (axis, rests) = self.snap_rests(id).unwrap_or((0, Vec::new()));
+            out.extend([axis, rests.len() as i32]);
+            for (from, to) in rests {
+                out.extend([bits(from * scale), bits(to * scale)]);
+            }
+        }
+        out
+    }
+
+    fn snap_rests(&mut self, id: ViewId) -> Option<(i32, Vec<(f32, f32)>)> {
+        use exact_kernel::{ScrollSnapAlign as Align, ScrollSnapType as Type};
+        let kernel = self.host.kernel();
+        let node = kernel.node(id)?;
+        let vertical = match node.style.scroll_snap_type {
+            Type::XMandatory => false,
+            Type::YMandatory => true,
+            _ => return None,
+        };
+        // A nested scroll container, or one that snaps, captures its own areas.
+        let mut areas = Vec::new();
+        let mut walk = node.children();
+        while let Some(c) = walk.pop() {
+            let Some(n) = kernel.node(c) else { continue };
+            if n.style.scroll_snap_align != Align::None {
+                areas.push((c, n.style.scroll_snap_align));
+            }
+            let (ox, oy) = effective_overflow(&n);
+            if !scrolls(ox) && !scrolls(oy) && n.style.scroll_snap_type == Type::None {
+                walk.extend(n.children());
+            }
+        }
+        let limits = self.collection_scroll_limits();
+        let s = self.scroller(id, &limits)?;
+        let port = self.box_of(id)?.rect;
+        let (port_at, port_len, offset, max) = if vertical {
+            (port.1, port.3, s.offset.1, s.max.1)
+        } else {
+            (port.0, port.2, s.offset.0, s.max.0)
+        };
+        let mut rests = Vec::new();
+        for (c, align) in areas {
+            let Some(b) = self.box_of(c) else { continue };
+            let (at, len) = if vertical {
+                (b.rect.1, b.rect.3)
+            } else {
+                (b.rect.0, b.rect.2)
+            };
+            let lo = at - port_at + offset;
+            let wide = len >= port_len;
+            let rest = match align {
+                _ if wide => lo,
+                Align::End => lo + len - port_len,
+                Align::Center => lo + (len - port_len) / 2.0,
+                _ => lo,
+            };
+            let from = rest.clamp(0.0, max);
+            let to = if wide {
+                (lo + len - port_len).clamp(from, max)
+            } else {
+                from
+            };
+            rests.push((from, to));
+        }
+        Some((if vertical { Y } else { X }, rests))
+    }
 }
 
 fn flags(s: &Scroller) -> i32 {
