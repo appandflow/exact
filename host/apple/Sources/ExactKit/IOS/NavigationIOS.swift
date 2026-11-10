@@ -448,6 +448,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The `UITab` made for each stack: a controller belongs to one tab for good, so a
     /// container given its stacks again keeps the tabs of the stacks it already had.
     var madeTabs: [ObjectIdentifier: AnyObject] = [:]
+    /// The controllers last given the tab bar controller, in tab order: with `UITab`s its `viewControllers` is
+    /// empty, so Exact reads its own record.
+    var tabControllers: [UIViewController] = []
     /// Where the authored tablist was when its covers were last measured.
     var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the
