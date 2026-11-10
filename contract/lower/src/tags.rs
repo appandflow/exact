@@ -661,6 +661,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "-exact-pan-hold" => AttrTarget::Prop(p("panHold")),
         "-exact-tab-role" => AttrTarget::Prop(p("tabRole")),
         "-exact-tab-minimize" => AttrTarget::Prop(p("tabMinimize")),
+        "-exact-tab-accessory" => AttrTarget::Prop(p("tabAccessory")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),

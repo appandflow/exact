@@ -165,7 +165,10 @@ extension NavigationHost {
         // The tablist whose place the tab bar takes takes no room.
         if let list = adoptedTablist.flatMap({ presenter.views[$0] }) {
             measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
-            if adopts(tablist: list) { wanted[list.id] = .whole }
+            if adopts(tablist: list), let held = tabAccessory {
+                // Its accessory child is laid out in the accessory's block; the rest of it is the bar's.
+                for case let child as NodeView in list.container.subviews where child !== held { wanted[child.id] = .whole }
+            } else if adopts(tablist: list) { wanted[list.id] = .whole }
             else if tablistAppearanceNone, list.style["display"]?.string != "none",
                     wantsWholeView, presenter.viewportFit != "cover",
                     let view = presenter.session?.view, view.window != nil {
