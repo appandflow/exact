@@ -1,6 +1,8 @@
 // @exact/maps on Android (LLP 1133.021 D1-D5, §12): `exact-map` is the Maps SDK's `MapView`, its markers the SDK's
 // default red `Marker`s. The key is the app's (`com.google.android.geo.API_KEY`, which the build writes from the
-// variable `app.json` names); without one the SDK shows its own blank map.
+// variable `app.json` names). Without one the SDK throws `IllegalStateException` ("API key not found") as a `MapView`
+// is made; a release build cannot lack it (`maps-key-missing`), so a development build's map box says the key is
+// missing, the log says so too, and no `load` is raised.
 //
 // - The camera is a centre and a zoom, which is Google's own zoom (D1); a camera prop moves the map only when its
 //   value changes, and only that prop: a new `zoomLevel` zooms about the centre the map shows now.
@@ -17,11 +19,14 @@ package exact.maps
 
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.view.Gravity
 import android.view.View
+import android.widget.TextView
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.MapView
@@ -42,6 +47,7 @@ class MapsModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
         /** The app's access hatch (D5): each map at `onMapReady`, after the module's own setup. */
         @JvmStatic var hatch: ((GoogleMap) -> Unit)? = null
+        private const val KEY = "com.google.android.geo.API_KEY"
     }
 
     private val maps = LinkedHashMap<MapView, OneMap>()
@@ -59,6 +65,14 @@ class MapsModule(context: ExtensionContext) : ExactExtension(context) {
 
     override fun view(tag: String, session: String, id: String, context: Context, props: JSONObject, emit: (String, String) -> Unit): View {
         require(tag == "exact-map") { "no view $tag" }
+        if (!keyed(context)) {
+            this.context.log("map $id: no Maps SDK key ($KEY) in this build, so no map")
+            return TextView(context).apply {
+                text = "No Google Maps key in this development build: set the variable app.json names for @exact/maps' apiKey"
+                gravity = Gravity.CENTER
+                setPadding(32, 32, 32, 32)
+            }
+        }
         val view = MapView(context)
         val map = OneMap(id, view, this.context.agent, emit, this.context::log)
         maps[view] = map
@@ -68,6 +82,13 @@ class MapsModule(context: ExtensionContext) : ExactExtension(context) {
         view.getMapAsync(map::ready)
         emit("load", "")
         return view
+    }
+
+    /** Whether the app's manifest carries the Maps SDK's key (`<meta-data>` [KEY], which the build writes). */
+    private fun keyed(context: Context): Boolean {
+        @Suppress("DEPRECATION")
+        val meta = context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA).metaData
+        return !meta?.getString(KEY).isNullOrBlank()
     }
 
     override fun update(view: View, props: JSONObject) { maps[view]?.set(props) }

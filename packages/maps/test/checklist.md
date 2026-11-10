@@ -67,7 +67,9 @@ then install the APK. See `packages/maps/test/android.mjs` for what the
 build checks.
 
 1. **The map.** Google's map with four red markers. Without the key (a
-   development build), the SDK's blank grey map, and the build warned.
+   development build), the build warned, the map's box says the key is
+   missing, the log has `map <id>: no Maps SDK key`, and no `load` comes
+   (the SDK would throw "API key not found" as the map is made).
 2. **Select.** Tap a marker: "Selected: …", the count 1. Tap a button
    below: that marker selected, the count unchanged.
 3. **Gestures.** Pan, pinch, rotate, tilt. The "Zoom:" line follows once the
