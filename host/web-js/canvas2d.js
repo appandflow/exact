@@ -58,6 +58,15 @@ export function engine(rt) {
   const x = globalThis.exact;
   const records = new Map(); // view id -> record
   let module = null; // the module's draws, once it is ready
+  let undrawn = null; // why nothing will draw, once the module is known to draw nothing
+  // Said once a surface, as the module turns out to draw nothing or, usually later, as its canvas mounts.
+  const undrawnSaid = new Set();
+  const sayUndrawn = () => {
+    const names = [...new Set([...records.values()].map(r => r.c.name))].filter(n => !undrawnSaid.has(n));
+    if (!undrawn || !names.length) return;
+    for (const n of names) undrawnSaid.add(n);
+    say(`canvas2d: nothing draws ${names.join(', ')}: ${undrawn}`);
+  };
   const say = line => journal.push(`t=${clock.now} ${line}`);
   const memory = { buffer: new ArrayBuffer(8) };
   let colorCanvas;
@@ -189,14 +198,19 @@ export function engine(rt) {
   x.canvas2dState = () => [...records].map(([view, r]) => ({ view, surface: r.c.name, context: '2d', artifact: 'data', lifetime: r.lifetime, generation: r.generation,
     pending: !r.draws || !!r.causes, animating: !!r.frames, draws: r.draws ?? 0,
     width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch,
-    colorSpace: r.backing ? (r.backing.p3 ? 'display-p3' : 'srgb') : null, colorType: r.backing ? (r.backing.float16 ? 'float16' : 'unorm8') : null, error: r.error ?? null, refused: null }));
+    colorSpace: r.backing ? (r.backing.p3 ? 'display-p3' : 'srgb') : null, colorType: r.backing ? (r.backing.float16 ? 'float16' : 'unorm8') : null, error: r.error ?? undrawn, refused: null }));
   if (clock.agent && x.advance) { const advance = x.advance; x.advance = (to, wall, stop) => { const r = advance(to, wall, stop); frame(); return r; }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
   host();
   // The module arrives after first pixel (rust-data.js); until then causes wait.
   const ready = () => {
     module = client(data.logic);
-    if (!module) say('canvas2d: the Rust module draws no Canvas 2D surface (exact_logic_abi::export_draw!)');
+    if (!module) {
+      // Each canvas here names a surface no GPU module registers (the build's routing), so nothing draws it: said, and
+      // its state's error, rather than a canvas pending blank.
+      undrawn = 'no GPU module registers this surface, and the Rust module draws no Canvas 2D surface (exact_logic_abi::export_draw!)';
+      sayUndrawn();
+    }
     drawAll();
   };
   // A TypeScript draw is in the page already; it starts once the page's
@@ -223,6 +237,7 @@ export function engine(rt) {
         // The glue's ResizeObserver names a canvas by its `data-view`, as the wasm host's elements carry it.
         c.e.dataset.view = id;
         glue.op({ id, watch: true });
+        sayUndrawn();
       }
       drawAll();
     },

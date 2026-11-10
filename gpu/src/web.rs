@@ -213,14 +213,24 @@ pub fn shaders_clear() {
 /// — what the glue fetches (`./shaders/<name>.wgsl`) and registers before a
 /// surface is created. `[]` before the module is loaded.
 pub fn shader_names() -> String {
-    let names = with(|m| m.shader_names()).unwrap_or_default();
+    json_names(&with(|m| m.shader_names()).unwrap_or_default())
+}
+
+/// The registry's surfaces, as a JSON list of names: what the web build
+/// compiles to this module rather than to Canvas 2D. Needs no load.
+pub fn surface_names(registry: &Registry) -> String {
+    let names: Vec<&str> = registry.surfaces.iter().map(|(n, _, _)| *n).collect();
+    json_names(&names)
+}
+
+fn json_names(names: &[impl AsRef<str>]) -> String {
     let mut s = String::from("[");
     for (i, n) in names.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
         s.push('"');
-        s.push_str(n);
+        s.push_str(n.as_ref());
         s.push('"');
     }
     s.push(']');
@@ -449,6 +459,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_shaders_clear() {
             $crate::web::shaders_clear()
+        }
+
+        /// The registry's surfaces, as a JSON list of names (the web build reads it).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_surfaces() -> String {
+            $crate::web::surface_names(&$registry)
         }
 
         /// The shaders to register, as a JSON list of names.

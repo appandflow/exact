@@ -569,8 +569,10 @@ fn main() -> ExitCode {
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
             }
-            if out_files.canvas2d {
-                let _ = std::fs::write(dir.join("canvas2d.flag"), "");
+            if !out_files.canvas2d.is_empty() {
+                // Its surfaces, one a line: the build names them when nothing draws them.
+                let names: Vec<_> = out_files.canvas2d.iter().map(String::as_str).collect();
+                let _ = std::fs::write(dir.join("canvas2d.flag"), names.join("\n"));
             }
             if out_files.motion {
                 let _ = std::fs::write(dir.join("motion.flag"), "");

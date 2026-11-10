@@ -174,16 +174,47 @@ const pageSource = pageModules ? readFileSync(resolve(moduleDirectory(appDir, 'w
 const pageExports = pageModules ? new Bun.Transpiler({ loader: 'js' }).scan(pageSource) : { exports: [], imports: [] };
 const containerHatches = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs', 'app', 'appEnded', 'window', 'windowEnded'].includes(n))
   || /\bexport\s*\*\s*from\b/.test(pageSource);
-// The surfaces the app's GPU module draws (its crate's surface table); any
-// other surface is drawn by a data source on Canvas 2D, which the backend
-// refuses by name.
+// The app's GPU modules, built (or taken from the cache) before the compiler
+// runs: the surfaces the primary draws are what its compiled registry says
+// (`gpu_surfaces`, exact_gpu::module!), as a native host looks a surface up
+// in its registry. The compiler sends a canvas naming one of them to it, and
+// any other to Canvas 2D, which a data source draws. A module declared in
+// app.json (`gpu.modules`) is built too, but this runtime creates every GPU
+// surface in the primary: a declared module's canvases need the modules
+// router (host/web/gpu-modules.js), which only the wasm target loads, so the
+// build refuses a page whose canvas names one of their surfaces (below). A
+// check (`--check`) builds no GPU module: the routing changes none of the
+// compiler's diagnostics, and the primary's surfaces stay unknown (null).
 const gpuLib = resolve(appDir, 'gpu/src/lib.rs');
-const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchAll(/\("([a-z][a-z0-9-]*)", \d+, [a-z_:]+\)/g)].map(m => m[1]) : [];
+let gpuSurfaces = existsSync(gpuLib) ? null : [], declaredGpu = [];
+if (existsSync(gpuLib) && !checkOnly) {
+  const { gpuModules, resolveApp, webGpuArtifacts, copyShaders, shaderWatchRoots } = await import('../../scripts/app.mjs');
+  const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
+  declaredGpu = gpuModules(target.manifest);
+  const crates = [['gpu', target.crate('gpu')], ...declaredGpu.map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
+  const shaders = shaderWatchRoots(target).filter(existsSync);
+  // Shared by every loop of the app on this target: built in a stage and renamed over the cache (gpu-cache.mjs).
+  try {
+    copyGpuCache(cache, out, {
+      fresh: dir => crates.every(([stem, crate]) => fresh(resolve(dir, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders)),
+      build: stage => {
+        const gpu = webGpuArtifacts(target, stage, { cargo: true });
+        if (!gpu.built) throw new Error(gpu.note);
+        copyShaders(target, resolve(stage, 'shaders'));
+      },
+    });
+    // The primary module's registry, instantiated here only to read it: it asks for no device until `gpu_load`.
+    const glue = await import(pathToFileURL(resolve(out, 'gpu.js')).href);
+    glue.initSync({ module: readFileSync(resolve(out, 'gpu_bg.wasm')) });
+    if (typeof glue.gpu_surfaces !== 'function') throw new Error(`${crates[0][1]}: its module exports no gpu_surfaces (exact_gpu::module!)`);
+    gpuSurfaces = JSON.parse(glue.gpu_surfaces());
+  } catch (error) { console.error(`${app}: ${error.message}`); process.exit(1); }
+}
 // The compiler, run as its built binary when nothing it was built from
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
 // or as the one another checkout of this machine built from these sources.
 const compiler = webCompiler();
-const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: (gpuSurfaces ?? []).join(',') } });
 if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
 const runtime = ['rt.js', 'resource-inspection.js', 'rt-link.js', 'generation-reload.js', 'elements.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'each.js', 'timer-waits.js', 'timer-observations.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js', 'held.js', 'uploads.js', 'lower.js'];
@@ -199,11 +230,22 @@ if (devReload) writeFileSync(resolve(gen, 'rt.js'), withInspectHooks(readFileSyn
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
 const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
-if (canvas2d && !rust && !ts) { console.error(`${app}: a Canvas 2D surface with no data source to draw it`); process.exit(1); }
+{
+  const named = canvas2d ? readFileSync(resolve(gen, 'canvas2d.flag'), 'utf8').split('\n') : [];
+  const owned = declaredGpu.flatMap(({ name, surfaces }) => surfaces.filter((s) => named.includes(s)).map((s) => `${s} (gpu.modules.${name})`));
+  if (owned.length) { console.error(`${app}: the web's JS target does not run a declared GPU module's surfaces yet, only the gpu crate's, and a canvas names ${owned.join(', ')}`); process.exit(1); }
+}
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
 // An image's pictures in the browser's floating window, loaded on first use (commands.js, LLP 1042 §9).
 cpSync(resolve(here, 'picture-in-picture.js'), resolve(gen, 'picture-in-picture.js'));
 const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
+// A Rust module says whether it draws only when it loads (canvas2d.js says so then); with none, a surface no GPU module
+// registers and app.ts does not draw would stay blank.
+if (canvas2d && !rust && !tsDraws && gpuSurfaces) {
+  const names = readFileSync(resolve(gen, 'canvas2d.flag'), 'utf8').split('\n').filter(Boolean);
+  console.error(`${app}: nothing draws the canvas surface${names.length === 1 ? '' : 's'} ${names.join(', ')}: ${existsSync(gpuLib) ? `the GPU module registers ${gpuSurfaces.join(', ') || 'no surface'}` : 'the app has no GPU module'}, and ${ts ? 'app.ts exports no `draw`' : 'it has no data source to draw on Canvas 2D'}`);
+  process.exit(1);
+}
 // The checked capture of app.ts and what it imports (typecheck, below): the
 // page and its server render bundle it, never the app's own directory.
 const tsStage = resolve(realpathSync(gen), 'typescript'), pageAppTs = resolve(tsStage, 'app.ts');
@@ -880,21 +922,6 @@ async function copyLazyModules(roots) {
 }
 
 if (existsSync(gpuLib)) {
-  const { gpuModules, resolveApp, webGpuArtifacts, copyShaders, shaderWatchRoots } = await import('../../scripts/app.mjs');
-  const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
-  const crates = [['gpu', target.crate('gpu')], ...gpuModules(target.manifest).map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
-  const shaders = shaderWatchRoots(target).filter(existsSync);
-  // Shared by every loop of the app on this target: built in a stage and renamed over the cache (gpu-cache.mjs).
-  try {
-    copyGpuCache(cache, out, {
-      fresh: dir => crates.every(([stem, crate]) => fresh(resolve(dir, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders)),
-      build: stage => {
-        const gpu = webGpuArtifacts(target, stage, { cargo: true });
-        if (!gpu.built) throw new Error(gpu.note);
-        copyShaders(target, resolve(stage, 'shaders'));
-      },
-    });
-  } catch (error) { console.error(`${app}: ${error.message}`); process.exit(1); }
   await copyLazyModules(['gpu-glue.js']);
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });

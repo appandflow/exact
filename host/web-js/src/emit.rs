@@ -128,9 +128,9 @@ pub struct Output {
     pub pages: String,
     /// Whether a node renders Markdown (the page fetches `markdown.wasm`).
     pub markdown: bool,
-    /// Whether a node is a Canvas 2D surface (the page loads its engine,
-    /// `canvas2d.js`, and the data module draws).
-    pub canvas2d: bool,
+    /// The Canvas 2D surfaces nodes name (the page loads their engine,
+    /// `canvas2d.js`, and the data module draws them).
+    pub canvas2d: std::collections::BTreeSet<String>,
     /// Whether the plan uses motion (the page fetches `motion.wasm`).
     pub motion: bool,
     /// Whether a text field is a Markdown editor (`markup-editor.wasm`).
@@ -183,7 +183,7 @@ struct Em<'a> {
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
     dialogs: bool,
-    canvas2d: bool,
+    canvas2d: std::collections::BTreeSet<String>,
     motion: bool,
     editor: bool,
     flow: bool,
@@ -266,7 +266,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         row_actions: Default::default(),
         markdown: false,
         dialogs: false,
-        canvas2d: false,
+        canvas2d: Default::default(),
         motion: false,
         editor: false,
         flow: false,
@@ -806,7 +806,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         false
     );
     // Canvas text names a declared family by its declared name (LLP 1056 D8).
-    let js = if em.canvas2d && !fonts.aliases.is_empty() {
+    let js = if !em.canvas2d.is_empty() && !fonts.aliases.is_empty() {
         format!(
             "{js}(globalThis.exact??={{}}).fontAliases={};\n",
             fonts.aliases
@@ -1102,7 +1102,7 @@ impl Em<'_> {
             if !gpu {
                 // Positional values, their declared types where known, and
                 // the authored names (LLP 1056 D1: a draw's `args`).
-                self.canvas2d = true;
+                self.canvas2d.insert(name.to_string());
                 let values = sf
                     .args
                     .iter()
@@ -1462,8 +1462,9 @@ impl Em<'_> {
     }
 }
 
-/// The surfaces the app's GPU module draws, as the build names them
-/// (`EXACT_JS_GPU_SURFACES`, comma-separated; host/web-js/build.mjs).
+/// The surfaces the app's GPU modules draw, as the build read them from
+/// their compiled registries (`EXACT_JS_GPU_SURFACES`, comma-separated;
+/// host/web-js/build.mjs).
 fn gpu_surfaces() -> Vec<String> {
     std::env::var("EXACT_JS_GPU_SURFACES")
         .unwrap_or_default()
