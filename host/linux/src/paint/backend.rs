@@ -204,6 +204,16 @@ pub trait Backend {
     fn supports_island_image(&self) -> bool;
     /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8);
+    /// What is drawn until [`Backend::plane_end`] goes through `h`, a
+    /// projective map (3×3, row-major) from its points to the points the
+    /// drawing's transforms otherwise give: a box turned in space
+    /// (`paint/space.rs`). False: the backend cannot, and the box is painted
+    /// apart and warped.
+    fn plane_begin(&mut self, _h: [f32; 9]) -> bool {
+        false
+    }
+    /// The plane ends.
+    fn plane_end(&mut self) {}
     /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4);
     /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).

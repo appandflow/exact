@@ -68,6 +68,7 @@ pub(super) fn end(b: &[u32], i: usize) -> Option<usize> {
     let words = |len: usize| len.div_ceil(4);
     Some(match *b.get(i)? {
         MATRIX => i + 7,
+        MATRIX3 => i + 10,
         RRECT => i + 14,
         PATH => path(i + 3)?,
         CLIP_RRECT => i + 13,
