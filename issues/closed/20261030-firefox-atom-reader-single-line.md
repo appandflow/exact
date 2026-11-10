@@ -1,6 +1,7 @@
 # In Firefox, Markdown Stress's single-mode atom reader is a line taller than in Chrome
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** a Firefox engine difference (it kerns system-ui's word space 0.31 px wider), recorded in known-firefox.json; nothing in Exact to change
 **Systems:** web host reader pills (`host/web/atoms.js`), the JS target in Firefox, cross-browser conformance (`host/web-js/conformance/known-firefox.json`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from #1148's conformance runs
