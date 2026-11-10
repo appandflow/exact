@@ -1141,3 +1141,25 @@ fn back_dismisses_a_sheet() {
     p.frame();
     assert!(!p.sheet_moving(), "its exit ended");
 }
+
+#[test]
+fn a_tap_on_a_sheets_handle_presses_what_is_there() {
+    let source = sheet_source().replace(
+        r#"                  text "In the sheet" testId="sheet-body""#,
+        r#"                  button press=back testId="sheet-close" height=40
+                    text "Close"
+                  text "In the sheet" testId="sheet-body""#,
+    );
+    let (mut p, _) = barred(&source);
+    tap(&mut p, "open-sheet").unwrap();
+    let t = p.host().now() + 1000.;
+    sheet_at(&mut p, t);
+    let (x, y, w, h) = p.rect_of(id(&p, "sheet-close")).unwrap();
+    p.pointer_down(x + w / 2., y + h / 2., t).unwrap();
+    p.pointer_up(x + w / 2., y + h / 2., t + 50.).unwrap();
+    p.run_commands(|| Nothing);
+    assert!(
+        !sheet_open(&p),
+        "the close button in the handle's reach was pressed"
+    );
+}

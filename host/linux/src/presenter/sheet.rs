@@ -19,6 +19,9 @@ const EXIT_MS: f64 = 200.0;
 const SETTLE_MS: f64 = 300.0;
 /// The drag handle's touch target at the sheet's top, points.
 const GRAB: f32 = 48.0;
+/// How far a finger goes on the handle before the sheet follows it,
+/// points: Android's touch slop.
+const SLOP: f32 = 8.0;
 /// A release this fast (points a second) goes on to the next detent.
 const FLING: f32 = 500.0;
 
@@ -56,6 +59,8 @@ enum Gesture {
         top: f32,
         last: (f32, f64),
         velocity: f32,
+        /// Past the slop: until then a tap there presses what it is on.
+        moving: bool,
     },
 }
 
@@ -300,11 +305,12 @@ impl<D: DataSource> Presenter<D> {
                 top,
                 last: (y, now),
                 velocity: 0.0,
+                moving: false,
             })
         } else {
             None
         };
-        self.sheets.gesture.is_some()
+        matches!(self.sheets.gesture, Some(Gesture::Scrim))
     }
 
     pub(super) fn sheet_move(&mut self, y: f32, now: f64) -> bool {
@@ -313,6 +319,24 @@ impl<D: DataSource> Presenter<D> {
             return false;
         };
         let highest = h - s.heights[s.heights.len() - 1];
+        // Past the slop the handle's drag is the sheet's: what the contact
+        // pressed is let go.
+        if let Some(Gesture::Drag {
+            finger,
+            moving: false,
+            ..
+        }) = self.sheets.gesture
+        {
+            if (y - finger).abs() <= SLOP {
+                return false;
+            }
+            let gesture = self.sheets.gesture.take();
+            let _ = self.pointer_cancel(now);
+            self.sheets.gesture = gesture;
+            if let Some(Gesture::Drag { moving, .. }) = &mut self.sheets.gesture {
+                *moving = true;
+            }
+        }
         match &mut self.sheets.gesture {
             Some(Gesture::Drag {
                 finger,
@@ -320,6 +344,7 @@ impl<D: DataSource> Presenter<D> {
                 top,
                 last,
                 velocity,
+                ..
             }) => {
                 *top = (*start + y - *finger).clamp(highest, h);
                 let dt = (now - last.1) as f32 / 1000.0;
@@ -360,13 +385,21 @@ impl<D: DataSource> Presenter<D> {
                     self.system_back(now);
                 }
             }
+            Gesture::Drag { moving: false, .. } => return false,
             Gesture::Drag { top, velocity, .. } => self.settle_sheet(top, velocity, now),
         }
         true
     }
 
+    /// A contact cancelled: a drag that moved the sheet settles. One on
+    /// the handle still within the slop stays, as the presser's own down
+    /// cancels what came before it.
     pub(super) fn sheet_cancel(&mut self, now: f64) {
-        if let Some(Gesture::Drag { top, .. }) = self.sheets.gesture.take() {
+        if let Some(Gesture::Drag {
+            top, moving: true, ..
+        }) = self.sheets.gesture
+        {
+            self.sheets.gesture = None;
             self.settle_sheet(top, 0.0, now);
         }
     }
