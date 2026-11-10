@@ -200,8 +200,7 @@ extension NavigationHost {
         if let tabs = tabController, var all = tabs.viewControllers, let at = all.firstIndex(where: { $0 === held }) {
             let selected = tabs.selectedIndex
             all[at] = nav
-            tabs.setViewControllers(all, animated: false)
-            if tabs.selectedIndex != selected { tabs.selectedIndex = selected }
+            setTabControllers(tabs, all, selected: selected)
             tabs.view.layoutIfNeeded()
         }
         nav.view.layoutIfNeeded()

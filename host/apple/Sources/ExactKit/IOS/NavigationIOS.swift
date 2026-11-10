@@ -424,6 +424,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
     var tablistAppearanceNone = false
+    /// The panels whose tab is the system's search tab (`-exact-tab-role="search"`): the
+    /// container is then built with UIKit's `UITab` API, which draws Search apart (iOS 26).
+    var searchPanels: Set<UInt32> = []
+    /// The `UITab` made for each stack: a controller belongs to one tab for good, so a
+    /// container given its stacks again keeps the tabs of the stacks it already had.
+    var madeTabs: [ObjectIdentifier: AnyObject] = [:]
     /// Where the authored tablist was when its covers were last measured.
     var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the

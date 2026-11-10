@@ -118,6 +118,21 @@ private final class ContactLayoutPan: UIPanGestureRecognizer {
 
 extension NodeView {
     func updateLayoutPan() {
+        #if os(iOS)
+        // `-exact-pan-hold`: the pan waits for a resting finger (HoldPanIOS.swift).
+        let hold = props["panHold"].flatMap(Double.init) ?? 0
+        if let g = layoutPanRecognizer, (g is HoldLayoutPan) != (hold > 0 && handlers.contains("pan")) {
+            removeGestureRecognizer(g); layoutPanRecognizer = nil
+        }
+        if hold > 0, handlers.contains("pan") {
+            if let g = layoutPanRecognizer as? HoldLayoutPan { g.minimumPressDuration = hold / 1000; return }
+            let g = HoldLayoutPan(target: self, action: #selector(holdPanning(_:)))
+            g.minimumPressDuration = hold / 1000
+            g.delegate = self
+            addGestureRecognizer(g); layoutPanRecognizer = g
+            return
+        }
+        #endif
         if handlers.contains("pan"), layoutPanRecognizer == nil {
             let g = ContactLayoutPan(target: self, action: #selector(layoutPanning(_:)))
             #if !os(tvOS)
@@ -129,7 +144,8 @@ extension NodeView {
             removeGestureRecognizer(g); layoutPanRecognizer = nil
         }
     }
-    @objc func layoutPanning(_ gesture: UIPanGestureRecognizer) {
+    @objc func layoutPanning(_ gesture: UIGestureRecognizer) {
+        guard let gesture = gesture as? UIPanGestureRecognizer else { return }
         guard let presenter, presenter.views[id] === self, SwipeInput.allows(self) else {
             // A contact that began and is cut short while shown releases at rest.
             if let presenter, presenter.views[id] === self, [.changed, .ended].contains(gesture.state) { presenter.panRelease(id, 0, 0) }
