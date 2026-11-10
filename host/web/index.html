@@ -39,6 +39,7 @@
   #exact-root input[type="search"][data-exact-said~="appearance"]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
   @property --exact-turn-axis { syntax: "*"; inherits: false; }
   @supports (view-timeline: --a) { :root { --exact-view-ok: running; } }
+  @supports not (view-timeline: --a) { :root { --exact-view-off: none; } }
   @supports (corner-shape: superellipse(2)) { :root { --exact-curve: superellipse(1.6); --exact-curve-reach: 1.52; } }
   @media (min-resolution: 1.5dppx) { :root { --exact-hairline: calc(1px / 1.5); } }
   @media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }
