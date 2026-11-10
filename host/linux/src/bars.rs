@@ -161,6 +161,12 @@ impl<D: DataSource> Host<D> {
                     .and_then(|n| n.props.str(PropId::NavigationPresentation))
                     == Some("modal")
             };
+            // One with detents is a bottom sheet in a block of its own
+            // (`presenter/sheet.rs`).
+            let detented = |route: &ViewId| {
+                (kernel.node(*route))
+                    .is_some_and(|n| n.props.str(PropId::NavigationDetent).is_some())
+            };
             // A modal route that shows covers the navigation bar, as a sheet
             // covers iOS's tab bar.
             let sheet = (all.iter().flatten())
@@ -192,7 +198,11 @@ impl<D: DataSource> Host<D> {
                     let shows = Bar::of(asked_none, shape.is_some(), pushed, false) == Bar::Header;
                     // A modal route starts below the status bar, where iOS
                     // places a sheet; a full-screen one pads itself.
-                    let mut top = if modal(route) { status } else { 0.0 };
+                    let mut top = if modal(route) && !detented(route) {
+                        status
+                    } else {
+                        0.0
+                    };
                     if let Some(shape) = shape.filter(|_| shows) {
                         top = above;
                         for id in lifted(kernel, &shape) {

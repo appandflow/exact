@@ -1024,3 +1024,120 @@ fn a_modal_route_starts_below_the_status_bar_and_covers_the_navigation_bar() {
     assert!(p.system_back(0.0));
     assert!(p.bar_plans().1.is_some(), "the navigation bar is back");
 }
+
+/// The source of `a_modal_route_starts_below_…` with the modal route given
+/// detents: a bottom sheet.
+fn sheet_source() -> String {
+    APP.replace(
+        r#"    quiet "/quiet""#,
+        r#"    quiet "/quiet"
+    sheet "/sheet""#,
+    )
+    .replace(
+        r#"main navigationKey=`${top(nav).id}` navigationBack="back""#,
+        r#"main navigationKey=`${top(nav).id}` navigationBack="back" viewport-fit="cover""#,
+    )
+    .replace(
+        r#"                    column height=2000"#,
+        r#"                    button press=open("/sheet") testId="open-sheet" height=40
+                      text "Sheet"
+                    column height=2000"#,
+    )
+    .replace(
+        r#"              if e.name == "quiet""#,
+        r##"              if e.name == "sheet"
+                column navigationKey=`${e.id}` navigationPresentation="modal" navigationDetent="medium large" testId="route-sheet" height="100%" border-radius=28 background-color="#ffffff"
+                  text "In the sheet" testId="sheet-body"
+                  view flex=1
+                  text "At its foot" testId="sheet-foot"
+              if e.name == "quiet""##,
+    )
+}
+
+fn sheet_open(p: &Presenter<Nothing>) -> bool {
+    !p.host().kernel().find_by_test_id("route-sheet").is_empty()
+        && p.host().route_visibility(id(p, "route-sheet")) == (false, false)
+}
+
+/// Settle the sheet at `ms` and paint: where its body's top is.
+fn sheet_at(p: &mut Presenter<Nothing>, ms: f64) -> f32 {
+    p.tick(ms);
+    p.frame();
+    let body = id(p, "sheet-body");
+    p.rect_of(body).unwrap().1
+}
+
+#[test]
+fn a_modal_route_with_detents_is_a_bottom_sheet_over_a_scrim() {
+    let (mut p, _) = barred(&sheet_source());
+    let h = WINDOW.size.1;
+    tap(&mut p, "open-sheet").unwrap();
+    assert!(
+        p.bar_plans().1.is_none(),
+        "the sheet covers the navigation bar"
+    );
+    // It slides up to half the window, laid out that tall: its foot shows.
+    let start = p.host().now();
+    let top = sheet_at(&mut p, start + 1000.);
+    assert!(near(top, h / 2.), "at half the window: {top}");
+    let foot = p.rect_of(id(&p, "sheet-foot")).unwrap();
+    assert!(foot.1 + foot.3 <= h + 0.5 && foot.1 > h - 60., "{foot:?}");
+    // The page behind is dimmed, and a press there closes the sheet.
+    let below = p.frame().pixel(200, 100).unwrap();
+    assert!(below.red() < 220, "dimmed: {below:?}");
+    let t = start + 1100.;
+    p.pointer_down(200., 100., t).unwrap();
+    p.pointer_up(200., 100., t + 50.).unwrap();
+    p.run_commands(|| Nothing);
+    assert!(!sheet_open(&p), "a press on the scrim dismisses");
+    p.tick(t + 1000.);
+    p.frame();
+    assert!(p.bar_plans().1.is_some(), "the navigation bar is back");
+}
+
+#[test]
+fn a_sheet_drags_to_its_tallest_detent_and_down_out_of_the_window() {
+    let (mut p, _) = barred(&sheet_source());
+    let h = WINDOW.size.1;
+    tap(&mut p, "open-sheet").unwrap();
+    let t = p.host().now() + 1000.;
+    let top = sheet_at(&mut p, t);
+    // Its handle, dragged up past half way to the top, rests at the top.
+    p.pointer_down(200., top + 10., t).unwrap();
+    for (k, y) in [top - 100., top - 250., top - 300.].iter().enumerate() {
+        p.pointer_move(200., *y + 10., t + 100. * (k + 1) as f64)
+            .unwrap();
+    }
+    p.pointer_up(200., top - 290., t + 400.).unwrap();
+    let large = sheet_at(&mut p, t + 1500.);
+    assert!(near(large, WINDOW.bars[0]), "below the status bar: {large}");
+    let foot = p.rect_of(id(&p, "sheet-foot")).unwrap();
+    assert!(
+        foot.1 + foot.3 <= h + 0.5 && foot.1 > h - 60.,
+        "laid out tall: {foot:?}"
+    );
+    // Flung down, it goes past half the window and out: the route pops.
+    let t = t + 1600.;
+    p.pointer_down(200., large + 10., t).unwrap();
+    p.pointer_move(200., large + 200., t + 50.).unwrap();
+    p.pointer_move(200., large + 500., t + 100.).unwrap();
+    p.pointer_up(200., large + 520., t + 110.).unwrap();
+    p.run_commands(|| Nothing);
+    assert!(
+        !sheet_open(&p),
+        "dragged out of the window, it is dismissed"
+    );
+}
+
+#[test]
+fn back_dismisses_a_sheet() {
+    let (mut p, _) = barred(&sheet_source());
+    tap(&mut p, "open-sheet").unwrap();
+    let t = p.host().now() + 1000.;
+    sheet_at(&mut p, t);
+    assert!(p.system_back(t));
+    assert!(!sheet_open(&p));
+    p.tick(t + 1000.);
+    p.frame();
+    assert!(!p.sheet_moving(), "its exit ended");
+}

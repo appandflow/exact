@@ -26,6 +26,9 @@ impl Painter {
         offset: (f32, f32),
         clip: Option<Rect4>,
     ) {
+        if self.sheet_node(walk, id, ts, offset, clip) {
+            return;
+        }
         let Some(s) = self.split.as_ref() else {
             return self.node_at(walk, id, ts, offset, clip);
         };
