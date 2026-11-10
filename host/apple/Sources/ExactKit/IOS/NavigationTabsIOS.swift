@@ -103,6 +103,7 @@ extension NavigationHost {
                 let g = HoldLayoutPan(target: tabs.tablist, action: #selector(NodeView.holdPanning(_:)))
                 g.minimumPressDuration = max(hold, 1) / 1000
                 g.cancelsTouchesInView = true
+                g.overridesSiblings = true
                 container.tabBar.addGestureRecognizer(g)
             }
             #endif

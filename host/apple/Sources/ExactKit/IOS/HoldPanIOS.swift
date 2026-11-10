@@ -6,7 +6,10 @@
 #if os(iOS)
 import UIKit
 
-final class HoldLayoutPan: UILongPressGestureRecognizer {
+final class HoldLayoutPan: UILongPressGestureRecognizer, UIGestureRecognizerDelegate {
+    /// On a view with gestures of its own (UITabBar's press-and-slide), the hold tracks alongside them and,
+    /// once recognized, cancels them, so the touch is the hold's whichever began first.
+    var overridesSiblings = false
     /// Where the hold began and where it last reported, in the viewport.
     var origin = CGPoint.zero
     var last = CGPoint.zero
@@ -16,6 +19,24 @@ final class HoldLayoutPan: UILongPressGestureRecognizer {
         super.init(target: target, action: action)
         // The finger may drift as far as a press's slop while it rests.
         allowableMovement = 14
+        delegate = self
+    }
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool {
+        overridesSiblings ? false : super.canBePrevented(by: preventing)
+    }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        overridesSiblings
+    }
+    /// Ends the other recognizers holding this touch (toggling `isEnabled` cancels one in flight).
+    func cancelSiblings() {
+        guard overridesSiblings, let view else { return }
+        var stack: [UIView] = [view]
+        while let v = stack.popLast() {
+            for g in v.gestureRecognizers ?? [] where g !== self && [.began, .changed, .possible].contains(g.state) {
+                g.isEnabled = false; g.isEnabled = true
+            }
+            stack.append(contentsOf: v.subviews)
+        }
     }
     override func reset() {
         super.reset()
@@ -33,7 +54,9 @@ final class HoldLayoutPan: UILongPressGestureRecognizer {
 extension NodeView {
     @objc func holdPanning(_ gesture: UIGestureRecognizer) {
         guard let gesture = gesture as? HoldLayoutPan else { return }
-        guard let presenter, presenter.views[id] === self, SwipeInput.allows(self) else {
+        // On the system tab bar the tablist node is hidden in the bar's place: the bar is what takes input.
+        let allowed = gesture.overridesSiblings ? gesture.view?.window != nil : SwipeInput.allows(self)
+        guard let presenter, presenter.views[id] === self, allowed else {
             if let presenter, presenter.views[id] === self, [.changed, .ended].contains(gesture.state) { presenter.panRelease(id, 0, 0) }
             gesture.isEnabled = false; gesture.isEnabled = true; return
         }
@@ -45,6 +68,7 @@ extension NodeView {
         case .began:
             // One zero delta says the hold began, before the finger moves.
             gesture.origin = point; gesture.last = point
+            gesture.cancelSiblings()
             presenter.pan(id, 0, 0)
         case .changed:
             let dx = point.x - gesture.last.x, dy = point.y - gesture.last.y
