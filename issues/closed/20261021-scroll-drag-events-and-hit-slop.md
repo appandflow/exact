@@ -1,6 +1,7 @@
 # Scroll events carry no drag start, end or velocity, and a control has no hit slop
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** scrolldragstart and scrolldragend with a ScrollDragEvent (2aa560c2) and -exact-hit-slop (ec2849c1) landed; Android's Kotlin scroller does not report drags yet (QUEUE)
 **Systems:** Contract scroll events, Apple host scroll delegate, hit testing
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from the Brooks four-way port's friction log
