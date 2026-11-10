@@ -354,7 +354,7 @@ mod tests {
             if ticket == 2 {
                 request
                     .headers
-                    .push(("x-waiting".into(), "x".repeat(3 << 20)));
+                    .push(("x-waiting".into(), "x".repeat(7 << 19)));
             }
             let (lane, charge, limit) = super::super::super::reservation(&request).unwrap();
             state.jobs[lane].push_back(Job {
@@ -378,7 +378,7 @@ mod tests {
         );
         assert_eq!(state.jobs[1].front().unwrap().ticket, 2);
         let run = starts[0].0;
-        let after = machine.sized(&mut state, 1, run, Ok(61 << 20));
+        let after = machine.sized(&mut state, 1, run, Ok(64 << 20));
         assert!(after.is_some());
         assert!(matches!(&state.completed[1][0].outcome,
             Outcome::Failed { kind: FailureKind::Refused, message }

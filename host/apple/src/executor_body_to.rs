@@ -15,7 +15,10 @@
 //! Memory and the lane: the request is charged what it can hold, a reply that
 //! is not 2xx (`executor_core.rs` `reservation`), never the bound on what it
 //! writes, so a large download neither waits for the lane's whole budget nor
-//! is refused for it.
+//! is refused for it. An independent reply read into memory, written to no
+//! file, goes into one buffer of its ceiling, allocated before the first
+//! read: the lane charges it that ceiling once, where a growing buffer could
+//! reach twice it.
 //!
 //! Time: the writes run on the worker between the transport's reads, so the
 //! deadline and an abort stop the body at its next chunk; a write stalled on
@@ -27,7 +30,7 @@ use exact_runner::{
 };
 use ibex2::boundary::HostError;
 use ibex2::stdlib::app_fs::Staged;
-use ibex2::stdlib::fetch::{over_limit, Response, StreamingResponse};
+use ibex2::stdlib::fetch::{over_limit, Body, Response, StreamingResponse};
 
 /// What one read of the body takes before it is written.
 const CHUNK: usize = 64 << 10;
@@ -69,38 +72,40 @@ pub(super) fn stage(
 
 /// The response: with `staged`, a 2xx body written there and published, its
 /// size in the [`BODY_WRITTEN`] header and no body; any other reply read into
-/// memory, at most [`BODY_TO_HELD_BYTES`]. Past `limit` either is
-/// [`over_limit`]`(limit)`, as a reply read into memory is.
+/// memory, at most [`BODY_TO_HELD_BYTES`]. Without `staged`, the body read
+/// into memory: `within` its ceiling, as the lane charged an independent
+/// reply (`reads_within_ceiling`), or else as it grows. Past `limit` either
+/// is [`over_limit`]`(limit)`, as a reply read into memory is.
 pub(super) fn receive(
     mut r: StreamingResponse,
     staged: Option<Staged>,
     limit: usize,
+    within: bool,
 ) -> Result<Response, HostError> {
-    let Some(mut staged) = staged else {
-        return r.collect();
+    let (body, headers) = match staged {
+        Some(mut staged) if r.ok() => {
+            let (mut chunk, mut written) = (vec![0; CHUNK], 0u64);
+            loop {
+                let n = r.body.read(&mut chunk)?;
+                if n == 0 {
+                    break;
+                }
+                staged.write_all(&chunk[..n])?;
+                written += n as u64;
+            }
+            staged.publish()?;
+            let mut headers = r.headers;
+            headers.set(BODY_WRITTEN, &written.to_string());
+            (Vec::new(), headers)
+        }
+        // Not 2xx: the staging file is dropped, and the target left as it was.
+        Some(_) => {
+            let held = limit.min(BODY_TO_HELD_BYTES as usize);
+            (read_within(&mut r.body, held, limit)?, r.headers)
+        }
+        None if within => (read_within(&mut r.body, limit, limit)?, r.headers),
+        None => return r.collect(),
     };
-    let held = limit.min(BODY_TO_HELD_BYTES as usize);
-    let (mut chunk, mut body, mut written) = (vec![0; CHUNK], Vec::new(), 0u64);
-    loop {
-        let n = r.body.read(&mut chunk)?;
-        if n == 0 {
-            break;
-        }
-        if r.ok() {
-            staged.write_all(&chunk[..n])?;
-            written += n as u64;
-        } else if body.len() + n > held {
-            r.body.cancel();
-            return Err(over_limit(limit));
-        } else {
-            body.extend_from_slice(&chunk[..n]);
-        }
-    }
-    let (ok, mut headers) = (r.ok(), r.headers);
-    if ok {
-        staged.publish()?;
-        headers.set(BODY_WRITTEN, &written.to_string());
-    }
     Ok(Response {
         status: r.status,
         status_text: r.status_text,
@@ -109,4 +114,32 @@ pub(super) fn receive(
         url: r.url,
         redirected: r.redirected,
     })
+}
+
+/// `body` read into one buffer of `cap` bytes, allocated once and never
+/// grown, then trimmed to its length; one byte more is
+/// [`over_limit`]`(limit)`.
+fn read_within(body: &mut Body, cap: usize, limit: usize) -> Result<Vec<u8>, HostError> {
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(cap)
+        .map_err(|_| HostError::Failed("HTTP response allocation failed".into()))?;
+    loop {
+        let at = bytes.len();
+        if at == cap {
+            if body.read(&mut [0])? == 0 {
+                break;
+            }
+            body.cancel();
+            return Err(over_limit(limit));
+        }
+        bytes.resize((at + CHUNK).min(cap), 0);
+        let n = body.read(&mut bytes[at..])?;
+        bytes.truncate(at + n);
+        if n == 0 {
+            break;
+        }
+    }
+    bytes.shrink_to_fit();
+    Ok(bytes)
 }

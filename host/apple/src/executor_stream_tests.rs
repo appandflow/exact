@@ -1326,7 +1326,7 @@ fn the_uploads_let_go_that_had_started_are_told_once() {
 
 /// LLP 1016.000 D10: an upload waiting only for its lane's room starts as a
 /// request let go gives it back, without the host's next pump. Three image
-/// GETs with 10 MiB ceilings fill the independent lane but for 4 MiB, which
+/// GETs with 22 MiB ceilings fill the independent lane but for under 2 MiB, which
 /// an upload with a 2 MiB reply ceiling does not fit; the person scrolls one
 /// image away, and as its aborted exchange ends the upload opens.
 #[test]
@@ -1336,7 +1336,7 @@ fn an_upload_waiting_for_its_lanes_room_starts_when_a_request_let_go_frees_it() 
         let image = RequestOut {
             ticket,
             target: "image".into(),
-            request: Request::get("https://example.test/hold").independent_http(10 << 20),
+            request: Request::get("https://example.test/hold").independent_http(22 << 20),
             forced: false,
         };
         core.run_owned(image, None).unwrap();

@@ -1028,10 +1028,13 @@ out of order can leave it: `fetch(url, { exactIndependentHttp:
 { maxResponseBytes: 4194304 } })` in TypeScript, or
 `Request::get(url).independent_http(4 << 20)` from a Rust source. A native app
 then runs up to six such reads at once, within their own budget of 128
-requests and 64 MiB. A running read counts twice its ceiling, so a ceiling
-above about 32 MiB is refused when the read is made: keep it near the largest
-reply you expect. A download written to a file (`exactBodyTo`) counts only the
-1 MiB it can hold, whatever its ceiling. A browser has no lanes and schedules every fetch itself, so
+requests and 68 MiB, room for a 64 MiB read beside the largest request. A
+running read counts its ceiling, and one that does not fit waits for the reads
+before it, so keep the ceiling near the largest reply you expect. An open
+stream (`exactStream`) counts twice its ceiling on the same budget for as long
+as it is open, and a read whose ceiling does not fit beside the open streams is
+refused when it is made. A download written to a file (`exactBodyTo`) counts
+only the 1 MiB it can hold, whatever its ceiling. A browser has no lanes and schedules every fetch itself, so
 there only the ceiling applies. On every host a reply larger than
 `maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB (1 GiB
 with `exactBodyTo`), and anything else is a `TypeError`. A `GET` is

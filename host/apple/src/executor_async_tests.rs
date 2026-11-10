@@ -328,7 +328,7 @@ fn a_drained_timeout_keeps_its_bytes_until_its_exchange_ends() {
         )
     ));
     // Drained, but the cancelled exchange still holds its buffers.
-    assert!(bytes(&core)[1] >= 8 << 20);
+    assert!(bytes(&core)[1] >= 4 << 20);
     script
         .take("https://a.example.test/held")
         .sink
@@ -345,7 +345,7 @@ fn an_exchange_that_ends_before_its_outcome_is_drained_keeps_it_until_drained() 
     script.wait(1);
     script.answer("https://a.example.test/x", b"done");
     eventually(|| core.shared.state.lock().unwrap().running.is_empty());
-    assert!(bytes(&core)[1] >= 8 << 20, "the outcome keeps its charge");
+    assert!(bytes(&core)[1] >= 4 << 20, "the outcome keeps its charge");
     assert_eq!(collect(&core, &woke, 1)[0].0, 1);
     assert_eq!(bytes(&core), [0, 0]);
 }
@@ -460,11 +460,11 @@ fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
     let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
     let (core, woke) = core(&script, grants);
     core.set_app_roots(files.roots());
-    // X holds 44 MiB of the 64 while it runs.
-    let x = Request::get("https://x.example.test/").independent_http(22 << 20);
+    // X holds 48 MiB of the 68 while it runs.
+    let x = Request::get("https://x.example.test/").independent_http(48 << 20);
     core.run(job(1, x), None).unwrap();
     script.wait(1);
-    // A: a 20 MiB file and a 1 MiB ceiling: 22 MiB, which doesn't fit beside X.
+    // A: a 20 MiB file and a 1 MiB ceiling: 21 MiB, which doesn't fit beside X.
     core.run(
         job(
             2,
@@ -513,17 +513,17 @@ fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
 fn an_upload_that_cannot_fit_beside_the_requests_behind_it_is_refused() {
     let _turn = one_at_a_time();
     let files = Files::new();
-    std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 60 << 20]).unwrap();
+    std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 64 << 20]).unwrap();
     let script = Arc::new(Script::default());
     let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
     let (core, woke) = core(&script, grants);
     core.set_app_roots(files.roots());
-    // X holds 60 MiB, so W waits at the head for its 4, and A and B queue
+    // X holds 64 MiB, so W waits at the head for its 4, and A and B queue
     // behind it.
-    let x = Request::get("https://x.example.test/").independent_http(30 << 20);
+    let x = Request::get("https://x.example.test/").independent_http(64 << 20);
     core.run(job(1, x), None).unwrap();
     script.wait(1);
-    let w = Request::get("https://w.example.test/").independent_http(2 << 20);
+    let w = Request::get("https://w.example.test/").independent_http(4 << 20);
     core.run(job(2, w), None).unwrap();
     core.run(
         job(
@@ -534,11 +534,11 @@ fn an_upload_that_cannot_fit_beside_the_requests_behind_it_is_refused() {
     )
     .unwrap();
     // B's own ceiling keeps it queued while A is sized.
-    let mut b = Request::get("https://b.example.test/").independent_http(30 << 20);
+    let mut b = Request::get("https://b.example.test/").independent_http(64 << 20);
     b.method = "POST".into();
-    b.body = vec![0; 3 << 20];
+    b.body = vec![0; 7 << 19];
     core.run(job(4, b), None).unwrap();
-    // X ends: W starts, then A is sized: 62 MiB with B's 3 behind it.
+    // X ends: W starts, then A is sized: 65 MiB with B's 3.5 behind it.
     script.answer("https://x.example.test/", b"x");
     let outcomes = collect(&core, &woke, 2);
     assert_eq!(outcomes[0].0, 1);
@@ -559,15 +559,15 @@ fn an_upload_that_cannot_fit_beside_the_requests_behind_it_is_refused() {
 fn a_head_short_of_bytes_is_not_passed_over_at_its_origins_limit() {
     let script = Arc::new(Script::default());
     let (core, _woke) = core(&script, ORIGINS);
-    // Six to `a`, at its limit, and 48 MiB of the 64 held between them.
+    // Six to `a`, at its limit, holding 48 MiB of the lane between them.
     for n in 0..6 {
         let request =
-            Request::get(&format!("https://a.example.test/{n}")).independent_http(4 << 20);
+            Request::get(&format!("https://a.example.test/{n}")).independent_http(8 << 20);
         core.run(job(n, request), None).unwrap();
     }
     assert_eq!(script.wait(6), 6);
-    // The head, to `a`, needs 16 MiB more than is free; `b` behind it fits.
-    let head = Request::get("https://a.example.test/big").independent_http(16 << 20);
+    // The head, to `a`, needs more than is free; `b` behind it fits.
+    let head = Request::get("https://a.example.test/big").independent_http(32 << 20);
     core.run(job(6, head), None).unwrap();
     core.run(
         job(
@@ -1100,7 +1100,7 @@ fn a_parked_upload_behind_an_origin_blocked_head_reserves_its_future_bytes() {
     core.run(
         job(
             6,
-            Request::get("https://x.example.test/").independent_http(22 << 20),
+            Request::get("https://x.example.test/").independent_http(48 << 20),
         ),
         None,
     )

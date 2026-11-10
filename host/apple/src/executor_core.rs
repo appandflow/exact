@@ -33,7 +33,9 @@ const ORDERED_WAITING_BYTES: usize = 64 << 20;
 /// and must neither starve nor be starved by a lane of held replies
 /// (LLP 1016.000 D4; LLP 1069.004 As built). Its bytes stay on the lane.
 const STREAMS: usize = 16;
-const BYTES: [usize; 2] = [512 << 20, 64 << 20];
+/// The independent lane holds the largest job it admits: a 64 MiB reply
+/// beside the most request buffers, alone.
+const BYTES: [usize; 2] = [512 << 20, MAX_REQUEST + MAX_BODY + MAX_HEADERS * 2];
 const MAX_REQUEST: usize = 4 << 20;
 const MAX_BODY: usize = 64 << 20;
 const MAX_HEADERS: usize = 64 << 10;
@@ -1152,9 +1154,17 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
     if bytes > MAX_REQUEST {
         return Err("native request exceeds 4 MiB");
     }
-    // Vec growth while collecting can reserve up to twice the body ceiling;
-    // headers, error text and queue bookkeeping have a separate allowance.
-    let limit = bytes + body.saturating_mul(2).max(32 << 10) + MAX_HEADERS * 2;
+    // A plain independent reply is read into one buffer of its ceiling
+    // (`body_to::receive`; the asynchronous core grows its buffer only up to
+    // the ceiling). Elsewhere Vec growth while collecting can reserve up to
+    // twice it. Headers, error text and queue bookkeeping have a separate
+    // allowance.
+    let body = if reads_within_ceiling(request) {
+        body
+    } else {
+        body.saturating_mul(2)
+    };
+    let limit = bytes + body.max(32 << 10) + MAX_HEADERS * 2;
     // Admission charges the request buffers; the worker charges the
     // ceiling when it starts the job, waiting for bytes (LLP 1054.000 R3).
     // A ceiling the lane can never hold is refused here, not left waiting.
@@ -1162,6 +1172,16 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
         return Err("native response ceiling exceeds the lane's byte budget");
     }
     Ok((lane, bytes, limit))
+}
+
+/// Whether `request`'s reply is held in a buffer no larger than its ceiling:
+/// plain HTTP on the independent lane, not a stream, a process or a native
+/// call, whose outcomes are collected elsewhere.
+fn reads_within_ceiling(request: &Request) -> bool {
+    matches!(request.http, HttpScheduling::Independent { .. })
+        && !request.stream
+        && !request.is_process()
+        && !request.is_native()
 }
 
 fn failed(kind: FailureKind, message: impl Into<String>) -> Outcome {
@@ -1345,6 +1365,7 @@ fn execute(
         return failed(FailureKind::Refused, why);
     }
     let limit = body_to::limit(&request);
+    let within = reads_within_ceiling(&request);
     let timeout = request.timeout_ms;
     let fetch = reach::gate_fetch(b.fetch.clone(), request.reach);
     // The whole exchange, headers and body, ends by the deadline: the
@@ -1392,7 +1413,7 @@ fn execute(
     let result = fetch
         .stream(req, &abort.signal())
         .and_then(check_headers)
-        .and_then(|r| body_to::receive(r, staged, limit));
+        .and_then(|r| body_to::receive(r, staged, limit, within));
     match result {
         Ok(r) => Outcome::Response(Response {
             status: r.status,

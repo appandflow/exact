@@ -359,8 +359,6 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
         Request::storage(vec![]).independent_http(1),
         Request::get("https://example.test/read").independent_http(0),
         Request::get("https://example.test/read").independent_http((64 << 20) + 1),
-        // A ceiling the 64 MiB lane can never hold (twice the body, plus).
-        Request::get("https://example.test/read").independent_http(32 << 20),
     ] {
         // Each is refused on its own, not held behind the one before it.
         assert_eq!(core.resume_ordered(), []);
@@ -375,14 +373,14 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
 
 /// The Bluesky port's D5: a second 8 MiB read beside a held one was refused
 /// because admission charged the whole ceiling. It now waits for the bytes
-/// (16 MiB reads here, so that two outgrow the lane's 64 MiB).
+/// (40 MiB reads here, so that two outgrow the lane).
 #[test]
 fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     let (core, fixture, woke) = setup();
     core.run(
         job(
             1,
-            Request::get("https://example.test/hold").independent_http(16 << 20),
+            Request::get("https://example.test/hold").independent_http(40 << 20),
         ),
         None,
     )
@@ -391,7 +389,7 @@ fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     core.run(
         job(
             2,
-            Request::get("https://example.test/read").independent_http(16 << 20),
+            Request::get("https://example.test/read").independent_http(40 << 20),
         ),
         None,
     )

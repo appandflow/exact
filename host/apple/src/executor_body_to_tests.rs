@@ -369,3 +369,79 @@ fn the_asynchronous_core_refuses_a_body_to_a_file() {
     assert!(opened.lock().unwrap().is_empty());
     assert!(files.cache().is_empty());
 }
+
+/// A plain reply on the independent lane is read into one buffer of its
+/// ceiling, so the lane charges the ceiling once and holds the documented
+/// 64 MiB beside the most request buffers it admits. A stream's messages
+/// still grow, so a stream is charged twice its ceiling
+/// (issues/closed/20261026-independent-http-refuses-ceilings-over-32-mib-on-apple.md).
+#[test]
+fn a_64_mib_ceiling_is_charged_once_and_fits_the_lane() {
+    let read = Request::get("https://example.test/read").independent_http(64 << 20);
+    let (lane, charge, limit) = reservation(&read).unwrap();
+    assert_eq!((lane, limit - charge), (1, (64 << 20) + MAX_HEADERS * 2));
+    assert!(MAX_REQUEST + limit - charge <= BYTES[1]);
+    let Answer::Later(stream) = Answer::stream(read.independent_http(8 << 20)) else {
+        unreachable!()
+    };
+    let (_, charge, limit) = reservation(&stream).unwrap();
+    assert_eq!(limit - charge, (16 << 20) + MAX_HEADERS * 2);
+}
+
+/// The reply is read into a buffer of its ceiling, never grown past it, and
+/// trimmed to its length; one byte over the ceiling is refused.
+#[test]
+fn a_reply_is_read_into_one_buffer_within_its_ceiling() {
+    let (core, _opened, woke) = serving(GRANTS);
+    let get = |size: usize, ceiling: u32| {
+        Request::get(&format!("https://example.test/bytes/{size}")).independent_http(ceiling)
+    };
+    let big = (40 << 20) + 3;
+    core.run(job(1, get(big, 64 << 20)), None).unwrap();
+    core.run(job(2, get(100_000, 100_000)), None).unwrap();
+    core.run(job(3, get(100_001, 100_000)), None).unwrap();
+    let mut outcomes = collect(&core, &woke, 3);
+    outcomes.sort_by_key(|(ticket, _)| *ticket);
+    for (at, size) in [(0, big), (1, 100_000)] {
+        let Outcome::Response(r) = &outcomes[at].1 else {
+            panic!("{:?}", outcomes[at])
+        };
+        assert_eq!((r.body.len(), r.body.capacity()), (size, size));
+        assert!(r
+            .body
+            .iter()
+            .enumerate()
+            .step_by(4093)
+            .all(|(i, b)| *b == byte(i)));
+    }
+    assert!(
+        matches!(&outcomes[2].1, Outcome::Failed { kind: FailureKind::Refused, message }
+            if message == "HTTP response exceeds limit"),
+        "{:?}",
+        outcomes[2]
+    );
+}
+
+/// A read whose ceiling the lane's open streams leave no room for is refused
+/// when it is made, not left waiting for as long as they stay open; one that
+/// fits beside them runs.
+#[test]
+fn a_ceiling_open_streams_leave_no_room_for_is_refused_when_made() {
+    let (core, fixture, woke) = setup();
+    let held = Request::get("https://example.test/hold").independent_http(8 << 20);
+    let Answer::Later(stream) = Answer::stream(held) else {
+        unreachable!()
+    };
+    core.run(job(1, stream), None).unwrap();
+    fixture.wait_held(1);
+    let read = |ceiling| Request::get("https://example.test/read").independent_http(ceiling);
+    let refused = core.run(job(2, read(64 << 20)), None).unwrap_err();
+    assert!(refused.contains("held by open streams"), "{refused}");
+    core.run(job(3, read(48 << 20)), None).unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(
+        matches!(&outcomes[0], (3, Outcome::Response(r)) if r.body == b"done"),
+        "{outcomes:?}"
+    );
+    fixture.release();
+}
