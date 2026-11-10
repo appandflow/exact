@@ -686,6 +686,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
         current.reset(); canvas.setMatrix(current)
         var c: Canvas = canvas
         var outer: Canvas? = null
+        var outerShiftX = 0f
+        var outerShiftY = 0f
         var node: android.graphics.RenderNode? = null
         var i = from
         while (i < n) {
@@ -889,6 +891,10 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     node = g
                     grouped = b.get(i + 1)
                     outer = c
+                    // The node is drawn moved by the shift (op 21), so its rows are recorded unmoved: a backdrop's
+                    // replay records them again into this same node, which the view also draws.
+                    outerShiftX = shiftX; outerShiftY = shiftY
+                    shiftX = 0f; shiftY = 0f
                     saveMatrix()
                     c = g.beginRecording()
                     current.reset(); c.setMatrix(current)
@@ -898,6 +904,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     node?.let { g ->
                         g.endRecording()
                         c = outer!!
+                        shiftX = outerShiftX; shiftY = outerShiftY
                         restoreMatrix()
                         c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(holder?.invoke(grouped) ?: g); c.restore()
                     }
