@@ -818,8 +818,16 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             serveFile(file.0, type: file.1)
             return
         }
-        let local = error.map(errorDocument) ?? src.flatMap(localDocument)
-        let remote = local == nil ? src.flatMap(remoteSource) : nil
+        let found = error == nil ? src.flatMap(localDocument) : nil
+        let remote = error == nil && found == nil ? src.flatMap(remoteSource) : nil
+        var error = error
+        // A `src` that is neither a file under the asset root nor a URL WebKit loads would otherwise be an empty
+        // document with nothing said; a browser shows its 404.
+        if error == nil, found == nil, remote == nil, let src, !src.isEmpty {
+            error = "\(src) is not a file under \(WebArm.assetBase.path)"
+            FileHandle.standardError.write(Data("exact: iframe \(id): \(error!)\n".utf8))
+        }
+        let local = error.map(errorDocument) ?? found
         let web = remote.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
         // An HTTPS wrapper would block an HTTP guest as mixed content even
         // when the app explicitly allows it through ATS. Match the remote
@@ -1014,35 +1022,6 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
               let url = URL(string: source, relativeTo: AssetScheme.base)?.absoluteURL,
               AssetScheme.trees.contains(where: String(url.path.dropFirst()).hasPrefix) else { return nil }
         return url
-    }
-
-    func localDocument(_ source: String) -> String? {
-        localBytes(source).map { String(decoding: $0, as: UTF8.self) }
-    }
-
-    func localBytes(_ source: String) -> Data? {
-        if let suppliedDocument { return suppliedDocument }
-        // Hosted http(s) decks keep their URL. A scheme-less src — including
-        // `URL(string:)` returning nil for a leading-dot relative path — is a
-        // file under EXACT_ASSETS. An HTML one is then served by URL under
-        // `AssetScheme`; these bytes decide only how it is placed on iOS
-        // (`fitsItsBox`). Another is served under its type. Query and
-        // fragment are URL metadata, not part of the filesystem path.
-        if let scheme = URL(string: source)?.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
-            return nil
-        }
-        let path = source.split(separator: "?", maxSplits: 1)[0].split(separator: "#", maxSplits: 1)[0]
-        let relative = path.drop(while: { $0 == "/" })
-        let base = ProcessInfo.processInfo.environment["EXACT_ASSETS"]
-            .map { URL(fileURLWithPath: $0) }
-            ?? Bundle.main.resourceURL
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let root = base.resolvingSymlinksInPath().standardizedFileURL.path
-        let file = base.appendingPathComponent(String(relative))
-            .resolvingSymlinksInPath().standardizedFileURL
-        guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
-        return try? Data(contentsOf: file)
     }
 
     /// What most likely refused a bundled page's sub-resource. The page sees

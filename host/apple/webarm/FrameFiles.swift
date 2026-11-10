@@ -182,3 +182,39 @@ extension AssetScheme {
         }
     }
 }
+
+/// A frame's own page: a scheme-less `src` is a file under the asset root.
+extension WebArm {
+    func localDocument(_ source: String) -> String? {
+        localBytes(source).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// Where a scheme-less `src` is a file.
+    static var assetBase: URL {
+        ProcessInfo.processInfo.environment["EXACT_ASSETS"].map { URL(fileURLWithPath: $0) }
+            ?? Bundle.main.resourceURL
+            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+
+    func localBytes(_ source: String) -> Data? {
+        if let suppliedDocument { return suppliedDocument }
+        // Hosted http(s) decks keep their URL. A scheme-less src — including
+        // `URL(string:)` returning nil for a leading-dot relative path — is a
+        // file under EXACT_ASSETS. An HTML one is then served by URL under
+        // `AssetScheme`; these bytes decide only how it is placed on iOS
+        // (`fitsItsBox`). Another is served under its type. Query and
+        // fragment are URL metadata, not part of the filesystem path.
+        if let scheme = URL(string: source)?.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
+            return nil
+        }
+        let path = source.split(separator: "?", maxSplits: 1)[0].split(separator: "#", maxSplits: 1)[0]
+        let relative = path.drop(while: { $0 == "/" })
+        let base = WebArm.assetBase
+        let root = base.resolvingSymlinksInPath().standardizedFileURL.path
+        let file = base.appendingPathComponent(String(relative))
+            .resolvingSymlinksInPath().standardizedFileURL
+        guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
+        return try? Data(contentsOf: file)
+    }
+}

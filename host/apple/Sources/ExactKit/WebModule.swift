@@ -414,7 +414,8 @@ final class WebViews {
                     return
                 }
                 self.send(given.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: given)), to: handle, using: module.setFiles)
-                self.send(document ?? Data(), to: handle, using: module.setDocument)
+                // None found: the arm looks under the asset root itself, and says so when it finds none.
+                self.send(document, to: handle, using: module.setDocument)
                 self.send(entry.sandbox, to: handle, using: module.setSandbox)
                 self.send(src, to: handle, using: module.setSrc)
             }

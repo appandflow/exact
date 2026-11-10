@@ -1418,7 +1418,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 - **`EXACT_MAC_BIN` overrides the bundled macOS launch and skips the freshness
   check.** A bare executable named by this override has no bundled App Transport
-  Security policy.
+  Security policy. An executable inside an `.app` reads its assets (bundled pages,
+  images, fonts) from that bundle's `Contents/Resources`; a bare one reads the
+  build capture under this shell's target directory, and the driver refuses when
+  that capture is missing. `EXACT_ASSETS` names another root.
 
 - **A bundled web page that works on the web can break on Apple if it reaches its
   parent, sets cookies or registers a service worker.** An `iframe` of an HTML page

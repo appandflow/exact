@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { phone, phoneBridge, forwardedEnv, crashReports } from '../host/apple/devices.mjs';
 import { resolveApp, executableName, linuxBinary, bakeOutput, bakeTarget } from './app.mjs';
-import { linuxRebuild, nativeBuild, ownVerb, planOverride, refuseBuild } from './agent-build.mjs';
+import { linuxRebuild, nativeBuild, ownVerb, planOverride, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { refuseStale, proofProductChanges, unchecked, packagedBuildChanges, depInfoChanges, depInfoNewer, newerThan, bakedSettingChanges } from './agent-launch.mjs';
 import { androidBinary, androidDeploy, apkRecord } from './agent-android.mjs';
 import { nativeKey, mouseContact } from './agent-keys.mjs';
@@ -62,7 +62,13 @@ export async function openStdio({ host, plan, world, size, app, env: extra = {},
       extra = { ...extra, EXACT_WORLD: '~/tmp/exact-agent.world' };
     }
   }
-  const env = { EXACT_ASSETS: windows ? dirname(bin) : linux || android ? a.dir : artifacts.capture, ...process.env, EXACT_AGENT: '1' };
+  // A Mac bundle carries its own assets (bundle.mjs copies the capture into Contents/Resources); a bare binary
+  // reads the capture of this target directory, which another one's build did not write.
+  const assets = windows ? dirname(bin) : linux || android ? a.dir
+    : !device && process.env.EXACT_MAC_BIN && /\.app\/Contents\/MacOS\/[^/]+$/.test(resolve(bin)) ? resolve(bin, '../../Resources') : artifacts.capture;
+  if (!portable && !device && !process.env.EXACT_ASSETS && !extra.EXACT_ASSETS && !existsSync(assets))
+    throw new Error(`${bin}'s assets are not at ${assets}: ${process.env.EXACT_MAC_BIN ? 'export the CARGO_TARGET_DIR it was built with, or name its assets with EXACT_ASSETS' : `run ${sample ? `bun host/apple/build.mjs ${a.crate('apple')} --host` : rebuildCommand(a, 'mac')}`}`);
+  const env = { EXACT_ASSETS: assets, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (portable && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
   // @ref LLP 1039 §5 — measure the requested Mac content viewport.
