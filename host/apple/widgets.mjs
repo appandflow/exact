@@ -9,7 +9,8 @@ import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
 import { appleLinkArgs } from '../../scripts/package-libraries.mjs';
 import { appexArgs, keepMain } from './extensions.mjs';
 import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
-const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
+import { fileURLToPath } from 'node:url';
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url))), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
 export function platformWidgetEntries(app, platform = 'ios') {
   return widgetEntries(app).flatMap(entry => {

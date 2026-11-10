@@ -14,8 +14,9 @@ import { runInNewContext } from 'node:vm';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const glue = readFileSync(resolve(WEB, 'media-glue.js'), 'utf8');
 test('agent seekto validates time before looking for an owner', () => {
   const exact = { views: new Map() };

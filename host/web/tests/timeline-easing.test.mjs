@@ -17,10 +17,11 @@ import { timelineEasing } from '../motion-glue.js';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WEB_JS = resolve(WEB, '../web-js');
 const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
 const commitSource = glueDeclarations(GLUE, ['apply', 'applyBatch', 'wakeLock', 'holdWake', 'orientationLock', 'holdOrientation']);

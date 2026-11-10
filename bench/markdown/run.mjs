@@ -17,8 +17,9 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { writeDocs } from './docs.mjs';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(new URL(import.meta.url).pathname);
+const HERE = dirname(fileURLToPath(new URL(import.meta.url)));
 const ROOT = resolve(HERE, '../..');
 const WORK = resolve(ROOT, 'target/bench/markdown');
 const HISTORY = resolve(HERE, 'history.jsonl');

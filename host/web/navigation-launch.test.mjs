@@ -24,6 +24,15 @@ test('the launch keeps its fragment, after the query a drive leaves out (LLP 115
   } finally { if (saved) Object.defineProperty(globalThis, 'location', saved); else delete globalThis.location; }
 });
 
+test('a History entry keeps the userinfo of a page opened with one', () => {
+  // `replaceState` refuses a URL whose username or password differs from the document's; it threw, and the boot ran again.
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: 'http://127.0.0.1:9', href: 'http://user:pass@127.0.0.1:9/' } });
+  try {
+    expect(historyURL('/item/7?q=a#moves')).toBe('http://user:pass@127.0.0.1:9/item/7?q=a#moves');
+  } finally { if (saved) Object.defineProperty(globalThis, 'location', saved); else delete globalThis.location; }
+});
+
 test('every History entry keeps a drive\'s formatLocale, so navigation and reload keep it', () => {
   const saved = Object.getOwnPropertyDescriptor(globalThis, 'location');
   Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: 'http://127.0.0.1:9', href: `http://127.0.0.1:9/?${DRIVE}` } });

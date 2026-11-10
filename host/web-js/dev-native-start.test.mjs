@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const ENVELOPE = 'application/vnd.exact.envelope+json, text/html;q=0.9';
 const PHASE_MODULE = resolve(ROOT, 'host/web/dev-phase.mjs');
 afterEach(() => stopAll());
@@ -24,6 +24,7 @@ afterEach(() => stopAll());
 const STUB = `
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const { phased, failedPhase } = await import(process.env.STUB_PHASE);
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]);
 console.log('phase: building the module producer (a stand-in)');

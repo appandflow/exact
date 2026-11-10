@@ -8,8 +8,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 afterEach(() => stopAll());
 
 /** A dev loop on `app` (`flags`: `--wasm` for the wasm page), as scripts/tamber-server.test.mjs starts one. */

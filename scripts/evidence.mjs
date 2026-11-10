@@ -19,8 +19,9 @@ import { spawnSync } from 'node:child_process';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { nativeBuild, receiptPath } from './agent-build.mjs';
 import { webChanges } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const git = (...args) => spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' }).stdout?.trim() ?? '';
 const digest = (path) => createHash('sha256').update(readFileSync(path)).digest('hex').slice(0, 16);
 const runsOf = (app) => resolve(app.dir, '.exact', 'runs.jsonl');

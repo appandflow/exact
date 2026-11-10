@@ -1,6 +1,7 @@
 import {test, expect} from 'bun:test';
 import {assetDelivery, assetName} from '../../../../host/web/gpu-assets.js';
-const root = new URL('../../../../', import.meta.url).pathname;
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('../../../../', import.meta.url));
 function harness(fetch, requested=['a.tex']) {
   const delivered=[], failed=[], names=[...requested], entry={id:1,view:1};
   const module={gpu_assets:()=>JSON.stringify({requests:names.splice(0),retired:[]}),

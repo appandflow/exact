@@ -251,9 +251,20 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         }]);
     };
     if !root.props.is_empty() {
+        // A helper written above the root becomes the root (LLP 1156.002 D9).
+        let below = if file.components.len() > 1 {
+            format!(
+                "; if `{}` is a helper, move it below the component the app starts from",
+                root.name
+            )
+        } else {
+            String::new()
+        };
         errors.push(AnalyzeError {
             id: "analyze-root-props",
-            message: "the root component (the first in the file) takes no props".into(),
+            message: format!(
+                "the root component (the first in the file) takes no props{below}"
+            ),
             span: root.span,
             related: Vec::new(),
         });
@@ -712,6 +723,14 @@ fn check_handler(
     let (name, args) = match value {
         Expr::Ident(n, _) => (n.as_str(), &[][..]),
         Expr::Call(n, args, _) => (n.as_str(), args.as_slice()),
+        // A handler chosen by a condition is one action that chooses (LLP 1156.002 D8).
+        Expr::Ternary(..) => {
+            return err(
+                "analyze-handler-shape",
+                format!("`{attr}=` needs an action name or `action(args)`, not a condition: write one action that chooses, `action pick {{ if cond {{ a() }} else {{ b() }} }}`, and `{attr}=pick`"),
+                span,
+            )
+        }
         _ => {
             return err(
                 "analyze-handler-shape",

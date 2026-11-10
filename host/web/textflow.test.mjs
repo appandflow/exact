@@ -4,6 +4,7 @@ import { baselineIn, fragmentBaseline, fragmentDiff, framePhases, fontStyle, for
 import { render } from '../../scripts/agent.mjs';
 import { cdpBrowser, chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
+import { fileURLToPath } from 'node:url';
 
 const { unavailable: browserUnavailable } = chromium();
 const browserTest = need('chrome', browserUnavailable);
@@ -622,7 +623,7 @@ browserTest('flowed links keep press ownership and native Enter activation', asy
 // for a Contract action; both hosts' actual listener functions run unchanged.
 browserTest('same-target capture precedes a key registered first in both web runtimes', async () => {
   expect(await inChrome(targetKeyFixture, ['/glue.js'], {
-    '/rt.js': new URL('../web-js/rt.js', import.meta.url).pathname,
+    '/rt.js': fileURLToPath(new URL('../web-js/rt.js', import.meta.url)),
   })).toEqual([
     [['capture', 'key'], ['capture']],
     [['capture', 'key'], ['capture']],
@@ -669,7 +670,7 @@ ${onKey}
 
 browserTest('flowed keys reach ancestors once in both web runtimes', async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   expect(results.length).toBe(4);
   for (const { runtime, nested, events, unflowed, flowed } of results) {
@@ -694,7 +695,7 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
 
 for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   for (const { runtime, nested, redispatch } of results) {
     if (scenario === 'redispatch') for (const [first, second] of redispatch) {
@@ -718,7 +719,7 @@ for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest
 
 browserTest('flowed keys reach page capture consumers once', async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   for (const { runtime, nested, pageCaptures } of results) {
     for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures) {

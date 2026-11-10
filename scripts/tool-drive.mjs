@@ -8,8 +8,9 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { checkoutPort } from './port-lock.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** The app directory `argv` names, as resolveApp (app.mjs) reads it: `--app`'s
  * path, else EXACT_APP_DIR, else `--app`'s name under apps/; null for none.

@@ -35,8 +35,9 @@ answers by the app-owned authorized principal and auth generation.
 and stop it after; start none of your own for them. They find it this way:
 
 - **Its entry:** `server.ts`, `server/index.ts` or `server/server.ts`, or the one `app.json` names:
-  `"commands": { "server": ["bun", "server/main.ts"] }`.
-  Arguments after the entry in `commands.server` are passed through in order.
+  `"commands": { "server": ["bun", "server/main.ts"] }`. Another program runs as written
+  (`["python3", "server.py"]`), told `DB` and `PORT` as Bun's is; its first argument that is a file
+  of the app is the entry checked for `DB`. Arguments after the entry are passed through in order.
 - **Its address:** the first `http://127.0.0.1:<port>` in `app.ts` as the build has it, a setting's
   value in place of its read (or in a module it imports, as the starter's `API`). To use another port, change it there; the server reads it from the same constant.
   An origin fixed at build (a deployed API's) is a setting: `"env": ["API_BASE_URL"]` in `app.json`,
@@ -48,5 +49,8 @@ and stop it after; start none of your own for them. They find it this way:
   If the server keeps no database, set `"server": { "database": false }` beside
   `commands` to omit `DB` and skip scratch database creation and removal; otherwise
   an entry that does not read `DB` is refused.
+
+The database is empty when a run starts and shared by its tests, while each test starts from
+empty client storage: a test that needs no earlier rows makes its own.
 
 A dev server already on that port makes them stop and name its pid: stop it first.

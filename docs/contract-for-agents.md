@@ -4298,7 +4298,7 @@ Sizes, padding and radii clamp negative results to zero; margins and insets keep
 them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
 traffic lights under `viewport-fit="cover"` (in the tall title row an app without routes
 gets from `"display_override": ["window-controls-overlay"]` in `app.json`) and is undefined
-elsewhere, so give it a fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
+elsewhere, so give it a fallback (`contract vocab titlebar-area`). Unsupported: `em`, a unitless number where a length goes
 (write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
 "Comparisons").
 
@@ -4378,7 +4378,8 @@ a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 `hyphens` is `manual` by default: a soft hyphen (U+00AD, written as the character itself or from data) breaks
 and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
-hyphens).
+hyphens). Under `overflow-wrap="break-word"` iOS may break a long word with a hyphen it draws, so text that can
+hold an address or a code (a URL, an email, a key) takes `hyphens="none"`: a hyphen inside it reads as part of it.
 
 `text-wrap="balance"` (CSS's `text-wrap-style`, inherited) evens a short
 paragraph's lines, for a tooltip, a toast or an empty state's message: the
@@ -5055,8 +5056,11 @@ An `input type="password"`'s value is never agent output, on any host: `tree`,
 not empty, whatever its length (an `expect text` on the field reads `•••`), and
 `tree --ax` marks the field `protected` where the host has one (the web's
 accessibility tree still shows one bullet a character, as Chrome exposes it).
-What the app stores (`state.slots`, its data module) is the app's own; an
-`app.test.contract` `type … append` into a filled password field is refused.
+`state` shows `"•••"` for any string equal to a live password field's text, in
+its slots, derives and answers alike; an `expect state` and a drive's `clock until
+state` compare against the text and print it masked. What the app stores (its data
+module, its store) is the app's own; an `app.test.contract` `type … append` into a
+filled password field is refused.
 
 `aria-busy=(not ready)` marks a region as still loading: assistive technology
 hears it, and time to interactive (`modules/observe`) waits until no element is

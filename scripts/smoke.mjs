@@ -19,9 +19,10 @@ import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './or
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
+import { fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const appName = argv.includes('--app') ? argv[argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
 // Exact Live's job fixture on loopback, for its stream drive (step 16): the

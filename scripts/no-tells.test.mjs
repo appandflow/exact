@@ -3,6 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { brokenWordsIn, fixedSizesIn, fixedSymbolsIn, tellsIn } from './no-tells.mjs';
+import { fileURLToPath } from 'node:url';
 
 test("a theme's literals are its palette and a row naming an entry is no tell", () => {
   const source = 'theme\n  brand="#c8102e"\n  background = "light-dark(#fff, #000)"\n\ncomponent A\n  view\n    text "x" color="brand" background-color="#fff"\n';
@@ -28,7 +29,7 @@ test('a design token and an expression over tokens are no tells', () => {
 
 test("an app's design is read for its token names", async () => {
   const { designTokens } = await import('./no-tells.mjs');
-  const names = designTokens(new URL('../apps/theme-fixture/app.contract', import.meta.url).pathname);
+  const names = designTokens(fileURLToPath(new URL('../apps/theme-fixture/app.contract', import.meta.url)));
   for (const name of ['surface.page', 'text.primary', 'accent.soft', 'AccentColor']) assert.ok(names.has(name), name);
   assert.ok(!names.has('dark-style'));
 });

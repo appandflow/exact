@@ -4,6 +4,8 @@
 // for them — the browser's emulation through CDP where it has one, the
 // glue's substitute where it does not. agent.mjs re-exports the tables.
 import { MalformedOperation } from './agent-keys.mjs';
+/** A root font size as its help writes it (`53px`) or as a number; px is its only unit. */
+const px = (name, value) => name === 'root-font-size' ? String(value).replace(/px$/, '') : value;
 
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference', 'color-gamut': 'srgb', 'dynamic-range': 'standard' };
@@ -37,7 +39,7 @@ export function preferGroups(facts) {
     if (name === 'midi.inputs' || name === 'midi.outputs') { midi[name.slice(5)] = (Array.isArray(value) ? value : String(value).split(',')).map(n => String(n).trim()).filter(Boolean); continue; }
     if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
     else if ((Object.hasOwn(PAGE_FACTS, name) ? PAGE_FACTS[name] : []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
-    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
+    else if ((name === 'root-font-size' || name === 'display-scale') && Number(px(name, value)) > 0 && Number(px(name, value)) <= 3.4028234663852886e38) page[name] = Number(px(name, value)); // a size the kernel stores, as an f32
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) {
       const [c, r] = String(value).split('x').map(Number);

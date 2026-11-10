@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 import { mkdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { plistFile } from './assets.mjs';
 import { appleActivationRule, appleShareMembers } from '../../scripts/share-target.mjs';
-const root = resolve(new URL('../..', import.meta.url).pathname);
+import { fileURLToPath } from 'node:url';
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 /** An extension executable's link: application-extension API only, entered at `NSExtensionMain`. A bundle with an
  * `@main` (WidgetKit's) keeps its `main` with `keepMain`. */

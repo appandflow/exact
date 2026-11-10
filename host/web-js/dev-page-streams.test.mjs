@@ -10,8 +10,9 @@ import { connect, createServer as createSocketServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 afterEach(() => stopAll());
 
 test('a page that closes is no build of the loop any more, by 127.0.0.1 or by localhost', async () => {

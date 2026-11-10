@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, lockHolder, logged, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { openStdio } from './agent-stdio.mjs';
 import { linuxBinary, resolveApp } from './app.mjs';
 
@@ -673,4 +673,28 @@ test('an Apple bake says the web-only symbol warnings in one line', async () => 
     'warning: euxy: app.contract:4:5 warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`bun exact.mjs contract build --json` says each, and how)',
   ]);
   assert.deepEqual(bakeWarnings('euxy', [alias]), [`warning: euxy: ${alias}`]);
+});
+
+// LLP 1156.000 D6: a long build says it is still working, with the log's last step, and names who holds a lock Cargo
+// waits on, instead of one line and minutes of silence.
+test('a long build says how long it has run and its last step, then a lock it waits on', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-logged-')), said = [];
+  try {
+    const script = 'console.log("   Compiling exact-kernel v0.1.0"); await Bun.sleep(120); console.error("    Blocking waiting for file lock on package cache"); await Bun.sleep(120);';
+    const { code } = await logged(process.execPath, ['-e', script], resolve(dir, 'build.log'), { say: line => said.push(line), every: 80 });
+    assert.equal(code, 0);
+    assert.match(said[0], /^ {2}still building \(\d+ s\): Compiling exact-kernel v0\.1\.0$/);
+    assert.ok(said.some(line => /Blocking waiting for file lock on package cache, (held by|its holder)/.test(line)), said.join('\n'));
+    assert.match(readFileSync(resolve(dir, 'build.log'), 'utf8'), /Compiling exact-kernel/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a package-cache lock's holder is named by the process that has the file open", () => {
+  const calls = [];
+  const run = (cmd, args) => { calls.push(cmd); return { stdout: cmd === 'lsof' ? '4242\n' : cmd === 'ps' ? '4242 /Users/me/.rustup/toolchains/1.97.0/bin/cargo\n' : '' }; };
+  // Its pid and executable, never its arguments, which can carry a secret.
+  assert.equal(lockHolder('Blocking waiting for file lock on package cache', run), 'held by: 4242 cargo');
+  assert.deepEqual(calls, ['lsof', 'ps']);
+  // A build directory's lock names no path: the cargo processes running are the candidates.
+  assert.equal(lockHolder('Blocking waiting for file lock on build directory', () => ({ stdout: '' })), 'its holder is not found');
 });

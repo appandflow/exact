@@ -12,6 +12,7 @@ import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
 import {cdpBrowser, chromium} from '../../../scripts/agent-launch.mjs';
 import {need} from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 const {unavailable}=chromium();
 // A test that edits an app's files and writes them back also puts their
 // times back, so a later test's build-freshness check is not tripped.
@@ -22,7 +23,7 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
   // RealWorld has routes and text fields but no GPU surface. Keep this proof
   // independent of an optional renderer: a failure then identifies the dev
   // server, page reload, or CDP navigation instead of a wedged GPU adapter.
-  const appDir=resolve(new URL('../../../apps/realworld',import.meta.url).pathname),contract=resolve(appDir,'app.contract'),logic=resolve(appDir,'app.ts'),helper=resolve(appDir,'dev-reload-helper.ts');
+  const appDir=resolve(fileURLToPath(new URL('../../../apps/realworld',import.meta.url))),contract=resolve(appDir,'app.contract'),logic=resolve(appDir,'app.ts'),helper=resolve(appDir,'dev-reload-helper.ts');
   const original=readFileSync(contract,'utf8'),originalLogic=readFileSync(logic,'utf8');
   const restoreTimes=keepTimes([contract,logic]);
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
@@ -47,7 +48,7 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
     writeFileSync(helper,"export const devReloadValue = () => 'before:' + crypto.getRandomValues(new Uint32Array(2)).join('.');\n");
     writeFileSync(logic,withLogic(originalLogic));
     writeFileSync(contract,withProbe(original));
-    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:{...process.env,EXACT_WEB_DIST:privateDist},stdio:['ignore','pipe','pipe']});
+    dev=spawn(process.execPath,[resolve(fileURLToPath(new URL('../../web/dev.mjs',import.meta.url))),'--app','realworld','--port',String(port)],{cwd:resolve(fileURLToPath(new URL('../../..',import.meta.url))),env:{...process.env,EXACT_WEB_DIST:privateDist},stdio:['ignore','pipe','pipe']});
     ready=new Promise((ok,fail)=>{const take=d=>{lines+=d;for(const line of lines.split('\n'))if(line==='plan ready')return ok()};dev.stdout.on('data',take);dev.stderr.on('data',take);dev.once('error',fail);dev.once('exit',code=>fail(new Error(`dev loop exited ${code}: ${lines.slice(-2000)}`)))});
     await Promise.race([ready,new Promise((_,fail)=>setTimeout(()=>fail(new Error(`dev loop did not start: ${lines.slice(-2000)}`)),120000))]);
     drive=await open({host:'web',app:'realworld',url:`http://127.0.0.1:${port}/`});
@@ -100,7 +101,7 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
   }
 },180_000);
 test('the Caltrain JS dev loop keeps its station search across an app edit', async () => {
-  const contract=resolve(new URL('../../../apps/caltrain/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
+  const contract=resolve(fileURLToPath(new URL('../../../apps/caltrain/app.contract',import.meta.url))),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
   // The brand's text, wherever the layout puts it; an edit that no longer applies fails here, not as a reload that never shows.
@@ -110,7 +111,7 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
   let dev,drive,lines='';
   const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`Caltrain reload did not become observable: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
   try {
-    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','caltrain','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:{...process.env,EXACT_WEB_DIST:privateDist},stdio:['ignore','pipe','pipe']});
+    dev=spawn(process.execPath,[resolve(fileURLToPath(new URL('../../web/dev.mjs',import.meta.url))),'--app','caltrain','--port',String(port)],{cwd:resolve(fileURLToPath(new URL('../../..',import.meta.url))),env:{...process.env,EXACT_WEB_DIST:privateDist},stdio:['ignore','pipe','pipe']});
     const ready=new Promise((ok,fail)=>{const take=d=>{lines+=d;for(const line of lines.split('\n'))if(line==='plan ready')return ok()};dev.stdout.on('data',take);dev.stderr.on('data',take);dev.once('error',fail);dev.once('exit',code=>fail(new Error(`dev loop exited ${code}: ${lines.slice(-2000)}`)))});
     await Promise.race([ready,new Promise((_,fail)=>setTimeout(()=>fail(new Error(`dev loop did not start: ${lines.slice(-2000)}`)),120000))]);
     drive=await open({host:'web',app:'caltrain',url:`http://127.0.0.1:${port}/`});
@@ -134,7 +135,7 @@ need('chrome', unavailable)('a page whose first build failed reloads into the fi
   // The first build's error page has no runtime (`globalThis.exact` never
   // exists), so its reload must not wait for one. Driven over a raw DevTools
   // pipe: agent.mjs's open() waits for a runtime this page never has.
-  const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
+  const contract=resolve(fileURLToPath(new URL('../../../apps/realworld/app.contract',import.meta.url))),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
   const dist=mkdtempSync(join(tmpdir(),'exact-dev-error-dist-'));
@@ -142,7 +143,7 @@ need('chrome', unavailable)('a page whose first build failed reloads into the fi
   const waitFor=async (read,accept,ms=60000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,50))}throw new Error(`not observed: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};
   try {
     writeFileSync(contract,original+'\nthis is not Contract (\n');
-    dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:{...process.env,EXACT_WEB_DIST:dist},stdio:['ignore','pipe','pipe']});
+    dev=spawn(process.execPath,[resolve(fileURLToPath(new URL('../../web/dev.mjs',import.meta.url))),'--app','realworld','--port',String(port)],{cwd:resolve(fileURLToPath(new URL('../../..',import.meta.url))),env:{...process.env,EXACT_WEB_DIST:dist},stdio:['ignore','pipe','pipe']});
     dev.stdout.on('data',d=>{lines+=d});dev.stderr.on('data',d=>{lines+=d});
     const url=`http://127.0.0.1:${port}/`;
     await waitFor(()=>fetch(url).then(r=>r.status),status=>status===200,180000);

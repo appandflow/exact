@@ -16,8 +16,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from './agent-launch.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 afterEach(() => stopAll());
 
 const APP = `routes nav

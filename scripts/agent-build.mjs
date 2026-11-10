@@ -20,7 +20,8 @@
 //
 //   bun scripts/agent-build.mjs <ios|macos|windows> --app <name>
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { closeSync, createWriteStream, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -136,24 +137,44 @@ export function childFailure(r) {
     .slice(-3).join(' / ').slice(0, 400);
 }
 
-/** `command` with `args`, its output into `log` (`append`ed to it); its exit code and output. */
-function logged(command, args, log, { cwd, env, append = false } = {}) {
+/** The line a long build's progress note quotes: Cargo's and SwiftPM's steps, and the Apple build's own. */
+const PROGRESS = /^\s*(Compiling|Building|Linking|Finished|Checking)\b|^\[\d+\/\d+\]|^host\/apple: /;
+/** Who holds the lock Cargo says it waits on (`Blocking waiting for file lock on …`): the package cache's holder by the
+ * file Cargo locks, else the cargo processes running, since Cargo does not say which build directory it means. */
+export function lockHolder(line, run = spawnSync) {
+  const lines = (cmd, args) => (run(cmd, args, { encoding: 'utf8' }).stdout ?? '').trim().split('\n').filter(Boolean);
+  const cache = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), '.package-cache');
+  const pids = /package cache/.test(line) ? lines('lsof', ['-t', cache]) : [];
+  // The pid and its executable's name, never its arguments: a command line can carry a secret (LLP 1156.000 D6).
+  const held = pids.length ? pids.flatMap(pid => lines('ps', ['-o', 'pid=,comm=', '-p', pid])) : lines('pgrep', ['-lx', 'cargo']);
+  return held.length ? `${pids.length ? 'held by' : 'cargo running'}: ${held.slice(0, 3).map(l => l.trim().replace(/^(\d+)\s+(?:\S*\/)?(\S+)$/, '$1 $2')).join('; ')}` : 'its holder is not found';
+}
+/** `command` with `args`, its output into `log` (`append`ed to it); its exit code and output. With `say`, every
+ * `every` ms it says how long it has run and the log's last step, and names the holder of a lock Cargo waits on. */
+export function logged(command, args, log, { cwd, env, append = false, say = null, every = 30_000 } = {}) {
   mkdirSync(resolve(log, '..'), { recursive: true });
-  const file = createWriteStream(log, { flags: append ? 'a' : 'w' }), chunks = [];
+  const file = createWriteStream(log, { flags: append ? 'a' : 'w' }), chunks = [], started = Date.now();
   const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const pass = signal => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   for (const signal of signals) process.on(signal, pass);
-  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { file.write(chunk); chunks.push(chunk); });
+  let step = '', blocked = '';
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => {
+    file.write(chunk); chunks.push(chunk);
+    for (const line of chunk.toString('utf8').split('\n')) { if (/Blocking waiting for file lock/.test(line)) blocked = line.trim(); else if (PROGRESS.test(line)) { step = line.trim(); blocked = ''; } }
+  });
+  const ticker = say && setInterval(() => say(`  still building (${Math.round((Date.now() - started) / 1000)} s)${blocked ? `: ${blocked}, ${lockHolder(blocked)}` : step ? `: ${step.slice(0, 160)}` : ''}`), every);
+  ticker?.unref?.();
   return new Promise(done => {
     child.on('error', error => chunks.push(Buffer.from(String(error.message))));
     child.on('close', (code, signal) => {
+      if (ticker) clearInterval(ticker);
       for (const s of signals) process.off(s, pass);
       file.end(() => done({ code: code ?? (signal ? 128 : 1), output: Buffer.concat(chunks).toString('utf8') }));
     });
   });
 }
 /** host/apple/build.mjs with `args`, its output into `log`; its exit code and output. */
-const appleBuild = (args, log) => logged(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), ...args], log);
+const appleBuild = (args, log, say) => logged(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), ...args], log, { say });
 
 // ---------------------------------------------------------------- a plan-only edit (LLP 1116.003)
 
@@ -373,7 +394,7 @@ export async function buildFirst(host, app, { say = line => console.error(line),
   rmSync(overrideDir(host, app), { recursive: true, force: true }); // the build supersedes it
   const log = resolve(app.dir, '.exact', `${host}-build.log`);
   say(`building for ${label(host)}: ${reason}; its log: ${shown(log)}`);
-  const { code, output } = await build(buildArgs(host, app), log);
+  const { code, output } = await build(buildArgs(host, app), log, say);
   // Another build took the claim between the check and this one (two started together): wait for it, then decide again.
   if (code && retries > 0 && /Apple build busy for/.test(output)) return buildFirst(host, app, { say, build, wait, bake, retries: retries - 1 });
   if (code) say(failureSummary(output, { host, code, log: shown(log) }));
@@ -402,7 +423,7 @@ export async function windowsBuildFirst(app, { say = line => console.error(line)
   if (changed && !changed.length) return 0;
   const log = resolve(app.dir, '.exact', 'windows-build.log');
   say(`building for Windows: ${changed ? `the build is older than its sources (${named(app, changed)} changed)` : 'there is no build yet'}; its log: ${shown(log)}`);
-  const { code, output } = await logged(process.execPath, [resolve(ROOT, 'host/windows/build.mjs'), app.name], log, { env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  const { code, output } = await logged(process.execPath, [resolve(ROOT, 'host/windows/build.mjs'), app.name], log, { env: { ...process.env, EXACT_APP_DIR: app.dir }, say });
   if (code) say(failureSummary(output, { host: 'windows', code, log: shown(log) }));
   else for (const line of warningLines(app.dir, 'windows', compilerWarnings(output))) say(line);
   return code;

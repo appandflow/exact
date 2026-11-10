@@ -3,8 +3,9 @@
 // bun tools/figma-tamber/build.mjs; then Figma › Plugins › Development ›
 // Import plugin from manifest… (tools/figma-tamber/manifest.json).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 mkdirSync(`${here}dist`, { recursive: true });
 const bundle = async entry => {
   const out = await Bun.build({ entrypoints: [`${here}src/${entry}`], target: 'browser', format: 'iife', minify: false });

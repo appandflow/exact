@@ -22,9 +22,10 @@ import { HOST_DEV, resolveApp } from './app.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { chooseSimulator } from '../host/apple/devices.mjs';
 import { openTouches } from '../host/apple/touches.mjs';
+import { fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
 const shell = (command, args) => {
   const result = spawnSync(command, args, {cwd: ROOT, encoding: 'utf8', timeout:15_000});

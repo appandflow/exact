@@ -7,8 +7,9 @@ import { spawn } from 'node:child_process';
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'design-tool-stub-'));
 copyFileSync(resolve(here, 'dials.tamber'), join(dir, 'app.tamber'));
 copyFileSync(resolve(here, 'app.contract'), join(dir, 'app.contract'));

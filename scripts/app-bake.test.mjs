@@ -11,6 +11,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { pinned } from './test-workspace.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('kept registry units rebuild foreign dep-info while retaining valid units', async () => {
   const { keptCrates } = await import('../host/apple/crates.mjs');
@@ -753,7 +754,7 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
 
 test('web remapping preserves game floating-point determinism on both web toolchains', async () => {
   const {wasmRemapFlags, WEB_TOOLCHAIN} = await import('./app.mjs');
-  const workspace = new URL('../game/', import.meta.url).pathname;
+  const workspace = fileURLToPath(new URL('../game/', import.meta.url));
   for (const toolchain of [null, WEB_TOOLCHAIN]) {
     const flags = manifest => JSON.parse(wasmRemapFlags({workspace,target:workspace+'target',manifest},toolchain)[1].replace(/^[^=]*=/,''));
     const game = flags({game:{}});

@@ -14,8 +14,9 @@ import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 import { SLOTTED } from './stage12-gate.mjs';
 import { COMPONENTS, DERIVED, EMPTY, EXPORTED_TOKENS, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const APP = join(ROOT, 'apps/library-gate/app.contract');
 
 /** The components of these packages that declare a slot, by their sources. */

@@ -33,8 +33,9 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 import { logEntry, logStream } from '../host/apple/cloak.mjs';
 import { simulator, simulators } from '../host/apple/devices.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);

@@ -30,8 +30,9 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const FIXTURE = resolve(ROOT, 'scripts/fixtures/control-roles');
 const argv = process.argv.slice(2);
 const host = argv[0];

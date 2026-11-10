@@ -14,8 +14,9 @@ import { resolve } from 'node:path';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const glue = readFileSync(resolve(WEB, 'sound-glue.js'), 'utf8');
 const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-root"${session ? ` data-audio-session="${session}"` : ''}></div><button id="press">press</button>
 <script type="module">

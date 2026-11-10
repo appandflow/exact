@@ -498,6 +498,14 @@ test('native resource mappings refuse traversal, overlapping assets and escaping
   symlinkSync('../outside', resolve(dir, 'server/link'));
   const app = { dir, manifest: manifest([{ from: 'server', to: 'Resources/server' }]) };
   assert.throws(() => macResourceInventory(app), /escapes/);
+  // A file that is not code, placed under Contents/Helpers outside a nested bundle, is refused when the resources are
+  // gathered, not at the final codesign; a helper app's own plist is its bundle's (LLP 1156.004 D2).
+  mkdirSync(resolve(dir, 'helpers/Inner.app/Contents/MacOS'), { recursive: true });
+  writeFileSync(resolve(dir, 'helpers/Inner.app/Contents/Info.plist'), '<plist/>');
+  writeFileSync(resolve(dir, 'helpers/Inner.app/Contents/MacOS/Inner'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]));
+  assert.equal(macResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }).length, 6);
+  writeFileSync(resolve(dir, 'helpers/config.json'), '{}');
+  assert.throws(() => macResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }), /helpers\/config\.json is not code.*Resources\//);
   rmSync(resolve(dir, 'server/link'));
   mkdirSync(resolve(dir, 'bundle/Resources'), { recursive: true });
   symlinkSync(resolve(dir, 'server'), resolve(dir, 'bundle/Resources/server'));

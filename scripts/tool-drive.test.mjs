@@ -9,8 +9,9 @@ import { resolve } from 'node:path';
 import { checkoutPort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { appServer } from './verify.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 // A server a test started ends with the test, a timeout included.
 afterEach(() => stopAll());

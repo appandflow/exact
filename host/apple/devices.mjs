@@ -8,8 +8,9 @@ import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 /** Use Xcode when `xcode-select` names the Command Line Tools, which carry
  * no iOS SDK and no `simctl` (LLP 1054 O2): the iOS build failed deep in a
  * crate's build script with `SDK "iphonesimulator" cannot be located`, and a

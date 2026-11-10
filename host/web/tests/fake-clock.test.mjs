@@ -13,8 +13,9 @@ import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const chrome = installed();
 const check = need('chrome', chrome.unavailable);
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-fake-clock-')), dist = resolve(dir, 'dist');

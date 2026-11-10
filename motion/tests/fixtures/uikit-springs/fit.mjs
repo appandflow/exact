@@ -3,9 +3,10 @@
 // Prints each family's agreement with what UIKit / Core Animation did.
 // Positions are fractions of the move (0 → 1); velocities are moves per second.
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const EPS = 1e-3;
-const file = process.argv[2] ?? new URL('ios-27.0.txt', import.meta.url).pathname;
+const file = process.argv[2] ?? fileURLToPath(new URL('ios-27.0.txt', import.meta.url));
 const lines = readFileSync(file, 'utf8').split('\n');
 const fields = (l) => Object.fromEntries([...l.matchAll(/(\w+)=(-?[\d.e+-]+|true|false)/g)].map(([, k, v]) => [k, v === 'true' ? true : v === 'false' ? false : Number(v)]));
 const rows = (tag) => lines.filter((l) => l.startsWith(tag + ' ')).map(fields);

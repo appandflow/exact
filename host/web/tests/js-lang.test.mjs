@@ -10,8 +10,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { renderer } from '../../web-js/render.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-lang-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

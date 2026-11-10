@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } fr
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
-const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
+import { fileURLToPath } from 'node:url';
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url))), pkg = resolve(root, 'host/apple');
 
 export function watchEntries(app) {
   return platformWidgetEntries(app, 'watchos').filter(entry => {

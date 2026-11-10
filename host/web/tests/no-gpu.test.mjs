@@ -5,8 +5,9 @@ import {resolve} from 'node:path';
 import {open} from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('../../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const defaultDist = resolve(root, 'host/web/dist');
 const marker = dist => {
   try {

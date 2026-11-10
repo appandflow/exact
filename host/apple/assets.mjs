@@ -544,6 +544,11 @@ export function macResourceInventory(app, contents = null) {
         try { let n; while ((n = readSync(fd, block, 0, block.length, null))) hash.update(block.subarray(0, n)); }
         finally { closeSync(fd); }
         item.sha256 = hash.digest('hex');
+        // Everything under Contents/Helpers is signed as code; a file that is not, outside a nested bundle (a helper app's
+        // own Info.plist), fails only at the final codesign, "code object is not signed at all" (LLP 1156.004 D2).
+        const placed = `${to}/${name}`.split('/');
+        if (placed[0] === 'Helpers' && !placed.slice(0, -1).some(part => NESTED_BUNDLE.test(part)) && !machO(path))
+          throw new Error(`native resource ${from}/${name} is not code, and everything placed under Contents/Helpers is signed as code: put a file a helper reads under Resources/ (host.macos.resources "to": "Resources/…")`);
       } else throw new Error(`native resource is not a file, directory or link: ${path}`);
       result.push(item);
       if (item.directory) for (const child of readdirSync(path).sort()) walk(resolve(path, child));

@@ -11,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../../scripts/agent.mjs';
 import { chromium } from '../../../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(here, '../../../..');
 const fixture = resolve(here, 'browser_paint_order.tsv');
 const scratch = mkdtempSync(resolve(tmpdir(), 'exact-paint-order-'));

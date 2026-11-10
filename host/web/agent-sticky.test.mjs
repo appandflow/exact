@@ -11,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { serveBuildTree } from './serve.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const rows = Array.from({ length: 20 }, (_, i) => i + 1).join(', ');
 const CONTRACT = `component StickyFixture

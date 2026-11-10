@@ -348,6 +348,8 @@ test('a native hangup names how the app ended, its crash reports, and only its l
   assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
   assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
   assert.match(hangup({ what: 'the app exited', exit: { code: 3, signal: null } }), /\(exit code 3\)$/);
+  // simctl's 0 for an app that crashed is not said as a clean exit (LLP 1156.001 D4).
+  assert.match(hangup({ what: 'the app ended', exit: { code: 0, signal: null } }), /^the app ended \(it ended without a close being asked for; simctl reports exit 0, which a crash also gives\)$/);
 });
 
 

@@ -12,8 +12,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname), APP = resolve(ROOT, 'apps/select-walk-fixture');
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url))), APP = resolve(ROOT, 'apps/select-walk-fixture');
 const SOURCE = readFileSync(join(APP, 'app.contract'), 'utf8');
 afterEach(() => stopAll());
 /** The line of the node a testId names in the fixture. */

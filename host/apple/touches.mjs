@@ -19,8 +19,9 @@ import { iosTriple } from './build.mjs';
 import { claimLive } from '../../scripts/app.mjs';
 import { phoneBridge } from './devices.mjs';
 import { watchCloak } from './cloak.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const RUNNER_ID = 'com.exact.touches.xctrunner';
 const read = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' });
 const must = (cmd, args) => {

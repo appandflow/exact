@@ -8,8 +8,9 @@ import { PassThrough } from 'node:stream';
 import { resolve } from 'node:path';
 import { developmentGate } from './install-page.mjs';
 import { REAL, TIMING, timingOf } from './tamber-timing.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const KNOBS = { EXACT_TAMBER_POLL_MS: '2000', EXACT_TAMBER_PRESENT_MS: '3000', EXACT_TAMBER_LONG_PRESENT_MS: '8000', EXACT_TAMBER_SWEEP_MS: '500', EXACT_TAMBER_VIA_WAIT_MS: '1500', EXACT_TAMBER_HELLO_MS: '500', EXACT_TAMBER_VIA_EVERY_MS: '50' };
 const SHORT = { poll: 2000, present: 3000, longPresent: 8000, sweep: 500, viaWait: 1500, hello: 500, viaEvery: 50 };
 

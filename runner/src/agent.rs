@@ -443,6 +443,30 @@ pub fn shown_value<'a>(props: &exact_kernel::PropList, value: &'a str) -> &'a st
     }
 }
 
+/// `state`'s reply with every string a live password field holds shown as
+/// [`MASKED`], as the tree shows the field: the slot it writes, and a derive
+/// or answer that copies it, are the same secret (LLP 1156.001 D6). A value
+/// is matched whole, as a JSON string, so a longer string that contains it
+/// is left as it is. `expect state` asks `"reveal":true` to compare, and prints
+/// nothing it read.
+fn masked<D: DataSource>(runner: &Runner<D>, mut s: String) -> String {
+    let kernel = runner.kernel();
+    for row in kernel.rows(None).unwrap_or_default() {
+        let Some(node) = kernel.node(row.id) else {
+            continue;
+        };
+        let Some(value) = node.props.str(exact_kernel::PropId::Value) else {
+            continue;
+        };
+        if shown_value(node.props, value) == MASKED {
+            let mut secret = String::new();
+            quote(value, &mut secret);
+            s = s.replace(&secret, "\"•••\"");
+        }
+    }
+    s
+}
+
 /// A node's own props by their schema names, as JSON object members; a
 /// password field's value is [`shown_value`]'s.
 fn props_json(node: &NodeRef<'_>, s: &mut String) {
@@ -982,7 +1006,11 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         quote(why, &mut s);
     }
     s.push_str("}}");
-    s
+    if field_bool(request, "reveal") {
+        s
+    } else {
+        masked(runner, s)
+    }
 }
 
 // The revision comes from the admitted source, not a host's copy of metadata.

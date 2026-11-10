@@ -227,7 +227,8 @@ fn fetch_timer(request: Request, due: Option<u64>) -> Request {
 fn over_budget(source: &str, why: &str) -> DataError {
     DataError::Overrun(format!(
         "`{source}` {why}; \
-         a long loop can `await scheduler.yield()` every few thousand items to go on in a new turn"
+         a long loop can `await scheduler.yield()` every few thousand items to go on in a new turn; \
+         a large download kept as a file, `fetch(url, {{exactBodyTo: \"app:/cache/…\"}})`, never enters the turn"
     ))
 }
 

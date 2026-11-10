@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
+import { fileURLToPath } from 'node:url';
 
 // symbols.js beside stand-ins for the runtime and the picker glue it loads.
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-symbols-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
-copyFileSync(resolve(new URL('../../web-js/symbols.js', import.meta.url).pathname), resolve(dir, 'symbols.js'));
+copyFileSync(resolve(fileURLToPath(new URL('../../web-js/symbols.js', import.meta.url))), resolve(dir, 'symbols.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { After, PropHooks, inflight, journal, clock, data } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'picker-glue.js'), '');
 const After = [], PropHooks = {}, inflight = { n: 0 };

@@ -5,10 +5,11 @@ import { expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // The real modules, beside the grant data a build writes (host/web-js/build.mjs).
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-overlay-guards-'));
-const here = new URL('../..', import.meta.url).pathname;
+const here = fileURLToPath(new URL('../..', import.meta.url));
 // Their scripts only: what they import, without builds, tests or Rust.
 const scripts = path => !/\/(dist|tests|src|target|node_modules)(\/|$)/.test(path);
 for (const sub of ['web-js', 'web']) cpSync(resolve(here, sub), resolve(dir, sub), { recursive: true, filter: scripts });

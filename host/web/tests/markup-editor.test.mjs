@@ -6,8 +6,9 @@ import { chromium as installed, suiteBrowser } from '../../../scripts/agent-laun
 import { buildEditor } from '../../web-js/module.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const chrome = installed();
 const engines = ['chromium', 'firefox', 'webkit'];
 const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, await browserMissing(e)])));

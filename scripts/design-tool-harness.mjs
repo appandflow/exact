@@ -9,8 +9,9 @@ import { join, resolve } from 'node:path';
 import { checkoutPort, claimPort, takePort } from './port-lock.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { upstream } from './tamber-request.mjs';
+import { fileURLToPath } from 'node:url';
 
-export const ROOT = resolve(new URL('..', import.meta.url).pathname);
+export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 // The tool's port for this run: one of its own, held for the whole run (`claimPort`, from this checkout's own on,
 // one of 200 above 17740, never the 7740 a person's tool holds), so two runs at once (one checkout's or two's) each
 // have one and neither waits; EXACT_TOOL_PORT names one instead, taken in turn by each test. Every child the tests

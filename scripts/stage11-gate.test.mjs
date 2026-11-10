@@ -6,8 +6,9 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { citations, lines, parse, ranOk, releaseIdentity } from './stage11-gate.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const schema = JSON.parse(readFileSync(`${ROOT}kernel/tables/schema.json`, 'utf8'));
 const measured = readFileSync(`${ROOT}docs/scale-measured.md`, 'utf8');
 

@@ -770,7 +770,7 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
 fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
     let refused = |r: &Runner<Source>| -> Vec<String> {
         r.journal()
-            .filter(|l| l.contains("refused its kept answer"))
+            .filter(|l| l.contains("did not use its kept answer"))
             .map(str::to_string)
             .collect()
     };
@@ -784,7 +784,7 @@ fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
         lines[0].ends_with(
-            "answer refused its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
+            "answer did not use its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
         ),
         "{lines:?}"
     );

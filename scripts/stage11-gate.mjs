@@ -23,8 +23,9 @@ import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { authoredTests } from './app.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const GATE = join(ROOT, 'apps/scale-gate');
 // Copies the drives take: inside the checkout, so `@exact/*` resolves through
 // its node_modules, and never a fixture itself, which a set-token writes.

@@ -50,9 +50,10 @@ import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
 import { chromium } from './agent-launch.mjs';
 import { childFailure as failure, failureSummary } from './agent-build.mjs';
+import { fileURLToPath } from 'node:url';
 
 const t0 = Date.now();
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 // Inspect an existing build through its actual carrier, without a source-copy
 // rebuild. These are round-trip timings, not CPU or physical frame latency.
 if (process.argv.includes('--inspection')) {

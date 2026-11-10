@@ -559,7 +559,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
   const crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
-  const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }), crashed = (why, died) => new Error([why, ...crashes(died ? 3000 : 0)].join('\n')); // `logs`, a failed launch: this build's crash here
+  const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }), crashed = (why, died) => new Error([why, ...crashes(died ? 10000 : 0)].join('\n')); // `logs`, a failed launch: this build's crash here (ReportCrash writes it seconds after the exit: LLP 1156.001 D4)
   const hostLines = [];
   let launch, pid = null, socket = null;
   // The launch brings the app to the front: not while another drive reads this simulator's display (`simulatorDisplay`).
@@ -586,7 +586,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
     const exit = closing ? null : await waitAtMost(launch.exited, 1000);
-    lines.fail(closing ? 'the app was closed' : crashed(hangup({ what: 'the app hung up', pid, exit, hostLines }), exit != null).message); r(); // its report lands seconds after the exit
+    lines.fail(closing ? 'the app was closed' : crashed(hangup({ what: exit != null ? 'the app ended' : 'the app hung up', pid, exit, hostLines }), exit != null).message); r(); // its report lands seconds after the exit
   }));
   const close = async () => {
     closing = true;
@@ -804,7 +804,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
     world(name) { return worldView(this, name); },
-    async state(target, under, pose = false, busy = false, page = {}) {
+    async state(target, under, pose = false, busy = false, page = {}) { // `page.reveal`: a password field's text unmasked, for `expect state` alone
       const reply = await s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) });
       await sourceMaps.refresh();
       return identifyResources(reply, sourceMaps);

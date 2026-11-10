@@ -6,16 +6,33 @@ import { packageShareExtension, shareInfo, shareId, macShareEntitlements } from 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { verifyBakeFiles } from '../../scripts/app.mjs';
 import { webRefusal, browserEntitlements } from './documents.mjs';
 import { listAssets } from '../web/serve.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, copyMacResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
 import { allows, profile, identity, embeddedProfile } from './devices.mjs';
 import { placeLibrary } from '../../scripts/package-libraries.mjs';
+import { fileURLToPath } from 'node:url';
 // The App Intents module the bundle places, built before the executable links it (LLP 1133.023 D8).
 export { buildIntents, shortcutKeys } from './intents.mjs';
-const root = resolve(new URL('../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+
+/** A distributed executable or framework without its local symbols — 3.6 of Caltrain's
+ * 13.1 MB on the Mac — which are first written beside it as a dSYM, so a crash report from
+ * the field is still symbolicated. `strip` keeps the image's UUID, which matches the dSYM (a
+ * relink would be another); `strip: false` writes the dSYM alone. Development builds keep theirs. */
+export function stripForDistribution(executable, dsym, { strip = true } = {}) {
+  // dsymutil reports each symbol it could not find in an object file on stderr; only a failure is said.
+  const run = (cmd, args) => { const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] }); if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed (${r.status ?? r.signal}): ${r.stderr ?? ''}`); };
+  mkdirSync(dirname(dsym), { recursive: true });
+  rmSync(dsym, { recursive: true, force: true });
+  run('dsymutil', [executable, '-o', dsym]);
+  if (!strip) return { dsym, saved: 0 };
+  const before = statSync(executable).size;
+  run('strip', ['-x', executable]);
+  return { dsym, saved: before - statSync(executable).size };
+}
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);

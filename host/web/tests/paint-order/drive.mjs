@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { decodePng } from '../../../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('.', import.meta.url).pathname, '../../../..');
+const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 const args = process.argv.slice(2);
 const defaultCapture = args.includes('--default-capture');
 const [host = 'web', only] = args.filter(a => a !== '--default-capture');

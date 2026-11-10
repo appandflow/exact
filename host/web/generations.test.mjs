@@ -10,6 +10,7 @@ import { takeLock } from './build-lock.mjs';
 import { buildTreeFile, replaceBuild } from './serve.mjs';
 import { GENERATION, foreignBeside, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
 import { BESIDE, STAGE, beside } from './beside.mjs';
+import { fileURLToPath } from 'node:url';
 
 /** A JS-target build naming `k` in every file: its document (base `/`) and the shell beside it, its module, a lazy
  * chunk named by `k` as a hashed chunk is, its plan; and its receipt. */
@@ -172,8 +173,8 @@ test('with two renames for a swap (no one-step exchange), a page\'s files are st
   // A process of its own: the exchange is chosen once a process.
   const r = spawnSync(process.execPath, ['-e', `
     const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs'); const { join } = await import('node:path'); const { tmpdir } = await import('node:os');
-    const { replaceBuild } = await import(${JSON.stringify(new URL('./serve.mjs', import.meta.url).pathname)});
-    const { servedFile } = await import(${JSON.stringify(new URL('./generations.mjs', import.meta.url).pathname)});
+    const { replaceBuild } = await import(${JSON.stringify(fileURLToPath(new URL('./serve.mjs', import.meta.url)))});
+    const { servedFile } = await import(${JSON.stringify(fileURLToPath(new URL('./generations.mjs', import.meta.url)))});
     const root = mkdtempSync(join(tmpdir(), 'exact-generations-renames-')), dist = join(root, 'dist');
     const build = (k) => { const d = join(root, 's' + k); mkdirSync(d); writeFileSync(join(d, 'index.html'), '<base href="/"><p>build ' + k + '</p>'); writeFileSync(join(d, 'app.js'), 'build ' + k);
       writeFileSync(join(d, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', files: [{ name: 'app.js', sha256: String(k) }] })); return d; };

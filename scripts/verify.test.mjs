@@ -79,6 +79,10 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
   assert.equal(found.lines[2], '  (1280x900 only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1');
   assert.equal(found.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 5.0 s');
   assert.equal(found.exit, 0);
+  // `--strict` gates on the count: the same report exits 1, its lines unchanged (LLP 1156.001 D1).
+  const strict = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(([w]) => (w === 1280 ? [contrast] : [])), shots, ms: 5000, cwd: '/app', strict: true });
+  assert.deepEqual([strict.lines, strict.exit], [found.lines, 1]);
+  assert.equal(report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app', strict: true }).exit, 0);
   const stuck = report({ host: 'web', built: null, tested: { none: true }, checks: [{ size: null, label: '390x844', error: 'the page never drew\nstack' }], shots: [], ms: 9000 });
   assert.deepEqual(stuck.lines, ['tests: none (no *.test.contract)', 'check 390x844: could not drive: the page never drew', 'verify: 1 problem (1 failure to compile or drive) in 9.0 s']);
   assert.equal(stuck.exit, 1);
@@ -439,6 +443,17 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
     // The entry app.json names is the one it looked at, and says so.
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': 'Bun.serve({});\n', 'app.json': JSON.stringify({ commands: { server: ['bun', 'srv/main.ts'] } }) });
     assert.match(appServer(dir).refusal, /^srv\/main\.ts \(app\.json's commands\.server\) does not read /);
+    // A server another program runs is run as written, told DB as Bun's is; its file is what the DB check reads (LLP 1156.001 D5).
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.py': 'import os\ndb = sqlite3.connect(os.environ["DB"])\n', 'app.json': JSON.stringify({ commands: { server: ['python3', '-u', 'server.py'] } }) });
+    assert.deepEqual([appServer(dir).entry, appServer(dir).command, appServer(dir).refusal], ['server.py', ['python3', '-u', 'server.py'], null]);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.py': 'db = sqlite3.connect("data.db")\n', 'app.json': JSON.stringify({ commands: { server: ['python3', 'server.py'] } }) });
+    assert.match(appServer(dir).refusal, /^server\.py \(app\.json's commands\.server\) does not read .*os\.environ\["DB"\] in Python\), or say it keeps none in app\.json: "server": \{ "database": false \}$/);
+    // A command with no file of the app to read (a module path) cannot be told to use the test's database: refused,
+    // unless the app says its server keeps none.
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'app.json': JSON.stringify({ commands: { server: ['uvicorn', 'api.main:app', '--port', '8787'] } }) });
+    assert.match(appServer(dir).refusal, /^app\.json's commands\.server \(uvicorn api\.main:app --port 8787\) names no file of the app to read/);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'app.json': JSON.stringify({ commands: { server: ['uvicorn', 'api.main:app'] }, server: { database: false } }) });
+    assert.deepEqual([appServer(dir).entry, appServer(dir).refusal], ['uvicorn api.main:app', null]);
     put({ 'app.ts': "const API = 'https://api.example.com';\n", 'server.ts': reads });
     assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
@@ -1141,6 +1156,10 @@ test('the largest text size: its findings once each with the screens they were o
   ]);
   assert.equal(r.lines.at(-1), 'verify: 3 problems (3 at the largest text size; the tests passed) in 2.0 s');
   assert.equal(r.exit, 0);
+  // Each page whose findings were read at that size is a picture, named with its screen (LLP 1156.001 D3).
+  const shots = ['/app/.exact/verify/ios-largest-1.png', '/app/.exact/verify/ios-largest-2.png'];
+  const pictured = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ ...large[0], shots }], shots: [], ms: 2000, cwd: '/app' });
+  assert.ok(pictured.lines.includes('  pictures at that size: first screen: .exact/verify/ios-largest-1.png .exact/verify/ios-largest-2.png'), pictured.lines.join('\n'));
   const both = report({ host: 'ios', built: null, compiler: ['a warning'], tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
   assert.equal(both.lines.at(-1), 'verify: 4 problems (1 finding, 3 at the largest text size; the tests passed) in 2.0 s');
   const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // The design server's wire (LLP 1121 D13, stage 3): HTTP to clients, JSON
 // lines to `contract tamber serve --stdio`, which owns the files (digests,
 // the lock, the journal, every write). This writes no design file.
@@ -107,7 +108,7 @@ import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './t
 import { opsRefusal, overOps } from './tamber-ops-limit.mjs';
 import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { REAL, TIMING } from './tamber-timing.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;

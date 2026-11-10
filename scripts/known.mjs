@@ -23,8 +23,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { failures } from './async.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export const NOTE_REFS = ['refs/notes/async', 'refs/notes/async2'];
 /** How many of a check's latest notes a failure's rate is counted over. */
 const RATE_OVER = 10;

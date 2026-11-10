@@ -13,8 +13,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appDigest, developmentStore } from '../../../scripts/agent-launch.mjs';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
-const webJs = new URL('../../web-js/', import.meta.url).pathname, web = new URL('../', import.meta.url).pathname;
+const webJs = fileURLToPath(new URL('../../web-js/', import.meta.url)), web = fileURLToPath(new URL('../', import.meta.url));
 const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'persist.js'];
 const root = mkdtempSync(resolve(tmpdir(), 'exact-js-storage-'));
 /** The runtime as a build lays it out for the app at `appDir`, or as written (a release) when it is null. */

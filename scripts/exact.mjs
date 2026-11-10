@@ -33,7 +33,7 @@
 // second executable path for the same binary, and macOS gives it the bundle
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('--help')) {
@@ -43,6 +43,9 @@ if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('
   process.exit(0);
 }
 const { BINARYEN } = await import('../host/web/stages.mjs');
+const { freeSpace, ROOM_GB } = await import('./filesystem.mjs');
+/** The iOS SDK the iOS host compiles against (`UIArrangementViewController`, ArrangementIOS.swift). */
+const IOS_SDK = '27.1';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
@@ -391,7 +394,9 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
-  let vocabFailure = null;
+  // Steps only a game needs (its SDK lock, the engine's rustdoc for `game vocab`): a failure is named, not fatal.
+  const gameFailures = [];
+  if (!check) { const room = freeSpace(homedir()); if (room && room.gb < ROOM_GB) console.warn(`exact setup: ${room.text}`); }
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -465,21 +470,23 @@ export function setup({check = false} = {}) {
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
-    if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
+    if (!fetched.ok) gameFailures.push(`cargo fetch of the game SDK lock (game/app/shells.lock) failed${fetched.message ? `: ${fetched.message}` : ''}`);
     // `game vocab` reads the engine's rustdoc; built here, a first lookup skips the cold build.
-    console.log('cargo rustdoc -p exact-game (for exact game vocab)');
-    try { gameVocabulary(); }
-    catch (error) { vocabFailure = error.message.trim().split('\n').slice(-3).join('\n'); }
+    else {
+      console.log('cargo rustdoc -p exact-game (for exact game vocab)');
+      try { gameVocabulary(); }
+      catch (error) { gameFailures.push(`the engine rustdoc for game vocab did not build:\n${error.message.trim().split('\n').slice(-3).join('\n')}`); }
+    }
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
-  if (vocabFailure) throw new Error(`the engine rustdoc for game vocab did not build:\n${vocabFailure}`);
+  for (const failure of gameFailures) console.error(`exact setup: ${failure}`);
   // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
-  const needed = report.filter(row => !row.ok);
+  const needed = [...report.filter(row => !row.ok).map(row => `${row.need} (${row.name})`), ...(gameFailures.length ? ['games (the steps named above)'] : [])];
   console.log(needed.length
-    ? `SDK tools ready, except for ${needed.map(row => `${row.need} (${row.name})`).join('; ')}. Build scripts select the pinned stable/nightly without changing rustup default.`
+    ? `SDK tools ready, except for ${needed.join('; ')}. Build scripts select the pinned stable/nightly without changing rustup default.`
     : 'SDK tools ready. Build scripts select the pinned stable/nightly without changing rustup default.');
 }
 
@@ -493,7 +500,7 @@ export function platformRowNames(platform, { os = process.platform, cpu = proces
   const host = `Hermes bundle (${hermesTarget(os, cpu)})`, ios = device ? 'aarch64-apple-ios' : appleCrossTargets(os, cpu)[0]?.target;
   return ['rustup', 'Rust', ...({
     web: ['Bun', 'node_modules', 'Chrome'],
-    ios: ['Xcode', `Hermes bundle (${ios})`, `Rust ${ios}`],
+    ios: ['Xcode', 'iOS SDK', `Hermes bundle (${ios})`, `Rust ${ios}`],
     macos: ['Xcode', host],
     linux: [host],
   }[platform] ?? [])];
@@ -582,6 +589,22 @@ export function sdkReport(env = process.env, { only = null, device = false } = {
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
+  // The iOS host compiles against the 27.1 SDK (UIArrangementViewController): an older one fails in Swift, naming a type.
+  if (process.platform === 'darwin' && want('iOS SDK')) {
+    const sdk = output('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']);
+    rows.push(row('iOS SDK', sdk, `${IOS_SDK} or later`, !!sdk && Bun.semver.order(`${sdk}.0`.split('.').slice(0, 3).join('.'), `${IOS_SDK}.0`) >= 0,
+      `install Xcode ${IOS_SDK} or later and select it (sudo xcode-select -s /Applications/Xcode.app)`, 'iOS'));
+  }
+  // Rust build scripts compile C with PATH's clang while the Swift host goes through xcrun: another toolchain first on
+  // PATH (Swiftly, a Homebrew LLVM) breaks an iOS build with errors that never name it. A warning: it may be meant.
+  if (process.platform === 'darwin' && want('clang and swift on PATH')) {
+    const other = ['clang', 'swift'].map(tool => [tool, Bun.which(tool, { PATH: env.PATH ?? '' }), output('xcrun', ['--find', tool])])
+      .filter(([, onPath, xcode]) => onPath && xcode && !['/usr/bin', dirname(xcode)].includes(dirname(realpathSync(onPath))));
+    rows.push(row('clang and swift on PATH', other.length ? other.map(([tool, onPath]) => `${tool}: ${onPath}`).join(', ') : "Xcode's", "Xcode's (/usr/bin or xcrun --find)", !other.length,
+      `put /usr/bin before ${[...new Set(other.map(([, onPath]) => dirname(onPath)))].join(' and ')} on PATH, or unset the toolchain manager's override`, 'iOS and macOS builds'));
+  }
+  // Native builds and captures take tens of gigabytes; a full disk fails them midway (LLP 1156.000 D3).
+  if (!only) { const room = freeSpace(homedir()); if (room) rows.push(row('Free disk', `${room.gb} GB`, `${ROOM_GB} GB for a cold native build`, room.gb >= ROOM_GB, room.text, 'native builds')); }
   const hostName = `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`;
   if (want(hostName)) {
     const host = checkHermesBundles(env);

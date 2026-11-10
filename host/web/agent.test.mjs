@@ -29,7 +29,7 @@ const inspected = planDigest => ({id: 1, site: 0, planDigest, props: {testId:'bu
 
 test('authored tests use the configured compiler target and preserve compiler and launch failures', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-test-compiler-')));
-  const root = new URL('../../', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('../../', import.meta.url));
   const target = join(dir, 'custom target'), tools = join(dir, 'tools');
   const file = join(dir, 'suite.test.contract'), runner = join(dir, 'run.mjs');
   mkdirSync(tools);
@@ -523,7 +523,7 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
 `);
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
-  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:fileURLToPath(new URL('../../', import.meta.url)), encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
   const server = createServer((request, response) => serveBuildTree(dist, request, response));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -1144,6 +1144,8 @@ test('a hold is addressed by its node or capability, and an unclear name is refu
   expect([holdOf('@7'), holdOf('@folder-input'), holdOf('folder-input'), holdOf('@')]).toEqual([true, true, false, false]);
   expect([heldTicket(pending, '@folder-input'), heldTicket(pending, '@open-directory'), heldTicket(pending, '@share'), heldTicket(pending, '@export')]).toEqual([7, 7, 9, 11]);
   expect(() => heldTicket(pending, '@notes')).toThrow(/no held device request .*held: @7 open-directory at "folder-input"/);
+  // Nothing held at all: the picker has not been opened yet, and the refusal says so (LLP 1156.002 D3).
+  expect(() => heldTicket([], '@photo')).toThrow(/held: none\); nothing is asking yet: tap the control that asks first/);
   expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
 });
 
@@ -1182,7 +1184,7 @@ test('a mouse drag presses and releases the left button on the web', async () =>
 `);
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding:'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
-  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:fileURLToPath(new URL('../../', import.meta.url)), encoding:'utf8' });
   expect(build.status, build.stderr).toBe(0);
   const server = createServer((request, response) => serveBuildTree(dist, request, response));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

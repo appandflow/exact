@@ -15,8 +15,9 @@ import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WEB_JS = resolve(WEB, '../web-js');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);

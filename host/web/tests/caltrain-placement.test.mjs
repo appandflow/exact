@@ -6,8 +6,9 @@ import {resolve} from 'node:path';
 import {resolveApp} from '../../../scripts/app.mjs';
 import {jsTargetBuild} from '../serve.mjs';
 import {need} from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 const app=resolveApp('caltrain');
-const dist=resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname);
+const dist=resolve(process.env.EXACT_WEB_DIST ?? fileURLToPath(new URL('../dist',import.meta.url)));
 const {unavailable:browserUnavailable}=chromium();
 let unavailable=browserUnavailable;
 try {

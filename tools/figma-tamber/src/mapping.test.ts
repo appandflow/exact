@@ -3,6 +3,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { conflicts, contextsMoved, doorOf, families, familiesOf, lightClashes, newEnough, plainWhy, pull, push, same, split, tokensOf, type FigmaValue, type Plan } from './mapping';
+import { fileURLToPath } from 'node:url';
 
 // The fixture's export as read (its dark-style axis under scheme=dark: one light mode), and the
 // same with that axis an ordinary one (a mode for each context), which most tests use.
@@ -146,7 +147,7 @@ test('quick re-check: a light mode\'s edit is checked against each light context
 
 test('the plugin builds (its main thread and its UI, as Figma loads them)', async () => {
   for (const entry of ['code.ts', 'ui.ts']) {
-    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife' });
+    const built = await Bun.build({ entrypoints: [fileURLToPath(new URL(`./${entry}`, import.meta.url))], target: 'browser', format: 'iife' });
     expect([entry, built.success, built.logs.map(String)]).toEqual([entry, true, []]);
   }
 });
@@ -160,7 +161,7 @@ test('the main thread reads none of the listed globals Figma\'s sandbox lacks', 
   // The bundler's `define` swaps a free name only (never a property, a key,
   // a string or a local), so a marker left in the output is a global read.
   const build = async (entry: string) => {
-    const built = await Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], target: 'browser', format: 'iife', define: Object.fromEntries(UNSANDBOXED.map(g => [g, `__figma_lacks_${g}`])) });
+    const built = await Bun.build({ entrypoints: [fileURLToPath(new URL(`./${entry}`, import.meta.url))], target: 'browser', format: 'iife', define: Object.fromEntries(UNSANDBOXED.map(g => [g, `__figma_lacks_${g}`])) });
     return [...new Set([...(await built.outputs[0].text()).matchAll(/__figma_lacks_(\w+)/g)].map(m => m[1]))];
   };
   expect(await build('code.ts')).toEqual([]);

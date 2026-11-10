@@ -6,8 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 test('viewport media changes update resources, rendered text and packed facts', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-display-mode-'));
   let server, browser;

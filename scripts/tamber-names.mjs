@@ -6,8 +6,9 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** Write `app`'s names for `language` (`swift`, `kotlin`); throws when the
  * compiler refuses the design (two names that map alike, named). */

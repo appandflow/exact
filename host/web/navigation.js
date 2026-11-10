@@ -132,10 +132,9 @@ const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // Agent launch facts belong to the carrier, not the router's typed URL. Keep
 // them on every History entry so a browser reload retains its agent adapter.
 const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
-export function historyURL(path) { // (exported for its test)
-  const facts = AGENT_ADMITTED ? launched() : null;
-  if (!facts?.has('agent')) return location.origin + path;
-  const url = new URL(location.origin + path); for (const key of agentParameters) if (facts.has(key)) url.searchParams.set(key, facts.get(key));
+export function historyURL(path) { // (exported for its test) the document's URL with the route's path, query and fragment: History refuses a URL whose userinfo differs (HTML, "can have its URL rewritten")
+  const facts = AGENT_ADMITTED ? launched() : null, url = new URL(location.href), route = new URL(location.origin + path);
+  url.pathname = route.pathname; url.search = route.search; url.hash = route.hash; if (facts?.has('agent')) for (const key of agentParameters) if (facts.has(key)) url.searchParams.set(key, facts.get(key));
   return url.href;
 }
 /** Whether `e` scrolls the page by the person: a wheel, a touch's move, a key that scrolls, or a press on a scrollbar. A

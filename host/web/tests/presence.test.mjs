@@ -8,6 +8,7 @@ import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -29,7 +30,7 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
   expect(comparePresence({ samples: [] }, { samples: [] }).length).toBeGreaterThan(0);
 });
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');

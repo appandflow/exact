@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { exclusiveSecret } from '../../../host/web/storage-environment.js';
 import { handle, PROFILES } from './fixture.ts';
 import { oauth, OAuthError, type OAuthAuthorization, type OAuthConfig, type OAuthEvent, type OAuthStore } from '../index.ts';
+import { fileURLToPath } from 'node:url';
 
 let server: ReturnType<typeof Bun.serve>;
 let origin = '';
@@ -174,7 +175,7 @@ describe.each(Object.keys(PROFILES))('%s', (profile) => {
 // A native host hardens the realm, freezing `Error.prototype`, before the
 // module loads; an error the package throws is still its own.
 test('an OAuthError is made where Error.prototype is frozen', () => {
-  const index = new URL('../index.ts', import.meta.url).pathname;
+  const index = fileURLToPath(new URL('../index.ts', import.meta.url));
   const made = Bun.spawnSync([process.execPath, '-e', `Object.freeze(Error.prototype);
     const { OAuthError } = await import(${JSON.stringify(index)});
     const e = new OAuthError('network', 'no reply', 0, true);

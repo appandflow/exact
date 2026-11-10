@@ -60,10 +60,11 @@ export async function untilClock(s, spec) {
   if (bound < 1 || bound > 3_600_000) throw new MalformedOperation(`${UNTIL}: a bound is 1 ms up to an hour, not ${bound}`);
   // A name, then fields and list indexes, read from `state` as an authored `expect state` reads it.
   const [name, ...fields] = path.split('.'), has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
-  const read = async () => {
-    const landed = await s.op({ op: 'clock', land: true });
+  // Compared revealed, said masked: a password field's text is never printed (LLP 1156.001 D6).
+  const read = async (reveal = true) => {
+    const landed = reveal ? await s.op({ op: 'clock', land: true }) : null;
     if (landed?.error) throw new Error(`clock until state ${path}: ${landed.error}`);
-    const record = await s.op({ op: 'state' }), bag = { ...record.resources, ...record.derives, ...record.slots };
+    const record = await s.op({ op: 'state', reveal }), bag = { ...record.resources, ...record.derives, ...record.slots };
     const tasks = record.tasks ?? {};
     if (!has(bag, name) && !has(record, name)) return { unknown: Object.keys(bag), tasks };
     let got = has(bag, name) ? bag[name] : record[name], at = name;
@@ -93,7 +94,9 @@ export async function untilClock(s, spec) {
     seen = got;
   }
   const real = Math.round(performance.now() - t0);
-  if (met(seen)) return { clock: s.now, real, until: 'met', value: seen.value };
+  const ok = met(seen);
+  if (seen && 'value' in seen && typeof seen.value === 'string') { const said = await read(false).catch(() => null); if (said && 'value' in said) seen = { ...seen, value: said.value }; }
+  if (ok) return { clock: s.now, real, until: 'met', value: seen.value };
   const last = seen == null ? 'no look answered within the bound' : 'value' in seen ? `${path} was ${JSON.stringify(seen.value)?.slice(0, 200)}` : seen.missing ?? `no state named "${name}"`;
   // A task due a commit later (`after(1, …)`) is a step the frozen clock never takes (Excord's `record`, which sends IDENTIFY).
   const soon = Object.entries(seen?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > s.now && at <= s.now + 1).map(([task]) => `\`${task}\``);

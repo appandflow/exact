@@ -88,7 +88,8 @@ export function dragArguments(opts) {
 
 /** Parse the drag portion of one CLI operation; quoted reads belong to the preceding leg. */
 export function parseDrag(s, text) {
-  const words = text.match(/"(?:[^"\\]|\\.)*"|[^\s]+/g) ?? [];
+  // A read is quoted either way: `during 'state liked'` as `during "state liked"`.
+  const words = (text.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s]+/g) ?? []).map(w => w.length > 1 && w.startsWith("'") && w.endsWith("'") ? JSON.stringify(w.slice(1, -1).replace(/\\'/g, "'")) : w);
   const drag = words[0] === 'to' ? { to: words[1] } : { dx: Number(words[0]), dy: Number(words[1]) };
   let leg = drag;
   for (let i = 2; i < words.length;) {
@@ -107,7 +108,7 @@ export function parseDrag(s, text) {
         if (!duringAllowed(op)) throw new MalformedOperation(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
         ops.push(() => duringOp(s, op));
       }
-      if (!ops.length) throw new MalformedOperation('tap … drag … during: each read must be quoted');
+      if (!ops.length) throw new MalformedOperation(`tap … drag … during: each read is quoted, as during "state liked" or during 'state liked'`);
       leg.during = ops;
     } else throw new MalformedOperation(`tap … drag: unknown option ${key}; from x y, press ms, over ms, hold ms, during "op", then dx dy`);
   }

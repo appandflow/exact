@@ -6,8 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const facts = (env, tests = false) => JSON.parse(spawnSync(process.execPath, ['-e', `const m = await import(${JSON.stringify(resolve(ROOT, 'scripts/tamber-server.mjs'))}); const s = m.TOOL_PORT === 7740 ? null : m.stageTool({ tests: ${tests} }); console.log(JSON.stringify({ origin: m.TOOL_ORIGIN, frame: m.FRAME_ANCESTORS, dist: m.TOOL_DIST, staged: s?.dir, built: s?.dist }))`], { env: { ...process.env, ...env }, encoding: 'utf8' }).stdout.trim().split('\n').at(-1));
 
 test('another port moves the tool\'s origin, the frame-ancestors (that origin alone) and its build; the default is 7740', () => {

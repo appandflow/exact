@@ -11,6 +11,7 @@ import { backendFetchPrefixes, churnLines, disabledExpectation, nativeFetchOrigi
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('always predicates preserve JSON types, option kinds and the previous state', () => {
   const state = { slots: { n: 2, flag: false, absent: null, answer: { ok: true }, empty: [], text: '2' }, derives: { doubled: 4 } };
@@ -80,7 +81,7 @@ test "reload is observed"
   tap "enable"
   reload
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
@@ -251,7 +252,7 @@ component Day
   reload
   expect text "day" == "2026-03-16"
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
@@ -369,7 +370,7 @@ test "an expected refusal before reload does not accept the next journal"
   clock data
   expect text "error" == "DENIED"
 `);
-  const root=new URL('..',import.meta.url).pathname;
+  const root=fileURLToPath(new URL('..',import.meta.url));
   const build=spawnSync(process.execPath,['host/web-js/build.mjs','refusal','--out',dist,'--render','none'],{cwd:root,env:{...process.env,EXACT_APP_DIR:dir},encoding:'utf8'});
   expect(build.status,build.stderr).toBe(0);
   const server=createServer((req,res)=>serveBuildTree(dist,req,res));
@@ -447,7 +448,7 @@ test "page facts are outside the test media grammar"
 test "a failure does not stop the next test"
   expect text "scheme" == "dark"
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compile = spawnSync(join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract'), ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
@@ -505,7 +506,7 @@ test "nothing holds after toggling off"
   tap "toggle"
   expect wakelock held
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   try {
     const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
@@ -586,7 +587,7 @@ component Finder
   clock settle
   expect text "pick-3" == ""
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   try {
     const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });

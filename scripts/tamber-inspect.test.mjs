@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel, selectRequest } from './tamber-builds.mjs';
 import { correspondingSite, current, editable, join, plainAt, rowRung, stateRung, mapCard, mapFor, paramsOf, published, pullMap, sitesAt, levelsUp, copiesOf, decodeCopies, COPIED_SITES, COPIES_BYTES, staleMap } from './tamber-inspect.mjs';
+import { fileURLToPath } from 'node:url';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -717,7 +718,7 @@ test('end to end: a compiled library app\'s own source map names a package compo
     writeFileSync(joinPath(dir, 'app.contract'), 'use Card as Box from "@acme/lib"\n\ncomponent App\n  view\n    Box()\n      text "fill" color="#000000"\n');
     // Built as a dev loop builds it, with its map (`contract build --map`).
     const { spawnSync } = await import('node:child_process');
-    const root = new URL('..', import.meta.url).pathname;
+    const root = fileURLToPath(new URL('..', import.meta.url));
     const bin = joinPath(process.env.CARGO_TARGET_DIR ?? joinPath(root, 'target'), 'debug', 'contract');
     if (!existsSync(bin)) throw new Error(`${bin} is missing: build it first (cargo build -p contract)`);
     const built = spawnSync(bin, ['build', joinPath(dir, 'app.contract'), '-o', joinPath(dir, 'app.plan'), '--map'], { encoding: 'utf8' });

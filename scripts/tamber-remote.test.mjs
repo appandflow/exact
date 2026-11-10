@@ -13,6 +13,7 @@ import { PassThrough } from 'node:stream';
 import { derInteger, openRemote, remoteArgs, selfSignedCertificate } from './tamber-remote.mjs';
 import { tamberServer } from './tamber-server.mjs';
 import { replaceBuild } from '../host/web/serve.mjs';
+import { fileURLToPath } from 'node:url';
 
 /** A wire that records what it was asked and answers its own paths. */
 function recordingWire() {
@@ -897,7 +898,7 @@ async function pairedApp(dir) {
  * the home directory. */
 async function machineApp() {
   const { execFileSync } = await import('node:child_process');
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   mkdirSync(join(root, 'target'), { recursive: true });
   const dir = mkdtempSync(join(root, 'target', 'tamber-paths-'));
   const outside = mkdtempSync(join(tmpdir(), 'tamber-linked-'));
@@ -995,7 +996,7 @@ test('no answer to a remote client names this machine\'s directories; authored t
 test('a design server that is down says so to a remote client without this machine\'s directories', async () => {
   const { homedir } = await import('node:os');
   const { realpathSync } = await import('node:fs');
-  const dir = mkdtempSync(join(new URL('..', import.meta.url).pathname, 'target', 'tamber-down-'));
+  const dir = mkdtempSync(join(fileURLToPath(new URL('..', import.meta.url)), 'target', 'tamber-down-'));
   // And a package's file outside the app and the home directory, as a stderr line might name it.
   const outside = mkdtempSync(join(tmpdir(), 'tamber-down-pkg-'));
   writeFileSync(join(outside, 'package.json'), '{"name":"@acme/far"}');

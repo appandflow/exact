@@ -12,13 +12,14 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
 // The runtime in a `web-js` directory, as built: modules.js imports the web host's `../web/address-space.js`, stood in.
 const root = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-')), dir = resolve(root, 'web-js');
 mkdirSync(dir);
 mkdirSync(resolve(root, 'web'));
 writeFileSync(resolve(root, 'web/address-space.js'), 'export const setSpaceState = () => {};');
-const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
+const webJs = name => resolve(fileURLToPath(new URL(`../../web-js/${name}`, import.meta.url)));
 
 // The collection protocol and index run unchanged; only DOM row construction
 // and publication are stand-ins, as the runtime's imported hosts are below.
@@ -988,7 +989,7 @@ test('requestFullscreen without media refuses as media.js does', async () => {
 // Notification API, now or at `showTrigger` while the page is open; a tag's `closeNotification` takes away a shown or
 // a waiting one; the click is bound through the host's `activation`.
 test('@exact/notifications on the web: posts by the Notification API, closes, holds a showTrigger, binds the click', async () => {
-  const { implementation } = await import(new URL('../../../packages/notifications/web/index.js', import.meta.url).pathname);
+  const { implementation } = await import(fileURLToPath(new URL('../../../packages/notifications/web/index.js', import.meta.url)));
   const posted = [], closed = [], bound = [], said = [];
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
     constructor(title, options) { this.title = title; this.options = options; posted.push(this); } addEventListener() {} close() { closed.push(this.title); } };

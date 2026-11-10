@@ -6,8 +6,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, homedir, loadavg } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = resolve(new URL('.', import.meta.url).pathname);
+const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const REPO = resolve(HERE, '../..');
 const [name, phase = 'all', ...rest] = process.argv.slice(2);
 if (!name) { console.error('usage: round.mjs <name> [build|feel|grade|report|tidy|all] [--specs a,b] [--parallel n] [--rev commit]'); process.exit(2); }

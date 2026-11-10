@@ -9,8 +9,9 @@ import { join, resolve } from 'node:path';
 import { replaceBuild } from '../host/web/serve.mjs';
 import { generationOf, leaseGeneration } from '../host/web/generations.mjs';
 import { newerThan } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SIBLINGS = ['.gen/0123456789abcdef0123456789abcdef/app.js', '.leases/0123456789abcdef0123456789abcdef/1-1', '.gen.reaped', '.lock', '.previous/app.js', '.stage-abc123/app.js'];
 // Every web dist that sits in this checkout (an outside app's is its own target/web-dist).
 const DISTS = ['host/web/dist', 'game/games/forest/dist', 'game/games/garden/dist', 'game/games/rivals/dist', 'game/games/beacons/dist', 'apps/caltrain/target/web-dist'];

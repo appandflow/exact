@@ -11,8 +11,9 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = dirname(fileURLToPath(new URL(import.meta.url)));
 const root = resolve(here, '../../..');
 const build = join(here, 'build');
 const pinned = readFileSync(join(root, 'host/android/gradle/libs.versions.toml'), 'utf8').match(/^material3 = "([^"]+)"/m)[1];

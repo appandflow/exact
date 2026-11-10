@@ -16,8 +16,9 @@ import { developmentGate } from './install-page.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer, TOOL_PORT } from './tamber-server.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DESIGN = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
 const BRAND = 'tamber brand\n\ntheme\n  brand.ink = #202020\n';
 const sha = text => createHash('sha256').update(text).digest('hex');

@@ -5,8 +5,9 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { deltaE00, judge, lab, ROWS } from './measure-controls.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const HOSTS = ['ios', 'macos', 'web', 'linux', 'windows', 'terminal', 'android'];
 const PROVENANCE = ['measured', 'inferred: same painter, not measured', 'none by construction', 'measured, key window via EXACT_AGENT_ACTIVATE'];
 

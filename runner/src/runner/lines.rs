@@ -90,15 +90,17 @@ pub(super) fn shortened(args: &str) -> String {
 
 /// A kept answer the first frame does not show, and why (LLP 1027 D4,
 /// LLP 1027.005 D3): `kept` is what it was kept for, when it decoded.
+/// Worded as what happened, not as a refusal: a new launch identity or shape
+/// is ordinary, and `verify` counts refusals (LLP 1156.001 D2).
 pub(super) fn kept_refused(resource: &str, kept: Option<&str>, why: &str) -> String {
     match kept {
         Some(kept) => text!(
-            "{} refused its kept answer: kept for {}, {}",
+            "{} did not use its kept answer: kept for {}, {}",
             resource,
             shortened(kept),
             why
         ),
-        None => text!("{} refused its kept answer: {}", resource, why),
+        None => text!("{} did not use its kept answer: {}", resource, why),
     }
 }
 

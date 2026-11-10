@@ -3,8 +3,9 @@
 //   bun bench/bakeoff/report.mjs <round dir>
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = resolve(new URL('.', import.meta.url).pathname);
+const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const ROUND = resolve(process.argv[2]);
 const pairs = JSON.parse(readFileSync(resolve(HERE, 'pairs.json'), 'utf8'));
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };

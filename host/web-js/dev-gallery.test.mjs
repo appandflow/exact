@@ -16,8 +16,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { galleryCache } from './dev-gallery.mjs';
 import { FRAME_ANCESTORS } from '../../scripts/tamber-server.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 afterEach(() => stopAll());
 
 /** A copy of library-gate with id `id`, under the repo's target. */

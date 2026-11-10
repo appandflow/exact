@@ -588,6 +588,9 @@ test('CLI path reads belong to each held leg and malformed paths refuse before i
   expect(await drag.path[0].during[0]()).toBe('held');
   expect(() => parseDrag(s, '0 120 hold 500 during "tap other" then 0 -120')).toThrow('not a read');
   expect(() => parseDrag(s, '0 120 then 0')).toThrow('finite');
+  // A read quoted with single quotes is one too (LLP 1156.002 D4).
+  expect(parseDrag(s, "0 120 over 300 during 'state liked' \"tree\"").during).toHaveLength(2);
+  expect(() => parseDrag(s, '0 120 during state')).toThrow(`during 'state liked'`);
 });
 
 

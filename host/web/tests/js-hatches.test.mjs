@@ -7,9 +7,10 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-hatches-'));
-copyFileSync(resolve(new URL('../../web-js/hatches.js', import.meta.url).pathname), resolve(dir, 'hatches.js'));
+copyFileSync(resolve(fileURLToPath(new URL('../../web-js/hatches.js', import.meta.url))), resolve(dir, 'hatches.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => { globalThis.pageTables = (globalThis.pageTables ?? 0) + 1; return globalThis.pageModule; };\n');
 

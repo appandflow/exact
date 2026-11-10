@@ -22,8 +22,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng } from '../../scripts/png.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = resolve(new URL('.', import.meta.url).pathname);
+const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const root = resolve(here, '../..');
 const run = (args) => spawnSync('cargo', ['run', '-q', '--release', '-p', 'exact-web', '--bin', 'parity', '--', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' } });
 

@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planAlone, stopImports } from './tamber-isolate.mjs';
+import { fileURLToPath } from 'node:url';
 
 const DESIGN = 'tamber t\n\ntheme\n  primary = #000000\n';
 const withApp = async f => {
@@ -21,7 +22,7 @@ const sh = script => () => spawn('sh', ['-c', `cat > /dev/null; ${script}`], { s
 test('a plan is answered as the serve answers it, from the design file read when its turn comes', async () => {
   // The planner is the compiler cargo built; build it if this checkout has not.
   const { spawnSync } = await import('node:child_process');
-  expect(spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: new URL('..', import.meta.url).pathname, stdio: 'inherit' }).status).toBe(0);
+  expect(spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: 'inherit' }).status).toBe(0);
   await withApp(async (design, app) => {
     const got = await planAlone({ kind: 'shadcn', source: ':root { --primary: #ff0000; }' }, design, {}, app);
     expect(got.ok?.ops?.length).toBeGreaterThan(0);

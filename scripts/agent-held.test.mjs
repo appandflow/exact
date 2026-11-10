@@ -122,10 +122,12 @@ test('clock until state waits on the wall clock, the clock frozen, until the val
   expect(r).toEqual({ clock: 7, real: expect.any(Number), until: 'met', value: 'ready' });
   expect(performance.now() - started).toBeGreaterThanOrEqual(110);
   expect(r.real).toBeLessThan(1000);
-  // Reads, each after landing what arrived: no clock op moved the app's time.
-  const ops = said;
+  // Reads, each after landing what arrived: no clock op moved the app's time. Each compares the state revealed; the value
+  // said is read once more masked, so a password field's text is never printed (LLP 1156.001 D6).
+  const ops = said.slice(0, -1);
   expect(ops.length).toBeGreaterThanOrEqual(4);
-  ops.forEach((q, i) => expect(q).toEqual(i % 2 ? { op: 'state' } : { op: 'clock', land: true }));
+  ops.forEach((q, i) => expect(q).toEqual(i % 2 ? { op: 'state', reveal: true } : { op: 'clock', land: true }));
+  expect(said.at(-1)).toEqual({ op: 'state', reveal: false });
   // Already true: met at the first look. A list index, a negative number.
   expect(await untilClock(flipping(0).s, 'until state rows.0.n == -3 within 10')).toMatchObject({ until: 'met', value: -3 });
   // The path as `expect state` takes it, a space before a dot: refused with the grammar alone before.

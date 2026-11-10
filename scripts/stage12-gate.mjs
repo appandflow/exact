@@ -30,8 +30,9 @@ import { KEYBOARD_UP, keyboardRedrive } from './stage12-keyboard.mjs';
 import { islandAllow } from './stage12-island.mjs';
 export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
 import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
  * pixel line's. `web` is the clone's own web build (the JS target),
  * `web-wasm` its wasm build, into a dist of its own. */

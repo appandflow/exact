@@ -215,7 +215,7 @@ Linux host.
   not needed.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
-- **Xcode**, for the macOS and iOS hosts.
+- **Xcode 27.1 or later**, for the macOS and iOS hosts (`exact setup --check` checks it).
 - **Hermes**, only for TypeScript apps on native hosts. Exact consumes Ibex's
   pinned, attested `260318099.0.4` release bundle; ordinary Cargo builds are
   offline and never download or compile an engine. Install it once for each
@@ -699,9 +699,6 @@ else here was admitted because a real app needed it.
   store packaging don't exist yet.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
-- **TypeScript can't import npm packages' code yet.** `app.ts` imports its own local
-  files; from a package it imports only types (`import type`), which the build checks
-  and never runs.
 - **Code updates in production.** Signed delivery covers plans and assets. Signed
   delivery of TypeScript or Rust modules isn't implemented, and app-store rules limit
   it anyway.

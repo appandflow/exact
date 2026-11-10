@@ -37,16 +37,16 @@
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
-import { assembleMac, assembleIOS, buildIntents, shortcutKeys } from './bundle.mjs';
+import { assembleMac, assembleIOS, buildIntents, shortcutKeys, stripForDistribution } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { evictArms, keepRoster, keptRoster, rosterRoutes, snapshotSources } from './arms.mjs';
-import { HOST_MACOS } from '../../scripts/filesystem.mjs';
+import { HOST_MACOS, freeSpace, ROOM_GB } from '../../scripts/filesystem.mjs';
 import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes, browserEntitlements } from './documents.mjs';
-import { executableName, HOST_DEV, PINNED_RUST, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { executableName, HOST_DEV, PINNED_RUST, checkModuleRoster, moduleDirectory, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -65,9 +65,10 @@ import { keptCrates } from './crates.mjs';
 import { appleCargo } from '../../scripts/cargo-check.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
-export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes };
-import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
-const root = resolve(new URL('../..', import.meta.url).pathname);
+export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes, stripForDistribution };
+import { IPAD_ORIENTATIONS, orientationKeys, allows, chooseSimulator, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { fileURLToPath } from 'node:url';
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(...appleCargo(cmd, args, { cwd: root, ...opts,
     stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' }));
@@ -536,21 +537,6 @@ export function designCompatible(app, platform) {
   return true;
 }
 
-/** A distributed executable or framework without its local symbols — 3.6 of Caltrain's
- * 13.1 MB on the Mac — which are first written beside it as a dSYM, so a crash report from
- * the field is still symbolicated. `strip` keeps the image's UUID, which matches the dSYM (a
- * relink would be another); `strip: false` writes the dSYM alone. Development builds keep theirs. */
-export function stripForDistribution(executable, dsym, { strip = true } = {}) {
-  mkdirSync(dirname(dsym), { recursive: true });
-  rmSync(dsym, { recursive: true, force: true });
-  // dsymutil reports each symbol it could not find in an object file on stderr; only a failure is said.
-  run('dsymutil', [executable, '-o', dsym], { stdio: 'ignore' });
-  if (!strip) return { dsym, saved: 0 };
-  const before = statSync(executable).size;
-  run('strip', ['-x', executable], { stdio: 'ignore' });
-  return { dsym, saved: before - statSync(executable).size };
-}
-
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {}, reach = null, distributed = false } = {}) => plistFile({
   ...icon, ...(app.manifest.moduleConfig ? { ExactModuleConfig: app.manifest.moduleConfig } : {}),
@@ -648,6 +634,8 @@ async function main(args, lockHeld = false) {
   const store = `deploy.store.${ios ? 'ios' : 'macos'}`, streamed = app.manifest.deploy?.store?.[ios ? 'ios' : 'macos'] !== '0';
   const refused = [...(distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1' ? [`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`] : []), ...appleRefusals(app, tv ? 'tvos' : ios ? 'ios' : 'macos', { archive: !!ipa })];
   if (refused.length) { console.error(refused.join('\n')); process.exitCode = 1; return; }
+  if (ios && !device && !ipa && !args.includes('--no-install') && !args.includes('--prebuild')) chooseSimulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' }); // refused before anything compiles, not after (LLP 1156.000 D5)
+  if (!existsSync(resolve(app.target, 'apple-swift'))) { const room = freeSpace(app.dir, [app.target, resolve(process.env.HOME ?? '', '.cache/exact')]); if (room && room.gb < ROOM_GB) console.warn(`host/apple: a first build here; ${room.text}`); } // a cold build (LLP 1156.000 D3)
   // A build of this app already running (a --prebuild's) is waited for, as test and agent wait for it, and a background
   // build's failure is said by the next build (scripts/agent-build.mjs `waitForBuild`, `reportPrebuild`).
   const running = !lockHeld && !args.includes('--prebuild') && existsSync(appleArtifacts(app).lock);
@@ -1039,6 +1027,7 @@ async function main(args, lockHeld = false) {
   // renamed, as another app's build may compile it at once; a cached one is
   // copied out at once and marked used, so another build's `evictArms` keeps it.
   const snapshot = snapshotSources(modules.apple, resolve(webBuildDir, 'module-sources')); if (modules.apple.length) console.log(`host/apple: the app's Swift modules compile as they are now (${modules.apple.length} copied); an edit from here on needs another build`);
+  { const folder = moduleDirectory(app.dir, tv ? 'tvos' : ios ? 'ios' : 'macos'), below = (d, depth = 0) => depth > 3 ? [] : readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() && !/\.(xcframework|framework|bundle|app)$/.test(e.name) ? below(resolve(d, e.name), depth + 1) : e.isFile() && depth && e.name.endsWith('.swift') ? [resolve(d, e.name)] : []); const skipped = existsSync(folder) ? below(folder) : []; if (skipped.length) console.warn(`host/apple: ${skipped.length} Swift file${skipped.length === 1 ? '' : 's'} below ${relative(app.dir, folder)} ${skipped.length === 1 ? 'is' : 'are'} not compiled (${skipped.slice(0, 4).map(f => relative(folder, f)).join(', ')}${skipped.length > 4 ? ', …' : ''}): a module's Swift is the folder's own files, not its subfolders' (LLP 1156.002 D10)`); }
   // Where a module's Swift packages compile (LLP 1133.001 D5), this build's own: an arm's key names it `<packages>`.
   const packageDir = resolve(webBuildDir, 'packages');
   // A roster probe route's packages compile for its own target, in a directory of its own (`rosterRoutes`).
@@ -1159,20 +1148,32 @@ async function main(args, lockHeld = false) {
   const packageArgs = (p, i, dir) => [...swiftModuleArgs(p.module, packageCopies[i], dir), ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])]; // a package's development-only paths (an injected device, LLP 1133.037 D19 item 3), as the web arm's
   // What an arm linking the packages adds to its key: each package, its sources by name, and how it compiles.
   const packageStamp = JSON.stringify(packages.map((p, i) => [p.module, p.sources, packageArgs(p, i).map(a => a.replaceAll(packageDir, '<packages>'))]));
-  const placed = new Set();
+  // Each package's compiled module kept in the app's own build by what it is made of: its sources, the modules it imports
+  // (`ExactPackage`'s key), how it compiles and the compiler. A module edit links the packages it did not change, as
+  // compiled before, instead of compiling every one again (LLP 1156.003 D2). Written under this process's name and renamed.
+  const placed = new Set(), keptPackage = (name, args, sources, imports, dir, compile) => {
+    const key = createHash('sha256').update(JSON.stringify([name, args.map(a => a.replaceAll(dir, '<dir>')), sources.map(f => readFileSync(f, 'utf8')), imports, swiftc])).digest('hex').slice(0, 20);
+    const entry = resolve(linkRoot, 'packages-kept', `${name}-${key}`), outputs = (d) => readdirSync(d).filter(f => f.startsWith(`${name}.`));
+    if (existsSync(entry)) { for (const f of outputs(entry)) copyFileSync(resolve(entry, f), resolve(dir, f)); return key; }
+    compile();
+    const making = `${entry}.${process.pid}.tmp`; rmSync(making, { recursive: true, force: true }); mkdirSync(making, { recursive: true });
+    for (const f of outputs(dir)) copyFileSync(resolve(dir, f), resolve(making, f));
+    try { renameSync(making, entry); } catch { rmSync(making, { recursive: true, force: true }); } // another build kept it first
+    return key;
+  };
   const placePackages = (dir) => {
     if (placed.has(dir)) return;
     mkdirSync(dir, { recursive: true });
-    if (packages.length) {
+    const seamKey = packages.length ? keptPackage('ExactPackage', swiftModuleArgs('ExactPackage', [seam], dir), [seam], [], dir, () => {
       const r = spawnSync('xcrun', swiftModuleArgs('ExactPackage', [seam], dir), { encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`host/apple: ExactPackage.swift did not compile:\n${r.stderr ?? ''}`);
-    }
-    packages.forEach((p, i) => {
+    }) : null;
+    packages.forEach((p, i) => keptPackage(p.module, packageArgs(p, i, dir), packageCopies[i], [seamKey], dir, () => {
       const r = spawnSync('xcrun', packageArgs(p, i, dir), { encoding: 'utf8' });
       // Each copy's real path first (the temporary directory's `/private/var/…`), as `snapshot.authored` maps the app's.
       const said = packageCopies[i].reduce((text, copy, j) => text.replaceAll(realpathSync(copy), p.sources[j]).replaceAll(copy, p.sources[j]), r.stderr ?? '');
       if (r.status !== 0) throw new Error(`host/apple: ${p.extension}'s Swift (${p.sources.join(', ')}) did not compile:\n${said}`);
-    });
+    }));
     placed.add(dir);
   };
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), [...moduleSources, ...packageSources], modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch) + packageStamp, true));
@@ -1481,7 +1482,7 @@ async function test(args) {
     } finally { if (bootedHere) read('xcrun', ['simctl', 'shutdown', dev.udid]); }
   } finally { cargoRelease?.(); release(); }
 }
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(new URL(import.meta.url))) {
   const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   if (args.includes('--phone') && !args.includes('--device')) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust

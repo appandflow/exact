@@ -942,7 +942,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             break;
           }
           case 'expect-state': {
-            const state = await s.state();
+            const state = await s.state(undefined, undefined, false, false, { reveal: true });
             const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
             // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
             const [name, ...fields] = st.name.split('.');

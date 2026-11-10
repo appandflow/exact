@@ -12,8 +12,8 @@ import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rea
 import { tmpdir } from 'node:os';
 import { join, resolve, toNamespacedPath } from 'node:path';
 
-const MODULE = resolve(new URL('./gpu-cache.mjs', import.meta.url).pathname);
-const LOCK = resolve(new URL('../web/build-lock.mjs', import.meta.url).pathname);
+const MODULE = resolve(fileURLToPath(new URL('./gpu-cache.mjs', import.meta.url)));
+const LOCK = resolve(fileURLToPath(new URL('../web/build-lock.mjs', import.meta.url)));
 const FILES = ['gpu.js', 'gpu_bg.wasm', 'shaders/main.wgsl'];
 afterEach(() => stopAll());
 
@@ -21,6 +21,7 @@ const LOOP = `
 import { copyGpuCache } from ${JSON.stringify(MODULE)};
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const [cache, out, name, mode, hold] = process.argv.slice(2);
 const nap = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const built = copyGpuCache(cache, out, {

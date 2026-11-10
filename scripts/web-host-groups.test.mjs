@@ -6,8 +6,9 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { webHostFiles } from './app.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const GROUPS = ['base', 'module', 'storage', 'rust', 'gpu', 'gpuModules', 'native', 'development'];
 // Groups that always ship with another: storage ships whenever module does (an app with app.ts; scripts/app.mjs).
 const WITH = { module: ['storage'] };

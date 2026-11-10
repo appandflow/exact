@@ -13,8 +13,9 @@ import { tapWords } from '../../scripts/agent-keys.mjs';
 import { serveBuildTree } from './serve.mjs';
 import { browserMissing } from '../../scripts/agent-playwright.mjs';
 import { need } from '../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 const CONTRACT = `component AimFixture

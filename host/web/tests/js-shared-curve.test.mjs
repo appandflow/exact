@@ -6,10 +6,11 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // shared.js beside a stand-in for focus.js, which imports host/web/navigation.js as a build places it.
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-shared-curve-'));
-copyFileSync(new URL('../../web-js/shared.js', import.meta.url).pathname, resolve(dir, 'shared.js'));
+copyFileSync(fileURLToPath(new URL('../../web-js/shared.js', import.meta.url)), resolve(dir, 'shared.js'));
 writeFileSync(resolve(dir, 'focus.js'), 'export const hold = () => null, within = (held, f) => f();\n');
 const { curve } = await import(resolve(dir, 'shared.js'));
 

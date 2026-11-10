@@ -32,6 +32,7 @@ mod reach_margin;
 mod reorder_codec;
 mod replay;
 mod router;
+mod secret_state;
 mod sockets;
 mod tabs;
 mod transform_binding;

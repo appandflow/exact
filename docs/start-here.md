@@ -277,7 +277,7 @@ const sources: Sources = {
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 ```
 
-**The tests** drive by `testId` on every host, each from empty storage:
+**The tests** drive by `testId` on every host, each from empty storage (an app's own server's database is empty at the start of a run and shared by its tests):
 
 ```contract-test
 test "an item is added, a repeat refused, checked off and kept"

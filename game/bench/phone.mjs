@@ -18,8 +18,9 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = resolve(new URL('.', import.meta.url).pathname), root = resolve(here, '../..');
+const here = resolve(fileURLToPath(new URL('.', import.meta.url))), root = resolve(here, '../..');
 const sdk = process.env.ANDROID_HOME ?? resolve(homedir(), process.platform === 'darwin' ? 'Library/Android/sdk' : 'Android/Sdk');
 const ADB = existsSync(resolve(sdk, 'platform-tools/adb')) ? resolve(sdk, 'platform-tools/adb') : 'adb';
 const WARMUP = Number(process.env.SETTLE ?? process.env.WARMUP ?? 4), SECONDS = Number(process.env.SECONDS ?? 10), HZ = Number(process.env.HZ ?? 60);

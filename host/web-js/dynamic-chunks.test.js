@@ -9,8 +9,9 @@
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname, web = resolve(here, '../web');
+const here = fileURLToPath(new URL('.', import.meta.url)), web = resolve(here, '../web');
 const ENTRY = new Set(['rt.js', 'app.js']); // the entry itself, which some modules import lazily by name
 const at = new Map();
 for (const dir of [web, here]) for (const f of readdirSync(dir)) if (f.endsWith('.js') && !/\.test\.js$/.test(f)) at.set(f, resolve(dir, f));

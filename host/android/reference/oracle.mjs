@@ -15,8 +15,9 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { crop, decodePng, encodePng } from '../../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = dirname(fileURLToPath(new URL(import.meta.url)));
 const root = resolve(here, '../../..');
 const manifest = JSON.parse(readFileSync(join(here, 'specimens.json'), 'utf8'));
 const args = process.argv.slice(2);

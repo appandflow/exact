@@ -189,12 +189,12 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios|windows|android] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
+    usage: 'bun exact.mjs verify [web|ios|windows|android] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--strict] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
-      ['--rescroll', 'ios: measure scrolling again though nothing it depends on changed'],
+      ['--rescroll · --strict', 'ios: measure scrolling again though nothing it depends on changed · exit 1 on any counted problem (for CI)'],
       ['--json', 'the report as one JSON object (ios: `scrolling`, each finding\'s metric, value, UIKit\'s and remedy)'],
     ],
     internal: ['--app <name>'],
@@ -220,7 +220,7 @@ Scroll   ios: ~15 s of real touches on a long first-screen list, once per build 
          a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's, scrolling's) and the compiler's
-         warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
+         warnings are counted, never fail it but under --strict. A screen no test ends on is not checked: end a test there.
          Its first line says about how long it takes (its last run's time): wait that once.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops

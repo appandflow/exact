@@ -11,8 +11,9 @@ import { open } from '../../scripts/agent.mjs';
 import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
 import { decodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 // One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
