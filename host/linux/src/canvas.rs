@@ -673,6 +673,12 @@ impl Backend for Recorder {
         self.native_element(id, kind, shape, ts, props, direct);
     }
 
+    /// A box turned in space (`paint/space.rs`) is painted apart and warped into these pixels; without this
+    /// the reader never saw it.
+    fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4) {
+        self.canvas(&pixels, dst, &[], Transform::identity());
+    }
+
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         // A canvas is drawn by the presenter into pixels (Canvas 2D in Rust);
         // the reader shows them as a picture, sent again when they change.
