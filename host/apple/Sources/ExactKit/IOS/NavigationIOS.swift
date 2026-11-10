@@ -154,17 +154,21 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// route stops above a keyboard's bar; else clear, over the surface its
     /// presentation paints (`ModalController.paintSurface`: UIKit's glass at
     /// a partial detent, LLP 1141.001 D3). What is behind the sheet is not,
-    /// and dimming belongs to UIKit's presentation.
+    /// and dimming belongs to UIKit's presentation. A full-screen route that
+    /// paints its own background is clear, as its presentation is
+    /// (`NodeView.paintsOverPage`): the route paints it once, over the page.
     func paintBackdrop() {
         guard isViewLoaded else { return }
         // The route's view takes its accent as its tint, which its backdrop in the tint is resolved by
         assign(view, \.tintColor, node.ownAccent)
         let modal = node.props["navigationPresentation"] == "modal"
-        let key = modal
-            ? [ownBackdrop(dark: false), ownBackdrop(dark: true)]
+        let overPage = node.paintsOverPage
+        let key = overPage ? []
+            : modal ? [ownBackdrop(dark: false), ownBackdrop(dark: true)]
             : [backdrop(dark: false), backdrop(dark: true)]
         guard view.backgroundColor == nil || key != backdropKey else { return }
         backdropKey = key
+        if overPage { view.backgroundColor = .clear; return }
         #if os(tvOS)
         // tvOS has no system backgrounds; white stands in, as the viewport's.
         let system = UIColor.white

@@ -185,7 +185,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     /// in a compact width, nothing, so UIKit draws its glass as it does for
     /// a hand-built sheet whose view is left clear (LLP 1141.001 D3); else
     /// the system background, which UIKit elevates in dark mode. An authored
-    /// `transparent` is clear at any detent. The route's own paint is its
+    /// `transparent` is clear at any detent, and so is a full-screen route
+    /// that paints its own background (`NodeView.paintsOverPage`), which
+    /// shows the page under it where it is translucent. The route's own paint is its
     /// controller's (`RouteController.paintBackdrop`). While the keyboard
     /// ends the content above the screen's bottom, the colour the content
     /// goes on with shows behind the keys' bar (`ExactView.paintUnderKeys`).
@@ -193,7 +195,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         guard isViewLoaded else { return }
         let presenter = host?.presenter
         let keys = (presenter?.keyboardInset ?? 0) > 0 ? presenter?.bottomEdgeColor() : nil
-        let surface = keys ?? (transparent ? .clear
+        let surface = keys ?? (transparent || route?.paintsOverPage == true ? .clear
             : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view) ?? (glass ? .clear : .systemBackground))
         if view.backgroundColor != surface { view.backgroundColor = surface }
     }

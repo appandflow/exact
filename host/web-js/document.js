@@ -15,7 +15,7 @@
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
-import { unselected, unselectedForHead, pageTitle, panelsOf, viewChildren } from "./navigation.js";
+import { unselected, unselectedForHead, pageTitle, panelsOf, viewChildren, overPage } from "./navigation.js";
 import { scope, owner, onEnd, adopting } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
@@ -127,8 +127,9 @@ export function projectRoots(history, navigate, say, after, hostBack, hostGo, ro
   after.push(project, markDocument); history.activate(root, say);
 }
 
-/** Project route visibility before startup. A modal keeps the underlying page
- * and intervening sheets visible but inert, as navigation.js `project` does. */
+/** Project route visibility before startup. A modal, or a full-screen route
+ * that paints its own background, keeps the underlying page and intervening
+ * sheets visible but inert, as navigation.js `project` does. */
 export function markRoutes(root) {
   for (const nav of [...root.getElementsByTagName("*")].filter(e => e.hasAttribute("navigationBack"))) {
     const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav);
@@ -139,8 +140,8 @@ export function markRoutes(root) {
     panels.forEach((p, i) => mark(p, i !== at, i !== at));
     stacks.forEach((routes, i) => {
       const shown = i === at ? routes.findIndex(r => r.getAttribute("navigationKey") === key) : routes.length - 1;
-      const sheet = routes[shown]?.getAttribute("navigationPresentation") === "modal";
-      const beneath = routes.findLastIndex((r, j) => j < shown && r.getAttribute("navigationPresentation") !== "modal");
+      const sheet = overPage(routes[shown]);
+      const beneath = routes.findLastIndex((r, j) => j < shown && !overPage(r));
       routes.forEach((r, j) => mark(r, j !== shown && !(sheet && j >= beneath && j < shown), j !== shown));
     });
   }

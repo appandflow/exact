@@ -557,9 +557,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   indicator (LLP 1123 D3), so a child at `position="absolute" inset=0` starts
   below the status bar, and where the route paints nothing its controller shows
   the system background. Fix: give the route's own column the background
-  (`background-color`, with `color-scheme="dark"` for a photo viewer): the host
-  paints it to the screen's edges. It is painted once, so an animation of it does
-  not show there. (Excord's image viewer, 2026-10-27.)
+  (`background-color`, with `color-scheme="dark"` for a photo viewer): it fills
+  the screen to its edges, and where it is translucent, or fades out, the page
+  the route covers shows through. (Excord's image viewer, 2026-10-27.)
 - **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
   `backdrop-filter` samples only the parent's subtree, even when every wrapper
   is transparent. Make the glass a direct sibling of what it covers; put a

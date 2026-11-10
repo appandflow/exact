@@ -171,7 +171,14 @@ final class NavigationHost {
                 if stack == at { shown[nav.id] = routes.prefix(selected + 1).map { $0.props["navigationKey"] ?? "" } }
                 if stack == at, nav === roots.first { selection = (nav.id, routes.map(\.id), selected) }
                 if nav === roots.first, routes.contains(where: { $0.props["navigationBar"] != "none" }) { barRoute = true }
-                let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
+                // A modal route painted in the window shows the route beneath it, and so does a
+                // full-screen route whose author wrote its background (`transparent` included),
+                // drawn over that page as CSS composites it (Charlie, 2026-11-10). One that paints
+                // nothing covers it.
+                let overPage = routes.indices.contains(selected) && {
+                    let route = routes[selected], presentation = route.props["navigationPresentation"]
+                    return presentation == "modal" || presentation == "fullscreen" && (route.wrote("background_color") || route.wrote("background_image"))
+                }()
                 // The lowest route in a sheet: it and the sheets on it are shown, and the route they stand over.
                 let lowest = stack == at && nav === roots.first ? sheeted.first.flatMap { low in routes.firstIndex { $0 === low.base } } : nil
                 // A stack that splits (D4) shows its list and the route its pane shows, and the list stays live beside its detail.
@@ -184,7 +191,7 @@ final class NavigationHost {
                     let column = splits && (index == 0 || route === beside)
                     // In the detail's pane, out of its hidden panel's views: hidden and inert by name.
                     let away = stack != at && split.holds(route)
-                    gate(route, hidden: leaving ? route.isHidden : away || (index != selected && !(modal && index == selected - 1) && !under && !column),
+                    gate(route, hidden: leaving ? route.isHidden : away || (index != selected && !(overPage && index == selected - 1) && !under && !column),
                          inert: away || (index != selected && !(splits && index == 0 && !covered)))
                 }
             }

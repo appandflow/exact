@@ -27,7 +27,7 @@ const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? p
 const WIDE_WIDTH = 900, WIDE = `(min-width: ${WIDE_WIDTH}px)`, wide = () => { if (!globalThis.matchMedia?.(WIDE).matches) { return false; } const { cols, rects } = fold(); return cols === 1 || (rects.length > 0 && rects.every(([, , width]) => width >= WIDE_WIDTH)); }; // Base wide navigation on the space within each horizontal segment
 let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
 const activationRequired = new WeakSet(), activated = new WeakSet();
-const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
+const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")); export const overPage = route => { const p = route?.getAttribute("navigationPresentation"); if (p !== "fullscreen") return p === "modal"; const { backgroundColor: c = "rgba(1, 2, 3, 0)", backgroundImage: i = "none" } = getComputedStyle(route); return c !== "rgba(1, 2, 3, 0)" || i !== "none"; }; // A route that shows the page it covers: a sheet, or a full-screen route whose author wrote its background, which composites over that page as CSS has it (Charlie, 2026-11-10). neutral.css gives a full-screen route a clear colour no author writes, so its computed colour tells whether the author wrote one, `transparent` included; a server render computes none (render.mjs). One that paints nothing hides the page, on the root's ground.
 let pressedRow = null, pendingRow = null;
 const excluded = el => el.hasAttribute("popover") || el.hasAttribute("data-exiting") || getComputedStyle(el).display === "none";
 const rowPress = el => el.getAttribute("data-exact-router-press");
@@ -437,7 +437,7 @@ export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
         if (stack === at) { const before = shownRoutes.get(nav) ?? [], showing = routes.slice(0, selected + 1); shownRoutes.set(nav, showing); shown.set(nav, showing.map(route => route.getAttribute("navigationKey"))); if (sheet(routes[selected]) && !before.includes(routes[selected])) for (const slide of leavingSheets) if (viewParent(slide.effect.target) === viewParent(routes[selected])) { slide.finish(); slide.effect.target.remove(); } }
         const found = splitOf(routes), split = found.width, live = split && !sheet(routes[selected]);
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", beneath = routes.findLastIndex((r, i) => i < selected && r.getAttribute("navigationPresentation") !== "modal");
+        const modal = overPage(routes[selected]), beneath = routes.findLastIndex((r, i) => i < selected && !overPage(r));
         detailRows(routes, found);
         if (stack === at && list) setInert(list, sheet(routes[selected]) || !!list.authoredInert); // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
         // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column, else (a detail the app opened itself, at launch or after Back) the row the app says is current.

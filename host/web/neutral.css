@@ -501,6 +501,9 @@
   #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); position: fixed !important; inset: calc(env(safe-area-inset-top, 0px) + 12px) 0 0 !important; margin: 0 !important; box-sizing: border-box !important; width: auto !important; height: auto !important; max-height: none !important; z-index: 1; border-radius: calc(12px * var(--exact-curve-reach)) calc(12px * var(--exact-curve-reach)) 0 0; corner-shape: var(--exact-curve); overflow: clip; box-shadow: 0 0 0 100vmax var(--exact-scrim); transition: translate .4s cubic-bezier(.32, .72, 0, 1), box-shadow .4s cubic-bezier(.32, .72, 0, 1); }
   @starting-style { #exact-root [navigationPresentation="modal"] { translate: 0 100vh; box-shadow: 0 0 0 100vmax transparent; } }
   @media (prefers-reduced-motion: reduce) { #exact-root [navigationPresentation="modal"] { transition: none; } }
+  /* A full-screen route's ground where its author wrote none: clear, in a colour no author writes, which
+     navigation.js `overPage` reads to tell that route from one whose author wrote a background. */
+  #exact-root [navigationPresentation="fullscreen"] { background-color: rgb(1 2 3 / 0); }
   #exact-root [data-exact-covered]::after { content: none; }
   #exact-root [navigationPresentation="modal"][data-exact-covered] { box-shadow: none; }
   @media (min-width: 900px) {

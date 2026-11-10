@@ -482,6 +482,21 @@ extension NodeView {
         return false
         #endif
     }
+    /// Whether this is a full-screen route whose author wrote its background
+    /// (a colour, or an image; `transparent` and an explicit clear, `""` or
+    /// `unset`, included: LLP 1115.000 D2). Its presentation and
+    /// its controller then leave their views clear, so a translucent
+    /// background, or one fading out, shows the page it covers, as CSS
+    /// composites it (Charlie, 2026-11-10); a hand-built viewer is a clear
+    /// view presented `overFullScreen` likewise. A full-screen route that
+    /// paints nothing stays on the platform's background (LLP 1115 D2).
+    var paintsOverPage: Bool {
+        #if os(iOS)
+        props["navigationPresentation"] == "fullscreen" && (wrote("background_color") || wrote("background_image"))
+        #else
+        false
+        #endif
+    }
     /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a

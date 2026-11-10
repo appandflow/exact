@@ -2705,6 +2705,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   included, waits up to two seconds for UIKit to finish it; a reply with `settled:
   false, reason: "transition"` says it had not. `--timing platform` leaves that to
   `clock settle`.
+- A full-screen route (`navigationPresentation="fullscreen"`) that paints nothing
+  stands on the platform's background. One whose author wrote a `background-color`
+  (`transparent` included) or a `background-image` stands on nothing else: the page it
+  covers stays under it, inert, and shows through where its background is translucent
+  or while it fades out, as in CSS (a photo viewer's black fading to the chat it came
+  from).
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height, a percentage of the sheet's maximum height (`"45%"`,
   React Native's `sheetAllowedDetents: [0.45]`; above 0% and at most 100%) or
