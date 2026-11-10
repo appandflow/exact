@@ -424,13 +424,13 @@ fn a_header_or_tablist_that_writes_appearance_none_stays_the_pages() {
 fn a_touch_lights_its_target_and_the_shell_is_told_each_change_once() {
     let (mut p, pictures) = barred(APP);
     let words = p.reader_bars(2.0).expect("the bars are told");
-    // A count, then for each bar which it is, its frame in pixels, and its
-    // stream (the test's painter writes two words).
+    // A count, then for each bar which it is, its frame in pixels, its hold
+    // (none), and its stream (the test's painter writes two words).
     assert_eq!(words[0], 2);
-    assert_eq!(&words[1..6], &[TOP, 0, 0, 824, 232]);
-    assert_eq!(words[6], 2);
-    assert_eq!(&words[9..14], &[BOTTOM, 0, 1624, 824, 208]);
-    assert_eq!(words.len(), 17);
+    assert_eq!(&words[1..7], &[TOP, 0, 0, 824, 232, 0]);
+    assert_eq!(words[7], 2);
+    assert_eq!(&words[10..16], &[BOTTOM, 0, 1624, 824, 208, 0]);
+    assert_eq!(words.len(), 19);
     assert_eq!(p.reader_bars(2.0), None, "told once");
     // A finger down on a destination lights it; lifting chooses it.
     let other = id(&p, "tab-other");
@@ -945,4 +945,39 @@ fn a_reselected_tabs_scroll_to_the_top_gives_way_to_a_request_its_press_made() {
         0.0,
         "a list the press made the screen's, which asked for nothing there"
     );
+}
+
+#[test]
+fn a_held_finger_on_the_navigation_bar_pans_the_tablist() {
+    let source = APP
+        .replace(
+            r#"  action share
+    said = "shared""#,
+            r#"  action share
+    said = "shared"
+  action barPan(dx: number, dy: number)
+    said = `${said} pan ${dx} ${dy}`
+  action barRelease(vx: number, vy: number)
+    said = `${said} release ${vx}`"#,
+        )
+        .replace(
+            r#"row role="tablist" testId="tabs""#,
+            r#"row role="tablist" testId="tabs" pan=barPan panrelease=barRelease -exact-pan-hold=400"#,
+        );
+    assert_ne!(source, APP);
+    let (mut p, _) = barred(&source);
+    let words = p.reader_bars(1.0).expect("the bars are told");
+    let bottom = 1 + 6 + 1 + words[7] as usize;
+    assert_eq!(&words[bottom..bottom + 6], &[BOTTOM, 0, 812, 412, 104, 400]);
+    let (x, y, w, h) = p.bars().1.unwrap().targets[1].rect;
+    let (x, y) = (x + w / 2.0, y + h / 2.0);
+    // The shell timed the hold: the target lets go, and the pan begins.
+    p.bar_event(BOTTOM, 0, x, y, 0.0);
+    p.bar_event(BOTTOM, 4, x, y, 400.0);
+    p.bar_event(BOTTOM, 2, x - 30.0, y, 420.0);
+    p.bar_event(BOTTOM, 1, x - 30.0, y, 440.0);
+    p.bar_event(BOTTOM, 6, -500.0, 0.0, 440.0);
+    p.run_commands(|| Nothing);
+    assert_eq!(text(&p, "said"), "nothing pan 0 0 pan -30 0 release -500");
+    assert_eq!(top(&mut p).title, "Home", "the held tab is not chosen");
 }

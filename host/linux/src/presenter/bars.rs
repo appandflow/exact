@@ -83,6 +83,9 @@ pub(super) struct State {
     /// The target a TV remote's focus is on, lit as a held one is: the
     /// bar, and its place among the targets.
     focused: Option<(i32, usize)>,
+    /// The bar's own node a held finger pans (`-exact-pan-hold`), and where
+    /// the finger last was, in the bar's points.
+    panning: Option<(exact_kernel::NodeKey, (f32, f32))>,
     /// Moved on whenever a bar's picture or frame changes.
     revision: u32,
     /// The revision the shell was last told.
@@ -436,9 +439,11 @@ impl<D: DataSource> Presenter<D> {
     /// What the shell is told of its bars with a stream, when that is not
     /// what it was last told (`None`), in its pixels (`scale` to a point):
     /// a count, then for each bar which it is ([`TOP`], [`BOTTOM`]), its
-    /// frame in the window (x, y, width, height), a count of words and
-    /// that many: its picture, an op stream of its own, whole. A bar a
-    /// statement leaves out is gone.
+    /// frame in the window (x, y, width, height), how many milliseconds a
+    /// finger rests on it before its pan begins (0: none;
+    /// [`Presenter::bar_event`]), a count of words and that many: its
+    /// picture, an op stream of its own, whole. A bar a statement leaves out
+    /// is gone.
     pub fn reader_bars(&mut self, scale: f32) -> Option<Vec<i32>> {
         self.bars.painter.as_ref()?;
         self.sync_bars();
@@ -451,6 +456,7 @@ impl<D: DataSource> Presenter<D> {
         let pressed = self.bars.pressed.or(self.bars.focused);
         let lit = |which: i32| pressed.filter(|p| p.0 == which).map(|p| p.1);
         let px = |v: f32| (v * scale).round() as i32;
+        let hold = self.bar_hold().map_or(0, |(_, ms)| ms.round() as i32);
         let painter = self.bars.painter.as_mut()?;
         let mut out = vec![0];
         let shown = [
@@ -474,6 +480,7 @@ impl<D: DataSource> Presenter<D> {
                 px(frame[1]),
                 px(frame[2]),
                 px(frame[3]),
+                if which == BOTTOM { hold } else { 0 },
             ]);
             out.push(stream.len() as i32);
             out.extend(stream.iter().map(|word| *word as i32));
@@ -534,12 +541,90 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// The navigation bar's own node when it pans after a held finger
+    /// (`pan` and `-exact-pan-hold` on the tablist), and the hold's
+    /// milliseconds.
+    fn bar_hold(&self) -> Option<(exact_kernel::NodeKey, f64)> {
+        self.bars.bottom.as_ref()?;
+        let tablist = self.host.bars().tabs.as_ref()?.tablist;
+        let node = self.host.kernel().node(tablist)?;
+        let ms = match node.props.get(PropId::PanHold) {
+            Some(&exact_kernel::PropValue::Float(ms)) if ms > 0.0 => ms,
+            _ => return None,
+        };
+        let pans = self.host.runner().handlers_of(tablist);
+        pans.contains(&EventKind::Pan).then_some((node.key, ms))
+    }
+
+    /// A held finger on the navigation bar pans its own node: the shell
+    /// timed the hold (4, at where the finger rests), then moves (2) and
+    /// releases it (6, with `x` and `y` its velocity in points a second) or
+    /// cancels (3). As on iOS, one zero delta says the pan began.
+    fn bar_pan(&mut self, action: i32, x: f32, y: f32, now_ms: f64) -> bool {
+        if action == 4 {
+            let Some((key, _)) = self.bar_hold() else {
+                return true;
+            };
+            if self.bars.pressed.take().is_some() {
+                self.bars.revision += 1;
+                self.executor.notify();
+            }
+            self.bars.panning = Some((key, (x, y)));
+            self.bar_pan_by(key, Event::Pan(0., 0.), now_ms);
+            return true;
+        }
+        let Some((key, last)) = self.bars.panning else {
+            return false;
+        };
+        match action {
+            2 => {
+                self.bars.panning = Some((key, (x, y)));
+                let (dx, dy) = (x - last.0, y - last.1);
+                if dx != 0. || dy != 0. {
+                    self.bar_pan_by(key, Event::Pan(dx.into(), dy.into()), now_ms);
+                }
+            }
+            6 | 3 => {
+                self.bars.panning = None;
+                let v = if action == 6 { (x, y) } else { (0., 0.) };
+                self.bar_pan_by(key, Event::PanRelease(v.0.into(), v.1.into()), now_ms);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// The node is hidden in the bar's place, so the page's input check
+    /// does not apply: the bar is what took the touch.
+    fn bar_pan_by(&mut self, key: exact_kernel::NodeKey, event: Event, now_ms: f64) {
+        let Some(view) = self.host.kernel().node_by_key(key).map(|n| n.id) else {
+            return;
+        };
+        if matches!(event, Event::PanRelease(..))
+            && !(self.host.runner().handlers_of(view)).contains(&EventKind::Panrelease)
+        {
+            return;
+        }
+        self.dirty = true;
+        if let Some(error) = (self.host)
+            .dispatch_at(view, event, now_ms)
+            .or(self.after_commit())
+        {
+            self.host.log(error);
+        }
+    }
+
     /// What the shell says happened in bar `which` ([`TOP`], [`BOTTOM`]):
     /// a touch (0 down, 1 up, 2 move, 3 cancel) at (`x`, `y`), points from
     /// the bar's own top left. A target is lit while a finger holds it and
     /// chosen when the finger lifts in it; a finger that leaves it lets go.
+    /// A finger the shell held on the navigation bar pans its node instead
+    /// ([`Presenter::bar_pan`]).
     pub fn bar_event(&mut self, which: i32, action: i32, x: f32, y: f32, now_ms: f64) {
         self.sync_bars();
+        if which == BOTTOM && self.bar_pan(action, x, y, now_ms) {
+            return;
+        }
         let at = match which {
             TOP => self.bars.top.as_ref().map(|s| &s.layout),
             BOTTOM => self.bars.bottom.as_ref().map(|s| &s.layout),
