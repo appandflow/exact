@@ -231,6 +231,7 @@ impl<D: DataSource> Host<D> {
         for p in self.engine.frame() {
             let key = node_key(p.node);
             let Some(view) = self.keys.get(&key).copied() else {
+                changed |= self.exit_presented(key);
                 continue;
             };
             if p.property == Property::Height || self.presents_nothing(view, &p) {
@@ -273,7 +274,7 @@ impl<D: DataSource> Host<D> {
                 _ => unreachable!("height is projected through layout; paint is above"),
             }
         }
-        changed
+        changed | self.end_exits()
     }
 
     /// A step sampler can restate its value on unrelated timer turns. Such a

@@ -129,6 +129,7 @@ impl<D: DataSource> Presenter<D> {
         self.brush.numerals.now = self.host.now();
         self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
         self.brush.rows_dirty(self.host.kernel(), dirty);
+        (self.brush).set_leaving(self.host.kernel(), self.host.leaving_paint());
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()

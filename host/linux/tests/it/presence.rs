@@ -1,6 +1,6 @@
-//! Layout transition on Linux, and its refusal of exit animation:
-//! a sibling that takes a removed node's place is painted from where it was;
-//! the removed node leaves at once and the journal says why.
+//! Exit animation and layout transition on Linux: a sibling that takes a
+//! removed node's place is painted from where it was, while the removed
+//! node plays its exit from its last drawing.
 use exact_kernel::MonospaceMeasurer;
 use exact_linux::Host;
 use exact_runner::Event;
@@ -24,7 +24,7 @@ fn view(h: &Host<()>, name: &str) -> u32 {
 }
 
 #[test]
-fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
+fn a_sibling_slides_into_a_removed_nodes_place_as_it_plays_its_exit() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contract/corpus/presence.contract"
@@ -52,12 +52,79 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
     assert!(mid > 0.0 && mid < from, "{mid} of {from}");
     h.tick(421.);
     assert_eq!(h.presented(second).layout, [0.0; 4]);
-    assert!(!h.motion());
+    assert!(!h.motion(), "the 200 ms exit ended too");
     let logs = h.agent("{\"op\":\"logs\"}");
-    assert!(
-        logs.contains("-exact-exit-animation: refused on Linux"),
-        "{logs}"
-    );
+    assert!(!logs.contains("-exact-exit-animation"), "{logs}");
+}
+
+const LEAVING: &str = "component App\n  state shown = true\n  action toggle\n    shown = not shown\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column position=\"relative\" width=200 height=100 overflow=\"hidden\"\n        view testId=\"under\" position=\"absolute\" left=0 top=0 width=200 height=100 background-color=\"#0000ff\"\n        if shown\n          view testId=\"card\" position=\"absolute\" left=0 top=0 width=200 height=100 background-color=\"#ff0000\" -exact-exit-animation=\"leave 1000ms linear both\"\n\nkeyframes leave\n  from opacity=1 translate=\"0 0\"\n  to opacity=0 translate=\"-200px 0\"\n";
+
+fn presenter(source: &str) -> exact_linux::Presenter<()> {
+    use exact_linux::presenter::PainterChoice;
+    let plan = contract::compile(source).unwrap().encode();
+    exact_linux::Presenter::boot_with(
+        &plan,
+        (),
+        (400., 600.),
+        1.,
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        PainterChoice::Cpu,
+    )
+    .unwrap()
+    .0
+}
+
+fn named(p: &exact_linux::Presenter<()>, name: &str) -> u32 {
+    let k = p.host().kernel();
+    k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+}
+
+/// The removed card slides and fades out from where it was, over what was
+/// under it, under its parent's clip; a press there reaches what is under
+/// it; and it is gone when its exit ends.
+#[test]
+fn a_removed_node_plays_its_exit_from_its_last_drawing() {
+    let mut p = presenter(LEAVING);
+    let (x, y, ..) = p.rect_of(named(&p, "under")).unwrap();
+    assert!(is(&p.frame(), x + 20., y + 50., 0), "the card shows");
+    p.tap(named(&p, "toggle")).unwrap();
+    assert!(p.host().kernel().find_by_test_id("card").is_empty());
+    p.tick(500.);
+    let frame = p.frame();
+    // Half way: moved 100 to the left at half opacity, over the blue.
+    let c = frame
+        .pixel((x + 20.) as u32, (y + 50.) as u32)
+        .unwrap()
+        .demultiply();
+    assert!(c.red() > 60 && c.blue() > 60 && c.green() < 60, "{c:?}");
+    assert!(is(&frame, x + 150., y + 50., 2), "uncovered past its edge");
+    assert!(!is(&frame, x - 20., y + 50., 0), "clipped by its parent");
+    assert_eq!(p.hit(x + 20., y + 50.), Some(named(&p, "under")));
+    assert!(p.host().motion());
+    p.tick(1100.);
+    assert!(is(&p.frame(), x + 20., y + 50., 2), "gone at its end");
+    assert!(!p.host().motion());
+}
+
+/// Shown again and removed again before the first exit ends: each leaves
+/// on its own, and nothing is left once both have ended.
+#[test]
+fn a_node_removed_again_before_its_exit_ends_leaves_no_ghost() {
+    let mut p = presenter(LEAVING);
+    let (x, y, ..) = p.rect_of(named(&p, "under")).unwrap();
+    let toggle = named(&p, "toggle");
+    p.tap(toggle).unwrap();
+    p.tick(300.);
+    p.tap(toggle).unwrap();
+    assert!(is(&p.frame(), x + 150., y + 50., 0), "the new card shows");
+    p.tick(400.);
+    p.tap(toggle).unwrap();
+    p.tick(900.);
+    assert!(p.host().motion(), "the second exit still plays");
+    p.tick(1500.);
+    assert!(is(&p.frame(), x + 20., y + 50., 2));
+    assert!(is(&p.frame(), x + 150., y + 50., 2));
+    assert!(!p.host().motion());
 }
 
 #[test]

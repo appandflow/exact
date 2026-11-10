@@ -51,8 +51,7 @@ component App
 - **Keyframes** take literals or the app's own `fn` on constants.
 - **Exit:** `-exact-exit-animation` names keyframes and must end (`infinite` is refused). It
   plays when an `if` arm turns false or a `for` row leaves: the node leaves layout at once,
-  inert, and the rest move by their layout transition. Not inside a screen being popped,
-  nor on Linux.
+  inert, and the rest move by their layout transition. Not inside a screen being popped.
 - **Layout transition** is a transition without a property. It moves the box and resizes its
   surface (background, border, shadow); children jump to their place, unscaled. With
   `sharedElement=` a node flies from the old one's place on iOS, macOS and the web, not Linux.
