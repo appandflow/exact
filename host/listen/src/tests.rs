@@ -16,6 +16,8 @@ enum Seen {
     Error(&'static str),
 }
 
+/// A socket's path must fit `sun_path` (104 bytes on macOS), and the per-user
+/// `TMPDIR` there takes about 50 of them: keep `name` short.
 fn dir(name: &str) -> PathBuf {
     let base = std::env::temp_dir().canonicalize().unwrap();
     let dir = base.join(format!("exact-listen-{}-{name}", std::process::id()));
@@ -223,7 +225,7 @@ fn a_live_socket_without_takeover_is_an_error() {
 #[test]
 #[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
 fn a_connection_can_be_answered_before_its_callback_returns() {
-    let d = dir("immediate-greeting");
+    let d = dir("greeting");
     let path = d.join("a.sock");
     let (seen, events) = mpsc::channel();
     let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
