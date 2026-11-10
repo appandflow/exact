@@ -135,6 +135,20 @@ fn a_contained_scroller_ends_the_chain_on_its_axis() {
 }
 
 #[test]
+fn a_scroller_with_scrollbar_width_none_is_told_barless() {
+    let source = PAGE_OF_SCROLLERS.replace(
+        r#"testId="inner" width=400"#,
+        r#"testId="inner" scrollbar-width="none" width=400"#,
+    );
+    let mut p = boot(&source);
+    let words = p.reader_under(200., 240., 1.);
+    let (inner, page) = (words[3], words[14]);
+    assert_eq!(inner, id(&p, "inner") as i32);
+    assert_eq!((words[4] & 8, words[15] & 8), (8, 0), "{words:?}");
+    assert_ne!(page, inner);
+}
+
+#[test]
 fn a_page_taller_than_the_viewport_is_the_last_scroller() {
     let mut p = boot(
         r#"component App

@@ -99,6 +99,8 @@ impl Reader {
 const X: i32 = 1;
 const Y: i32 = 2;
 const NODE: i32 = 4;
+/// `scrollbar-width: none`: the reader shows no scroll indicator for it.
+const BARLESS: i32 = 8;
 
 fn scrolls(o: Overflow) -> bool {
     matches!(o, Overflow::Scroll | Overflow::Auto)
@@ -438,7 +440,7 @@ impl<D: DataSource> Presenter<D> {
     /// hosted text field the touch is for (0: none; LLP 1115.001 D8), and
     /// eleven words a scroller: id, flags (bit 0 it takes a sideways drag
     /// from here, bit 1 one up or down, bit 2 it has rows the reader can
-    /// move), revision, then as float bits its offset (x, y), its farthest
+    /// move, bit 3 it shows no scrollbar), revision, then as float bits its offset (x, y), its farthest
     /// offset (x, y) and its port (x, y, width, height). The reader is told
     /// of each from now on ([`Presenter::reader_scrollers`]).
     pub fn reader_under(&mut self, x: f32, y: f32, scale: f32) -> Vec<i32> {
@@ -450,7 +452,7 @@ impl<D: DataSource> Presenter<D> {
         ];
         for s in &under.chain {
             let rev = self.reader_revision(s);
-            out.extend([s.id as i32, flags(s), rev as i32]);
+            out.extend([s.id as i32, self.reader_flags(s), rev as i32]);
             let px = [s.offset.0, s.offset.1, s.max.0, s.max.1];
             out.extend(px.iter().chain(&s.port).map(|v| bits(v * scale)));
         }
@@ -486,7 +488,7 @@ impl<D: DataSource> Presenter<D> {
             let painted = drawn.iter().find(|g| g.0 == id).map(|g| g.1);
             s.node = painted.is_some();
             let at = painted.unwrap_or(s.offset);
-            out.extend([id as i32, flags(&s), rev as i32]);
+            out.extend([id as i32, self.reader_flags(&s), rev as i32]);
             let px = [s.offset.0, s.offset.1, at.0, at.1, s.max.0, s.max.1];
             out.extend(px.iter().map(|v| bits(v * scale)));
         }
@@ -495,6 +497,18 @@ impl<D: DataSource> Presenter<D> {
         }
         self.reader.last.clone_from(&out);
         Some(out)
+    }
+
+    fn reader_flags(&self, s: &Scroller) -> i32 {
+        let barless = self
+            .host
+            .kernel()
+            .node(s.id)
+            .is_some_and(|n| n.style.scrollbar_width == exact_kernel::ScrollbarWidth::None);
+        (if s.axes.0 { X } else { 0 })
+            | (if s.axes.1 { Y } else { 0 })
+            | (if s.node { NODE } else { 0 })
+            | (if barless { BARLESS } else { 0 })
     }
 
     /// Each of scrollers `ids`' mandatory snap (CSS Scroll Snap), for a
@@ -571,12 +585,6 @@ impl<D: DataSource> Presenter<D> {
         }
         Some((if vertical { Y } else { X }, rests))
     }
-}
-
-fn flags(s: &Scroller) -> i32 {
-    (if s.axes.0 { X } else { 0 })
-        | (if s.axes.1 { Y } else { 0 })
-        | (if s.node { NODE } else { 0 })
 }
 
 /// A box within its clip: x, y, width, height.

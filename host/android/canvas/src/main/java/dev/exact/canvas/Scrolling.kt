@@ -65,6 +65,8 @@ internal class Scrolling(private val view: ExactView) {
         var snapAxis = 0
         var snaps = FloatArray(0)
         val node get() = flags and 4 != 0
+        /** `scrollbar-width: none`: no indicator. */
+        val barless get() = flags and 8 != 0
         fun at(sideways: Boolean) = if (sideways) nowX + pendX else nowY + pendY
         fun end(sideways: Boolean) = if (sideways) maxX else maxY
     }
@@ -179,7 +181,7 @@ internal class Scrolling(private val view: ExactView) {
         while (i + 11 <= end) {
             val s = scrollers.getOrPut(w[i]) { Scroller(w[i]) }
             if (!s.told) { s.rev = w[i + 2]; s.nowX = f(w[i + 3]); s.nowY = f(w[i + 4]); s.maxX = f(w[i + 5]); s.maxY = f(w[i + 6]) }
-            s.flags = (s.flags and 3) or (w[i + 1] and 4)
+            s.flags = (s.flags and 3) or (w[i + 1] and 12)
             s.port.set(f(w[i + 7]), f(w[i + 8]), f(w[i + 7]) + f(w[i + 9]), f(w[i + 8]) + f(w[i + 10]))
             links.add(Link(s, w[i + 1] and 1 != 0, w[i + 1] and 2 != 0))
             i += 11
@@ -531,6 +533,7 @@ internal class Scrolling(private val view: ExactView) {
 
     /** [s] moved: its indicator shows where it is. */
     private fun indicate(s: Scroller) {
+        if (s.barless) return
         val parent = view.parent as? ViewGroup ?: return
         val w = s.port.width().roundToInt(); val h = s.port.height().roundToInt()
         if (w <= 0 || h <= 0) return
