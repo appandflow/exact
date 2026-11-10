@@ -2348,7 +2348,8 @@
       "values": [
         "none",
         "start",
-        "end"
+        "end",
+        "center"
       ],
       "default": "none"
     },
