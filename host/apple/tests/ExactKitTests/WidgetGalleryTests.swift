@@ -272,6 +272,8 @@ final class WidgetGalleryTests: XCTestCase {
         let state = read("state")
         XCTAssertNil(state["error"])
         XCTAssertEqual(state["refresh"] as? String, "timeline")
+        // Every read of a refreshed preview says the refresh had no storage.
+        XCTAssertEqual(state["storage"] as? String, WidgetPreview.refreshWithoutStorage)
         let props = try XCTUnwrap(state["props"] as? [String: Any])
         let trains = try XCTUnwrap(props["departures"] as? [[String: Any]])
         XCTAssertEqual(trains.first?["train"] as? Int, 121)
@@ -281,6 +283,7 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertEqual(preview.environment.rootFontSize, 23)
         let tree = read("tree")
         XCTAssertNil(tree["error"])
+        XCTAssertNotNil(tree["storage"])
         XCTAssertEqual(tree["clock"] as? Double, 0)
         XCTAssertNotNil(tree["epoch"]); XCTAssertNotNil(tree["incarnation"])
         let roots = try XCTUnwrap(tree["roots"] as? [UInt32])
@@ -299,6 +302,10 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertEqual(later["clock"] as? Double, 600_000)
         let laterProps = try XCTUnwrap(later["props"] as? [String: Any])
         XCTAssertNotEqual((laterProps["departures"] as? [[String: Any]])?.first?["train"] as? Int, 121)
+        // Props the agent gives ran no refresh, so nothing is said of storage.
+        let given = WidgetGallery.answer("state", request: ["widget":address.merging(["props":"{\"station\":\"Palo Alto\",\"departures\":[]}"]) { $1 }], agent: agent)
+        XCTAssertNil(given["error"]); XCTAssertEqual(given["refresh"] as? String, "props")
+        XCTAssertNil(given["storage"])
         // A complete resolver can add entries without consulting the embedded directory.
         let registry = try JSONSerialization.data(withJSONObject: [["kind":"added", "families":["systemSmall"], "preview":[:]]])
         let assets = AssetResolver(root: directory, names: ["plans/widgets.json"], generation: "reload") { _ in registry }

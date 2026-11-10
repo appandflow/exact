@@ -3066,7 +3066,11 @@ mode presentation are stand-ins; archive fidelity needs the real extension.
 | `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
 
 An immediate refresh answer supplies its first timeline entry. Pending, empty
-or unavailable data keeps the preview; `state` reports which. `--props <json>`
+or unavailable data keeps the preview; `state` reports which. The gallery's
+refresh reads none of the app's saved data and sends no requests, so a widget
+whose refresh reads storage shows what it shows with none; every read of a
+refreshed preview says so (`storage`). Check such a widget with `--props`, or
+on a Home Screen, where the extension reads both. `--props <json>`
 replaces the preview props for this read and takes precedence over refresh. Widget
 reads accept only `tree`, `screenshot <png>`, `state` and the app’s `clock`; film,
 window, compare and `--scale` options are refused. Ordinary builds name the
