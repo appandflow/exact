@@ -151,3 +151,12 @@ Not verified: a real full-screen transition. This Mac's screen was locked
 for the whole session: the window server gave no window captures, and System
 Events timed out, so no real ⌃⌘F could be sent. The full-screen path is
 covered only by the window's style and the notification the test supplies.
+
+## Full-screen attempt, 2026-11-10
+
+Not verified again, for the same reason. On macOS 27.0.1 the session's screen
+was locked (`ioreg` reports `CGSSessionScreenIsLocked`), and System Events
+did not answer within 20 s (`osascript -e 'tell application "System Events"
+to get name of first process whose frontmost is true'`), so no ⌃⌘F could be
+sent. The check needs a person at an unlocked Mac, or a session whose
+terminal has Accessibility permission for System Events.
