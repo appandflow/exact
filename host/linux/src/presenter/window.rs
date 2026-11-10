@@ -51,6 +51,9 @@ pub struct Chrome {
     pub background: [u8; 4],
     /// Whether the page's scheme is dark: the bars' icons are light then.
     pub dark: bool,
+    /// Whether the status bar is hidden: `status-bar-style="hidden"` on the
+    /// declaring node painted on top, as iOS resolves it.
+    pub status_hidden: bool,
 }
 
 /// What a software keyboard does to the page (`interactive-widget`).
@@ -235,7 +238,25 @@ impl<D: DataSource> Presenter<D> {
                 .unwrap_or([0.0, 0.0, self.viewport.0, self.viewport.1]),
             background: authored.unwrap_or_else(|| crate::paint::page_color(dark)),
             dark,
+            status_hidden: self.status_bar_hidden(),
         }
+    }
+
+    /// Whether the last painted node that declares a `status-bar-style` (the
+    /// one on top) hides the status bar.
+    fn status_bar_hidden(&self) -> bool {
+        let kernel = self.host.kernel();
+        self.boxes
+            .iter()
+            .rev()
+            .filter(|b| self.display.allows(kernel, b.id))
+            .find_map(|b| {
+                let value = kernel.node(b.id)?.props.str(PropId::StatusBarStyle)?;
+                ["light-content", "dark-content", "auto", "hidden"]
+                    .contains(&value)
+                    .then_some(value == "hidden")
+            })
+            .unwrap_or(false)
     }
 
     /// Whether a contact down at `x` (viewport points) starts in a side of

@@ -397,3 +397,39 @@ fn a_phone_with_no_bars_has_no_margin() {
     assert_eq!(env["safe-area-inset-top"], 0);
     assert_eq!(env["safe-area-inset-left"], 0);
 }
+
+#[test]
+fn the_status_bar_hides_while_the_declaration_on_top_says_hidden() {
+    let mut p = boot(
+        r##"component App
+  state sheet = false
+  action open
+    sheet = true
+  view
+    column width="100%" height="100%" status-bar-style="auto"
+      box height=300 background-color="#000000" status-bar-style="hidden"
+      box height=100 press=open testId="open"
+      if sheet
+        box position="absolute" inset=0 background-color="#ffffff" status-bar-style="dark-content"
+"##,
+    );
+    let _ = p.frame();
+    assert!(p.chrome().status_hidden);
+    let tap = |p: &mut Presenter<()>, name: &str| {
+        let key = p.host.kernel().find_by_test_id(name)[0];
+        p.tap(p.host.kernel().node_by_key(key).unwrap().id).unwrap();
+        let _ = p.frame();
+    };
+    // A node painted over the cover declares its own.
+    tap(&mut p, "open");
+    assert!(!p.chrome().status_hidden);
+    let mut p = boot(
+        r##"component App
+  view
+    column width="100%" height="100%" status-bar-style="auto"
+      box height=300 status-bar-style="light-content"
+"##,
+    );
+    let _ = p.frame();
+    assert!(!p.chrome().status_hidden);
+}

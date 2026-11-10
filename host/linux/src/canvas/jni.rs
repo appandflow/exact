@@ -405,7 +405,8 @@ macro_rules! canvas_jni {
             /// What the reader draws around the page, when that is not what
             /// this last returned (else null): where the page is in the
             /// window (x, y, width, height, pixels), the colour behind it
-            /// (ARGB), and 1 when its scheme is dark.
+            /// (ARGB), 1 when its scheme is dark, and 1 when the status bar
+            /// is hidden.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_chrome(
                 env: *mut JNIEnv,
@@ -414,8 +415,8 @@ macro_rules! canvas_jni {
                 let Some(chrome) = with(|h| h.chrome()).flatten() else {
                     return std::ptr::null_mut();
                 };
-                let arr = ((**env).NewIntArray.expect("jni"))(env, 6);
-                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, 6, chrome.as_ptr());
+                let arr = ((**env).NewIntArray.expect("jni"))(env, 7);
+                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, 7, chrome.as_ptr());
                 arr
             }
 
