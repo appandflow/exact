@@ -171,7 +171,8 @@ impl<D: DataSource> Presenter<D> {
         let above = (safe[0] + look::top_height() - frame[1]).max(0.0);
         let nav = look::nav_height(self.bar_font_scale());
         let below = (frame[1] + frame[3] - (window.1 - safe[2] - nav)).max(0.0);
-        match self.host.set_bar_room(Some((above, below))) {
+        let status = (safe[0] - frame[1]).max(0.0);
+        match self.host.set_bar_room(Some((above, below, status))) {
             Ok(true) => self.after_commit(),
             Ok(false) => None,
             Err(e) => Some(e),
