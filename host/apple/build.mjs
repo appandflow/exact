@@ -56,7 +56,7 @@ import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfi
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, localNetworking, nfcKeys, startLocation, transportSecurity, updateActivation } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
-import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
+import { appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { auditLaunchParts, launchModules, launchServices, serviceArgs, writeLaunchParts } from './launch-parts.mjs';
 import { keptModules } from './modules.mjs';
 import { appleLinkArgs, embedLibrary, prepareLibrary, xcframeworkSlice } from '../../scripts/package-libraries.mjs';
@@ -621,10 +621,7 @@ async function main(args, lockHeld = false) {
   const ios = device || tv || args.includes('--ios');
   // Every Mac drive needs the bundle's identity and transport policy.
   if (!ios && !args.includes('--bundle')) args = [...args, '--bundle'];
-  if (tv && (args.includes('--host') || args.includes('--embed'))) {
-    console.error('--tvos takes neither --host nor --embed');
-    process.exitCode = 1; return;
-  }
+  if (tv && (args.includes('--host') || args.includes('--embed'))) { console.error('--tvos takes neither --host nor --embed'); process.exitCode = 1; return; }
   const tvTarget = device ? tvosDeviceTarget : tvosTarget, rustTarget = tv ? tvTarget : device ? 'aarch64-apple-ios' : iosTarget;
   if (ios && !hasStd(tv ? '--tvos' : device ? '--device' : '--ios', rustTarget)) return;
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
@@ -646,9 +643,11 @@ async function main(args, lockHeld = false) {
     return (await import('../apple-painted/build.mjs')).buildPainted(app, args, { macInfoPlist });
   }
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
-  // An app with an update store ships into a stream: the bake refuses a production build without its receipt. Said before Cargo.
+  // What the manifest and the app's files refuse is said before Cargo: an app with an update store ships into a stream,
+  // so the bake refuses a production build without its receipt; packaging refuses a missing icon (assets.mjs).
   const store = `deploy.store.${ios ? 'ios' : 'macos'}`, streamed = app.manifest.deploy?.store?.[ios ? 'ios' : 'macos'] !== '0';
-  if (distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1') { console.error(`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`); process.exitCode = 1; return; }
+  const refused = [...(distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1' ? [`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`] : []), ...appleRefusals(app, tv ? 'tvos' : ios ? 'ios' : 'macos', { archive: !!ipa })];
+  if (refused.length) { console.error(refused.join('\n')); process.exitCode = 1; return; }
   // A build of this app already running (a --prebuild's) is waited for, as test and agent wait for it, and a background
   // build's failure is said by the next build (scripts/agent-build.mjs `waitForBuild`, `reportPrebuild`).
   const running = !lockHeld && !args.includes('--prebuild') && existsSync(appleArtifacts(app).lock);

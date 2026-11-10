@@ -14,13 +14,16 @@ const run = (cmd, args, opts = {}) => {
   return r;
 };
 
-/** The app icon from the manifest's first square icon of at least 512 px
- * (`icons`, the web manifest's own field): loose PNGs named by
- * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
- * the plist keys to merge; nothing when the app declares no such icon. */
+/** The manifest's first square icon of at least 512 px (`icons`, the web
+ * manifest's own field), unless `host.<platform>.icon` selects an Icon
+ * Composer project instead. */
+const squareIcon = (app, platform) => !app.manifest.host?.[platform]?.icon && (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
+
+/** The app icon from `squareIcon`: loose PNGs named by `CFBundleIcons` on
+ * iOS, an `.icns` built by `iconutil` on macOS. Returns the plist keys to
+ * merge; nothing when the app declares no such icon. */
 export function appIcon(app, dir, platform, { catalog = false } = {}) {
-  if (app.manifest.host?.[platform]?.icon) return {};
-  const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
+  const icon = squareIcon(app, platform);
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
   if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s icon ${icon.src} does not exist`);
@@ -101,6 +104,39 @@ function catalogFiles(root) {
   return files;
 }
 
+/** The alternate icons among an iOS app's catalogs: each `.appiconset` but
+ * the primary, which is `AppIcon` or the selected Icon Composer project's. */
+const alternates = catalogs => {
+  const selected = catalogs.find(entry => entry.path.endsWith('.icon'));
+  return [...new Set(catalogs.flatMap(entry => entry.files
+    .map(file => /(?:^|\/)([^/]+)\.appiconset\/Contents\.json$/.exec(file.name)?.[1])
+    .filter(name => name && name !== 'AppIcon' && name !== (selected && basename(selected.path, '.icon')))))].sort();
+};
+
+/** Why an iOS bundle cannot have its primary icon, or null. A distributed
+ * bundle (`catalog`) needs one in Assets.car, and so do alternate icons;
+ * the primary is `host.ios.icon` or `squareIcon`. `catalogs` is
+ * `appleAssetCatalogInventory`'s. */
+function iconRefusal(app, catalogs, catalog) {
+  if (catalogs.some(entry => entry.path.endsWith('.icon')) || squareIcon(app, 'ios')) return null;
+  if (catalog) return `host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`;
+  if (alternates(catalogs).length) return `host/apple: ${app.name}'s alternate icons require a primary; declare host.ios.icon or a square icon of at least 512 px`;
+  return null;
+}
+
+/** What packaging `app` for `platform` would refuse from its manifest and
+ * catalogs alone, so the build says it before it compiles anything (a cold
+ * device build packages after half an hour); packaging and the bake refuse
+ * the same through these same functions. `archive`: a distributed iOS
+ * bundle (`--archive`). The manifest's own files are checked when it is read
+ * (scripts/app.mjs `appleIconProblems`). */
+export function appleRefusals(app, platform, { archive = false } = {}) {
+  let catalogs;
+  try { catalogs = appleAssetCatalogInventory(app, platform); } catch (e) { return [e.message]; }
+  const refused = platform === 'ios' && iconRefusal(app, catalogs, archive);
+  return refused ? [refused] : [];
+}
+
 /** One actool pass includes the app's catalogs, selected or generated icon and launch
  * colours: separate passes silently replace Assets.car. No unchanged build
  * reruns actool; the cache key includes source bytes, target and toolchain. */
@@ -159,15 +195,13 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       picture = { path: resolve(work, 'launch.png'), width: launchImage.width, sha256: launchImage.sha256 };
       writeFileSync(picture.path, bytes);
     }
-    const alternateIcons = platform === 'ios' ? [...new Set(catalogs.flatMap(entry => entry.files
-      .map(file => /(?:^|\/)([^/]+)\.appiconset\/Contents\.json$/.exec(file.name)?.[1])
-      .filter(name => name && name !== 'AppIcon' && name !== (selected && basename(selected.path, '.icon')))))].sort() : [];
+    const alternateIcons = platform === 'ios' ? alternates(catalogs) : [];
     // Alternate icons need a compiled primary in development too; actool emits their shared plist dictionary.
     const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog || alternateIcons.length ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
-    if (catalog && platform === 'ios' && !iconName) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`);
-    if (alternateIcons.length && !iconName) throw new Error(`host/apple: ${app.name}'s alternate icons require a primary; declare host.ios.icon or a square icon of at least 512 px`);
+    const refused = platform === 'ios' && iconRefusal(app, catalogs, catalog);
+    if (refused) throw new Error(refused);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       sources.push(assets);

@@ -41,6 +41,49 @@ test.skipIf(process.platform === 'win32')('an iOS, phone, Apple TV or iOS test b
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });
 
+test.skipIf(process.platform === 'win32')('an archive of an app without a 512 px icon is refused before anything compiles', () => {
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-early-refusal-'));
+  try {
+    const bin = resolve(scratch, 'bin'), app = resolve(scratch, 'noicon'), log = resolve(scratch, 'log');
+    mkdirSync(bin); mkdirSync(app);
+    writeFileSync(resolve(bin, 'rustup'), `#!/bin/sh\nprintf 'aarch64-apple-ios\\n'\n`, { mode: 0o755 });
+    // Every compiler the build could start records that it was started, and compiles nothing.
+    for (const tool of ['cargo', 'rustc', 'swift', 'swiftc', 'xcodebuild', 'xcrun']) writeFileSync(resolve(bin, tool), `#!/bin/sh\necho "${tool} $*" >> '${log}'\nexit 9\n`, { mode: 0o755 });
+    writeFileSync(resolve(app, 'app.contract'), 'component A\n');
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'No Icon', id: 'com.example.noicon', app: { id: 'com.example.noicon', name: 'No Icon' },
+      icons: [{ src: 'small.png', sizes: '192x192' }] }));
+    const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--device', '--archive', resolve(scratch, 'out.ipa'), '--unsigned', app],
+      { encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: '', EXACT_UPDATE_GENESIS: '', EXACT_UPDATE_RECEIPT: '', RUSTUP_TOOLCHAIN: 'stable', PATH: bin + delimiter + process.env.PATH } });
+    assert.equal(result.status, 1, result.stderr);
+    // Every refusal at once, the icon's in the words packaging would use.
+    assert.match(result.stderr, /noicon's distribution bundle requires an AppIcon; declare host\.ios\.icon or a square icon of at least 512 px/);
+    assert.match(result.stderr, /set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt/);
+    assert.equal(existsSync(log) ? readFileSync(log, 'utf8') : '', '', 'nothing was compiled');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test('the early refusals are the ones packaging makes', async () => {
+  const { appleRefusals } = await import('../host/apple/assets.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-refusals-'));
+  try {
+    const app = (manifest) => ({ dir, name: 'fixture', manifest });
+    assert.deepEqual(appleRefusals(app({ icons: [{ src: 'icon.png', sizes: '1024x1024' }] }), 'ios', { archive: true }), []);
+    assert.deepEqual(appleRefusals(app({ icons: [{ src: 'icon.png', sizes: '1024x512' }] }), 'ios', { archive: true }).length, 1, 'the icon must be square');
+    // A development build needs no icon; a distributed one does, and so do alternate icons.
+    assert.deepEqual(appleRefusals(app({}), 'ios'), []);
+    const archived = appleRefusals(app({}), 'ios', { archive: true });
+    assert.deepEqual(archived, ["host/apple: fixture's distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px"]);
+    const bundle = resolve(dir, 'Fixture.app'); mkdirSync(bundle);
+    assert.throws(() => iosAssets(app({}), bundle, true, { catalog: true }), { message: archived[0] });
+    const set = resolve(dir, 'modules/apple/Icons.xcassets/Alternate.appiconset');
+    mkdirSync(set, { recursive: true });
+    writeFileSync(resolve(set, 'Contents.json'), '{}');
+    assert.deepEqual(appleRefusals(app({}), 'ios'), ["host/apple: fixture's alternate icons require a primary; declare host.ios.icon or a square icon of at least 512 px"]);
+    assert.deepEqual(appleRefusals(app({ host: { ios: { icon: 'Missing.icon' } } }), 'ios', { archive: true }), ['host.ios.icon: Missing.icon does not exist'], 'one reason, not the primary it leaves missing as well');
+    assert.deepEqual(appleRefusals(app({}), 'tvos', { archive: true }), [], 'tvOS takes no app icon from the manifest');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
