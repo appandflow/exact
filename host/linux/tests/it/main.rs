@@ -12,6 +12,7 @@ mod focus;
 mod grouped_rows;
 mod height;
 mod height_binding;
+mod hit_slop;
 mod holds;
 mod image;
 mod list_rows;

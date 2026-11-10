@@ -766,7 +766,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A plain leaf or clipped box cannot hit beyond its frame. Visible
         // overflow and transformed or placed children still need the full walk.
         if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
-           plane == nil { return nil }
+           plane == nil, slopHit(point) == nil { return nil }
         NodeView.hitDepth += 1
         if NodeView.hitDepth == 1 { NodeView.hitInert = [:] }
         defer { NodeView.hitDepth -= 1; if NodeView.hitDepth == 0 { NodeView.hitInert = nil } }
@@ -774,9 +774,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if !fragmentHit(convert(point, from: superview)) { return nil }
-        if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
+        if isSurfaceControl, !cssVisibilityHidden, hitBounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
-            let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
+            let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point) ?? slopHit(point)
             // Empty scroll chrome keeps the scroll view's wheel route. Its
             // mouse contact forwards to this node; children and native
             // scrollers keep their own hits.
@@ -792,7 +792,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
         let inCanvas = convert(point, from: sup)
-        guard !isHidden, bounds.contains(inCanvas) else { return nil }
+        guard !isHidden, hitBounds.contains(inCanvas) else { return nil }
         // Ordinary HUD paints above the captured children, so it hits first.
         let inOverlay = overlay.convert(inCanvas, from: self)
         for child in NodeView.hitOrder(overlay.subviews) where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {

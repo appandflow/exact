@@ -1,0 +1,113 @@
+//! `-exact-hit-slop` in the hit walk (Charlie, 2026-11-10): a box takes a
+//! point past its edge without moving, the front box still wins where boxes
+//! overlap, and a clip above it or on it cuts the slop.
+use super::*;
+use crate::{DataError, DataSource, Runner};
+use exact_kernel::Offer;
+
+struct NoData;
+impl DataSource for NoData {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+}
+
+fn boot(body: &str) -> Runner<NoData> {
+    let source = format!(
+        "component App\n  view\n    column id=\"page\" position=\"relative\" width=200 height=200\n{body}"
+    );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(200., 200.))
+        .unwrap();
+    r
+}
+
+fn hit(r: &Runner<NoData>, x: f64, y: f64) -> Value {
+    let scrolled = Scrolled::default();
+    GeometryEnv::new(r.kernel(), &scrolled, &KERNEL, &[])
+        .read(
+            r.plan(),
+            exact_plan::Stdlib::ElementFromPoint,
+            &[Value::Number(x), Value::Number(y)],
+        )
+        .unwrap()
+}
+
+fn at(id: &str) -> Value {
+    Value::some(Value::str(id))
+}
+
+#[test]
+fn a_slop_takes_points_past_the_box_and_moves_nothing() {
+    let body = |slop: &str| {
+        format!(
+            "      box id=\"small\" position=\"absolute\" left=40 top=40 width=20 height=20{slop}\n"
+        )
+    };
+    let plain = boot(&body(""));
+    let r = boot(&body(" -exact-hit-slop=\"10px 4px 0 6px\""));
+    let frame = |r: &Runner<NoData>| {
+        let view = view_of(r.kernel(), "small").unwrap();
+        kernel_frame(r.kernel(), &Scrolled::default(), view)
+    };
+    assert_eq!(frame(&r), frame(&plain), "layout never sees the slop");
+    for (x, y, id) in [
+        (50.0, 31.0, "small"),
+        (50.0, 29.0, "page"),
+        (63.5, 50.0, "small"),
+        (64.5, 50.0, "page"),
+        (50.0, 60.5, "page"),
+        (34.5, 50.0, "small"),
+        (33.5, 50.0, "page"),
+    ] {
+        assert_eq!(hit(&r, x, y), at(id), "at {x}, {y}");
+    }
+    assert_eq!(hit(&plain, 50.0, 31.0), at("page"));
+}
+
+#[test]
+fn the_front_box_wins_slop_and_all() {
+    // `front` follows `back` in the tree, so it paints over it: its slop
+    // takes the edge of `back`'s box, while `back`'s slop yields to
+    // `front`'s box.
+    let r = boot(
+        "      box id=\"back\" position=\"absolute\" left=0 top=0 width=30 height=30 -exact-hit-slop=10\n      box id=\"front\" position=\"absolute\" left=30 top=0 width=30 height=30 -exact-hit-slop=10\n",
+    );
+    assert_eq!(hit(&r, 25.0, 15.0), at("front"));
+    assert_eq!(hit(&r, 35.0, 15.0), at("front"));
+    assert_eq!(hit(&r, 15.0, 15.0), at("back"));
+    assert_eq!(hit(&r, 15.0, 35.0), at("back"));
+}
+
+#[test]
+fn a_clip_cuts_the_slop() {
+    // An `overflow` ancestor clips the slop at its padding box, and a box
+    // that clips its own overflow clips its own slop, as the web's
+    // pseudo-element is clipped.
+    let r = boot(
+        "      box id=\"clip\" position=\"absolute\" left=0 top=0 width=50 height=50 overflow=\"hidden\"\n        box id=\"inner\" position=\"absolute\" left=30 top=10 width=20 height=20 -exact-hit-slop=10\n      box id=\"own\" position=\"absolute\" left=100 top=100 width=20 height=20 overflow=\"hidden\" -exact-hit-slop=10\n",
+    );
+    assert_eq!(hit(&r, 25.0, 20.0), at("inner"));
+    assert_eq!(hit(&r, 55.0, 20.0), at("page"));
+    assert_eq!(hit(&r, 95.0, 110.0), at("page"));
+    assert_eq!(hit(&r, 105.0, 110.0), at("own"));
+}
+
+#[test]
+fn a_negative_or_percentage_slop_is_refused() {
+    for value in ["-4px", "10%", "4px -2px"] {
+        let source = format!(
+            "component App\n  view\n    box width=20 height=20 -exact-hit-slop=\"{value}\"\n"
+        );
+        assert!(contract::compile(&source).is_err(), "`{value}` compiled");
+    }
+}

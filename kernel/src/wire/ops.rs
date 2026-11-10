@@ -317,7 +317,7 @@ mod tests {
             },
             Op::SetProp {
                 id: 3,
-                prop: PropId::HitSlop,
+                prop: PropId::Volume,
                 value: 4.5f64.into(),
             },
             Op::ClearProp {

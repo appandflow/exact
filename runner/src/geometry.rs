@@ -25,6 +25,8 @@
 //! runner find them all first.
 
 #[cfg(test)]
+mod hit_slop_tests;
+#[cfg(test)]
 mod inline_tests;
 mod intersection;
 #[cfg(test)]
@@ -1109,7 +1111,8 @@ fn kernel_shown(kernel: &Kernel, scrolled: &Scrolled, view: ViewId, _: bool) -> 
 /// rank and then tree order, a child before its parent. Boxes are `frame`'s,
 /// through every transform (LLP 1051.000 D1, changed 2026-10-04), each
 /// tested in its own space, so a turned box answers its own shape, not its
-/// bounding box, as DOM's hit test does; a scroller or a box that clips cuts
+/// bounding box, as DOM's hit test does, and grown by its hit slop
+/// (`StyleProps::hit_slop`); a scroller or a box that clips cuts
 /// its descendants to its padding box; `pointer-events: none` and
 /// `visibility` other than `visible` (both inherited) are passed over, and
 /// `display: none` takes its subtree.
@@ -1347,7 +1350,11 @@ impl Point<'_> {
             }
             above.pop();
         }
-        let hit = inside([0.0, 0.0, width, height])
+        // Its own box grows by its hit slop, tested after its children and
+        // before what is behind it, as a front box's slop takes the pointer
+        // from a back box (Charlie, 2026-11-10).
+        let [t, r, b, l] = style.hit_slop(arena.env()).map(f64::from);
+        let hit = inside([-l, -t, width + r, height + b])
             && pointer != PointerEvents::None
             && visibility == Visibility::Visible
             && !arena.is_inline_run(slot);

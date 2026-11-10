@@ -897,14 +897,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // A true leaf cannot hit beyond its bounds; flat children can overflow.
         if !bounds.contains(point), subviews.isEmpty,
-           presenter?.flats.holdsLeaves(id) != true { return nil }
+           presenter?.flats.holdsLeaves(id) != true, !hitBounds.contains(point) { return nil }
         // UIKit's conversion already carries a box in space through its
         // plane (LLP 1077 D8); a hidden back face is the host's to refuse.
         if placedAncestor?.placementHidden == true || hidesBack() { return nil }
         if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if !fragmentHit(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
-        if isSurfaceControl, !inert, !isHidden, !cssVisibilityHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
+        if isSurfaceControl, !inert, !isHidden, !cssVisibilityHidden, isUserInteractionEnabled, hitBounds.contains(point) { return self }
         // A touch landing on a native swipe row: its cell mounts now, before
         // UIKit gathers the touch's recognizers, so the cell's swipe sees it.
         if event?.type == .touches, props["swipeContent"] != nil, !isHidden, isUserInteractionEnabled, bounds.contains(point) {
@@ -951,7 +951,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // over a list must not stop the list scrolling. A descendant
             // that sets `auto` again is still a target.
             if passesThrough { return nil }
-            guard bounds.contains(point) else { return nil }
+            guard hitBounds.contains(point) else { return nil }
             if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
             if event?.type == .touches, isParagraph {
                 touchedText()
@@ -972,7 +972,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard let overlay else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
-        guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+        guard !isHidden, isUserInteractionEnabled, hitBounds.contains(point) else { return nil }
         // Ordinary HUD paints above the captured children, so it hits first.
         let inOverlay = overlay.convert(point, from: self)
         for child in NodeView.hitOrder(overlay.subviews) where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {

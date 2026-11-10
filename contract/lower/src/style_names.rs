@@ -252,6 +252,13 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scroll-margin-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginRight])),
     ("scroll-margin-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginBottom])),
     ("scroll-margin-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginLeft])),
+    // Host-owned pointer reach past the border box, beside LLP 1061's press
+    // feel (Charlie, 2026-11-10; issues/20261021-scroll-drag-events-and-hit-slop.md).
+    ("-exact-hit-slop", "exact LLP 1061", AttrTarget::Styles(&[ StyleId::HitSlopTop, StyleId::HitSlopRight, StyleId::HitSlopBottom, StyleId::HitSlopLeft, ])),
+    ("-exact-hit-slop-top", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopTop])),
+    ("-exact-hit-slop-right", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopRight])),
+    ("-exact-hit-slop-bottom", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopBottom])),
+    ("-exact-hit-slop-left", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),

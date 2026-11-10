@@ -46,7 +46,7 @@ pub use gradient::GradientPaint;
 pub(crate) use overlay::TopSurface;
 pub(crate) mod field;
 mod fragments;
-pub(crate) use fragments::{center as tap_point, hits};
+pub(crate) use fragments::{center as tap_point, hits, slop_hits};
 pub(crate) use lift::{Ghost, Lift};
 mod alert;
 pub(crate) mod inline;

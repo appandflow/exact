@@ -986,6 +986,8 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "scroll-edge-effect" => "-exact-scroll-edge-effect",
         "hover-effect" => "-exact-hover-effect",
         "smart-invert" => "-exact-smart-invert",
+        // React Native's `hitSlop` (Charlie, 2026-11-10).
+        "hitSlop" | "hit-slop" => "-exact-hit-slop",
         "onChange" | "onChangeText" | "onInput" => "input",
         "className" | "class" | "style" => return None,
         _ => return None,

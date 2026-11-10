@@ -319,6 +319,6 @@ mod tests {
         assert_eq!(PropId::Text.kind(), PropKind::Str);
         assert_eq!(PropId::Disabled.kind(), PropKind::Bool);
         assert_eq!(PropId::TabIndex.kind(), PropKind::Int);
-        assert_eq!(PropId::HitSlop.kind(), PropKind::Float);
+        assert_eq!(PropId::Volume.kind(), PropKind::Float);
     }
 }

@@ -385,6 +385,24 @@
   #exact-root [style*="--exact-press-opacity:"] { --exact-press-opacity-number: var(--exact-press-opacity); }
   #exact-root [style*="--exact-press-opacity-to:"] { --exact-press-opacity-to-number: var(--exact-press-opacity-to); }
   #exact-root [style*="--exact-press-color:"] { --exact-press-color-in-srgb: color-mix(in srgb, var(--exact-press-color) 100%, transparent); }
+  /* A hit slop (`-exact-hit-slop`, Charlie, 2026-11-10): an empty pseudo-element reaching past the box takes the
+     pointer for it and paints nothing. Its containing block is the box, so a box with no position of its own is
+     `position: relative` (over the reset's `all: unset`, under any position written), and it reaches from the box's
+     padding edge. It is `::before`, or `::after` on a button
+     holding a symbol and a title, whose `::before` is the space between them; a header, dialog, chooser or progress
+     has its own `::before`. A clip on the box or above it cuts it, as on every host. Its sides are its own, never a
+     parent's. */
+  @property --exact-hit-slop-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  @property --exact-hit-slop-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  @property --exact-hit-slop-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  @property --exact-hit-slop-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  #exact-root :where([style*="--exact-hit-slop-"]) { position: relative; }
+  #exact-root :where([style*="--exact-hit-slop-"]:not(header, dialog, input, [data-exact-chooser], [data-exact-progress], [data-exact-split-empty], button[data-button-style]:has(> img):has(> [data-exact-text]:not(:empty))))::before,
+  #exact-root :where(button[data-button-style][style*="--exact-hit-slop-"]:has(> img):has(> [data-exact-text]:not(:empty)))::after {
+    content: ""; position: absolute;
+    --exact-hit-slop-top: inherit; --exact-hit-slop-right: inherit; --exact-hit-slop-bottom: inherit; --exact-hit-slop-left: inherit;
+    inset: calc(-1 * var(--exact-hit-slop-top)) calc(-1 * var(--exact-hit-slop-right)) calc(-1 * var(--exact-hit-slop-bottom)) calc(-1 * var(--exact-hit-slop-left));
+  }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is

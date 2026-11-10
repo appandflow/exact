@@ -58,7 +58,7 @@ fn ops() -> Vec<Op> {
         },
         Op::SetProp {
             id: 3,
-            prop: PropId::HitSlop,
+            prop: PropId::Volume,
             value: 4.0f64.into(),
         },
         Op::SetChildren {

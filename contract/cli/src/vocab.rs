@@ -880,7 +880,8 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 /// `anywhere` broke their words.
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
-/// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+/// Charlie, 2026-11-10 (issues/20261021-scroll-drag-events-and-hit-slop.md).
+const HIT_SLOP: &str = "not CSS: how far past its box a pointer still reaches the node, one to four nonnegative lengths as `padding` takes them (React Native's `hitSlop`): `-exact-hit-slop=\"8px\"` on a 28px icon button takes a tap 8px outside it. Layout, paint and accessibility never see it, and `tap <target>` still aims at the box's middle. Where boxes overlap the front one takes the pointer, slop and all; an `overflow` other than `visible` on the node or an ancestor clips it. On the web a positioned pseudo-element is the slop: it reaches from the padding edge, so a border's width comes off it, and a node that says no `position` becomes `position: relative`. An `image`, `input` or other replaced element refuses it (`lower-hit-slop`): give the slop to the box or button that holds it";
 const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4). While the list scrolls toward an end, that end's margin grows by the lead the list's window takes for the scroll, a quarter second of travel up to two ports, so a fling's edge fires as the window loads ahead for it";
 /// What VoiceOver needs to move from a transcript's first message to its last.
 const KEEP_MOUNTED: &str = "keep-mounted on a `list virtualized=true`: the keys of rows it keeps mounted wherever its window is, a list of up to 64 keys as the `for`'s `key=` gives them (an `option` of one too, `none` naming no row): `keep-mounted=[first(ids), ids.at(-1)]` keeps a transcript's first and last message in the accessibility tree, so VoiceOver moves from one to the other; a playing row keeps its player. A key the list does not hold is passed over; another value keeps none and says so in the journal (LLP 1010 §6.11)";
@@ -1168,6 +1169,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "overflow-wrap" {
                 lines.push(OVERFLOW_WRAP.into());
+            }
+            if name.starts_with("-exact-hit-slop") {
+                lines.push(HIT_SLOP.into());
             }
             if name == "transform" {
                 lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());

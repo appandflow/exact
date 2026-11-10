@@ -436,3 +436,20 @@ fn only_a_pressable_node_animates_the_scale_custom_property() {
         list.css().replace(" grow,", " grow-exact-press,")
     );
 }
+
+/// `-exact-hit-slop` (Charlie, 2026-11-10) reaches the page only as the
+/// custom properties index.html's pseudo-element insets itself by.
+#[test]
+fn a_hit_slop_is_its_four_custom_properties() {
+    let rows = [
+        (StyleId::HitSlopTop, StyleValue::Number(12.0)),
+        (StyleId::HitSlopRight, StyleValue::Number(8.0)),
+        (StyleId::HitSlopBottom, StyleValue::Number(12.0)),
+        (StyleId::HitSlopLeft, StyleValue::Text("0.5rem".into())),
+    ];
+    assert_eq!(
+        css(&rows, &[]),
+        "--exact-hit-slop-top:12px;--exact-hit-slop-right:8px;\
+         --exact-hit-slop-bottom:12px;--exact-hit-slop-left:8px;"
+    );
+}

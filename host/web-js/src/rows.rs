@@ -824,6 +824,8 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-press-color:",
             // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.
             "--exact-fit:",
+            // A hit slop's sides, which index.html's `[style*=…]` finds.
+            "--exact-hit-slop-",
         ]
         .iter()
         .any(|p| decl.starts_with(p))

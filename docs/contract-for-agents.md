@@ -3211,6 +3211,20 @@ replaces the platform's unsaid press. Native buttons and native list rows keep
 unwritten fields of the platform's highlighted state. Leave feedback unwritten
 for the platform default. A press that changes layout uses app state.
 
+`-exact-hit-slop` grows where a pointer reaches a node without moving or
+painting anything, as React Native's `hitSlop` and a UIKit `point(inside:with:)`
+override do (Charlie, 2026-11-10). It takes one to four nonnegative lengths, as
+`padding` does, with no percentage; `-exact-hit-slop-top` and its siblings set
+one side. `-exact-hit-slop="12px"` on a 24px icon button takes a tap 12px
+outside it. Where boxes overlap, the front one still takes the pointer, slop
+and all, so a button written after a slopped one keeps its own box. An
+`overflow` other than `visible` on the node or an ancestor clips the slop.
+`tap <target>` still aims at the box's middle, and `elementFromPoint` counts the
+slop. On the web the slop is a positioned pseudo-element, so it reaches from the
+padding edge (a border's width comes off it) and a node that says no `position`
+becomes `position: relative`. An `image`, `input` or other replaced element
+refuses it with `lower-hit-slop`; give it to the box or button that holds one.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |

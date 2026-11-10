@@ -67,7 +67,7 @@ fn kernel() -> Kernel {
             },
             Op::SetProp {
                 id: 12,
-                prop: PropId::HitSlop,
+                prop: PropId::Volume,
                 value: 2.5f64.into(),
             },
             Op::SetChildren {
@@ -190,9 +190,7 @@ fn envelope_round_trips_rows_styles_and_props() {
         Some(-1)
     );
     assert_eq!(
-        snap.props[2]
-            .get(PropId::HitSlop)
-            .and_then(|v| v.as_float()),
+        snap.props[2].get(PropId::Volume).and_then(|v| v.as_float()),
         Some(2.5)
     );
 }
@@ -375,14 +373,14 @@ fn malformed_envelope_scalars_and_topology_are_refused_exactly() {
     );
 
     let mut float = bytes;
-    let (_, value) = prop_entry(&float, 2, PropId::HitSlop);
+    let (_, value) = prop_entry(&float, 2, PropId::Volume);
     float[value..value + 8].copy_from_slice(&f64::NAN.to_bits().to_le_bytes());
     refresh_checksum(&mut float, export::SECTION_PROPS);
     assert_eq!(
         export::decode(&float),
         Err(DecodeError::NonFiniteProp {
             row: 2,
-            prop: PropId::HitSlop
+            prop: PropId::Volume
         })
     );
 }

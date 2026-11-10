@@ -705,6 +705,12 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
         StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
         StyleId::PressColor => return out.push_str("--exact-press-color"),
+        // Not CSS (Charlie, 2026-11-10): the sides of the pseudo-element
+        // index.html draws a hit slop with.
+        StyleId::HitSlopTop => return out.push_str("--exact-hit-slop-top"),
+        StyleId::HitSlopRight => return out.push_str("--exact-hit-slop-right"),
+        StyleId::HitSlopBottom => return out.push_str("--exact-hit-slop-bottom"),
+        StyleId::HitSlopLeft => return out.push_str("--exact-hit-slop-left"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),

@@ -1,7 +1,8 @@
 //! CSS's one-to-four-value box shorthands: `padding`, `margin`, `inset`,
 //! `border-width`, `border-style`, `border-color`, `scroll-padding`,
 //! `scroll-margin` (CSS Box 4 §6, CSS Backgrounds 3 §4, CSS Position 3 §3.1,
-//! CSS Scroll Snap 1 §6) and `border-radius` (CSS Backgrounds 3 §5.1). The
+//! CSS Scroll Snap 1 §6), `border-radius` (CSS Backgrounds 3 §5.1) and
+//! Exact's `-exact-hit-slop`, spelled as `padding` is. The
 //! compiler splits a literal, or a template at its text's white space, into
 //! its four rows, as the browser expands the shorthand, and refuses another
 //! computed list (LLP 1001 §1): no row splits one.
@@ -12,7 +13,7 @@ use crate::generated::StyleId;
 /// The shorthands' rows, in top, right, bottom, left order, and
 /// `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way.
-pub const FAMILIES: [[StyleId; 4]; 9] = [
+pub const FAMILIES: [[StyleId; 4]; 10] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -62,7 +63,36 @@ pub const FAMILIES: [[StyleId; 4]; 9] = [
         StyleId::BorderRadiusBottomRight,
         StyleId::BorderRadiusBottomLeft,
     ],
+    [
+        StyleId::HitSlopTop,
+        StyleId::HitSlopRight,
+        StyleId::HitSlopBottom,
+        StyleId::HitSlopLeft,
+    ],
 ];
+
+impl StyleProps {
+    /// How far past each side of its border box, in top, right, bottom,
+    /// left order, the node takes a pointer (`-exact-hit-slop`, Charlie,
+    /// 2026-11-10): none on a box that clips its overflow, which clips its
+    /// own slop as the browser clips the pseudo-element the web draws it
+    /// with. A negative length a binding gave is none.
+    pub fn hit_slop(&self, env: &super::Env) -> [f32; 4] {
+        let r = &self.rare;
+        let sides = [
+            r.hit_slop_top,
+            r.hit_slop_right,
+            r.hit_slop_bottom,
+            r.hit_slop_left,
+        ];
+        if self.overflow_x != super::Overflow::Visible
+            || self.overflow_y != super::Overflow::Visible
+        {
+            return [0.0; 4];
+        }
+        sides.map(|d| d.at_basis(env, 0.0).max(0.0))
+    }
+}
 
 /// A shorthand's values, split where CSS splits them: at white space (CSS
 /// Syntax 3 §4.2: space, tab and the three newlines, never U+0085 or a

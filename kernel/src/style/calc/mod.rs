@@ -500,5 +500,9 @@ pub(super) fn no_negative_lengths(style: StyleId) -> bool {
             | StyleId::Rx
             | StyleId::Ry
             | StyleId::ColumnWidth
+            | StyleId::HitSlopTop
+            | StyleId::HitSlopRight
+            | StyleId::HitSlopBottom
+            | StyleId::HitSlopLeft
     )
 }

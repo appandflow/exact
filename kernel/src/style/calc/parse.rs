@@ -742,6 +742,10 @@ pub fn nonnegative_row(style: crate::StyleId) -> bool {
             | BorderWidthRight
             | BorderWidthBottom
             | BorderWidthLeft
+            | HitSlopTop
+            | HitSlopRight
+            | HitSlopBottom
+            | HitSlopLeft
     )
 }
 

@@ -304,6 +304,10 @@ fn nonnegative(id: StyleId) -> bool {
             | BorderRadiusBottomRight
             | BorderRadiusBottomLeft
             | ShapeMargin
+            | HitSlopTop
+            | HitSlopRight
+            | HitSlopBottom
+            | HitSlopLeft
     )
 }
 

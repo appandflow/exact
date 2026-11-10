@@ -721,6 +721,27 @@ impl Lowerer<'_> {
                 a.span,
             );
         }
+        // The web draws a hit slop as a pseudo-element, which an element the
+        // browser replaces cannot have (Charlie, 2026-11-10).
+        if matches!(
+            t.node_type,
+            NodeType::Image
+                | NodeType::TextInput
+                | NodeType::Control
+                | NodeType::Video
+                | NodeType::WebView
+        ) {
+            if let Some(a) = expanded
+                .iter()
+                .find(|a| a.name.starts_with("-exact-hit-slop"))
+            {
+                return err(
+                    "lower-hit-slop",
+                    format!("`{}` on `{tag}`: the web draws a slop as a pseudo-element, which a replaced element has none of. Put it on the box or button that holds the `{tag}`", a.name),
+                    a.span,
+                );
+            }
+        }
         // @ref LLP 1057.003 C6 — a transform drag needs both halves:
         // the page's geometry and the release. A handle with one is
         // never admitted by any host, so it would sit inert, unsaid.

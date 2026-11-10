@@ -207,6 +207,30 @@ pub(crate) fn hits(kernel: &Kernel, b: &PaintedBox, x: f32, y: f32) -> bool {
         .is_none_or(|frags| frags.iter().any(|g| g.contains(x - b.rect.0, y - b.rect.1)))
 }
 
+/// Whether a point outside a painted box is in its hit slop
+/// (`StyleProps::hit_slop`, Charlie, 2026-11-10): the box's own rectangle
+/// grown in its own space, under the clips it was painted with. A box placed
+/// by a perspective takes none.
+pub(crate) fn slop_hits(kernel: &Kernel, b: &PaintedBox, x: f32, y: f32) -> bool {
+    let Some(node) = kernel.node(b.id) else {
+        return false;
+    };
+    let [t, r, bottom, l] = node.style.hit_slop(kernel.arena().env());
+    if t + r + bottom + l <= 0.0 || b.projective.is_some() {
+        return false;
+    }
+    let grow = |q: Rect4| (q.0 - l, q.1 - t, q.2 + l + r, q.3 + t + bottom);
+    let mut grown = *b;
+    match b.affine {
+        Some((ts, local)) => {
+            grown.affine = Some((ts, grow(local)));
+            grown.rect = bbox(ts, grow(local));
+        }
+        None => grown.rect = grow(b.rect),
+    }
+    grown.contains(x, y)
+}
+
 /// Where the agent's `tap` aims on a box with fragments: its first
 /// fragment's centre, not the union's, which may be a gap (D12).
 pub(crate) fn center(kernel: &Kernel, b: &PaintedBox) -> Option<(f32, f32)> {

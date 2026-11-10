@@ -1303,8 +1303,8 @@ impl<D: DataSource> Presenter<D> {
             .rev()
             .filter(|b| {
                 self.alert_allows(b.id)
-                    && b.contains(x, y)
-                    && crate::paint::hits(self.host.kernel(), b, x, y)
+                    && (b.contains(x, y) && crate::paint::hits(self.host.kernel(), b, x, y)
+                        || crate::paint::slop_hits(self.host.kernel(), b, x, y))
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
