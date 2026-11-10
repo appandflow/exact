@@ -5,8 +5,8 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, read
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
 import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
-import { PLATFORMS, authoredCrate, namePlatform, withoutPlatformKeys } from '../scripts/app-shells.mjs';
-import { APP_CRATES } from '../scripts/cargo-check.mjs';
+import { PLATFORMS, authoredCrate, copiedBuildScripts, namePlatform, withoutPlatformKeys } from '../scripts/app-shells.mjs';
+import { APP_CRATES, NO_WORKSPACE } from '../scripts/cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 // Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
 const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
@@ -1243,6 +1243,16 @@ function platformEdits(dir, platforms, without, drop = withoutPlatformKeys) {
   return said;
 }
 
+/** Why update cannot add the `linux/` and `android/` crates to the app's root Cargo.toml, or null. They inherit
+ * `[workspace.package]`'s edition, version and license, as the generated workspace an app copies up defines them. */
+function rootRefusal(path) {
+  let root;
+  try { root = Bun.TOML.parse(readFileSync(path, 'utf8')); } catch (error) { return `${path} does not parse: ${error.message}`; }
+  if (root.workspace === undefined) return `${path} has no [workspace] table`;
+  const lacks = ['edition', 'version', 'license'].filter((key) => !(key in (root.workspace.package ?? {})));
+  return lacks.length ? `${path} has no ${lacks.join(', ')} in [workspace.package], which the linux/ and android/ crates inherit` : null;
+}
+
 function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
@@ -1271,7 +1281,15 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
     defaultTest(dir);
     return `Updated ${dir}: exact.mjs${edits.length ? `, ${edits.join(', ')}` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}`;
   }
-  if (!existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: its crates name no workspace of their own (no Cargo.toml beside app.json)`);
+  if (!existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: its crates name no workspace of their own (no Cargo.toml beside app.json). ${NO_WORKSPACE}`);
+  // Before anything is written: a host crate update would add needs the root the copied-up workspace has.
+  {
+    let m = {}; try { m = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')); } catch {}
+    const ships = (p) => p !== without && (p in (m.host ?? {}) || platforms.includes(p));
+    const adds = (ships('linux') || ships('android') || 'linux' in (m.deploy?.store ?? {}) && without !== 'linux') && !existsSync(resolve(dir, 'linux')) || ships('android') && !existsSync(resolve(dir, 'android'));
+    const refused = adds && rootRefusal(resolve(dir, 'Cargo.toml'));
+    if (refused) throw new Error(`update: ${refused}. ${NO_WORKSPACE}`);
+  }
   // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
   // (authoring bench: `exact.mjs ios` asked Cargo for `todo-apple` in a `todo/` holding `todo-list-*`).
   name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
@@ -1339,6 +1357,12 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
     const script = resolve(dir, crate, 'build.rs');
     if (existsSync(script) && readFileSync(script, 'utf8') === EARLIER_APPLE_BUILD_SCRIPT) { writeFileSync(script, APPLE_BUILD_SCRIPT); notes.push(`${crate}/build.rs`); }
   }
+  // A host crate copied up from .exact/shells/ (LLP 1153 D1.4) bakes the app three levels up; beside app.json it is one.
+  // Only a script that is still exactly the generated one is replaced: one the author wrote or edited is theirs.
+  for (const [crate, [shell, authored]] of Object.entries(copiedBuildScripts())) {
+    const script = resolve(dir, crate, 'build.rs');
+    if (existsSync(script) && readFileSync(script, 'utf8') === shell) { writeFileSync(script, authored); notes.push(`${crate}/build.rs`); }
+  }
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
@@ -1350,9 +1374,15 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
       crates.has(crate) ? `${crate}${head}${JSON.stringify(pathFrom(dirname(path), crates.get(crate)))}` : line);
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
-  const checked = lockedMetadata(dir);
-  const drift = checked.status !== 0 ? `\n${dir}/Cargo.lock: ${/cannot update the lock file|needs to be updated/.test(checked.stderr ?? '') ? 'does not match the app manifests; run \`bun exact.mjs lock\`' : `could not check lock: ${checked.stderr || checked.error?.message}`}` : '';
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${addedAndroid ? ', an android/ crate (bun exact.mjs android builds the APK)' : ''}${edits.length ? `, ${edits.join(', ')}` : ''}${without && ['linux', 'android'].includes(without) ? ', Cargo.lock' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${drift}`;
+  const said = `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${addedAndroid ? ', an android/ crate (bun exact.mjs android builds the APK)' : ''}${edits.length ? `, ${edits.join(', ')}` : ''}${without && ['linux', 'android'].includes(without) ? ', Cargo.lock' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  // Whether the workspace loads: every member's manifest read, nothing resolved or fetched, so only the app's files can
+  // fail it. One that does not load builds nothing, so the update failed, though its files are written.
+  const loads = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: dir, env: cargoEnvironment(), stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  if (loads.status !== 0) throw new Error(`${said}\nbut Cargo cannot load the workspace ${dir}/Cargo.toml names, so no build can use it:\n${loads.stderr || loads.error?.message}`);
+  // The lock's check, which may fetch: what it finds is a note.
+  const checked = lockedMetadata(dir), missing = /cannot create the lock file/.test(checked.stderr ?? ''), drifted = /cannot update the lock file|needs to be updated/.test(checked.stderr ?? '');
+  if (checked.status === 0) return said;
+  return `${said}\n${dir}/Cargo.lock: ${missing ? 'none yet; run `bun exact.mjs lock`' : drifted ? 'does not match the app manifests; run `bun exact.mjs lock`' : `could not check lock: ${checked.stderr || checked.error?.message}`}`;
 }
 
 if (import.meta.main) {

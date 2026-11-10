@@ -582,10 +582,10 @@ export function resolveApp(nameOrCrate) {
     cargoPackage, prepare,
     get hasGpu() {
       if (manifest.game !== undefined) return true;
-      const gpu = resolve(dir, 'gpu');
-      if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
-      const pkg = cargoPackage('gpu');
-      return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+      const gpu = resolve(dir, 'gpu'), pkg = existsSync(resolve(gpu, 'Cargo.toml')) ? cargoPackage('gpu') : false;
+      if (pkg === false || pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu)) return pkg !== false;
+      const named = (() => { try { return Bun.TOML.parse(readFileSync(resolve(gpu, 'Cargo.toml'), 'utf8')).package?.name; } catch { return undefined; } })();
+      throw new Error(named === crate('gpu') ? `${gpu}/Cargo.toml (${named}) is not a member of the app's Cargo workspace: add "gpu" to its members` : `${gpu}/Cargo.toml names the package ${named ?? 'nothing'}; the app's GPU module must be named ${crate('gpu')}`);
     },
     /** The native-module roster (LLP 1024 D1) and its sources: the Swift under
      * `modules/apple` that becomes `libexact_modules.dylib`, and the web

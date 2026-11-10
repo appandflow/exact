@@ -3,7 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, resolve, sep } from 'node:path';
 import { resolveApp, buildBake, bakeTarget } from './app.mjs';
@@ -175,8 +175,9 @@ test('ordinary GPU ownership requires its own manifest and matching metadata dir
   pkg('game/ordinary/unrelated','foo-gpu');
   run('cargo',['metadata','--offline','--format-version','1','--manifest-path','game/Cargo.toml']);
   assert.equal(app().hasGpu,false);
+  // A gpu/ crate of another name is not skipped in silence: the build names the package it must be.
   write('game/ordinary/foo/gpu/Cargo.toml','[package]\nname="some-other-gpu"\nversion="0.1.0"\n');
-  assert.equal(app().hasGpu,false);
+  assert.throws(() => app().hasGpu, /gpu\/Cargo\.toml names the package some-other-gpu; the app's GPU module must be named foo-gpu/);
 }), 60_000);
 
 test('missing game entry refuses by key at resolve time', () => fixture(({app, dir, write}) => {
@@ -678,7 +679,7 @@ test('app update reports lock drift without changing it, and the app lock verb r
     write('web/Cargo.toml', '[package]\nname="lock-app-web"\nversion="0.1.0"\nedition="2021"\n');
     write('web/src/lib.rs', '');
     const initial = createApp(dir, {update:true});
-    assert.match(initial, /Cargo.lock/);
+    assert.match(initial, /Cargo.lock: none yet; run `bun exact.mjs lock`/);
     assert.deepEqual(appVerbs('lock-app', dir).lock, ['scripts/app-cli.mjs', '--lock', dir]);
     let locked = run(['lock']);
     assert.equal(locked.status, 0, locked.stderr);
@@ -696,6 +697,104 @@ test('app update reports lock drift without changing it, and the app lock verb r
     assert.equal(again.status, 0, again.stderr);
     assert.match(again.stdout, /current; no changes/);
   } finally { rmSync(scratch, {recursive:true,force:true}); }
+}, 60_000);
+
+test('update refuses, before writing, a root the crates it adds cannot load in', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-root-'));
+  const dir = resolve(scratch, 'app'), root = resolve(dir, 'Cargo.toml');
+  const keys = '[workspace.package]\nedition = "2021"\nversion = "0.1.0"\nlicense = "MIT"\n';
+  try {
+    createApp(dir, { with: ['android'] });
+    pinned(dir);
+    // The linux/ and android/ crates update adds inherit edition, version and license, as the copied-up workspace has them.
+    for (const [text, said] of [
+      ['[workspace]\nmembers = ["web"\n', /Cargo\.toml does not parse: /],
+      ['[package]\nname = "app"\nversion = "0.1.0"\n', /Cargo\.toml has no \[workspace\] table/],
+      ['[workspace]\nmembers = []\n[workspace.package]\nedition = "2021"\n', /Cargo\.toml has no version, license in \[workspace\.package\]/],
+    ]) {
+      writeFileSync(root, text);
+      assert.throws(() => createApp(dir, { update: true }), (e) => said.test(e.message) && /copies the generated workspace up/.test(e.message), text);
+      assert.deepEqual([readFileSync(root, 'utf8'), existsSync(resolve(dir, 'linux')), existsSync(resolve(dir, 'exact.mjs.tmp'))], [text, false, false], 'nothing written');
+    }
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}, 60_000);
+
+test('update fails, with Cargo\'s words, when the workspace does not load', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-load-'));
+  const dir = resolve(scratch, 'app'), root = resolve(dir, 'Cargo.toml');
+  const write = (file, text) => { mkdirSync(dirname(resolve(dir, file)), { recursive: true }); writeFileSync(resolve(dir, file), text); };
+  const crate = (name, more = '') => `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n${more}`;
+  try {
+    createApp(dir);
+    pinned(dir);
+    for (const member of ['a', 'b']) write(`${member}/src/lib.rs`, '');
+    for (const [what, files, said] of [
+      ['two packages of one name', { 'a/Cargo.toml': crate('same'), 'b/Cargo.toml': crate('same') }, /two packages named `same`/],
+      ['a key the root does not define', { 'a/Cargo.toml': '[package]\nname = "a"\nversion.workspace = true\nedition = "2021"\n', 'b/Cargo.toml': crate('b') }, /workspace\.package\.version` was not defined/],
+      ['a member that is not there', { 'a/Cargo.toml': crate('a'), 'b/Cargo.toml': null }, /failed to load manifest for workspace member `[^`]*b`/],
+      ['a member that does not parse', { 'a/Cargo.toml': crate('a', 'unknown = [\n'), 'b/Cargo.toml': crate('b') }, /a\/Cargo\.toml:5/],
+    ]) {
+      write('Cargo.toml', '[workspace]\nmembers = ["a", "b"]\nresolver = "2"\n');
+      for (const [file, text] of Object.entries(files)) if (text === null) rmSync(resolve(dir, file), { force: true }); else write(file, text);
+      assert.throws(() => createApp(dir, { update: true }), (e) => /^Updated [^]*\nbut Cargo cannot load the workspace /.test(e.message) && said.test(e.message), what);
+    }
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}, 60_000);
+
+test('update notes a lock it could not check offline, and does not call the workspace unloadable', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-offline-'));
+  const dir = resolve(scratch, 'app'), source = resolve(scratch, 'source'), home = process.env.CARGO_HOME;
+  const run = (cwd, cmd, args, env = process.env) => { const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  try {
+    // A git dependency whose source is gone, under a Cargo home that never fetched it: what a cold cache offline meets.
+    mkdirSync(resolve(source, 'src'), { recursive: true });
+    writeFileSync(resolve(source, 'Cargo.toml'), '[package]\nname = "local-source"\nversion = "0.1.0"\nedition = "2021"\n');
+    writeFileSync(resolve(source, 'src/lib.rs'), '');
+    run(source, 'git', ['init', '-q']); run(source, 'git', ['add', '.']);
+    run(source, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'source']);
+    mkdirSync(resolve(dir, 'web/src'), { recursive: true }); pinned(dir);
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n');
+    writeFileSync(resolve(dir, 'Cargo.toml'), '[workspace]\nmembers = ["web"]\nresolver = "2"\n');
+    writeFileSync(resolve(dir, 'web/Cargo.toml'), `[package]\nname = "offline-app-web"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nlocal-source = { git = "file://${source}" }\n`);
+    writeFileSync(resolve(dir, 'web/src/lib.rs'), '');
+    run(dir, 'cargo', ['generate-lockfile'], { ...process.env, CARGO_HOME: resolve(scratch, 'warm') });
+    rmSync(source, { recursive: true, force: true });
+    process.env.CARGO_HOME = resolve(scratch, 'cold');
+    assert.match(createApp(dir, { update: true }), /^Updated [^]*\n\S*Cargo\.lock: could not check lock: [^]*failed to load source/);
+  } finally {
+    if (home === undefined) delete process.env.CARGO_HOME; else process.env.CARGO_HOME = home;
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('a gpu/ crate that is not the app\'s GPU module is named, not skipped', async () => {
+  const scratch = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-app-gpu-name-'))), dir = resolve(scratch, 'field-log'), was = process.env.EXACT_APP_DIR;
+  try {
+    for (const crate of ['gpu', 'data']) mkdirSync(resolve(dir, crate, 'src'), { recursive: true });
+    pinned(dir);
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Field Log', app: { id: 'test.field-log', name: 'Field Log' } }));
+    for (const crate of ['gpu', 'data']) writeFileSync(resolve(dir, crate, 'src/lib.rs'), '');
+    writeFileSync(resolve(dir, 'data/Cargo.toml'), '[package]\nname = "field-log-data"\nversion = "0.1.0"\nedition = "2021"\n');
+    const { patchLines } = await import('./app.mjs');
+    const app = (name, members) => {
+      writeFileSync(resolve(dir, 'Cargo.toml'), `[workspace]\nmembers = ${JSON.stringify(members)}\nresolver = "2"\n\n[patch.crates-io]\n${patchLines(dir).join('\n')}\n`);
+      writeFileSync(resolve(dir, 'gpu/Cargo.toml'), `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n`);
+      rmSync(resolve(dir, 'Cargo.lock'), { force: true }); rmSync(resolve(dir, '.exact'), { recursive: true, force: true });
+      spawnSync('cargo', ['generate-lockfile', '--offline'], { cwd: dir });
+      process.env.EXACT_APP_DIR = dir;
+      return resolveApp();
+    };
+    assert.equal(app('field-log-gpu', ['data', 'gpu']).hasGpu, true);
+    assert.throws(() => app('my-app-gpu', ['data', 'gpu']).hasGpu, /gpu\/Cargo\.toml names the package my-app-gpu; the app's GPU module must be named field-log-gpu$/);
+    assert.throws(() => app('field-log-gpu', ['data']).hasGpu, /gpu\/Cargo\.toml \(field-log-gpu\) is not a member of the app's Cargo workspace: add "gpu" to its members$/);
+  } finally {
+    if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }, 60_000);
 
 // LLP 1133.001 D9: what is installed is what bun.lock says. A registry package installed at another

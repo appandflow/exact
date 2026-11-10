@@ -15,17 +15,15 @@ import { applyPattern, authoredApp, createApp, createGame, patternFiles, pattern
 const hasSnapback = existsSync(resolve(import.meta.dir, '../snapback4/web/device-build.mjs'));
 
 /** An app that authored its crates, as `exact new` wrote them before LLP 1153 (or one that needs Rust of its own): the
- * generated workspace copied up beside app.json, each crate's bake path one level up, then `update` to settle its paths. */
+ * generated workspace copied up beside app.json as it is (LLP 1153 D1.4), then `update`, which settles its paths. */
 function authorCrates(dir) {
   const { crates } = ensureShells(dir);
   const shells = resolve(dir, '.exact/shells');
   for (const entry of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo', ...crates]) cpSync(resolve(shells, entry), resolve(dir, entry), { recursive: true });
-  for (const kind of crates) {
-    const script = resolve(dir, kind, 'build.rs');
-    writeFileSync(script, readFileSync(script, 'utf8').replace('Path::new("../../..")', 'Path::new("..")'));
-  }
   rmSync(shells, { recursive: true, force: true });
   createApp(dir, { update: true });
+  // Each crate's bake names the app: one level up now, not the three it was under .exact/shells/.
+  for (const kind of crates) assert.match(readFileSync(resolve(dir, kind, 'build.rs'), 'utf8'), /Path::new\("\.\."\)/, kind);
   return crates;
 }
 
@@ -750,10 +748,22 @@ test('an authored app gains a Linux crate on update and loses it with --without 
     createApp(dir, { with: ['ios'] });
     assert.deepEqual(authorCrates(dir), ['web', 'apple']);
     assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["web", "apple"\]$/m);
+    // A host crate's build script the author wrote is theirs, though it names a path three levels up as a copied one
+    // did; authorCrates above saw the generated ones rewritten.
+    const own = 'fn main() {\n    let _ = std::fs::read(std::path::Path::new("../../..").join("schemas/input.json"));\n}\n';
+    const kept = Object.fromEntries(['web', 'apple'].map(crate => [crate, readFileSync(resolve(dir, crate, 'build.rs'), 'utf8')]));
+    for (const crate of ['web', 'apple']) writeFileSync(resolve(dir, crate, 'build.rs'), own);
+    createApp(dir, { update: true });
+    for (const crate of ['web', 'apple']) assert.equal(readFileSync(resolve(dir, crate, 'build.rs'), 'utf8'), own, crate);
+    for (const [crate, text] of Object.entries(kept)) writeFileSync(resolve(dir, crate, 'build.rs'), text);
     const manifest = resolve(dir, 'Cargo.toml');
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'no store, no crate');
     namePlatform(dir, 'linux');
+    // The copied-up root has what the crates update adds inherit: it is used as it is, its members aside.
+    const members = (text) => text.replace(/^members = .*$/m, '');
+    const copied = readFileSync(manifest, 'utf8');
     assert.match(createApp(dir, { update: true }), /a linux\/ host crate/);
+    assert.equal(members(readFileSync(manifest, 'utf8')), members(copied));
     const linux = readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8');
     assert.match(linux, /^name = "field-log-linux"$/m);
     assert.match(linux, /^exact-linux = \{ path = "[^"]*host\/linux" \}$/m);

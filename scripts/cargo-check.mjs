@@ -66,6 +66,8 @@ export const shellsDir = (dir) => resolve(dir, '.exact/shells');
 const readToml = (path) => { try { return Bun.TOML.parse(readFileSync(path, 'utf8')); } catch { return null; } };
 /** The crates an app writes beside app.json. */
 export const APP_CRATES = ['apple', 'ios', 'macos', 'linux', 'web', 'windows', 'android', 'data', 'gpu'];
+/** How an app with Rust of its own gets the workspace it needs (LLP 1153 D1.4: the generated one, copied up). */
+export const NO_WORKSPACE = 'An app with Rust of its own (a gpu/ or data/ crate) copies the generated workspace up from .exact/shells/ beside app.json and adds its crates there (LLP 1153 D1.4).';
 /** Whether the workspace at `root` owns the package at `path`, as Cargo reads it: a `members` glob names it, or a
  * member depends on it by a path under the root (Cargo's automatic membership), and `exclude` (a prefix or a glob)
  * does not name it. Read from the files alone. */

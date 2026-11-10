@@ -253,6 +253,11 @@ fn main() {
 export const authoredCrate = (dir, kind, name, title) =>
   Object.fromEntries(Object.entries(crateFiles(kind, { name, title, app: '..', dep: path => `{ path = ${JSON.stringify(pathFrom(resolve(dir, kind), resolve(ROOT, path)))} }` })).map(([file, text]) => [`${kind}/${file}`, text]));
 
+/** For each host crate, its build script as `.exact/shells/` writes it and as it reads beside app.json: a crate copied up
+ * (LLP 1153 D1.4) whose script is still the first gets the second from `update` (game/new.mjs). */
+export const copiedBuildScripts = () => Object.fromEntries(Object.values(PLATFORMS).concat('web').filter((kind, i, all) => all.indexOf(kind) === i)
+  .map(kind => [kind, ['../../..', '..'].map(app => crateFiles(kind, { name: 'app', title: 'App', app, dep: () => '' })['build.rs'])]));
+
 const titleOf = name => name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 const stampOf = (shells) => { try { return JSON.parse(readFileSync(resolve(shells, '.stamp.json'), 'utf8')); } catch { return null; } };
 
