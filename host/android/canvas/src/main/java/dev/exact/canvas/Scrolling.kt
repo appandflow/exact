@@ -62,9 +62,11 @@ internal class Scrolling(private val view: ExactView) {
         val edges = arrayOfNulls<EdgeEffect>(4)
         var bar: Indicator? = null
         /** Its mandatory snap, as the last touch's answer told it: the axis (1 sideways, 2 up and down, 0 none), and
-         * for each area the offsets it rests at, from and to. */
+         * for each area the offsets it rests at, from and to, and whether a fling stops there (`scroll-snap-stop:
+         * always`). */
         var snapAxis = 0
         var snaps = FloatArray(0)
+        var stops = BooleanArray(0)
         val node get() = flags and 4 != 0
         /** `scrollbar-width: none`: no indicator. */
         val barless get() = flags and 8 != 0
@@ -197,8 +199,9 @@ internal class Scrolling(private val view: ExactView) {
             if (at + 2 > w.size) break
             val n = w[at + 1]
             link.s.snapAxis = w[at]
-            link.s.snaps = FloatArray(2 * n) { f(w[at + 2 + it]) }
-            at += 2 + 2 * n
+            link.s.snaps = FloatArray(2 * n) { f(w[at + 2 + 3 * (it / 2) + it % 2]) }
+            link.s.stops = BooleanArray(n) { w[at + 4 + 3 * it] != 0 }
+            at += 2 + 3 * n
         }
         // The indicators of scrollers this touch is not over go: they have faded, or are about to.
         for (s in scrollers.values) if (links.none { it.s === s }) s.bar?.let { (it.parent as? ViewGroup)?.removeView(it); s.bar = null }
@@ -384,6 +387,7 @@ internal class Scrolling(private val view: ExactView) {
             val p = wanted.coerceIn(s.snaps[2 * k], s.snaps[2 * k + 1])
             if (abs(p - wanted) < best) { best = abs(p - wanted); target = p }
         }
+        target = stopAt(at, target, s.snaps, s.stops)
         val d = (target.coerceIn(0f, end) - at).roundToInt()
         if (d == 0) { fling.forceFinished(true); mode = IDLE; return true }
         // ViewPager's settle: four times as long as the finger's speed would take to cover it, within its bound.
@@ -587,4 +591,16 @@ internal class Scrolling(private val view: ExactView) {
 
 /** The way a finger went along a drag's axis ([total] px from its down) beyond the touch slop, which a drag takes from
  * the moment it is known to be one. */
+/** Where a snap from [at] toward [target] rests when an area on the way says `scroll-snap-stop: always` (CSS Scroll
+ * Snap 1 §6.2): at the nearest such area's offset past [at] in that direction, so a fling passes over none. */
+internal fun stopAt(at: Float, target: Float, snaps: FloatArray, stops: BooleanArray): Float {
+    var t = target
+    for (k in stops.indices) {
+        if (!stops[k]) continue
+        if (target > at + 0.5f && snaps[2 * k] > at + 0.5f && snaps[2 * k] < t) t = snaps[2 * k]
+        if (target < at - 0.5f && snaps[2 * k + 1] < at - 0.5f && snaps[2 * k + 1] > t) t = snaps[2 * k + 1]
+    }
+    return t
+}
+
 internal fun pastSlop(total: Float, slop: Float): Float = sign(total) * max(abs(total) - slop, 0f)

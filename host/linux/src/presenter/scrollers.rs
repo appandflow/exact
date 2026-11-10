@@ -514,7 +514,8 @@ impl<D: DataSource> Presenter<D> {
     /// Each of scrollers `ids`' mandatory snap (CSS Scroll Snap), for a
     /// reader that aims a fling: its axis (0 none, 1 sideways, 2 up and
     /// down), a count, and per snap area the offsets it can rest at, from
-    /// and to, as float bits in the reader's pixels. An area no larger than
+    /// and to, as float bits in the reader's pixels, then 1 when a fling may
+    /// not pass over it (`scroll-snap-stop: always`), else 0. An area no larger than
     /// the port rests at one offset, its start, centre or end at the port's;
     /// a larger one is explored freely while it covers the port (§5.2.2).
     pub fn reader_snaps(&mut self, ids: &[ViewId], scale: f32) -> Vec<i32> {
@@ -522,14 +523,14 @@ impl<D: DataSource> Presenter<D> {
         for &id in ids {
             let (axis, rests) = self.snap_rests(id).unwrap_or((0, Vec::new()));
             out.extend([axis, rests.len() as i32]);
-            for (from, to) in rests {
-                out.extend([bits(from * scale), bits(to * scale)]);
+            for (from, to, stop) in rests {
+                out.extend([bits(from * scale), bits(to * scale), stop as i32]);
             }
         }
         out
     }
 
-    fn snap_rests(&mut self, id: ViewId) -> Option<(i32, Vec<(f32, f32)>)> {
+    fn snap_rests(&mut self, id: ViewId) -> Option<(i32, Vec<(f32, f32, bool)>)> {
         use exact_kernel::{ScrollSnapAlign as Align, ScrollSnapType as Type};
         let kernel = self.host.kernel();
         let node = kernel.node(id)?;
@@ -544,7 +545,8 @@ impl<D: DataSource> Presenter<D> {
         while let Some(c) = walk.pop() {
             let Some(n) = kernel.node(c) else { continue };
             if n.style.scroll_snap_align != Align::None {
-                areas.push((c, n.style.scroll_snap_align));
+                let stop = n.style.scroll_snap_stop == exact_kernel::ScrollSnapStop::Always;
+                areas.push((c, n.style.scroll_snap_align, stop));
             }
             let (ox, oy) = effective_overflow(&n);
             if !scrolls(ox) && !scrolls(oy) && n.style.scroll_snap_type == Type::None {
@@ -560,7 +562,7 @@ impl<D: DataSource> Presenter<D> {
             (port.0, port.2, s.offset.0, s.max.0)
         };
         let mut rests = Vec::new();
-        for (c, align) in areas {
+        for (c, align, stop) in areas {
             let Some(b) = self.box_of(c) else { continue };
             let (at, len) = if vertical {
                 (b.rect.1, b.rect.3)
@@ -581,7 +583,7 @@ impl<D: DataSource> Presenter<D> {
             } else {
                 from
             };
-            rests.push((from, to));
+            rests.push((from, to, stop));
         }
         Some((if vertical { Y } else { X }, rests))
     }

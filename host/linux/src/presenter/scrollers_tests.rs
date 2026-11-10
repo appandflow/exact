@@ -614,7 +614,7 @@ fn a_mandatory_snap_tells_the_offsets_its_areas_rest_at() {
       scroll testId="rail" width=400 height=100 overflow-x="scroll" overflow-y="hidden" scroll-snap-type="x mandatory"
         row
           for i in [0, 1, 2, 3] key=i
-            box width=300 height=100 flex-shrink=0 scroll-snap-align="center"
+            box width=300 height=100 flex-shrink=0 scroll-snap-align="center" scroll-snap-stop=(i == 2 ? "always" : "normal")
       scroll testId="pager" width=400 height=200 scroll-snap-type="y mandatory"
         column
           for i in [0, 1, 2] key=i
@@ -628,10 +628,13 @@ fn a_mandatory_snap_tells_the_offsets_its_areas_rest_at() {
     let mut at = 0;
     let mut read = || {
         let (axis, n) = (words[at], words[at + 1] as usize);
-        let rests: Vec<(f32, f32)> = (0..n)
-            .map(|k| (f(words[at + 2 + 2 * k]), f(words[at + 3 + 2 * k])))
+        let rests: Vec<(f32, f32, i32)> = (0..n)
+            .map(|k| {
+                let w = at + 2 + 3 * k;
+                (f(words[w]), f(words[w + 1]), words[w + 2])
+            })
             .collect();
-        at += 2 + 2 * n;
+        at += 2 + 3 * n;
         (axis, rests)
     };
     // Each 300-wide card's centre at the 400-wide port's: the first and the
@@ -641,7 +644,12 @@ fn a_mandatory_snap_tells_the_offsets_its_areas_rest_at() {
     assert_eq!(axis, X);
     assert_eq!(
         rests,
-        vec![(0., 0.), (250., 250.), (550., 550.), (800., 800.)]
+        vec![
+            (0., 0., 0),
+            (250., 250., 0),
+            (550., 550., 1),
+            (800., 800., 0)
+        ]
     );
     // A page at the port's top; the last, taller than the port, is explored
     // from its start to its end (travel 900).
@@ -650,7 +658,12 @@ fn a_mandatory_snap_tells_the_offsets_its_areas_rest_at() {
     assert_eq!(axis, Y);
     assert_eq!(
         rests,
-        vec![(0., 0.), (200., 200.), (400., 400.), (600., 900.)]
+        vec![
+            (0., 0., 0),
+            (200., 200., 0),
+            (400., 400., 0),
+            (600., 900., 0)
+        ]
     );
     assert_eq!(read(), (0, vec![]));
     assert_eq!(at, words.len());
