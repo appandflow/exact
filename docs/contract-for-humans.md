@@ -1510,8 +1510,9 @@ animation.
 its nearest scroll container, 0% as it enters at the end edge, 50% centred, 100% as it
 leaves at the start edge (`cover`). The node and its descendants bind animations to it
 with `animation-timeline="--card"`; `animation-range` is not read for it. The engine
-moves them in the frame the scroller moves, with no action per scroll. iOS places it;
-elsewhere the timeline is inactive and the nodes show their own values. A keyframe's
+moves them in the frame the scroller moves, with no action per scroll. iOS and macOS
+place it; on Android and Linux the timeline is inactive and the nodes show their own
+values, and the web does not run it yet. A keyframe's
 `rotate` may name an axis (`y 32deg`), but the angle turns about the node's own
 `rotate` axis, so give the node the same one (`rotate="y 0deg"`).
 

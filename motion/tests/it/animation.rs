@@ -535,6 +535,10 @@ fn a_view_timeline_holds_its_consumer_at_the_subjects_progress() {
         Some(1.0),
         "past the range, the fill holds the end"
     );
+    e.set_view_progress(SUBJECT, 2.5);
+    assert_eq!(opacity(&mut e), None, "still past it: nothing to repaint");
+    e.set_view_progress(SUBJECT, 0.25);
+    assert_eq!(opacity(&mut e), Some(0.25), "back in range from past it");
     e.advance(3.0).unwrap();
     assert_eq!(opacity(&mut e), None, "the clock does not move it");
     e.remove(SUBJECT);

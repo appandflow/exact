@@ -33,8 +33,11 @@ impl<D: DataSource> Host<D> {
             let Some(id) = kernel.node_by_key(t.scroller).map(|n| n.id) else {
                 continue;
             };
-            let kept = self.view_scrolls.scrollers.iter().find(|s| s.0 == id);
-            if kept.is_none() || batch.creates(id) {
+            // A view this batch creates is a new scroller, at its start.
+            let kept = (!batch.creates(id))
+                .then(|| self.view_scrolls.scrollers.iter().find(|s| s.0 == id))
+                .flatten();
+            if kept.is_none() {
                 batch.props(id, &[("viewTimeline", "1".into())], &[]);
             }
             scrollers.push(kept.copied().unwrap_or((id, t.scroller, 0.0, 0.0)));
