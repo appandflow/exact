@@ -13,20 +13,21 @@ extension NodeView {
         // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
         defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }
         #endif
-        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView)
+        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView, from: scrollView.contentOffset)
     }
 
     /// The native resting position, optionally constrained to the snap area
     /// holding a target the agent reveals: along x for `x mandatory`, along y
-    /// for `y mandatory`.
-    func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil) -> CGPoint {
+    /// for `y mandatory`. A drag released at `origin` does not pass over the
+    /// position of an area that says `scroll-snap-stop: always` (CSS Snap §6.2).
+    func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil, from origin: CGPoint? = nil) -> CGPoint {
         let type = style["scroll_snap_type"]?.string
         guard type == "x mandatory" || type == "y mandatory" else { return proposed }
         let vertical = type == "y mandatory"
         let port = vertical ? scrollView.bounds.height : scrollView.bounds.width
         let maximum = max(0, (vertical ? scrollView.contentSize.height : scrollView.contentSize.width) - port)
         let wanted = vertical ? proposed.y : proposed.x
-        var positions: [CGFloat] = [], targetPositions: [CGFloat] = []
+        var positions: [CGFloat] = [], targetPositions: [CGFloat] = [], stops: [CGFloat] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
                 let align = node.style["scroll_snap_align"]?.string
@@ -43,6 +44,7 @@ extension NodeView {
                     let end = wide ? min(maximum, max(start, hi - port)) : start
                     let position = min(end, max(start, wanted))
                     positions.append(position)
+                    if node.style["scroll_snap_stop"]?.string == "always" { stops.append(position) }
                     if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
                 }
                 // A nested scroll container captures its own snap areas.
@@ -52,7 +54,12 @@ extension NodeView {
         visit(scrollView)
         let choices = targetPositions.isEmpty ? positions : targetPositions
         var result = proposed
-        if let nearest = choices.min(by: { abs($0 - wanted) < abs($1 - wanted) }) {
+        if var nearest = choices.min(by: { abs($0 - wanted) < abs($1 - wanted) }) {
+            if let origin {
+                let from = vertical ? origin.y : origin.x
+                if nearest > from + 0.5, let stop = stops.filter({ $0 > from + 0.5 }).min() { nearest = min(nearest, stop) }
+                if nearest < from - 0.5, let stop = stops.filter({ $0 < from - 0.5 }).max() { nearest = max(nearest, stop) }
+            }
             if vertical { result.y = nearest } else { result.x = nearest }
         }
         return result

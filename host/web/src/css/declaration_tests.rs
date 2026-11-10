@@ -367,6 +367,10 @@ fn background_image_is_one_declaration_over_the_colour() {
         css(&[(StyleId::ScrollSnapAlign, t("end"))], &[]),
         "scroll-snap-align:end;"
     );
+    assert_eq!(
+        css(&[(StyleId::ScrollSnapStop, t("always"))], &[]),
+        "scroll-snap-stop:always;"
+    );
     // The browser's own `fixed`, the gradient box the viewport.
     assert_eq!(
         css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
