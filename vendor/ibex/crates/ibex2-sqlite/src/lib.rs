@@ -34,6 +34,41 @@ struct Session {
 fn error(e: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("SQLite: {e}"))
 }
+/// The prefix of a failure SQLite reports as busy or locked. A storage
+/// error's code is read from its message's prefix (exact2's prelude), which
+/// the provider writes before any SQL or name the app chose.
+const BUSY: &str = "SQLite EBUSY: ";
+/// The PRAGMAs app SQL may run; the rest would change what the host set at
+/// open (foreign keys, journaling, temporary files) or reach other files.
+const PRAGMAS: [&str; 10] = [
+    "user_version",
+    "application_id",
+    "table_info",
+    "table_xinfo",
+    "index_list",
+    "index_info",
+    "foreign_key_list",
+    "foreign_key_check",
+    "integrity_check",
+    "quick_check",
+];
+thread_local! {
+    /// What the authorizer last refused, and why. SQLite calls the
+    /// authorizer on the thread that prepares the statement, while it
+    /// prepares it.
+    static REFUSED: std::cell::Cell<Option<String>> = const { std::cell::Cell::new(None) };
+}
+/// `e` as a host error; a refusal by the authorizer names what it refused.
+/// SQLite reports most refusals as `SQLITE_AUTH` and a function's as
+/// `SQLITE_ERROR`, so a refusal recorded while preparing is the cause.
+fn sql_error(e: rusqlite::Error) -> HostError {
+    use rusqlite::ErrorCode::{DatabaseBusy, DatabaseLocked};
+    match (REFUSED.take(), e.sqlite_error_code()) {
+        (Some(why), _) => error(format!("not authorized: {why}")),
+        (None, Some(DatabaseBusy | DatabaseLocked)) => HostError::Failed(format!("{BUSY}{e}")),
+        (None, _) => error(e),
+    }
+}
 
 impl sqlite::Provider for SqliteProvider {
     fn open(&self, location: Location) -> Result<Arc<dyn sqlite::Connection>, HostError> {
@@ -79,6 +114,7 @@ impl sqlite::Provider for SqliteProvider {
                 path.display()
             )),
         })?;
+        REFUSED.take();
         let connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -86,67 +122,66 @@ impl sqlite::Provider for SqliteProvider {
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )
-        .map_err(error)?;
+        .map_err(sql_error)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .execute_batch("PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY;")
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .set_limit(Limit::SQLITE_LIMIT_LENGTH, MAX_RESULT_BYTES as i32)
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .set_limit(Limit::SQLITE_LIMIT_SQL_LENGTH, 1024 * 1024)
-            .map_err(error)?;
+            .map_err(sql_error)?;
         connection
             .set_limit(Limit::SQLITE_LIMIT_ATTACHED, 0)
-            .map_err(error)?;
+            .map_err(sql_error)?;
         let internal_transaction = Arc::new(AtomicBool::new(false));
         let internal = internal_transaction.clone();
         connection
-            .authorizer(Some(move |ctx: AuthContext<'_>| match ctx.action {
-                AuthAction::Attach { .. }
-                | AuthAction::Detach { .. }
-                | AuthAction::CreateVtable { .. }
-                | AuthAction::DropVtable { .. }
-                | AuthAction::Unknown { .. }
-                | AuthAction::Savepoint { .. } => Authorization::Deny,
-                AuthAction::Transaction { .. } if !internal.load(Ordering::Relaxed) => {
-                    Authorization::Deny
-                }
-                AuthAction::Function { function_name }
-                    if function_name.eq_ignore_ascii_case("load_extension") =>
-                {
-                    Authorization::Deny
-                }
-                AuthAction::Pragma { pragma_name, .. } => {
-                    let name = pragma_name.to_ascii_lowercase();
-                    if matches!(name.as_str(), "user_version" | "application_id")
-                        || matches!(
-                            name.as_str(),
-                            "table_info"
-                                | "table_xinfo"
-                                | "index_list"
-                                | "index_info"
-                                | "foreign_key_list"
-                                | "foreign_key_check"
-                                | "integrity_check"
-                                | "quick_check"
-                        )
-                    {
-                        Authorization::Allow
-                    } else {
-                        Authorization::Deny
+            .authorizer(Some(move |ctx: AuthContext<'_>| {
+                let refused = match ctx.action {
+                    AuthAction::Attach { .. } | AuthAction::Detach { .. } => {
+                        "ATTACH and DETACH: a connection reaches only its own file".into()
                     }
-                }
-                _ => Authorization::Allow,
+                    AuthAction::CreateVtable { .. } | AuthAction::DropVtable { .. } => {
+                        "a virtual table: no virtual table modules are loaded".into()
+                    }
+                    AuthAction::Savepoint { .. } => {
+                        "SAVEPOINT: use transaction([...]) for statements that commit together"
+                            .into()
+                    }
+                    AuthAction::Transaction { .. } if !internal.load(Ordering::Relaxed) => {
+                        "BEGIN, COMMIT and ROLLBACK: use transaction([...]) for statements that commit together".into()
+                    }
+                    AuthAction::Function { function_name }
+                        if function_name.eq_ignore_ascii_case("load_extension") =>
+                    {
+                        "load_extension: extensions are not loaded".into()
+                    }
+                    AuthAction::Pragma { pragma_name, .. }
+                        if !PRAGMAS.contains(&pragma_name.to_ascii_lowercase().as_str()) =>
+                    {
+                        format!(
+                            "PRAGMA {pragma_name}: the host sets the connection's options; app SQL may run only PRAGMA {}",
+                            PRAGMAS.join(", ")
+                        )
+                    }
+                    AuthAction::Unknown { code, .. } => {
+                        format!("an operation SQLite names {code}")
+                    }
+                    _ => return Authorization::Allow,
+                };
+                REFUSED.set(Some(refused));
+                Authorization::Deny
             }))
             .map_err(error)?;
         Ok(Arc::new(Session {
@@ -158,10 +193,11 @@ impl sqlite::Provider for SqliteProvider {
 }
 
 fn validate(conn: &Connection, sql: &str) -> Result<StatementInfo, HostError> {
+    REFUSED.take();
     let mut batch = Batch::new(conn, sql);
     let statement = batch
         .next()
-        .map_err(error)?
+        .map_err(sql_error)?
         .ok_or_else(|| error("expected one SQL statement"))?;
     let info = StatementInfo {
         parameter_count: statement.parameter_count(),
@@ -171,7 +207,7 @@ fn validate(conn: &Connection, sql: &str) -> Result<StatementInfo, HostError> {
             .map(|s| s.to_string())
             .collect(),
     };
-    if batch.next().map_err(error)?.is_some() {
+    if batch.next().map_err(sql_error)?.is_some() {
         return Err(error("expected one SQL statement"));
     }
     Ok(info)
@@ -208,7 +244,7 @@ fn parameters(params: &[Value]) -> Result<Vec<SqlValue>, HostError> {
 }
 fn execute(conn: &Connection, sql: &str, params: &[Value]) -> Result<ExecuteResult, HostError> {
     validate(conn, sql)?;
-    let mut statement = conn.prepare_cached(sql).map_err(error)?;
+    let mut statement = conn.prepare_cached(sql).map_err(sql_error)?;
     if statement.column_count() != 0 {
         return Err(error(
             "execute does not accept a statement returning rows; use query",
@@ -216,11 +252,33 @@ fn execute(conn: &Connection, sql: &str, params: &[Value]) -> Result<ExecuteResu
     }
     let changes = statement
         .execute(rusqlite::params_from_iter(parameters(params)?))
-        .map_err(error)?;
+        .map_err(sql_error)?;
     Ok(ExecuteResult {
         changes: changes as u64,
         last_insert_rowid: conn.last_insert_rowid(),
     })
+}
+/// `e`, naming the statement of a batch it came from.
+fn in_statement(e: HostError, at: &str, sql: &str) -> HostError {
+    const SHOWN: usize = 200;
+    let sql = sql.trim();
+    let sql = match sql.char_indices().nth(SHOWN) {
+        Some((end, _)) => format!("{}…", &sql[..end]),
+        None => sql.to_string(),
+    };
+    match e {
+        HostError::Failed(message) => match message.strip_prefix(BUSY) {
+            Some(message) => HostError::Failed(format!("{BUSY}{at} ({sql}): {message}")),
+            None => {
+                let message = message.strip_prefix("SQLite: ").unwrap_or(&message);
+                error(format!("{at} ({sql}): {message}"))
+            }
+        },
+        HostError::InvalidArgument(message) => {
+            HostError::InvalidArgument(format!("{at} ({sql}): {message}"))
+        }
+        e => e,
+    }
 }
 impl Session {
     fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, HostError>) -> Result<T, HostError> {
@@ -241,7 +299,7 @@ impl sqlite::Connection for Session {
     fn query(&self, sql: &str, params: &[Value]) -> Result<Rows, HostError> {
         self.with(|conn| {
             validate(conn, sql)?;
-            let mut statement = conn.prepare_cached(sql).map_err(error)?;
+            let mut statement = conn.prepare_cached(sql).map_err(sql_error)?;
             // Read-only queries prevent a result-limit failure from committing a
             // partially consumed INSERT/UPDATE ... RETURNING.
             if !statement.readonly() {
@@ -255,9 +313,9 @@ impl sqlite::Connection for Session {
             let mut budget = columns.iter().map(String::len).sum::<usize>();
             let mut cursor = statement
                 .query(rusqlite::params_from_iter(parameters(params)?))
-                .map_err(error)?;
+                .map_err(sql_error)?;
             let mut rows = Vec::new();
-            while let Some(row) = cursor.next().map_err(error)? {
+            while let Some(row) = cursor.next().map_err(sql_error)? {
                 if rows.len() == MAX_ROWS {
                     return Err(error("query result exceeds row limit"));
                 }
@@ -298,17 +356,24 @@ impl sqlite::Connection for Session {
             .lock()
             .map_err(|_| error("connection lock poisoned"))?;
         let conn = guard.as_mut().ok_or_else(|| error("database is closed"))?;
+        REFUSED.take();
         self.internal_transaction.store(true, Ordering::Relaxed);
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate);
         self.internal_transaction.store(false, Ordering::Relaxed);
-        let transaction = transaction.map_err(error)?;
+        let transaction = transaction.map_err(sql_error)?;
         let results: Result<Vec<_>, _> = commands
             .iter()
-            .map(|command| execute(&transaction, &command.sql, &command.params))
+            .enumerate()
+            .map(|(i, command)| {
+                execute(&transaction, &command.sql, &command.params).map_err(|e| {
+                    let at = format!("statement {} of {}", i + 1, commands.len());
+                    in_statement(e, &at, &command.sql)
+                })
+            })
             .collect();
         self.internal_transaction.store(true, Ordering::Relaxed);
         let outcome = match results {
-            Ok(values) => transaction.commit().map(|()| values).map_err(error),
+            Ok(values) => transaction.commit().map(|()| values).map_err(sql_error),
             Err(e) => {
                 drop(transaction);
                 Err(e)

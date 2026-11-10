@@ -800,10 +800,10 @@
     if (/^denied: /.test(message)) return "denied";
     var image = IMAGE_CODE.exec(message);
     if (image) return image[1];
-    // Ibex's retained-document boundary supplies typed codes and only the
-    // logical path. Do not infer a code from provider diagnostic prose.
-    var document = /^document (ENOENT|EEXIST|ENOTDIR|EISDIR|ENOTEMPTY|EBUSY): doc:\//.exec(message);
-    if (document) return document[1];
+    // Ibex's retained-document boundary and SQLite provider type their codes in a prefix; what
+    // follows carries the app's paths and SQL, so infer nothing from it (ibex2-sqlite `BUSY`).
+    var typed = /^document (ENOENT|EEXIST|ENOTDIR|EISDIR|ENOTEMPTY|EBUSY): doc:\/|^SQLite(?: (EBUSY))?: /.exec(message);
+    if (typed) return typed[1] || typed[2] || "failed";
     // The Windows document adapter emits this only after same-handle type
     // inspection; incidental text and numeric access denial are insufficient.
     if (windowsStorage && /\(filesystem code EISDIR\)$/.test(message)) return "EISDIR";

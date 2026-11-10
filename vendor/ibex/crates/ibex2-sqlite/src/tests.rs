@@ -86,6 +86,7 @@ fn native_authorizer_prevents_sql_filesystem_escapes() {
     }
     assert!(db.prepare("SELECT 1; SELECT 2").is_err());
     assert!(db.prepare("").is_err());
+    assert!(db.execute("PRAGMA user_version=3", &[]).is_ok());
     assert!(db.execute("SELECT 1", &[]).is_err());
     assert!(db.query("CREATE TABLE bad(id)", &[]).is_err());
 }
@@ -224,4 +225,108 @@ fn reparse_database_parents_and_sidecars_are_refused_before_open() {
         b"private"
     );
     assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+}
+#[test]
+fn a_refused_statement_names_what_was_refused_and_the_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = open(&dir);
+    for (sql, said) in [
+        (
+            "ATTACH DATABASE '/tmp/ibex-escape.db' AS escaped",
+            "ATTACH and DETACH",
+        ),
+        ("PRAGMA journal_mode=OFF", "PRAGMA journal_mode: "),
+        ("SELECT load_extension('/tmp/evil.so')", "load_extension: "),
+        (
+            "CREATE VIRTUAL TABLE x USING fts5(body)",
+            "a virtual table: ",
+        ),
+        ("SAVEPOINT x", "SAVEPOINT: use transaction([...])"),
+        (
+            "BEGIN",
+            "BEGIN, COMMIT and ROLLBACK: use transaction([...])",
+        ),
+    ] {
+        let got = format!("{:?}", db.execute(sql, &[]).unwrap_err());
+        assert!(
+            got.contains(&format!("not authorized: {said}")),
+            "{sql}: {got}"
+        );
+    }
+    // A table-valued PRAGMA prepares its PRAGMA while the query steps.
+    let got = format!(
+        "{:?}",
+        db.query("SELECT * FROM pragma_foreign_keys", &[])
+            .unwrap_err()
+    );
+    assert!(
+        got.contains("not authorized: PRAGMA foreign_keys: "),
+        "{got}"
+    );
+    // Refused while it steps: `VACUUM INTO` attaches its target then.
+    let got = format!(
+        "{:?}",
+        db.execute("VACUUM INTO 'copy.db'", &[]).unwrap_err()
+    );
+    assert!(got.contains("not authorized: ATTACH and DETACH"), "{got}");
+    // A batch names the statement by its place and its SQL, and runs none.
+    let batch = [
+        Command {
+            sql: "CREATE TABLE IF NOT EXISTS a (x)".into(),
+            params: vec![],
+        },
+        Command {
+            sql: "PRAGMA foreign_keys=OFF".into(),
+            params: vec![],
+        },
+    ];
+    let got = format!("{:?}", db.transaction(&batch).unwrap_err());
+    assert!(
+        got.contains("SQLite: statement 2 of 2 (PRAGMA foreign_keys=OFF): not authorized: PRAGMA foreign_keys: ")
+            && got.contains("PRAGMA user_version, application_id"),
+        "{got}"
+    );
+    let tables = db
+        .query("SELECT COUNT(*) FROM sqlite_schema WHERE name = 'a'", &[])
+        .unwrap();
+    assert_eq!(tables.rows[0][0], Value::Integer(0));
+    // Any failure in a batch names its statement.
+    let missing = Command {
+        sql: "INSERT INTO missing VALUES (1)".into(),
+        params: vec![],
+    };
+    let got = format!(
+        "{:?}",
+        db.transaction(&[batch[0].clone(), missing]).unwrap_err()
+    );
+    assert!(
+        got.contains("statement 2 of 2 (INSERT INTO missing VALUES (1)): no such table"),
+        "{got}"
+    );
+}
+#[test]
+fn only_sqlite_s_own_result_marks_a_failure_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = open(&dir);
+    db.execute("CREATE TABLE words(w TEXT NOT NULL UNIQUE)", &[])
+        .unwrap();
+    // The app's words come after the provider's prefix, never in it.
+    let words = "busy, database is locked, denied: ";
+    let insert = Command {
+        sql: format!("INSERT INTO words VALUES ('{words}') /* {words} */"),
+        params: vec![],
+    };
+    let batch = vec![insert; 2];
+    let got = format!("{:?}", db.transaction(&batch).unwrap_err());
+    assert!(
+        got.starts_with("Failed(\"SQLite: statement 2 of 2 (INSERT INTO words"),
+        "{got}"
+    );
+    // Another connection writing: SQLite's own busy, after its 5 s wait.
+    let path = dir.path().canonicalize().unwrap().join("app.db");
+    let held = rusqlite::Connection::open(path).unwrap();
+    held.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let got = format!("{:?}", db.execute("INSERT INTO words VALUES ('x')", &[]));
+    held.execute_batch("ROLLBACK").unwrap();
+    assert!(got.starts_with("Err(Failed(\"SQLite EBUSY: "), "{got}");
 }

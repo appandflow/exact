@@ -187,6 +187,41 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
         call(&mut m, &mut s, "sql-refusals", ""),
         "Unavailable/Unavailable/Unavailable/Unavailable"
     );
+    // A refused statement in a batch is named by its place, its SQL and the rule.
+    let batch = call(&mut m, &mut s, "sql-batch-refused", "");
+    assert!(
+        batch.contains(
+            "statement 2 of 2 (PRAGMA foreign_keys=OFF): not authorized: PRAGMA foreign_keys: "
+        ) && batch.contains("app SQL may run only PRAGMA user_version"),
+        "{batch}"
+    );
+    // A long statement is shown to 200 characters, never half of one.
+    let long = call(&mut m, &mut s, "sql-batch-long", "");
+    let shown = format!(
+        "statement 1 of 1 (INSERT INTO missing VALUES ('{}…): no such table",
+        "\u{1F600}".repeat(171)
+    );
+    assert!(long.contains(&shown), "{long}");
+    assert_eq!(
+        call(&mut m, &mut s, "sql-code-words", ""),
+        "failed/failed/failed/failed"
+    );
+    // A database another connection is writing is EBUSY at the batch's
+    // `BEGIN IMMEDIATE`, after SQLite's 5 s wait.
+    let held = rusqlite::Connection::open(root.0.join("data/notes.db")).unwrap();
+    held.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let busy = call(&mut m, &mut s, "sql-busy", "");
+    held.execute_batch("ROLLBACK").unwrap();
+    assert!(
+        busy.starts_with("EBUSY SQLite EBUSY: database is locked"),
+        "{busy}"
+    );
+    let vacuum = call(&mut m, &mut s, "sql-vacuum-refused", "");
+    assert!(
+        vacuum.contains("not authorized: ATTACH and DETACH")
+            && vacuum.contains("not authorized: PRAGMA foreign_keys: "),
+        "{vacuum}"
+    );
     assert!(!root.0.join("cache/no").exists());
     m.unload();
     m.activate().unwrap();

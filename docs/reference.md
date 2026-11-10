@@ -1199,6 +1199,18 @@ answers; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
+The host sets a database's options (foreign keys on, temporary data in memory),
+and app SQL may not change them or reach another file. `ATTACH`, virtual tables,
+`load_extension`, `BEGIN`, `COMMIT`, `ROLLBACK` and `SAVEPOINT` (use `transaction`)
+and every `PRAGMA` but `user_version`, `application_id`, `table_info`, `table_xinfo`,
+`index_list`, `index_info`, `foreign_key_list`, `foreign_key_check`,
+`integrity_check` and `quick_check` are refused with `Unavailable`; the message names
+what was refused, the rule, and in a `transaction` the statement's place and SQL.
+Remove such lines from generated migrations. Drizzle's `PRAGMA foreign_keys=OFF;`
+would do nothing in a `transaction` anyway, as SQLite ignores it while a transaction
+is open ([pragma foreign_keys](https://sqlite.org/pragma.html#pragma_foreign_keys)),
+so a migration that rebuilds a table other rows reference must not rely on it.
+
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.

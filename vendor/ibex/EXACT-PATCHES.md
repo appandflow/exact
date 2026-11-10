@@ -492,6 +492,20 @@ and closing it, so resolving a path, a refused one's included, never touches
 another library's locks. exact2 tests both through `exact-js`
 (`tests/it/native_storage.rs`). Replay on a refresh.
 
+## Local patch 27, a refused statement names what was refused and why
+
+`ibex2-sqlite`'s authorizer refuses what it did (`ATTACH`, `DETACH`,
+virtual tables, `SAVEPOINT`, `BEGIN`/`COMMIT`/`ROLLBACK` outside the
+provider's own transaction, `load_extension`, and every `PRAGMA` outside
+`PRAGMAS`), and records what it refused and the rule on the preparing
+thread; the error answers that in place of SQLite's bare "not authorized".
+A failure in `transaction` names the statement by its place in the batch
+and its SQL (the first 200 characters). Since that SQL is the app's, a
+failure SQLite reports as busy or locked begins `SQLite EBUSY: ` and any
+other `SQLite: `, and exact2's prelude reads the code from that prefix
+alone. exact2's web worker (`host/web/storage-worker.js`) answers the same
+words and sets the code from SQLite's result. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

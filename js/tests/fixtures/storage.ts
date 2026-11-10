@@ -549,6 +549,41 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       if(typeof max!=="bigint"||typeof min!=="bigint"||!(blob instanceof Uint8Array))throw new Error("SQL value types changed");
       return {text:[max,min,real,Array.from(blob).join(",")].join("/")};
     }
+    if (op === "sql-batch-refused") {
+      try { await db.transaction([{sql:"CREATE TABLE IF NOT EXISTS a (x)"}, {sql:"PRAGMA foreign_keys=OFF"}]); return {text:"allowed"}; }
+      catch(e:any) { return {text:e.message}; }
+    }
+    if (op === "sql-batch-long") {
+      const sql = "INSERT INTO missing VALUES ('" + "\u{1F600}".repeat(200) + "')";
+      try { await db.transaction([{sql}]); return {text:"allowed"}; } catch(e:any) { return {text:e.message}; }
+    }
+    // What the app wrote (a comment, a literal, a name SQLite repeats) never
+    // decides a failure's code.
+    if (op === "sql-busy") {
+      try { await db.transaction([{sql: "INSERT INTO notes VALUES ('held')"}]); return {text: "allowed"}; }
+      catch (e:any) { return {text: e.code + " " + e.message}; }
+    }
+    if (op === "sql-code-words") {
+      const words = "busy, database is locked, denied: ";
+      const codes: string[] = [];
+      await db.execute("CREATE TABLE IF NOT EXISTS words(w TEXT NOT NULL UNIQUE)");
+      for (const run of [
+        () => db.transaction([{sql: `PRAGMA foreign_keys=OFF /* ${words} */`}]),
+        () => db.transaction([{sql: "INSERT INTO words VALUES (?)", params: [words]}, {sql: `INSERT INTO words VALUES ('${words}')`}]),
+        () => db.transaction([{sql: 'INSERT INTO "busy" VALUES (1)'}]),
+        () => db.execute('INSERT INTO "database is locked" VALUES (1)'),
+      ]) {
+        try { await run(); codes.push("allowed"); } catch (e:any) { codes.push(e.code); }
+      }
+      return {text: codes.join("/")};
+    }
+    if (op === "sql-vacuum-refused") {
+      const said: string[] = [];
+      for (const run of [() => db.execute("VACUUM INTO 'copy.db'"), () => db.query("SELECT * FROM pragma_foreign_keys")]) {
+        try { await run(); said.push("allowed"); } catch(e:any) { said.push(e.message); }
+      }
+      return {text:said.join("\n")};
+    }
     if (op === "sql-refusals") {
       const kinds=[];
       for(const sql of ["INSERT INTO notes VALUES ('write from query')", "ATTACH DATABASE '/tmp/escape' AS other", "PRAGMA writable_schema=ON", "SELECT 1; SELECT 2"]) {

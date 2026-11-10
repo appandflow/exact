@@ -1538,6 +1538,7 @@ dependencies = [
  "ibex2-sqlite",
  "libc",
  "miniz_oxide 0.8.9",
+ "rusqlite",
  "serde_json",
  "sha2",
  "windows-sys 0.61.2",

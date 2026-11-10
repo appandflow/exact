@@ -22,13 +22,24 @@ function configure(sqlite, session) {
   c.sqlite3_limit(db.pointer, c.SQLITE_LIMIT_LENGTH, limit);
   c.sqlite3_limit(db.pointer, c.SQLITE_LIMIT_SQL_LENGTH, 1024 * 1024);
   c.sqlite3_limit(db.pointer, c.SQLITE_LIMIT_ATTACHED, 0);
-  const denied = new Set([c.SQLITE_ATTACH, c.SQLITE_DETACH, c.SQLITE_CREATE_VTABLE,
-    c.SQLITE_DROP_VTABLE, c.SQLITE_SAVEPOINT]);
+  const together = 'use transaction([...]) for statements that commit together';
+  const denied = new Map([
+    [c.SQLITE_ATTACH, 'ATTACH and DETACH: a connection reaches only its own file'],
+    [c.SQLITE_DETACH, 'ATTACH and DETACH: a connection reaches only its own file'],
+    [c.SQLITE_CREATE_VTABLE, 'a virtual table: no virtual table modules are loaded'],
+    [c.SQLITE_DROP_VTABLE, 'a virtual table: no virtual table modules are loaded'],
+    [c.SQLITE_SAVEPOINT, `SAVEPOINT: ${together}`]]);
+  // What is refused, and why, is the error's message (`validate`); the words
+  // are the native provider's (ibex2-sqlite).
+  const refuse = why => { session.refused = why; return c.SQLITE_DENY; };
   db.checkRc(c.sqlite3_set_authorizer(db.pointer, (_unused, action, first, second) => {
-    if (denied.has(action) || (action === c.SQLITE_TRANSACTION && !session.internal)) return c.SQLITE_DENY;
-    if (action === c.SQLITE_FUNCTION && String(second).toLowerCase() === 'load_extension') return c.SQLITE_DENY;
+    if (denied.has(action)) return refuse(denied.get(action));
+    if (action === c.SQLITE_TRANSACTION && !session.internal) return refuse(`BEGIN, COMMIT and ROLLBACK: ${together}`);
+    if (action === c.SQLITE_FUNCTION && String(second).toLowerCase() === 'load_extension') return refuse('load_extension: extensions are not loaded');
     if (action === c.SQLITE_PRAGMA && !allowedPragmas.has(String(first).toLowerCase())
-      && !(session.serializing && first === 'page_count')) return c.SQLITE_DENY;
+      && !(session.serializing && first === 'page_count')) {
+      return refuse(`PRAGMA ${first}: the host sets the connection's options; app SQL may run only PRAGMA ${[...allowedPragmas].join(', ')}`);
+    }
     return c.SQLITE_OK;
   }, 0));
 }
@@ -43,9 +54,11 @@ function validate(sqlite, session, sql) {
     const [statement, tail] = w.scopedAllocPtr(2);
     while (cursor && w.peek8(cursor)) {
       w.pokePtr(statement, 0);
+      session.refused = undefined;
       const rc = c.sqlite3_prepare_v3(session.db.pointer, cursor, -1, 0, statement, tail);
       const pointer = w.peekPtr(statement);
       if (pointer) { c.sqlite3_finalize(pointer); count++; }
+      if (rc && session.refused) fail(`not authorized: ${session.refused}`);
       session.db.checkRc(rc);
       cursor = w.peekPtr(tail);
     }
@@ -70,8 +83,21 @@ function params(values) {
   return values;
 }
 
+// SQLite may also refuse while a statement steps (`VACUUM INTO` attaches its
+// target then), so a refusal recorded at any point names itself.
 function run(sqlite, session, sql, values, query) {
   validate(sqlite, session, sql);
+  session.refused = undefined;
+  try { return step(sqlite, session, sql, values, query); }
+  catch (error) {
+    const why = session.refused;
+    session.refused = undefined;
+    if (why) fail(`not authorized: ${why}`);
+    throw error;
+  }
+}
+
+function step(sqlite, session, sql, values, query) {
   const statement = session.db.prepare(sql), c = sqlite.capi;
   try {
     values = params(values);
@@ -176,7 +202,15 @@ async function dispatch(owner, { appId, op, args }) {
     internal(session, 'BEGIN IMMEDIATE');
     let results;
     try {
-      results = commands.map(command => run(sqlite, session, command.sql, command.params ?? [], false));
+      results = commands.map((command, i) => {
+        try { return run(sqlite, session, command.sql, command.params ?? [], false); }
+        catch (error) {
+          const points = Array.from(String(command.sql).trim()); // 200 code points, as the native provider counts
+          const shown = points.length > 200 ? `${points.slice(0, 200).join('')}…` : points.join('');
+          error.message = `statement ${i + 1} of ${commands.length} (${shown}): ${error.message}`;
+          throw error;
+        }
+      });
       internal(session, 'COMMIT');
     } catch (error) { internal(session, 'ROLLBACK'); throw error; }
     await persist(sqlite, databases, id, session);
@@ -192,6 +226,10 @@ async function dispatch(owner, { appId, op, args }) {
   if (!query) await persist(sqlite, databases, id, session);
   return result;
 }
+
+// The code is SQLite's own result, never read from the message, which
+// carries the app's SQL (ts-data.js `codedError` keeps a code it is given).
+const sqliteCode = error => [5, 6].includes(error.resultCode & 0xff) ? 'EBUSY' : 'failed';
 
 onmessage = ({ data }) => {
   let owner = clients.get(data.client);
@@ -215,7 +253,7 @@ onmessage = ({ data }) => {
       postMessage({ client: data.client, id: data.id, value: await dispatch(owner, data) });
     } catch (error) {
       postMessage({ client: data.client, id: data.id,
-        error: { kind: 'Unavailable', code: error.code, message: String(error.message || error) } });
+        error: { kind: 'Unavailable', code: error.code ?? sqliteCode(error), message: String(error.message || error) } });
     }
   });
 };

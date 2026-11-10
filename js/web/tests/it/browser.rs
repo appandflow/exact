@@ -605,6 +605,13 @@ try {
     if(await storageCall('refused')!=='denied')throw new Error('filesystem grant');
     if(await storageCall('types')!=='9223372036854775807/-9223372036854775808/1.25/0,255')throw new Error('SQLite value parity');
     if(await storageCall('sql-refusals')!=='Unavailable/Unavailable/Unavailable/Unavailable')throw new Error('SQLite policy parity');
+    const batchRefused=await storageCall('sql-batch-refused');
+    if(!batchRefused.includes('statement 2 of 2 (PRAGMA foreign_keys=OFF): not authorized: PRAGMA foreign_keys: ')||!batchRefused.includes('app SQL may run only PRAGMA user_version'))throw new Error(`SQLite refusal message parity: ${batchRefused}`);
+    const longRefused=await storageCall('sql-batch-long');
+    if(!longRefused.includes(`statement 1 of 1 (INSERT INTO missing VALUES ('${'\u{1F600}'.repeat(171)}…): `))throw new Error(`SQLite statement shown by code points: ${longRefused}`);
+    if(await storageCall('sql-code-words')!=='failed/failed/failed/failed')throw new Error('SQL text decided a storage code');
+    const vacuumRefused=await storageCall('sql-vacuum-refused');
+    if(!vacuumRefused.includes('not authorized: ATTACH and DETACH')||!vacuumRefused.includes('not authorized: PRAGMA foreign_keys: '))throw new Error(`SQLite step-time refusal parity: ${vacuumRefused}`);
     const fetchStart=await invoke(storage,'work',['fetch','a'],[],['session']);
     if(fetchStart.request?.url!=='https://example.test/a')throw new Error('storage to fetch continuation');
     const fetchEnd=await invoke(storage,'work',['fetch','a'],[],['session'],response('reply'));
@@ -710,7 +717,7 @@ try {
     // has no store) while the close still runs, and the next open finds the database free.
     const openChain=close=>`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
       if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(${close?"async db=>{try{store.set('session','orphan');}finally{await db.close();}}":"db=>{store.set('session','orphan');return db.close();}"});throw new Error('abandoned open');}
-      return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),()=>({text:'busy'}));}};`;
+      return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),e=>({text:e.code}));}};`;
     const abandonedOpen=await prepare(await payload(openChain(true),storageIdentity),storageIdentity);
     await invoke(abandonedOpen,'work',[],[],['session']);
     if((await invoke(abandonedOpen,'work',[],[],['session'])).tag!==2)throw new Error('open abandonment fixture');
@@ -729,8 +736,10 @@ try {
     const leakingOpen=await prepare(await payload(openChain(false),storageIdentity),storageIdentity);
     await invoke(leakingOpen,'work',[],[],['session']);
     await invoke(leakingOpen,'work',[],[],['session']);
-    let leakLines=[];
-    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){await drained(leakingOpen,'work',[],[],['session']);leakLines=leakLines.concat(leakingOpen.journal());}
+    let leakLines=[];const leakAnswers=[];
+    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){leakAnswers.push((await drained(leakingOpen,'work',[],[],['session'])).value?.text);leakLines=leakLines.concat(leakingOpen.journal());}
+    // The open the leaked one holds back is refused as busy, the code its lock gives.
+    if(!leakAnswers.includes('EBUSY')||leakAnswers.some(t=>t!=='EBUSY'&&t!=='current'&&t!==undefined))throw new Error(`a held database's open is EBUSY: ${JSON.stringify(leakAnswers)}`);
     if(!leakLines.some(l=>l.includes('app:/data/notes.db is still open')&&l.includes('finally { db.close() }')))throw new Error(`a let-go chain's open database was not journaled: ${JSON.stringify(leakLines)}`);
     leakingOpen.dispose();
     const {createFileSystem}=await import('/storage-fs.js');
