@@ -827,6 +827,35 @@ receipt, and signed GPU frameworks (primary and named modules). Copy those
 frameworks intact into the embedding app's `Frameworks/`; their binaries must
 retain the baked digests.
 
+### Build an iOS app on a CI machine
+
+A Mac runner needs no phone. An app with native view tags has its build read
+their roster by trying three routes in order: a Mac Catalyst executable, an
+iOS simulator, then a macOS library. A route whose xcframework has no slice
+for it, or whose probe does not compile, load or run, falls through to the
+next. The simulator route uses the simulator `--sim` or `EXACT_SIM` names,
+else a booted one, else boots one and shuts it down again, which needs an
+installed iOS runtime. When every route fails, an archive or a `--release`
+build stops; a development build warns and keeps the manifest's
+roster. From the app's directory:
+
+```sh
+bun exact.mjs ios --device --archive out.ipa --unsigned   # an ad-hoc signed .ipa, for a service that re-signs it
+bun exact.mjs ios --no-install                            # a development simulator .app; the build prints its path
+```
+
+`EXACT_IDENTITY` and `EXACT_PROFILE` in place of `--unsigned` sign the `.ipa`
+on the runner. The runner needs Xcode 27.1 or later selected (`DEVELOPER_DIR`,
+or `xcode-select -s`), rustup and Bun 1.4.2; then `bun <exact2>/scripts/exact.mjs setup` installs the
+pinned Rust with its iOS targets and the Hermes bundles, and `setup --check`
+names what is still missing. An archive needs a square icon of at least
+512 px in `icons` (or `host.ios.icon`), which the build checks before it
+compiles. An archive, and a simulator build with `--release` (the build that
+ships), bake production trust: with an update store (`deploy.store.ios` not
+`"0"`) each needs `EXACT_UPDATE_RECEIPT` or `EXACT_UPDATE_GENESIS=1`. A cold
+build takes tens of minutes, most of it Rust and the Swift host. Keeping the
+app's `target/` and `~/.cache/exact` between runs makes the next one minutes.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
