@@ -1620,15 +1620,29 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
   (Signal Clone Privacy, 2026-10-04.)
 
-- **The software keyboard never shows on a simulator that drives have used.**
-  A field takes focus (its caret blinks) but no keyboard rises, and
-  `keyboardWillShow` never fires, so a keyboard-riding toolbar cannot be
-  measured. Cause: after agent and `axe` drives the simulator was in
-  hardware-keyboard mode, likely left by the HID input they inject; a
-  headless simulator has no Simulator.app setting to show. Fix: reboot it
-  (`xcrun simctl shutdown <udid>; xcrun simctl boot <udid>`), or toggle
-  Connect Hardware Keyboard where Simulator.app is installed. (Signal Clone
-  keyboard timing, 2026-10-05.)
+- **The software keyboard does not rise after `axe type`.** A field takes
+  focus (its caret blinks) but no keyboard rises, and `keyboardWillShow`
+  never fires, so nothing that rides the keyboard can be measured. Cause:
+  `axe type` sends HID key events, and after them the simulator shows no
+  software keyboard until its hardware keyboard is turned off. A reboot
+  does not always clear it. Fix: turn the hardware keyboard off with
+  CoreSimulator's private
+  `-[SimDevice setHardwareKeyboardEnabled:keyboardType:error:]` (`NO`,
+  type `0`); the keyboard rises for the focused field, which keeps its
+  text. A short Objective-C tool reaches the device: `dlopen`
+  `/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator`,
+  call `+[SimServiceContext sharedServiceContextForDeveloperDir:error:]`
+  with the Xcode's `Contents/Developer` and then
+  `-defaultDeviceSetWithError:`, and take the entry of `-devices` whose
+  `-UDID` matches. Call it again after each `axe type`, or type by tapping
+  the keyboard's keys with `axe tap`, which leaves the keyboard up. A
+  Device Hub window gives the same symptom another way: it writes the
+  device's `com.apple.keyboard.preferences`
+  `AutomaticMinimizationEnabled = 1`, which keeps the software keyboard
+  minimized until the key is deleted (LLP 1078, "As built (app half)";
+  `scripts/smoke-duo.mjs`). Setting that key to false does not undo
+  `axe type`. (Signal Clone keyboard timing, 2026-10-05; Lexy sign-in,
+  2026-11-09.)
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
