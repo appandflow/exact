@@ -19,9 +19,10 @@ import java.nio.IntBuffer
  * bar where it is, under the keyboard.
  *
  * exact2 says what the bars are with each stream ([Native.bars], [Owner.Pub.bars]), when that is not what it last
- * said, so a bar and the page under it change in one frame: which bar, its frame in this window in pixels, and its
- * picture. A bar it leaves out is gone. A touch in a bar goes back by one call ([Exact.bar]) at the bar's own
- * pixels; exact2 knows what is there. `host/linux/src/presenter/bars.rs` is exact2's side.
+ * said, so a bar and the page under it change in one frame: which bar, its frame in this window in pixels, how long
+ * a finger rests on it before its pan begins ([Hold]), and its picture. A bar it leaves out is gone. A touch in a bar
+ * goes back by one call ([Exact.bar]) at the bar's own pixels; exact2 knows what is there.
+ * `host/linux/src/presenter/bars.rs` is exact2's side.
  *
  * A statement often arrives while the page's view is being drawn, and a bar it shows or moves must be in that same
  * frame, or the page is shown for a frame without its bar. So both views are made with the reader, in a layer of
@@ -38,10 +39,13 @@ internal class Bars(activity: ExactActivity, root: FrameLayout) {
         it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         root.addView(it, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
+    private val slop = android.view.ViewConfiguration.get(activity).scaledTouchSlop
+    private val holds = arrayOf(Hold(TOP), Hold(BOTTOM))
     private val panes = arrayOf(pane(activity, TOP), pane(activity, BOTTOM))
 
     private fun pane(activity: ExactActivity, which: Int): Pane {
-        val pane = Pane(activity, faces, { action, x, y -> Exact.bar(which, action, x, y) }, null)
+        val holds = holds[which - 1]
+        val pane = Pane(activity, faces, { action, x, y -> if (!holds.touch(action, x, y)) Exact.bar(which, action, x, y) }, null)
         pane.visibility = View.INVISIBLE
         layer.addView(pane, FrameLayout.LayoutParams(0, 0).apply { gravity = Gravity.TOP or Gravity.LEFT })
         return pane
@@ -52,15 +56,16 @@ internal class Bars(activity: ExactActivity, root: FrameLayout) {
         val shown = BooleanArray(panes.size)
         var at = 1
         repeat(w[0]) {
-            val which = w[at]; val n = w[at + 5]
+            val which = w[at]; val n = w[at + 6]
             val pane = panes.getOrNull(which - 1)
             if (pane != null) {
                 shown[which - 1] = true
+                holds[which - 1].ms = w[at + 5]
                 place(pane, w[at + 1], w[at + 2], w[at + 3], w[at + 4])
-                pane.show(IntBuffer.wrap(w, at + 6, n).slice())
+                pane.show(IntBuffer.wrap(w, at + 7, n).slice())
                 if (pane.visibility != View.VISIBLE) pane.visibility = View.VISIBLE
             }
-            at += 6 + n
+            at += 7 + n
         }
         for ((i, pane) in panes.withIndex()) if (!shown[i] && pane.visibility == View.VISIBLE) pane.visibility = View.INVISIBLE
     }
@@ -76,6 +81,66 @@ internal class Bars(activity: ExactActivity, root: FrameLayout) {
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
         )
         pane.layout(x, y, x + width, y + height)
+    }
+
+    /**
+     * `-exact-pan-hold` on the bar's own node (the tablist's `pan`, holding the navigation bar): a finger that rests
+     * [ms] within the touch slop begins the pan (4), which the same finger then moves (2) and releases with its
+     * velocity in pixels a second (6), or cancels (3); the bar's target lets go. A touch that moves or lifts first is
+     * the bar's as before. Whether a touch is held is the reader's to time, as Android's long press is the view's.
+     */
+    private inner class Hold(private val which: Int) {
+        var ms = 0
+        private var held = false
+        private var downX = 0f
+        private var downY = 0f
+        private val samples = ArrayDeque<FloatArray>()
+        private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        private val begin = Runnable {
+            held = true
+            Exact.bar(which, 4, downX, downY)
+        }
+
+        /** Whether the touch is the hold's, not the bar's. */
+        fun touch(action: Int, x: Float, y: Float): Boolean {
+            if (held) {
+                sample(x, y)
+                when (action) {
+                    2 -> Exact.bar(which, 2, x, y)
+                    1 -> {
+                        Exact.bar(which, 2, x, y)
+                        val v = velocity()
+                        Exact.bar(which, 6, v[0], v[1])
+                        held = false
+                    }
+                    else -> { Exact.bar(which, 3, x, y); held = false }
+                }
+                return true
+            }
+            when (action) {
+                0 -> if (ms > 0) {
+                    downX = x; downY = y; samples.clear(); sample(x, y)
+                    handler.postDelayed(begin, ms.toLong())
+                }
+                2 -> if (Math.hypot((x - downX).toDouble(), (y - downY).toDouble()) > slop) handler.removeCallbacks(begin)
+                else -> handler.removeCallbacks(begin)
+            }
+            return false
+        }
+
+        private fun sample(x: Float, y: Float) {
+            samples.addLast(floatArrayOf(android.os.SystemClock.uptimeMillis().toFloat(), x, y))
+            if (samples.size > 12) samples.removeFirst()
+        }
+
+        /** Pixels a second over the last 80 ms of the touch, as the iOS host measures its hold's release. */
+        private fun velocity(): FloatArray {
+            val end = samples.lastOrNull() ?: return floatArrayOf(0f, 0f)
+            val start = samples.firstOrNull { end[0] - it[0] <= 80f } ?: return floatArrayOf(0f, 0f)
+            val dt = (end[0] - start[0]) / 1000f
+            if (dt <= 0.001f) return floatArrayOf(0f, 0f)
+            return floatArrayOf((end[1] - start[1]) / dt, (end[2] - start[2]) / dt)
+        }
     }
 
     companion object {

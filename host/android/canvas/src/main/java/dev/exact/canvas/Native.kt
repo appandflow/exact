@@ -125,7 +125,8 @@ object Native {
      * stream, so a bar and the page under it change in one frame. */
     @JvmStatic external fun bars(): IntArray?
     /** What happened in bar [which] (1 the top app bar, 2 the navigation bar), on the host's thread: a touch ([what]
-     * 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the bar's own top left. exact2 knows what is
+     * 0 down, 1 up, 2 move, 3 cancel; 4 a finger held, 6 its release with [x] and [y] its velocity in pixels a
+     * second, [Bars]) at ([x], [y]), pixels from the bar's own top left. exact2 knows what is
      * there: the Up arrow goes Back, a header's button and a destination are pressed. */
     @JvmStatic external fun bar(which: Int, what: Int, x: Float, y: Float)
     /** What exact2 tells the reader of the accessibility tree ([Access], LLP 1115.001 D13), when that is not what

@@ -805,7 +805,9 @@ macro_rules! canvas_jni {
 
             /// What happened in bar `which` (1 the top app bar, 2 the
             /// navigation bar): a touch (0 down, 1 up, 2 move, 3 cancel)
-            /// at (`x`, `y`), pixels from the bar's own top left.
+            /// at (`x`, `y`), pixels from the bar's own top left; a finger
+            /// held there (4), and its release (6, `x` and `y` its velocity
+            /// in pixels a second).
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_bar(
                 _env: *mut JNIEnv,
