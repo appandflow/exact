@@ -73,7 +73,7 @@ extension Presenter {
                     var r = routes[ObjectIdentifier(route)] ?? (nil, nil)
                     // The bar follows the route's scroller drawn under it, as UIKit's follows a list that is the controller's own.
                     if !found.top.isEmpty || found.band.top > 0.5, navigation.contentScroller(of: route) === v { r.top = sv }
-                    if !found.bottom.isEmpty { r.bottom = sv }
+                    if !found.bottom.isEmpty || found.underBar { r.bottom = sv }
                     routes[ObjectIdentifier(route)] = r
                 } else { found = pageBands(of: v, sv, margins: m, area: area, edgeEffect ? judge : nil); own = found.band }
             }
@@ -92,7 +92,7 @@ extension Presenter {
     }
 
     /// A scroller's bands, and the control bars it is drawn through on each edge.
-    struct Bands { var band = UIEdgeInsets.zero, top: [NodeView] = [], bottom: [NodeView] = [] }
+    struct Bands { var band = UIEdgeInsets.zero, top: [NodeView] = [], bottom: [NodeView] = [], underBar = false }
 
     /// A page's scroller, laid out in the document with nothing between them
     /// that clips, transforms, scrolls or hides. LLP 1130 D3: an edge at the
@@ -134,7 +134,24 @@ extension Presenter {
         if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always, c.ridingBars.isEmpty { return Bands() }
         #endif
         if !c.ridingBars.isEmpty, case .edges(let edges)? = navigation.covers[c.node.id], edges.top > 0.5 { return Bands() }
-        return controlBands(of: v, in: c.node, judge, apart: c.collapseScroll !== v)
+        let found = controlBands(of: v, in: c.node, judge, apart: c.collapseScroll !== v)
+        return found.band == .zero ? footBand(of: v, in: c, judge) ?? found : found
+    }
+
+    /// Under `viewport-fit=cover` the route keeps its bottom cover (the tab
+    /// bar and its accessory, past the home indicator its `env()` already
+    /// has) and UIKit insets no scroller there (`reachBottom`): a scroller
+    /// with nothing under it to the route's edge is drawn on through that
+    /// cover, inset by it, as a hand-built list runs under a tab bar and
+    /// the web's runs under a fixed footer. Layout and `env()` are as
+    /// they were; the bar's edge effect follows the scroller.
+    private func footBand(of v: NodeView, in c: RouteController, _ judge: ControlBars) -> Bands? {
+        guard viewportFit == "cover", c.edgeScroll == nil, v.scrollView != nil,
+              case .edges(let edges)? = navigation.covers[c.node.id], edges.bottom > 0.5,
+              judge.bars(of: v, in: c.node, top: false)?.isEmpty == true else { return nil }
+        let foot = c.node.bounds.height - v.convert(v.bounds, to: c.node).maxY
+        guard foot > 0.5, foot <= edges.bottom + 0.5 else { return nil }
+        return Bands(band: UIEdgeInsets(top: 0, left: 0, bottom: foot, right: 0), underBar: true)
     }
 
     /// Collapse adoption and banding must agree about both edges and paint
