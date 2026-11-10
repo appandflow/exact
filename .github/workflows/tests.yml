@@ -24,8 +24,19 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      # This runner is shut down partway through building the workspace's test
+      # binaries, as one out of disk or memory is. The dev profile's line tables
+      # are the part of that build the tests can do without.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk space
+        # Toolchains the image ships and this job never uses.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - name: System packages
         # The Linux host's DRM/KMS, input and font dependencies.
