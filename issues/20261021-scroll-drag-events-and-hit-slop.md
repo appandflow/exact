@@ -16,4 +16,28 @@ Report drag start and drag end, with velocity, as typed scroll events, matching 
 
 ## 2026-11-10: hit slop landed
 
-The hit-slop half landed in a072d7de (Charlie's ruling, 2026-11-10: build it). `-exact-hit-slop` takes one to four nonnegative lengths as `padding` does, with `-exact-hit-slop-top`, `-right`, `-bottom` and `-left` for one side; React Native's `hitSlop` written as an attribute is redirected to it. It grows where a pointer reaches the node and moves nothing: layout, paint and accessibility never see it, and `tap <target>` still aims at the box's middle. The front box still takes the pointer where boxes overlap, slop and all, and an `overflow` other than `visible` on the node or an ancestor clips it. The kernel's hit walk (`elementFromPoint`), iOS and macOS `NodeView.hitTest`, and the Linux presenter (which Windows and Android share) grow the box; the web draws the slop as a positioned pseudo-element, which reaches from the padding edge, and refuses it on replaced elements. The scroll half (drag start, drag end and velocity) is still open.
+The hit-slop half landed in ec2849c1 (Charlie's ruling, 2026-11-10: build it). `-exact-hit-slop` takes one to four nonnegative lengths as `padding` does, with `-exact-hit-slop-top`, `-right`, `-bottom` and `-left` for one side; React Native's `hitSlop` written as an attribute is redirected to it. It grows where a pointer reaches the node and moves nothing: layout, paint and accessibility never see it, and `tap <target>` still aims at the box's middle. The front box still takes the pointer where boxes overlap, slop and all, and an `overflow` other than `visible` on the node or an ancestor clips it. The kernel's hit walk (`elementFromPoint`), iOS and macOS `NodeView.hitTest`, and the Linux presenter (which Windows and Android share) grow the box; the web draws the slop as a positioned pseudo-element, which reaches from the padding edge, and refuses it on replaced elements.
+
+## 2026-11-10: the scroll half landed
+
+Commit 2aa560c2 adds `scrolldragstart` and `scrolldragend` on a scroller
+(Charlie, 2026-11-10), named for the delegate calls they report:
+`scrollViewWillBeginDragging` and
+`scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)`. The start
+takes no payload. The end's action may take a `ScrollDragEvent`: `velocityX` and
+`velocityY` in UIKit's units, points (CSS px) per ms, positive as `scrollLeft`
+and `scrollTop` grow, and `targetLeft` and `targetTop`, `some` where the scroll
+will rest when the host knows it before the momentum runs, else `none`.
+
+iOS reports UIKit's velocity and target (after any snap). macOS takes a
+trackpad drag, with the velocity from its last 100 ms and no target. The web
+takes a touch drag, with the finger's velocity over its last 100 ms of moves
+and no target. Linux and Windows have no scroll drag and send neither; the
+presenter they share with Android takes Android's scroller reports, which its
+Kotlin does not send yet (QUEUE). A wheel, the keyboard and a programmatic
+scroll send neither. `docs/contract-grammar.md` (events) and
+`docs/reference.md` ("Scroll drags and swipes") document them.
+
+A web drive on both targets measured 1.00 px/ms for a finger moving 200 px in
+200 ms, 0.50 for one moving 150 px in 300 ms, and 0 for one that rested
+300 ms before lifting.

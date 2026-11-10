@@ -13,3 +13,22 @@ Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`;
 Discord's iOS app replies to a message by swiping it left. Exact has `swiperight`;
 Excord builds the left swipe from `pan` and `panrelease`, which runs one action per
 drag frame where the platform's gesture would run one at its end.
+
+## 2026-11-10: `swipeleft` landed; iOS not yet run
+
+Commit 2aa560c2 adds `swipeleft` (Charlie, 2026-11-10), the mirror of
+`swiperight`: the node follows the finger leftward, the 64 pt knee and the
+resistance past it are `swiperight`'s, and one action runs as the finger lifts
+past the knee. Direction is physical, as `swiperight`'s, in either writing
+direction. It runs on the web (both targets), iOS, macOS and the presenter
+Linux, Windows and Android share.
+
+Verified: the runner and compiler tests (`contract/cli/tests/it/scroll_drag.rs`,
+`swipeleft mirrors swiperight`); the web host's (`host/web/collection.test.mjs`,
+`host/web/tests/it/holds.rs`) and the JS target's conformance step
+(`host/web-js/conformance/swipeleft.steps`); the presenter's
+(`host/linux/src/presenter/swipe_left_tests.rs`); a web drive on both targets,
+where a 150 px leftward drag ran the action once and a 30 px one or a rightward
+one ran nothing; and a macOS drive. Not run: iOS, whose XCTest
+(`SwipeScrollDragTests`) and touch drive need this machine's CoreSimulator
+updated (QUEUE). Close this once they pass.
