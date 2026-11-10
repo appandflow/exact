@@ -387,7 +387,12 @@ fn a_modal_route_blocks_the_shell_tab_bar_until_dismissed() {
         );
         let (mut p, _) = barred(&source);
         tap(&mut p, "open").unwrap();
-        touch(&mut p, BOTTOM, Some("tab-other"));
+        if presentation == "modal" {
+            // A modal route covers the navigation bar, as a sheet covers iOS's tab bar.
+            assert!(p.bars().1.is_none());
+        } else {
+            touch(&mut p, BOTTOM, Some("tab-other"));
+        }
         let modal = presentation != "push";
         assert_eq!(top(&mut p).title, if modal { "Detail" } else { "Other" });
         if !modal {
@@ -1009,4 +1014,47 @@ fn a_held_finger_on_the_navigation_bar_pans_the_tablist() {
     p.run_commands(|| Nothing);
     assert_eq!(text(&p, "said"), "nothing pan 0 0 pan -30 0 release -500");
     assert_eq!(top(&mut p).title, "Home", "the held tab is not chosen");
+}
+
+#[test]
+fn a_modal_route_starts_below_the_status_bar_and_covers_the_navigation_bar() {
+    let source = APP
+        .replace(
+            r#"    quiet "/quiet""#,
+            r#"    quiet "/quiet"
+    sheet "/sheet""#,
+        )
+        .replace(
+            r#"main navigationKey=`${top(nav).id}` navigationBack="back""#,
+            r#"main navigationKey=`${top(nav).id}` navigationBack="back" viewport-fit="cover""#,
+        )
+        .replace(
+            r#"                    column height=2000"#,
+            r#"                    button press=open("/sheet") testId="open-sheet" height=40
+                      text "Sheet"
+                    column height=2000"#,
+        )
+        .replace(
+            r#"              if e.name == "quiet""#,
+            r#"              if e.name == "sheet"
+                column navigationKey=`${e.id}` navigationPresentation="modal" testId="route-sheet" position="absolute" inset=0
+                  text "In the sheet" testId="sheet-body"
+              if e.name == "quiet""#,
+        );
+    assert_eq!(source.matches("sheet").count(), 8, "every replacement took");
+    let (mut p, _) = barred(&source);
+    assert!(p.bar_plans().1.is_some(), "the navigation bar shows");
+    tap(&mut p, "open-sheet").unwrap();
+    let body = id(&p, "sheet-body");
+    let body = p.rect_of(body).unwrap();
+    assert!(
+        near(body.1, WINDOW.bars[0]),
+        "below the status bar: {body:?}"
+    );
+    assert!(
+        p.bar_plans().1.is_none(),
+        "the sheet covers the navigation bar"
+    );
+    assert!(p.system_back(0.0));
+    assert!(p.bar_plans().1.is_some(), "the navigation bar is back");
 }

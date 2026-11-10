@@ -15,7 +15,9 @@
 //!   holds neither) is taken out;
 //! - the tablist the navigation bar replaces, likewise;
 //! - each route is inset by the room its bars take: the top bar's at its
-//!   top edge, the navigation bar's at its bottom.
+//!   top edge, the navigation bar's at its bottom;
+//! - a modal route is inset by the status bar at its top and, while it
+//!   shows, there is no navigation bar.
 //!
 //! The room is the shell's to say ([`Host::set_bar_room`]: it depends on
 //! the window, the system's insets and the keyboard, which the presenter
@@ -82,10 +84,11 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The room a shell's bars take of a route (the top bar from its top
-    /// edge, the navigation bar from its bottom; points), or `None` for a
-    /// shell with no bars. The tree is projected again and, where what the
-    /// bars cover changed, laid out: whether it was.
-    pub fn set_bar_room(&mut self, room: Option<(f32, f32)>) -> Result<bool, String> {
+    /// edge, the navigation bar from its bottom, the status bar from its top
+    /// edge; points), or `None` for a shell with no bars. The tree is
+    /// projected again and, where what the bars cover changed, laid out:
+    /// whether it was.
+    pub fn set_bar_room(&mut self, room: Option<(f32, f32, f32)>) -> Result<bool, String> {
         if self.navigation.bars.room == room {
             return Ok(false);
         }
@@ -135,7 +138,7 @@ impl<D: DataSource> Host<D> {
             );
         }
         let (mut routes, mut tabs, mut stacks) = (Vec::new(), None, Vec::new());
-        if let (Some(root), Some((above, below))) = (root, room) {
+        if let (Some(root), Some((above, below, status))) = (root, room) {
             let back = kernel
                 .node(root)
                 .and_then(|n| n.props.str(PropId::NavigationBack))
@@ -152,7 +155,21 @@ impl<D: DataSource> Host<D> {
                             && n.style.written.has(StyleId::Appearance))
                 })
             });
-            let below = if found.is_some() { below } else { 0.0 };
+            let modal = |route: &ViewId| {
+                kernel
+                    .node(*route)
+                    .and_then(|n| n.props.str(PropId::NavigationPresentation))
+                    == Some("modal")
+            };
+            // A modal route that shows covers the navigation bar, as a sheet
+            // covers iOS's tab bar.
+            let sheet = (all.iter().flatten())
+                .any(|r| modal(r) && self.navigation.visibility(kernel, *r) == (false, false));
+            let below = if found.is_some() && !sheet {
+                below
+            } else {
+                0.0
+            };
             if let Some(tabs) = &found {
                 wanted.insert(tabs.tablist, HostCover::Whole);
             }
@@ -174,7 +191,9 @@ impl<D: DataSource> Host<D> {
                     // Android's Back is the system's, not a bar's button: a
                     // pushed route with no header of the bar's has no bar.
                     let shows = Bar::of(asked_none, shape.is_some(), pushed, false) == Bar::Header;
-                    let mut top = 0.0;
+                    // A modal route starts below the status bar, where iOS
+                    // places a sheet; a full-screen one pads itself.
+                    let mut top = if modal(route) { status } else { 0.0 };
                     if let Some(shape) = shape.filter(|_| shows) {
                         top = above;
                         for id in lifted(kernel, &shape) {
@@ -192,7 +211,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
             stacks = all;
-            tabs = found;
+            tabs = found.filter(|_| !sheet);
         }
         let bars = &mut self.navigation.bars;
         (bars.root, bars.routes, bars.tabs, bars.stacks) = (root, routes, tabs, stacks);

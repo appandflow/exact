@@ -159,9 +159,10 @@ pub struct RouteBar {
 #[derive(Debug, Default)]
 pub struct Projection {
     /// The room the shell's bars take of a route: the top bar from its top
-    /// edge and the navigation bar from its bottom, in points. `None`: no
-    /// shell has bars, and nothing is projected.
-    pub(crate) room: Option<(f32, f32)>,
+    /// edge, the navigation bar from its bottom, and the status bar from
+    /// the top edge, in points. `None`: no shell has bars, and nothing is
+    /// projected.
+    pub(crate) room: Option<(f32, f32, f32)>,
     /// The navigation root.
     pub root: Option<ViewId>,
     /// Its routes whose header is a bar, in every stack.
