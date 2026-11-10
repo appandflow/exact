@@ -13,3 +13,7 @@ Brooks' collapsing header hides on scroll and comes back on an upward flick. Fro
 ## Fix
 
 Report drag start and drag end, with velocity, as typed scroll events, matching what `UIScrollViewDelegate` gives (`scrollViewWillBeginDragging`, `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)`). Let a control grow its hit area beyond its box without changing layout, as a property the web host maps to a padded hit region.
+
+## 2026-11-10: hit slop landed
+
+The hit-slop half landed in a072d7de (Charlie's ruling, 2026-11-10: build it). `-exact-hit-slop` takes one to four nonnegative lengths as `padding` does, with `-exact-hit-slop-top`, `-right`, `-bottom` and `-left` for one side; React Native's `hitSlop` written as an attribute is redirected to it. It grows where a pointer reaches the node and moves nothing: layout, paint and accessibility never see it, and `tap <target>` still aims at the box's middle. The front box still takes the pointer where boxes overlap, slop and all, and an `overflow` other than `visible` on the node or an ancestor clips it. The kernel's hit walk (`elementFromPoint`), iOS and macOS `NodeView.hitTest`, and the Linux presenter (which Windows and Android share) grow the box; the web draws the slop as a positioned pseudo-element, which reaches from the padding edge, and refuses it on replaced elements. The scroll half (drag start, drag end and velocity) is still open.
