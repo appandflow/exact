@@ -179,7 +179,7 @@ extension NavigationHost {
         // again keeps its selected index but shows no tab selected (iOS 26 and 27).
         guard let owned = askTabContainer(tabs, selected: routerTab) else {
             let navs = tabPanels.compactMap(tabStack)
-            if container.viewControllers?.count != navs.count {
+            if !zip(tabControllers, navs).allSatisfy({ $0 === $1 }) || tabControllers.count != navs.count {
                 presenter.session?.log("hatch: tabContainer took the tabs' stacks but returned no container; Exact's has them back")
                 setTabControllers(container, navs, selected: max(0, routerTab))
             }
@@ -309,6 +309,7 @@ extension NavigationHost {
     /// (`UISearchTab`, which iOS 26 draws apart at the bar's end), else as view
     /// controllers. A tab's title and image are its stack's item's.
     func setTabControllers(_ container: UITabBarController, _ controllers: [UIViewController], selected: Int) {
+        tabControllers = controllers
         if #available(iOS 18.0, tvOS 18.0, *), !searchPanels.isEmpty {
             let made: [UITab] = zip(tabPanels, controllers).map { panel, controller in
                 if let kept = madeTabs[ObjectIdentifier(controller)] as? UITab { return kept }

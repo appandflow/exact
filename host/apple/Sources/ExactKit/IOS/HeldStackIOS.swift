@@ -197,7 +197,8 @@ extension NavigationHost {
         prepareRoutes(routes, in: nav)
         nav.setViewControllers(routes, animated: false)
         recordOwned(nav)
-        if let tabs = tabController, var all = tabs.viewControllers, let at = all.firstIndex(where: { $0 === held }) {
+        if let tabs = tabController, let at = tabControllers.firstIndex(where: { $0 === held }) {
+            var all = tabControllers
             let selected = tabs.selectedIndex
             all[at] = nav
             setTabControllers(tabs, all, selected: selected)
