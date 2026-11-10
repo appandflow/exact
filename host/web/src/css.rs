@@ -156,7 +156,9 @@ fn css_text_in(
             // (navigation.js `animationClocks`).
             // A name a `view-timeline` above declares is CSS's own timeline,
             // which the browser runs where it has one (`--exact-view-ok`,
-            // index.html); any other stays paused for the drag code.
+            // index.html); where it has none the animations are dropped
+            // (`--exact-view-off`), so the node shows its own values. Any
+            // other name stays paused for the drag code.
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
                 if let Some(clock) = t.clock() {
                     push_text!(&mut out, "--exact-animation-clock:{};", clock);
@@ -169,6 +171,23 @@ fn css_text_in(
                         t,
                         t
                     );
+                    if let Some(link) = crate::link::linked()
+                        .animations
+                        .filter(|_| !style.animation.0.is_empty())
+                    {
+                        let names: Vec<String> = style
+                            .animation
+                            .0
+                            .iter()
+                            .map(|a| (link.name)(a, press))
+                            .collect();
+                        push_text!(
+                            &mut out,
+                            "animation-name:var(--exact-view-off{},{});",
+                            t,
+                            names.join(",")
+                        );
+                    }
                 }
             }
             // CSS's own row, and the names its consumers read: they inherit
@@ -177,8 +196,9 @@ fn css_text_in(
                 if let Some(name) = &d.name {
                     push_text!(
                         &mut out,
-                        "view-timeline:{};--exact-view{}:{};--exact-view-play{}:var(--exact-view-ok,paused);",
+                        "view-timeline:{};--exact-view{}:{};--exact-view-play{}:var(--exact-view-ok,paused);--exact-view-off{}:var(--exact-view-off);",
                         d.css(),
+                        name,
                         name,
                         name,
                         name
@@ -511,7 +531,10 @@ pub fn keyframes_name(a: &exact_motion::animation::Animation, press: bool) -> St
 pub fn keyframes_css(a: &exact_motion::animation::Animation, press: bool) -> String {
     // A keyframe's angle turns about the node's own `rotate` axis
     // (`--exact-turn-axis`, beside a `rotate` that names one).
-    let text = a.keyframes.css().replace("rotate:", "rotate:var(--exact-turn-axis,z) ");
+    let text = a
+        .keyframes
+        .css()
+        .replace("rotate:", "rotate:var(--exact-turn-axis,z) ");
     if !press_rule(a, press) {
         return text;
     }
