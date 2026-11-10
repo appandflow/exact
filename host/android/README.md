@@ -1215,7 +1215,8 @@ The cut was the smallest one. Left in the reader:
     there, makes that colour the window's background and sets the bars' icons by the scheme. The software keyboard
     ends the page at its top, and the field being edited stays in view (once the page has been painted in the
     viewport the keyboard left: the boxes a reveal goes by are the last paint's). The keyboard's own slide is not followed
-    frame by frame (`WindowInsetsAnimation`), and a `status-bar-style` is not read.
+    frame by frame (`WindowInsetsAnimation`). Of `status-bar-style` only `hidden` is read: the status bar hides, a
+    swipe from the edge shows it for a moment, and the page's top inset stays the bar's.
   - *The device's settings* (`Device.kt`, `Native.configure`): night mode, the font scale (the root font size
     is 16 times it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that
     the screen is a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change
