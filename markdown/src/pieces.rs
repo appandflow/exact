@@ -156,6 +156,18 @@ fn block_ranges<'a, T>(pending: &mut &'a [T], block: &B, bounds: fn(&T) -> &B) -
     &remaining[..remaining.partition_point(|entry| bounds(entry).start < block.end)]
 }
 
+/// What assistive technology reads of a reader drawn from `pieces`: each
+/// piece's text as it is drawn, its syntax already hidden and a footnote its
+/// `[n]`, and an atom its accessible name (LLP 1045, "Accessibility";
+/// LLP 1045.000 D8).
+pub fn spoken(pieces: &[Piece]) -> String {
+    let name = |p: &Piece| match &p.atom {
+        Some(atom) if !atom.aria_label.is_empty() => atom.aria_label.clone(),
+        _ => p.text.clone(),
+    };
+    pieces.iter().map(name).collect()
+}
+
 /// Flattens `source` into pieces for one paragraph engine.
 pub fn pieces(source: &str) -> Vec<Piece> {
     pieces_with(source, &Atoms::default())

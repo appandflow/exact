@@ -388,9 +388,10 @@ pub fn selection(
 }
 
 /// Copy the UTF-16 range `start..end` of Markdown as plain UTF-8 text, each
-/// atom the whole source recognizes inside it as its label, or, `spoken`, as
-/// its accessible name (`Atoms::spoken`, LLP 1045.000 D8); the caller frees
-/// the returned handle.
+/// atom the whole source recognizes inside it as its label; or, `spoken`,
+/// the whole source as a reader draws it, each atom its accessible name
+/// (`exact_markdown::spoken`, LLP 1045.000 D8), the range unread. The
+/// caller frees the returned handle.
 #[allow(clippy::too_many_arguments)]
 pub fn plain(
     text: *const u8,
@@ -406,16 +407,12 @@ pub fn plain(
         return 0;
     };
     let atoms = atoms_of(atoms);
-    let atoms = if spoken {
-        std::rc::Rc::new(atoms.spoken())
+    let text = if spoken {
+        exact_markdown::spoken(&exact_markdown::pieces_with(source, &atoms))
     } else {
-        atoms
+        exact_markdown::plain_range(source, exact_markdown::Range::new(start, end), &atoms)
     };
-    hold_json(
-        exact_markdown::plain_range(source, exact_markdown::Range::new(start, end), &atoms),
-        out,
-        count,
-    )
+    hold_json(text, out, count)
 }
 
 /// Each source line's direction under a Markdown editor's `paragraphDirs`
@@ -529,7 +526,8 @@ macro_rules! markup_exports {
             $crate::markup::selection(text, len, atoms, start, end, out, count)
         }
         /// Copy a range of Markdown as plain UTF-8 text; `spoken` 1 reads
-        /// each atom as its accessible name.
+        /// the whole source as a reader draws it, each atom its accessible
+        /// name.
         #[no_mangle]
         #[allow(clippy::too_many_arguments)]
         pub extern "C" fn exact_markup_plain(

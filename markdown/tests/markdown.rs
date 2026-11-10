@@ -1471,3 +1471,22 @@ fn many_distinct_footnotes_keep_first_reference_order() {
         assert_eq!(styled.footnotes[count].label, "unused");
     }
 }
+
+/// A reader is read as it is drawn: syntax hidden, a footnote its `[n]`,
+/// a list its markers, a rule its line, an atom its accessible name.
+#[test]
+fn a_reader_is_spoken_as_its_pieces_draw_it() {
+    let said = |s: &str| exact_markdown::spoken(&pieces(s));
+    assert_eq!(said("**Bold** and *italic*"), "Bold and italic");
+    assert_eq!(said("End[^1].\n\n[^1]: Note."), "End[1].\n\n[1] Note.");
+    assert_eq!(said("---"), "──────────");
+    let atoms = exact_markdown::Atoms::parse(
+        r#"[{"name":"mention","prefix":"@"}]"#,
+        r#"[{"source":"@x","label":"x.png","ariaLabel":"Image attachment"},{"source":"@y","label":"Why","ariaLabel":""}]"#,
+    );
+    let drawn = exact_markdown::pieces_with("**see** @x and @y ok", &atoms);
+    assert_eq!(
+        exact_markdown::spoken(&drawn),
+        "see Image attachment and Why ok"
+    );
+}

@@ -58,7 +58,8 @@ enum MarkupCommands {
     }
 
     /// `range` (UTF-16) of `source` as plain text, each atom inside it its
-    /// label, or `spoken` its accessible name; the whole source when nil.
+    /// label; the whole source when nil. `spoken`: the whole source as the
+    /// reader draws it, each atom its accessible name, `range` unread.
     static func plain(_ source: String, atoms: UInt64 = 0, range: NSRange? = nil, spoken: Bool = false) -> String? {
         var text = source
         let (start, end) = range.map { (UInt32(clamping: $0.location), UInt32(clamping: NSMaxRange($0))) } ?? (0, .max)

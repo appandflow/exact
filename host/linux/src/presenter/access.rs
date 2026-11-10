@@ -459,8 +459,14 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn access_inline_words(&self, node: &NodeRef<'_>) -> String {
-        if node.props.str(PropId::Text).is_some() {
-            return self.host.kernel().bar_text(node.id).unwrap_or_default();
+        if let Some(text) = node.props.str(PropId::Text) {
+            // A Markdown text reads as the pieces `markup::expand` draws,
+            // which has no atoms: one is drawn and read as its source
+            // (LLP 1045.000's host table).
+            return match node.props.str(PropId::Markup) {
+                Some("markdown") => exact_markdown::spoken(&exact_markdown::pieces(text)),
+                _ => self.host.kernel().bar_text(node.id).unwrap_or_default(),
+            };
         }
         type RunLabel<'a> = (bool, Option<(ViewId, &'a str)>);
         fn collect<'a>(

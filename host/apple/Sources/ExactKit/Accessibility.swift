@@ -59,8 +59,9 @@ extension NodeView {
     /// descendant's own label stands for its content, so a labelled image
     /// inside a link counts in the link's name, as on the web.
     private func contentText(naming: Bool) -> String {
-        // A Markdown text reads as its words, each inline atom its accessible name (LLP 1045.000 D8).
-        if let text = props["text"], props["markup"] == "markdown", !(props["atoms"] ?? "").isEmpty, let plain = MarkdownLink.installed?.plain(text, range: nil, atoms: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", spoken: true) { return plain }
+        // A Markdown text reads as the words it draws, its syntax hidden (LLP 1045,
+        // "Accessibility"), each inline atom its accessible name (LLP 1045.000 D8).
+        if let text = props["text"], props["markup"] == "markdown", let plain = MarkdownLink.installed?.plain(text, range: nil, atoms: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", spoken: true) { return plain }
         if let text = props["text"] { return text }
         // A native button's children are its face, not views (LLP 1069.011 D5),
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).

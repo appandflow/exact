@@ -24,8 +24,9 @@ package protocol MarkdownCapability: AnyObject {
     func editor() -> MarkdownEditing
     /// `range` (UTF-16, the whole source when nil) of `source` without its
     /// Markdown syntax, each atom the whole source recognizes inside it its
-    /// label (Copy Plain Text), or `spoken` its accessible name (what
-    /// VoiceOver reads); `atoms` and `faces` are the node's (LLP 1045.000).
+    /// label (Copy Plain Text); or, `spoken`, what VoiceOver reads: the whole
+    /// source as the reader draws it, each atom its accessible name, `range`
+    /// unread. `atoms` and `faces` are the node's (LLP 1045.000).
     func plain(_ source: String, range: NSRange?, atoms: String, faces: String, spoken: Bool) -> String?
     /// Apply a formatting command to `node`'s editor.
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool

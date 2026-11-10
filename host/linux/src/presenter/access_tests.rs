@@ -912,3 +912,40 @@ fn a_table_and_a_description_list_are_their_roles() {
     assert_eq!(parent("40").map(|n| n.role), Some(role::CELL));
     assert_eq!(parent("Electric").map(|n| n.role), Some(role::DEFINITION));
 }
+
+/// A Markdown text is read as its reader draws it (LLP 1045,
+/// "Accessibility"): syntax hidden, a link by its text, a footnote by its
+/// `[n]`, a rule by its line, and an atom, which this reader draws as its
+/// source, by its source; a Markdown text whose words are its runs is read
+/// by them.
+#[test]
+fn a_markdown_text_is_read_as_its_reader_draws_it() {
+    let faces = r#"[AtomFace(source="@x", label="x.png", icon="", title="", color="", backgroundColor="", direction="", ariaLabel="Image attachment")]"#;
+    let source = format!(
+        "atom mention prefix=\"@\"\n\ncomponent App\n  derive faces = {faces}\n  view\n    column width=320 height=600\n{}",
+        [
+            r#"text "**Bold** and *italic*" markup="markdown""#,
+            r##"text "# Title\n\nSee [the docs](https://example.com) and `code`." markup="markdown""##,
+            r#"text "End[^1].\n\n[^1]: Note." markup="markdown""#,
+            r#"text "---" markup="markdown""#,
+            r#"text "**see** @x ok" markup="markdown" atoms="mention" atomFaces=faces"#,
+            "text markup=\"markdown\"\n        text \"Hello\"",
+        ]
+        .map(|line| format!("      {line}\n"))
+        .concat()
+    );
+    let mut p = boot(&source, (320., 600.), 0);
+    let nodes = read(&mut p);
+    for name in [
+        "Bold and italic",
+        "End[1].\n\n[1] Note.",
+        "──────────",
+        "see @x ok",
+        "Hello",
+    ] {
+        named(&nodes, name);
+    }
+    assert!(nodes
+        .iter()
+        .any(|n| n.name.starts_with("Title") && n.name.ends_with("See the docs and code.")));
+}
