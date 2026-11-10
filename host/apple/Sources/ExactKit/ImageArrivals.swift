@@ -4,7 +4,8 @@ import QuartzCore
 /// one source per view, so a view with a stand-in asks for it first and for
 /// its own source once the stand-in shows; the source then replaces it with a
 /// cross-fade. A source that lands within `quick` of being asked, as a cache
-/// hit does, shows at once.
+/// hit does, or one this process already showed, shows at once, over its
+/// stand-in too.
 final class ImageArrivals {
     static let shared = ImageArrivals()
     static let quick: CFTimeInterval = 0.05
@@ -12,9 +13,8 @@ final class ImageArrivals {
     private struct Pending {
         let source: String
         let generation: Int
-        let asked: CFTimeInterval
+        var asked: CFTimeInterval
         var standIn: Bool
-        var afterStandIn = false
     }
     private var pending: [ObjectIdentifier: Pending] = [:]
     /// Sources this process has shown: asked again, they come from a cache, so
@@ -35,19 +35,22 @@ final class ImageArrivals {
         let key = ObjectIdentifier(view)
         guard var item = pending[key], item.source == view.imageSource, item.generation == view.loadGeneration else { return }
         if item.standIn {
-            item.standIn = false; item.afterStandIn = true; pending[key] = item
+            item.standIn = false; pending[key] = item
             // After the loader's pass that delivered the stand-in: asking from
             // inside it would replace the interest that pass is still settling.
-            DispatchQueue.main.async { [weak view] in
-                guard let view, let session = view.presenter?.session, view.imageSource == item.source, view.loadGeneration == item.generation else { return }
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view, let session = view.presenter?.session, view.imageSource == item.source, view.loadGeneration == item.generation else { return }
+                // The source is asked now: in hand within `quick`, as from a cache, it replaces the stand-in at once.
+                pending[key]?.asked = CACurrentMediaTime()
                 session.rasters.load(view, source: item.source, resolver: session.app.resolver)
             }
             fade(view, crossing: CACurrentMediaTime() - item.asked > Self.quick)
             return
         }
         pending[key] = nil
-        shown.insert(item.source)
-        fade(view, crossing: item.afterStandIn || CACurrentMediaTime() - item.asked > Self.quick)
+        // One this process showed comes from a cache however long its decode takes: it shows at once.
+        let again = !shown.insert(item.source).inserted
+        fade(view, crossing: !again && CACurrentMediaTime() - item.asked > Self.quick)
     }
 
     func forget(_ view: NodeView) { pending[ObjectIdentifier(view)] = nil }
