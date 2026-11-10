@@ -302,6 +302,7 @@ impl<D: DataSource> Presenter<D> {
             self.page = next;
         } else {
             self.scroll.insert(id, next);
+            self.place_view_timelines();
             self.scroll_end_input(id, s.offset, completion);
             self.collection_scroll_input(id, s.offset);
         }
