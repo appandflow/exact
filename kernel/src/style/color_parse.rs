@@ -10,50 +10,12 @@ impl Color {
         if text.eq_ignore_ascii_case("transparent") {
             return Some(Color::rgba(0, 0, 0, 0));
         }
-        Color::parse_hex(text)
-            .or_else(|| Color::parse_rgb(text))
-            .or_else(|| match exact_color::parse(text)? {
-                exact_color::Parsed::Legacy(c) => {
-                    Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
-                }
-                _ => None,
-            })
-    }
-
-    /// `rgb()` / `rgba()`, either syntax; out-of-range values clamp.
-    fn parse_rgb(text: &str) -> Option<Color> {
-        let inner = text
-            .strip_prefix("rgba(")
-            .or_else(|| text.strip_prefix("rgb("))?
-            .strip_suffix(')')?;
-        let parts: Vec<&str> = if inner.contains(',') {
-            inner.split(',').map(str::trim).collect()
-        } else {
-            let (rgb, alpha) = match inner.split_once('/') {
-                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
-                None => (inner, None),
-            };
-            rgb.split_whitespace().chain(alpha).collect()
-        };
-        let ([r, g, b], alpha) = match parts[..] {
-            [r, g, b] => ([r, g, b], None),
-            [r, g, b, a] => ([r, g, b], Some(a)),
-            _ => return None,
-        };
-        // `unit`: 1 for a channel, 255 for alpha.
-        let byte = |s: &str, unit: f32| -> Option<u8> {
-            let v = match s.strip_suffix('%') {
-                Some(p) => exact_num::parse_f32(p).ok()? / 100.0 * 255.0,
-                None => exact_num::parse_f32(s).ok()? * unit,
-            };
-            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
-        };
-        Some(Color::rgba(
-            byte(r, 1.0)?,
-            byte(g, 1.0)?,
-            byte(b, 1.0)?,
-            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
-        ))
+        Color::parse_hex(text).or_else(|| match exact_color::parse(text)? {
+            exact_color::Parsed::Legacy(c) => {
+                Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
+            }
+            _ => None,
+        })
     }
 
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.

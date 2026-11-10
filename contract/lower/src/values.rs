@@ -192,6 +192,7 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
         StyleValueError::BadBoxShadow { .. } => exact_kernel::style::BoxShadows::check(t).err(),
         StyleValueError::BadTextShadow { .. } => exact_kernel::style::TextShadow::check(t).err(),
         StyleValueError::BadCornerShape { .. } => exact_kernel::corner::CornerShape::check(t).err(),
+        StyleValueError::BadColor { .. } => exact_color::refusal(t),
         StyleValueError::BadMaskImage { .. } => {
             exact_kernel::gradient::BackgroundImage::check_mask(t).err()
         }

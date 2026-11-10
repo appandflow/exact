@@ -141,6 +141,177 @@ fn every_form_parses_into_its_own_space_and_serialises() {
 }
 
 #[test]
+fn a_form_css_refuses_is_not_a_colour() {
+    // A number is CSS Syntax 3's (§4.3.13): a `.` is followed by a digit,
+    // an `e` by an optional sign and digits.
+    for (word, value) in [
+        ("+.5", Some(0.5)),
+        ("-.5e-2", Some(-0.005)),
+        ("1e+2", Some(100.0)),
+        ("1E2", Some(100.0)),
+        ("5.0", Some(5.0)),
+        ("1e.5", None),
+        ("1.5e", None),
+        (".e1", None),
+        ("--1", None),
+        ("1.2.3", None),
+        (".", None),
+        ("e1", None),
+        ("5.e1", None),
+        ("5.", None),
+        ("1e", None),
+        ("+", None),
+        ("1-2", None),
+    ] {
+        assert_eq!(number(word), value, "{word}");
+    }
+    let mut refused = Vec::new();
+    for name in [
+        "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch",
+    ] {
+        let first = if name.starts_with("rgb") {
+            "255"
+        } else {
+            "50%"
+        };
+        let hue = matches!(name, "hsl" | "hsla" | "hwb");
+        let (a, b, c) = if hue {
+            ("120", "50%", "50%")
+        } else {
+            (first, "0", "0")
+        };
+        // A function token has no space before its `(` (§4.3.4).
+        refused.push(format!("{name} ({a} {b} {c})"));
+        // The space-separated syntax puts a `/` before the alpha (CSS Color 4 §4.1.1).
+        refused.push(format!("{name}({a} {b} {c} 0.5)"));
+        refused.push(format!("{name}({a} {b} {c} 50%)"));
+        // A trailing dot is no number, in any component or the alpha.
+        refused.push(format!("{name}(5. {b} {c})"));
+        refused.push(format!("{name}({a} {b} {c} / .5.)"));
+        // The comma-separated syntax takes no `none` (§4.1.2).
+        refused.push(format!("{name}(none, {b}, {c})"));
+        refused.push(format!("{name}({a}, {b}, {c}, none)"));
+        // The same forms written correctly read.
+        assert!(
+            parse(&format!("{name}({a} {b} {c} / 0.5)")).is_some(),
+            "{name}"
+        );
+        assert!(
+            parse(&format!("{name}(none {b} {c} / none)")).is_some(),
+            "{name}"
+        );
+        assert!(
+            parse(&format!("{name}(+{a} {b} {c} / -.5e-2)")).is_some(),
+            "{name}"
+        );
+    }
+    refused.extend(
+        [
+            "color (srgb 1 0 0)",
+            "color(srgb 1 0 0 0.5)",
+            "color(srgb 1. 0 0)",
+            "color(srgb 1, 0, 0)",
+            "color(--rec709 1. 0 0)",
+            "hsl(120. 100% 50%)",
+            "hsl(120.deg 100% 50%)",
+            "oklch(0.7 0.1 200.)",
+            "rgb(1.e2 0 0)",
+            "rgb(1e 0 0)",
+            // The comma syntax: all numbers or all percentages (CSS Color 4 §5.1).
+            "rgb(100%, 0, 0)",
+            "rgb(0, 100%, 0)",
+            "rgba(255, 0, 0%, 0.5)",
+            // hsl()'s takes percentages after its hue (§7); hwb() has none (§8).
+            "hsl(120, 100, 50)",
+            "hwb(120, 0%, 0%)",
+        ]
+        .map(String::from),
+    );
+    for bad in &refused {
+        assert_eq!(parse(bad), None, "{bad}");
+        if !bad.starts_with("color(--") {
+            assert!(refusal(bad).is_some(), "{bad} has no reason");
+        }
+    }
+    assert_eq!(parse_profiled("color(--rec709 1. 0 0)"), None);
+    assert_eq!(parse("rgb(--1 0 0)"), None);
+    let legacy = |r, g, b, a| Some(Parsed::Legacy(Rgba8 { r, g, b, a }));
+    assert_eq!(parse("rgb(none 0 0 / none)"), legacy(0, 0, 0, 0.0));
+    assert_eq!(parse("RGB(.5e1 +0 -0)"), legacy(5, 0, 0, 1.0));
+    assert_eq!(parse(" rgb(1e2 0 0) "), legacy(100, 0, 0, 1.0));
+    assert_eq!(parse("rgb( 255 , 0 , 0 , 50% )"), legacy(255, 0, 0, 0.5));
+    assert_eq!(refusal("rgb(255 0 0 / 0.5)"), None);
+    assert_eq!(refusal("not a colour"), None);
+    // A rule is named only when it is certainly the one broken; any other
+    // refusal leaves the caller's general description.
+    let rule = |text: &str| refusal(text).map(|r| r.split(':').next().unwrap());
+    const SPACE: &str = "a function's `(` follows its name with no space between";
+    const NUMBER: &str = "a number's `.` is followed by a digit, and its exponent's `e` by digits";
+    const SLASH: &str = "the space-separated syntax puts a `/` before the alpha";
+    const COMMAS: &str = "only `rgb()` and `hsl()` take the comma-separated syntax";
+    const NONE: &str = "the comma-separated syntax takes no `none`; the space-separated one does";
+    const MIXED: &str =
+        "the comma-separated syntax takes three numbers or three percentages, not both";
+    const HSL: &str =
+        "`hsl()`'s comma-separated syntax takes its saturation and lightness as percentages";
+    // Each named rule is the colour's only fault: its repair, beside it, reads.
+    for (text, want) in [
+        ("rgb (255 0 0)", Some((SPACE, "rgb(255 0 0)"))),
+        ("rgb(5. 0 0)", Some((NUMBER, "rgb(5 0 0)"))),
+        ("rgb(1e 0 0)", Some((NUMBER, "rgb(1 0 0)"))),
+        ("rgb(1.e2 0 0)", Some((NUMBER, "rgb(1e2 0 0)"))),
+        ("rgb(1e.5 0 0)", Some((NUMBER, "rgb(1e5 0 0)"))),
+        ("rgb(1.2.3 0 0)", Some((NUMBER, "rgb(1.2 0 0)"))),
+        (
+            "hsl(120.deg 100% 50%)",
+            Some((NUMBER, "hsl(120deg 100% 50%)")),
+        ),
+        ("rgb(255 0 0 0.5)", Some((SLASH, "rgb(255 0 0 / 0.5)"))),
+        ("rgb(255 0 0 none)", Some((SLASH, "rgb(255 0 0 / none)"))),
+        (
+            "color(srgb 1 0 0 50%)",
+            Some((SLASH, "color(srgb 1 0 0 / 50%)")),
+        ),
+        ("lab(50, 0, 0)", Some((COMMAS, "lab(50 0 0)"))),
+        ("hsl(none, 100%, 50%)", Some((NONE, "hsl(none 100% 50%)"))),
+        ("rgb(0, 0, 0, none)", Some((NONE, "rgb(0 0 0 / none)"))),
+        ("rgb(100%, 0, 0)", Some((MIXED, "rgb(255, 0, 0)"))),
+        ("hsl(120, 100, 50)", Some((HSL, "hsl(120, 100%, 50%)"))),
+        (
+            "hsl(120deg, 100, 50)",
+            Some((HSL, "hsl(120deg, 100%, 50%)")),
+        ),
+        // A unit, not the number, is the fault.
+        ("hsl(120px 100% 50%)", None),
+        ("rgb(10px, 0, 0)", None),
+        ("rgb(1e2px, 0, 0)", None),
+        ("rgb(10px, 0%, 0%)", None),
+        ("hsl(120, 10px, 50%)", None),
+        // `1-2` is two numbers; `1e2e3` a number with a unit `e3`; `1e309`
+        // a number CSS's grammar takes, too large for a double.
+        ("rgb(1-2 0 0)", None),
+        ("rgb(1e2e3 0 0)", None),
+        ("rgb(1e309 0 0)", None),
+        ("rgb(1e999 0 0)", None),
+        // A `/` mends none of these.
+        ("rgb(255 0 0 1 / 0.5)", None),
+        ("rgb(255 0 0 90deg)", None),
+        ("rgb(255 0 0 red)", None),
+        ("rgb(10px 0 0 0.5)", None),
+        ("rgb(red 0 0 0.5)", None),
+        ("hsl(120px 100% 50% 0.5)", None),
+        ("rgb(5. 0 0 0.5)", None),
+        // A profiled space takes up to four components.
+        ("color(--rec709 1 0 0 0.5 0.5)", None),
+    ] {
+        assert_eq!(rule(text), want.map(|(r, _)| r), "{text}");
+        if let Some((_, repaired)) = want {
+            assert!(parse(repaired).is_some(), "{text}: {repaired}");
+        }
+    }
+}
+
+#[test]
 fn the_arithmetic_is_css_colour_4s() {
     // CSS Color 4's sample code: P3 red in linear sRGB.
     assert!(close(

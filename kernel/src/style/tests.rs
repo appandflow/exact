@@ -241,9 +241,31 @@ fn a_colour_parses_as_css_writes_it() {
         "lightgoldenrodyellowish",
         "blurple",
         "oklch(0.7 0.1 200)",
+        // Forms CSS refuses (CSS Color 4 §4.1, §5.1; CSS Syntax 3 §4.3.4,
+        // §4.3.13), which the web drops: a native host does too.
+        "rgb(255 0 0 0.5)",
+        "rgb(255 0 0 50%)",
+        "rgba(255 0 0 0.5)",
+        "rgb(100%, 0, 0)",
+        "rgb(0, 100%, 0)",
+        "rgb(none, 0, 0)",
+        "hsl(none, 100%, 50%)",
+        "rgb(5. 0 0)",
+        "hsl(120. 100% 50%)",
+        "rgb (255 0 0)",
+        "hsl (120 100% 50%)",
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
+    assert_eq!(Color::parse("rgba(255 0 0 / 50%)"), half);
+    assert_eq!(
+        Color::parse("rgb(none 0 0)"),
+        Some(Color::rgba(0, 0, 0, 255))
+    );
+    assert_eq!(
+        Color::parse("RGB(.5e1 +0 0)"),
+        Some(Color::rgba(5, 0, 0, 255))
+    );
     // The rest of CSS Color 4's sRGB forms, as the web paints them: one
     // parser for every host (feed F13).
     assert_eq!(Color::parse("hsl(0, 100%, 50%)"), red);
