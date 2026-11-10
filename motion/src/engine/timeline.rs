@@ -213,13 +213,17 @@ impl Engine {
                     }
                 }),
             // A subject the host has not placed is an inactive timeline.
-            NamedTimeline::View(s) => Some(
-                self.timelines
-                    .views
-                    .iter()
-                    .find(|v| v.0 == s)
-                    .map_or(f64::NAN, |&(_, p)| (p - a) / (b - a)),
-            ),
+            // Before or after the range the fill holds one value however far
+            // out, so one time stands for each side: a subject that scrolls
+            // while out of view (most of a long rail's) repaints nothing.
+            NamedTimeline::View(s) => Some(self.timelines.views.iter().find(|v| v.0 == s).map_or(
+                f64::NAN,
+                |&(_, p)| match (p - a) / (b - a) {
+                    p if p < 0.0 => -1.0,
+                    p if p > 1.0 => 2.0,
+                    p => p,
+                },
+            )),
             NamedTimeline::Inactive => Some(f64::NAN),
             NamedTimeline::Missing => None,
         };

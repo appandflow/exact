@@ -3034,8 +3034,9 @@ A scroll-linked effect (a carousel card that turns with its distance from the ce
 `view-timeline="--card x"` on the card and `animation="turn 1s linear both"
 animation-timeline="--card"` on it or a descendant, not a `scroll` action that writes
 state: keyframes run over `cover` (0% entering at the end edge, 50% centred, 100% leaving
-at the start edge) and `animation-range` is not read. iOS moves it in the scroll's own
-frame; other hosts show the nodes' own values. A keyframe `rotate` takes an axis
+at the start edge) and `animation-range` is not read. iOS and macOS move it in the
+scroll's own frame; Android and Linux show the nodes' own values; the web does not run it
+yet. A keyframe `rotate` takes an axis
 (`y 32deg`) but turns about the node's own `rotate` axis: set it (`rotate="y 0deg"`).
 
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
