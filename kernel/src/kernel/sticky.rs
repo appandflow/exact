@@ -175,7 +175,7 @@ impl Kernel {
     }
 }
 
-fn scrolls(arena: &crate::arena::NodeArena, slot: u32) -> bool {
+pub(crate) fn scrolls(arena: &crate::arena::NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
     !matches!(s.overflow_x, Overflow::Visible | Overflow::Clip)
         || !matches!(s.overflow_y, Overflow::Visible | Overflow::Clip)

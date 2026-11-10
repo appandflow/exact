@@ -1,8 +1,11 @@
-//! Drag timelines in the engine.
+//! Drag and view timelines in the engine.
 //!
-//! A source node's presented `translate` drives a timeline on one axis; a
-//! consumer's `animation`s are bound to what its timeline name resolved to,
-//! over a range. The host resolves names as CSS scopes them (the kernel's
+//! A drag source node's presented `translate` drives a timeline on one axis;
+//! a view timeline's position is its subject's progress through its
+//! scroller, which the host hands over whenever the scroller moves or a
+//! layout moves the subject ([`Engine::set_view_progress`]). A consumer's
+//! `animation`s are bound to what its timeline name resolved to, over a
+//! range. The host resolves names as CSS scopes them (the kernel's
 //! `timeline-scope` lookup), so the engine hears a node, never a name. A
 //! bound consumer's plays are held (as `animation-play-state: paused` holds
 //! them) at the local time the source's position gives, re-sought whenever
@@ -28,6 +31,10 @@ use crate::property::Property;
 pub enum NamedTimeline {
     /// The drag timeline this node's presented translate drives.
     Source(u64),
+    /// The view timeline (CSS `view-timeline`) this node is the subject of:
+    /// its position is the progress the host last gave, 0 to 1 over CSS's
+    /// `cover` range. Until the host gives one it is inactive.
+    View(u64),
     /// An inactive timeline: its animations have no effect.
     Inactive,
     /// No timeline: its animations keep the time they have.
@@ -42,12 +49,16 @@ pub(super) struct Timelines {
     sources: Vec<(u64, bool)>,
     /// Each consumer node, what its name resolved to, and its range in points.
     bound: Vec<(u64, NamedTimeline, [f64; 2])>,
+    /// Each view timeline subject the host has placed, and its progress.
+    views: Vec<(u64, f64)>,
 }
 
 impl Timelines {
     /// Whether `node` is a timeline's source or follows one.
     pub(super) fn names(&self, node: u64) -> bool {
-        self.sources.iter().any(|s| s.0 == node) || self.bound.iter().any(|b| b.0 == node)
+        self.sources.iter().any(|s| s.0 == node)
+            || self.bound.iter().any(|b| b.0 == node)
+            || self.views.iter().any(|v| v.0 == node)
     }
 }
 
@@ -70,6 +81,27 @@ impl Engine {
         }
         for i in 0..self.timelines.bound.len() {
             if self.timelines.bound[i].1 == NamedTimeline::Source(node) {
+                self.seek_timeline(i);
+            }
+        }
+    }
+
+    /// The progress of the view timeline whose subject is `node`: 0 where
+    /// the subject's start edge meets the scrollport's end edge, 1 where its
+    /// end edge leaves the scrollport's start edge (Scroll-driven Animations
+    /// 1 §3.2, `cover`). Unclamped. Its consumers are held there at once.
+    pub fn set_view_progress(&mut self, node: u64, progress: f64) {
+        (self.links.set_view_progress)(self, node, progress)
+    }
+
+    pub(super) fn set_view_progress_full(&mut self, node: u64, progress: f64) {
+        match self.timelines.views.iter_mut().find(|v| v.0 == node) {
+            Some(v) if v.1.to_bits() == progress.to_bits() => return,
+            Some(v) => v.1 = progress,
+            None => self.timelines.views.push((node, progress)),
+        }
+        for i in 0..self.timelines.bound.len() {
+            if self.timelines.bound[i].1 == NamedTimeline::View(node) {
                 self.seek_timeline(i);
             }
         }
@@ -136,6 +168,7 @@ impl Engine {
     pub(super) fn forget_timelines(&mut self, node: u64) {
         self.timelines.sources.retain(|s| s.0 != node);
         self.timelines.bound.retain(|b| b.0 != node);
+        self.timelines.views.retain(|v| v.0 != node);
     }
 
     /// Hold every bound consumer's plays at the time its timeline gives.
@@ -179,6 +212,14 @@ impl Engine {
                         0.0
                     }
                 }),
+            // A subject the host has not placed is an inactive timeline.
+            NamedTimeline::View(s) => Some(
+                self.timelines
+                    .views
+                    .iter()
+                    .find(|v| v.0 == s)
+                    .map_or(f64::NAN, |&(_, p)| (p - a) / (b - a)),
+            ),
             NamedTimeline::Inactive => Some(f64::NAN),
             NamedTimeline::Missing => None,
         };

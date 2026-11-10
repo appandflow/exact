@@ -208,6 +208,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("-exact-animation-trigger", "exact", AttrTarget::Styles(&[StyleId::AnimationTrigger])),
     // CSS `timeline-scope`.
     ("timeline-scope", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::TimelineScope])),
+    ("view-timeline", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimeline])),
     ("display", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Display])),
     ("grid-auto-flow", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridAutoFlow])),
     ("grid-template-columns", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridTemplateColumns])),

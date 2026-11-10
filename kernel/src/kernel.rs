@@ -32,7 +32,7 @@ use history::RetainedReceipt;
 mod intrinsic;
 pub(crate) use intrinsic::apply_projection;
 mod row_memo;
-mod sticky;
+pub(crate) mod sticky;
 mod trim;
 mod wide;
 

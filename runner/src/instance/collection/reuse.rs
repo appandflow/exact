@@ -58,6 +58,7 @@ const REFUSED_STYLES: &[StyleId] = &[
     StyleId::ExitAnimation,
     StyleId::LayoutTransition,
     StyleId::DragTimeline,
+    StyleId::ViewTimeline,
     StyleId::AnimationTimeline,
     StyleId::AnimationRange,
     StyleId::TimelineScope,
