@@ -788,6 +788,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact new <path> --name <name> --bundle-id <id>
                                the same, named: the name people see and the
                                reverse-DNS bundle id (set both before a build)
+  exact new <path> --with ios,mac,linux,android,windows
+                               the same, with these native platforms named in
+                               app.json now (a native verb names its own later)
   exact new <path> --snapback [--port <n>] [--online]
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
@@ -1334,9 +1337,14 @@ async function main(argv) {
   if (verb === 'docs') return docs(argv.slice(1));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without'), withAt = args.indexOf('--with');
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
     const titled = args.indexOf('--name'), bundle = args.indexOf('--bundle-id');
-    const values = new Set([port, without, withAt, titled, bundle].filter(i => i >= 0).map(i => i + 1));
+    // `--with` repeats and adds, as the other list flags do (agent's --bind, serve's --allow-host); a one-value flag
+    // given twice is refused rather than read once.
+    const arg = (flag) => args.flatMap((given, i) => given === flag ? [i] : []), withs = arg('--with'); // each place it is given
+    for (const flag of ['--name', '--bundle-id', '--port', '--without'])
+      if (arg(flag).length > 1) throw new Error(`exact new: ${flag} is given twice; it takes one value${flag === '--without' ? ' (run update once per platform)' : ''}`);
+    const values = new Set([port, without, ...withs, titled, bundle].filter(i => i >= 0).map(i => i + 1));
     const path = args.find((arg, i) => !arg.startsWith('--') && !values.has(i));
     for (const [at, flag, example] of [[titled, '--name', '"Field Log"'], [bundle, '--bundle-id', 'com.yourcompany.fieldlog']])
       if (at >= 0 && (!args[at + 1] || args[at + 1].startsWith('--'))) throw new Error(`exact new: ${flag} takes a value, as in ${flag} ${example}`);
@@ -1344,9 +1352,9 @@ async function main(argv) {
     if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
     if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
-    if (withAt >= 0 && (!args[withAt + 1] || args[withAt + 1].startsWith('--'))) throw new Error('--with: name the platforms, as in --with ios,mac');
+    if (withs.some(i => !args[i + 1] || args[i + 1].startsWith('--'))) throw new Error('--with: name the platforms, as in --with ios,mac');
     // `mac` is the verb's spelling; the manifest's key is `macos` (scripts/app-shells.mjs PLATFORMS).
-    const platforms = withAt >= 0 ? args[withAt + 1].split(',').map(p => p.trim()).filter(Boolean).map(p => p === 'mac' ? 'macos' : p) : [];
+    const platforms = [...new Set(withs.flatMap(i => args[i + 1].split(',')).map(p => p.trim()).filter(Boolean).map(p => p === 'mac' ? 'macos' : p))];
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
     return newApp(path, {update: args.includes('--update'), without: without >= 0 ? (args[without + 1] === 'mac' ? 'macos' : args[without + 1]) : null, with: platforms, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
   }

@@ -569,6 +569,13 @@ test('exact new names the app and its bundle id before any build, and refuses an
     assert.deepEqual([game.status, /--name and --bundle-id name an app; a game/.test(game.stderr)], [1, true], game.stderr);
     const bare = cli(dir, '--name');
     assert.deepEqual([bare.status, /--name takes a value, as in --name "Field Log"/.test(bare.stderr)], [1, true], bare.stderr);
+    // A repeated --with adds its platforms, before the path or after it; a one-value flag given twice is refused.
+    const twice = cli('--with', 'ios', '--with', 'android,mac', resolve(parent, 'two'));
+    assert.equal(twice.status, 0, twice.stderr);
+    assert.deepEqual(Object.keys(JSON.parse(readFileSync(resolve(parent, 'two/app.json'), 'utf8')).host), ['web', 'ios', 'android', 'macos']);
+    assert.ok(!existsSync(resolve(parent, 'android')), 'a --with value is never the path');
+    const named = cli(resolve(parent, 'three'), '--name', 'A', '--name', 'B');
+    assert.deepEqual([named.status, /--name is given twice; it takes one value/.test(named.stderr), existsSync(resolve(parent, 'three'))], [1, true, false], named.stderr);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

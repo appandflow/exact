@@ -41,7 +41,9 @@ if (firstPins && !repin) {
   repin = true;
 }
 const defaultNative = process.platform === 'win32' ? 'windows' : 'linux';
-const hosts = option('--hosts', saved?.hosts?.join(',') ?? (repin || release || args.includes('--compare-saves') ? `${defaultNative},web` : defaultNative)).split(',');
+// `--hosts` repeats and adds, as `exact new --with` does.
+const named = args.flatMap((arg, i) => arg === '--hosts' ? [args[i + 1] ?? ''] : []);
+const hosts = (named.length ? named.join(',') : (saved?.hosts?.join(',') ?? (repin || release || args.includes('--compare-saves') ? `${defaultNative},web` : defaultNative))).split(',');
 if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','windows','macos','ios'].includes(h))) {
   throw new Error('Use --hosts linux,windows,web,macos,ios to select distinct proof hosts');
 }
