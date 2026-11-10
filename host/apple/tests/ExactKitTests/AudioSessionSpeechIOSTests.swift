@@ -7,9 +7,9 @@ import XCTest
 /// takes the strongest spoken type held, changes only while no other I/O
 /// runs, and is given up when the last speech claim goes.
 final class AudioSessionSpeechIOSTests: XCTestCase {
-    private var saved = AudioSession.category
+    private var saved = AudioSession.configuration
     override func setUp() { AudioSession.reset() }
-    override func tearDown() { AudioSession.reset(); AudioSession.category = saved }
+    override func tearDown() { AudioSession.reset(); AudioSession.configuration = saved }
 
     private var session: AVAudioSession { AVAudioSession.sharedInstance() }
 
@@ -90,7 +90,7 @@ final class AudioSessionSpeechIOSTests: XCTestCase {
 
     /// A sound started during speech plays in the configuration in force.
     func testASoundDuringSpeechChangesNothing() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let speech = AudioSession.claimSpeech(type: "transient") { _ in }
         final class Holder {}
         let sound = Holder()

@@ -60,7 +60,7 @@ final class SoundOutputTests: XCTestCase {
     private var journal: [String] = []
     private var clock = 100.0
     #if os(iOS) || os(tvOS)
-    private let category = AudioSession.category
+    private let configuration = AudioSession.configuration
     #endif
 
     override func setUp() {
@@ -73,7 +73,7 @@ final class SoundOutputTests: XCTestCase {
         Arm.reset()
         #if os(iOS) || os(tvOS)
         AudioSession.reset()
-        AudioSession.category = category
+        AudioSession.configuration = configuration
         #endif
     }
 
@@ -222,7 +222,7 @@ final class SoundOutputTests: XCTestCase {
     /// A playback app's failed output gives the session back, so other
     /// apps' audio is not left paused.
     func testAFailedOpenGivesTheSessionBack() {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let output = output()
         Arm.refuse = "the output has no channels (no audio device)"
         play(output, 1)
@@ -283,7 +283,7 @@ final class SoundOutputTests: XCTestCase {
 
     /// A boot with other files gives the session back with the engine.
     func testNewFilesGiveTheSessionBack() {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let output = output()
         play(output, 1)
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)

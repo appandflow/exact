@@ -36,3 +36,27 @@ and optionally `EXACT_AGENT_WINDOW_TAP` to a launch button's test ID.
 `EXACT_AGENT_WINDOW_FULLSCREEN=1` uses borderless fullscreen;
 `EXACT_AGENT_WINDOW_UNPACED=1` removes pacing to measure rendering capacity.
 These switches require a bounded development run and are stripped in production.
+
+## A module's own audio output
+
+A surface posts the string `"exact:audio"` through `Surface::messages` to ask
+for the app's audio session. The host consumes it without dispatching it to
+the app. On iOS and tvOS, ExactKit applies the app's `audio_session` category
+and options and activates the session. A first successful request sends
+nothing back. A failed activation sends `Lifecycle::Interrupted` to the
+host's surfaces; recovery sends `Lifecycle::Resumed`. Failure retries after
+300 live display-link frames, on a Hidden → Visible transition or a key/pointer
+gesture. An interruption ending without `shouldResume` blocks automatic
+retries, including repeated `exact:audio` requests, until visibility or input
+allows recovery. Hidden surfaces do not retry.
+
+Immediately before a GPU module makes a surface on iOS or tvOS, the owner
+sets an unclaimed session to `.ambient`, without activating it. Output opened
+before its request is handled therefore mixes with other apps' audio and
+obeys the ring/silent switch until the request takes the app's configuration.
+A held or claimed session stays as it is. This preparation does not run for
+Canvas 2D, an app with no GPU canvas, or the driver's frozen clock, which
+makes surfaces seekable and opens no output. Under `EXACT_AGENT_TIMING=platform`
+the owner prepares too: surfaces can open output, but the driver drops
+`exact:audio` requests, so they do not raise the prepared ambient session.
+macOS, the web and Linux consume the request without configuring a session.

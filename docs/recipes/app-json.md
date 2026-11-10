@@ -34,8 +34,8 @@ component App
   `modules/web/index.js` answers on the web ([native-module](native-module.md)). `modules`
   lists the hyphenated tags of native views ([native-views](native-views.md)): a tag the
   list lacks is `bake-unknown-module`.
-- **`audio_session`**: `"playback"` where sound is the point (the silent switch leaves it
-  on); the default `ambient` mixes with other audio.
+- **`audio_session`**: `ambient` (default), `playback`, or `playback-mix` for sound over
+  other apps' audio. [Sessions](../reference.md#sounds).
 - **`app.id` and `app.name`** are set before the first build (`exact new --name --bundle-id`,
   [porting-and-release](porting-and-release.md)); `app.ts` takes the id from here.
 - **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: the launch

@@ -1864,17 +1864,39 @@ each voice ended is the same on every host and under the driver's clock
 | macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate (a playback rate reads between frames by linear interpolation; a pan follows the `StereoPannerNode`'s equal-power algorithm), in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
 | Linux, Windows | none: the record only (`state.sounds.output` is `"none"` outside the driver) |
 
-Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
-root `audio_session` is the Apple audio session every sound, video and canvas
-shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
-audio keeps playing) or `"playback"`. Under `"playback"` the session is held
+Under the driver no scheduled sound plays on any host (`output: "agent"`). `app.json`'s
+root `audio_session` chooses the session every sound, video and canvas shares.
+On iOS and tvOS, `"ambient"` (the default) obeys the ring/silent switch and
+mixes with other apps' audio. `"playback"` ignores the switch and interrupts
+other audio. `"playback-mix"` is for an instrument, toy or metronome played
+over another app's audio: `.playback` with only
+[`.mixWithOthers`](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/mixwithothers),
+so it ignores the switch without stopping or ducking the other audio. It is
+never Now Playing; an iOS media-session claimant requires `"playback"` itself.
+Under either playback value the session is held
 only while something has sound: the sound arm and a canvas's audio once they
 start, a `video` or `audio` while it has a source and is not muted, and a
 media-session claimant (`metadata=`, which Now Playing needs). When the last
 of those is muted or gone, the session goes back to ambient, which mixes with
 other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
-paused podcast resumes, once no player is left. WebKit's Audio Session API takes it too;
-the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
+paused podcast resumes, once no player is left. Either playback value can
+continue in the background with `"audio"` in `host.ios.backgroundModes`.
+Before a GPU module makes a surface, the host sets a session that nothing
+holds to ambient, without activating it: a module's output that opens before
+its `exact:audio` request is handled mixes and obeys the switch until the
+request takes the app's category (`gpu/README.md`). The driver's frozen clock
+skips preparation and opens no surface output. With `EXACT_AGENT_TIMING=platform`,
+preparation runs, but the driver drops `exact:audio` requests, so they do not
+raise the prepared ambient session.
+On the web, the sound output sets the Audio Session API's type where supported:
+`"ambient"` and `"playback"` pass through, and `"playback-mix"` maps to `"ambient"`: the
+[W3C draft](https://w3c.github.io/audio-session/)
+has no mixing playback type. This preserves other apps' audio but obeys the
+ring/silent switch in WebKit. Without a `sound` declaration or a command or
+sequence that initializes sound output, the browser keeps `auto`: `video`,
+`audio` and GPU audio alone do not apply this setting. `data-audio-session`
+keeps the manifest's value.
+The Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
 
@@ -1883,8 +1905,8 @@ declaring a `sound` costs a launch nothing. As a hand-built app starts its
 engine on first use, that voice's commit activates the audio session (iOS and
 tvOS), opens the output, reads every declared sound and starts the engine on
 the main thread: the voice starts as late as that took (from its first frame,
-never cut), about 100 to 200 ms on a Mac. An app that never plays never
-touches the audio session.
+never cut), about 100 to 200 ms on a Mac. An app that never plays and has no
+GPU canvas never touches the audio session.
 
 **When it cannot open** (no output device, a session that does not activate,
 an engine that does not start or raises), the app keeps running silent: the
@@ -1920,7 +1942,7 @@ plays on the main thread at its time (Apple's feedback generators;
 it late, and `state.sounds.output.hapticsLate` counts those more than 10 ms
 late. Linux and Windows keep the record. On iOS and tvOS a sequence stops
 when the app goes to the background (`exactTransport().reason` is
-`background`), unless `audio_session` is `"playback"` and
+`background`), unless `audio_session` is `"playback"` or `"playback-mix"` and
 `host.ios.backgroundModes` has `"audio"`; a Mac app and a web page play on.
 `state.transport` is the record: what `exactTransport()` answers, the sequence
 that last played, how far its hits are issued (`issuedTo`), its last 16 tempo

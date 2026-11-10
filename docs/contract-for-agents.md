@@ -2258,7 +2258,8 @@ component Episode
 - One element owns the session: the claimant that most recently started playing,
   kept while it is paused.
 - On iOS the build refuses a claimant without `"audio_session": "playback"` and
-  `"audio"` in `host.ios.backgroundModes` in `app.json`.
+  `"audio"` in `host.ios.backgroundModes` in `app.json`. `"playback-mix"` does
+  not qualify: a mixable session is never Now Playing.
 
 Tests trigger an action as the platform would and read what is published:
 `tap "audio" mediasession "seekto" 600` (the seconds are a seek's `seekOffset`,

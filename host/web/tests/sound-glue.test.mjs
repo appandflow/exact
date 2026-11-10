@@ -101,6 +101,26 @@ async function serve(session) {
 }
 
 for (const engine of engines) {
+  engineTest[engine](`${engine}: manifest audio sessions map to browser types without changing the root`, async () => {
+    const b = await browser(engine);
+    if (!b) throw new Error(`${engine} did not launch`);
+    const server = await serve();
+    try {
+      const p = await b.newPage();
+      await p.goto(server.url);
+      await p.waitForFunction(() => window.ready);
+      const got = await p.evaluate(() => ['ambient', 'playback', 'playback-mix'].map(value => {
+        const root = document.getElementById('exact-root');
+        root.dataset.audioSession = value;
+        offline(1, {});
+        return { manifest: root.dataset.audioSession, type: navigator.audioSession?.type ?? null };
+      }));
+      expect(got.map(row => row.manifest)).toEqual(['ambient', 'playback', 'playback-mix']);
+      if (engine === 'webkit' || got[0].type !== null) expect(got.map(row => row.type)).toEqual(['ambient', 'playback', 'ambient']);
+      else expect(got.map(row => row.type)).toEqual([null, null, null]);
+    } finally { await b.close(); server.close(); }
+  }, 60_000);
+
   engineTest[engine](`${engine}: voices render at the frames runner time maps to`, async () => {
     const b = await browser(engine);
     if (!b) throw new Error(`${engine} did not launch`);

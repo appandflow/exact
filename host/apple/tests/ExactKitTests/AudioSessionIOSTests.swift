@@ -1,19 +1,203 @@
 #if os(iOS)
 import AVFoundation
+import ObjectiveC
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
-/// LLP 1096 D8: a `playback` app's session is held while something has sound
-/// and goes back to ambient when nothing does, as Bluesky's player drops to
-/// ambient on re-mute so other apps' audio resumes.
+private var categorySets = 0
+private var activations: [Bool] = []
+private var surfaceCreationAudio: [(category: AVAudioSession.Category, activations: [Bool])] = []
+
+extension AVAudioSession {
+    @objc fileprivate func countedCategory(_ category: AVAudioSession.Category, options: AVAudioSession.CategoryOptions) throws {
+        categorySets += 1
+        try countedCategory(category, options: options)
+    }
+    @objc fileprivate func countedActive(_ active: Bool) throws {
+        activations.append(active)
+        try countedActive(active)
+    }
+    @objc fileprivate func countedActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
+        activations.append(active)
+        try countedActive(active, options: options)
+    }
+}
+
+/// LLP 1096 D8: the app's category and options follow its holders, and an
+/// unclaimed session takes ambient before a GPU module makes a surface.
 final class AudioSessionIOSTests: XCTestCase {
-    private var saved = AudioSession.category
+    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    private var saved = AudioSession.configuration
     override func setUp() { AudioSession.reset() }
-    override func tearDown() { AudioSession.reset(); AudioSession.category = saved }
+    override func tearDown() { AudioSession.reset(); AudioSession.configuration = saved }
+
+    private var session: AVAudioSession { AVAudioSession.sharedInstance() }
+
+    /// Count the real setters; unchanged readback alone cannot detect a redundant set.
+    private func counting(_ body: () throws -> Void) throws {
+        let selectors: [(Selector, Selector)] = [
+            (#selector(AVAudioSession.setCategory(_:options:)), #selector(AVAudioSession.countedCategory(_:options:))),
+            (NSSelectorFromString("setActive:error:"), #selector(AVAudioSession.countedActive(_:))),
+            (#selector(AVAudioSession.setActive(_:options:)), #selector(AVAudioSession.countedActive(_:options:))),
+        ]
+        let methods = try selectors.map { original, counted in
+            (try XCTUnwrap(class_getInstanceMethod(AVAudioSession.self, original)),
+             try XCTUnwrap(class_getInstanceMethod(AVAudioSession.self, counted)))
+        }
+        for (original, counted) in methods { method_exchangeImplementations(original, counted) }
+        defer { for (original, counted) in methods { method_exchangeImplementations(original, counted) } }
+        categorySets = 0; activations = []
+        try body()
+    }
+
+    func testConfigurationsReadBackWithoutReapplyingOnAHold() throws {
+        final class Holder {}
+        let holder = Holder()
+        for value in ["ambient", "playback", "playback-mix"] {
+            AudioSession.configuration = .init(value)
+            try session.setCategory(AudioSession.configuration.category, options: AudioSession.configuration.options)
+            let readback = session.categoryOptions
+            // Ambient's mixing is inherent, whether or not readback includes the mix bit.
+            XCTAssertEqual(value == "ambient" ? readback.subtracting(.mixWithOthers) : readback,
+                           AudioSession.configuration.options, value)
+            try counting {
+                try AudioSession.hold(ObjectIdentifier(holder))
+                try AudioSession.hold(ObjectIdentifier(holder))
+                XCTAssertEqual(categorySets, 0, value)
+                XCTAssertEqual(session.categoryOptions, readback, value)
+            }
+            AudioSession.release(ObjectIdentifier(holder))
+        }
+    }
+
+    func testPlaybackMixHoldsAndRestoresItsOptionAfterCaptureAndCall() throws {
+        AudioSession.configuration = .init("playback-mix")
+        final class Holder {}
+        let holder = Holder()
+        try AudioSession.hold(ObjectIdentifier(holder))
+        XCTAssertEqual(session.category, .playback)
+        XCTAssertEqual(session.categoryOptions, [.mixWithOthers])
+        let capture = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { _ in }
+        XCTAssertNotEqual(capture, 0)
+        XCTAssertEqual(session.category, .playAndRecord)
+        AudioSession.releaseCapture(capture)
+        XCTAssertEqual(session.category, .playback)
+        XCTAssertEqual(session.categoryOptions, [.mixWithOthers])
+        let call = AudioSession.claimCall(video: false) { _ in }
+        XCTAssertEqual(session.category, .playAndRecord)
+        AudioSession.callActivated(true)
+        AudioSession.releaseCall(call)
+        XCTAssertEqual(session.category, .playAndRecord, "restoration waits for the system's deactivation")
+        try counting {
+            AudioSession.callActivated(false)
+            XCTAssertEqual(session.category, .playback)
+            XCTAssertEqual(session.categoryOptions, [.mixWithOthers])
+            XCTAssertEqual(activations, [], "restoring a call does not activate")
+        }
+        AudioSession.release(ObjectIdentifier(holder))
+        XCTAssertEqual(session.category, .ambient)
+        // The category alone matches: a non-mixing app must still clear the option.
+        try session.setCategory(.playback, options: [.mixWithOthers])
+        AudioSession.configuration = .init("playback")
+        try AudioSession.hold(ObjectIdentifier(holder))
+        XCTAssertEqual(session.category, .playback)
+        XCTAssertEqual(session.categoryOptions, [])
+        AudioSession.release(ObjectIdentifier(holder))
+    }
+
+    func testPreparationSetsAmbientOnceWithoutActivating() throws {
+        XCTAssertFalse(ExactEnv.agentFreezes, "this test needs a live surface clock")
+        try session.setActive(false)
+        try session.setCategory(.soloAmbient)
+        try counting {
+            AudioSession.prepareForSurface()
+            XCTAssertEqual(session.category, .ambient)
+            XCTAssertEqual(categorySets, 1)
+            AudioSession.prepareForSurface()
+            XCTAssertEqual(categorySets, 1, "ambient is already in force")
+            XCTAssertEqual(activations, [], "the inactive session is never activated")
+        }
+    }
+
+    func testTheHostPreparesBeforeTheModuleCreatesItsSurface() throws {
+        XCTAssertFalse(ExactEnv.agentFreezes, "this test needs a live surface clock")
+        let appSession = ExactApp.shared.makeSession(label: "surface-audio-preparation")
+        defer { appSession.destroy() }
+        let module = GpuModule(create: { _, _, _, _, _ in
+                surfaceCreationAudio.append((AVAudioSession.sharedInstance().category, activations))
+                return 7
+            }, bind: { _, _, _ in 0 }, render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
+            texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
+            childrenMode: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
+            shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
+            wantsInput: nil, input: nil, messages: nil, published: nil, agent: nil, outPtr: nil)
+        let host = appSession.surfaceHost
+        host.modules[""] = module; host.attempted = [""]
+        let canvas = NodeView(id: 100, kind: "canvas", presenter: appSession.presenter)
+        canvas.frame = CGRect(x: 0, y: 0, width: 100, height: 60)
+        appSession.presenter.root.addSubview(canvas); appSession.presenter.views[100] = canvas
+        XCTAssertNotNil(canvas.canvasMetal)
+        try session.setActive(false)
+        try session.setCategory(.soloAmbient)
+        surfaceCreationAudio = []
+        try counting {
+            host.surface(view: canvas, name: "audio-fixture", values: [])
+            XCTAssertEqual(host.entries[100]?.id, 7, "the host created the module's surface")
+            XCTAssertEqual(surfaceCreationAudio.count, 1)
+            let seen = try XCTUnwrap(surfaceCreationAudio.first)
+            XCTAssertEqual(seen.category, .ambient, "ambient must be in force on entry to create")
+            XCTAssertEqual(seen.activations, [], "preparation leaves the inactive session inactive")
+        }
+    }
+
+    func testPreparationLeavesEveryHoldAndClaimAlone() throws {
+        final class Holder {}
+        let holder = Holder()
+        func unchanged() throws {
+            let category = session.category, options = session.categoryOptions, mode = session.mode
+            try counting {
+                AudioSession.prepareForSurface()
+                XCTAssertEqual(categorySets, 0)
+                XCTAssertEqual(activations, [])
+                XCTAssertEqual(session.category, category)
+                XCTAssertEqual(session.categoryOptions, options)
+                XCTAssertEqual(session.mode, mode)
+            }
+        }
+        AudioSession.configuration = .init("playback-mix")
+        try AudioSession.hold(ObjectIdentifier(holder))
+        try unchanged()
+        AudioSession.release(ObjectIdentifier(holder))
+        let capture = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { _ in }
+        XCTAssertNotEqual(capture, 0)
+        try unchanged()
+        AudioSession.releaseCapture(capture)
+        // A player delays speech configuration, so this is a claim with no spoken type applied.
+        AudioSession.playerCame(ObjectIdentifier(holder))
+        try session.setCategory(.soloAmbient)
+        let speech = AudioSession.claimSpeech(type: "transient") { _ in }
+        XCTAssertNotEqual(speech, 0)
+        XCTAssertNil(AudioSession.spoken)
+        try unchanged()
+        AudioSession.playerWent(ObjectIdentifier(holder))
+        XCTAssertEqual(AudioSession.spoken, "transient")
+        AudioSession.playerCame(ObjectIdentifier(holder))
+        AudioSession.releaseSpeech(speech)
+        try unchanged() // The spoken configuration outlives the claim while the player runs.
+        AudioSession.playerWent(ObjectIdentifier(holder))
+        let call = AudioSession.claimCall(video: false) { _ in }
+        try unchanged()
+        AudioSession.callActivated(true)
+        AudioSession.releaseCall(call)
+        try unchanged() // The system has not yet deactivated the call's session.
+        AudioSession.callActivated(false)
+    }
 
     func testAPlaybackAppHoldsPlaybackWhileSomethingHasSoundAndThenGoesAmbient() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         final class Holder {}
         let a = Holder(), b = Holder()
         try AudioSession.hold(ObjectIdentifier(a))
@@ -34,7 +218,7 @@ final class AudioSessionIOSTests: XCTestCase {
     /// A muted player keeps running, so with one alive the category goes
     /// ambient but the session is not given up under it.
     func testWithAPlayerAliveReleaseGoesAmbientAndThePlayerLeavingGivesItUp() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         final class Holder {}
         let player = Holder()
         AudioSession.playerCame(ObjectIdentifier(player))
@@ -50,7 +234,7 @@ final class AudioSessionIOSTests: XCTestCase {
     /// A hold whose activation fails (during a call) still wants the
     /// session: the next activation takes playback, and its release yields.
     func testAFailedActivationStillHoldsAndIsActivatedAgain() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         final class Holder {}
         let a = Holder(), b = Holder()
         struct Busy: Error {}
@@ -68,7 +252,7 @@ final class AudioSessionIOSTests: XCTestCase {
     /// first claim to the last, whatever the app's sound holds meanwhile,
     /// and the session goes back to what the sound wants after.
     func testACaptureClaimsPlayAndRecordUntilItsLastClaimEnds() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         final class Holder {}
         let sound = Holder()
         let first = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { _ in }
@@ -98,7 +282,7 @@ final class AudioSessionIOSTests: XCTestCase {
     }
 
     func testAnAmbientAppStaysAmbient() throws {
-        AudioSession.category = .ambient
+        AudioSession.configuration = .init("ambient")
         final class Holder {}
         let a = Holder()
         try AudioSession.hold(ObjectIdentifier(a))

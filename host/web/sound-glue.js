@@ -58,7 +58,8 @@ function installSound({ files, log, origin, root = document.getElementById('exac
   const voices = new Map();
   // `app.json`'s `audio_session`, where the browser has the Audio Session API (WebKit).
   const session = root?.dataset.audioSession;
-  if (session && navigator.audioSession) navigator.audioSession.type = session;
+  // The Audio Session draft has no mixing playback type (LLP 1096 D7).
+  if (session && navigator.audioSession) navigator.audioSession.type = session === 'playback-mix' ? 'ambient' : session;
   const userActivated = activated ?? (() => navigator.userActivation?.hasBeenActive ?? gesture);
   if (!context) {
     const resume = e => { if (!e.isTrusted) return; gesture = true; if (ctx.state !== 'running') ctx.resume().catch(() => {}); else for (const t of ACTIVATING) document.removeEventListener(t, resume, true); };

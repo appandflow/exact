@@ -234,9 +234,19 @@ iOS requires an active app and a mounted window. New surfaces receive the same
 aggregate, with notifications delivering only transitions.
 The presentation hook combines hidden/interrupted state before suspending output;
 resume resets playback from the current tick offset with one readiness epoch bump.
-ExactKit recognizes the `exact:audio` surface message and configures/activates one
-process audio session only for a live requesting surface. Failed activation retries
-at 300 live display-link frames, or on a new Visible transition or explicit gesture;
+ExactKit consumes the `exact:audio` string from `Surface::messages` without app
+dispatch. On iOS and tvOS it sets the app's `audio_session` category and options
+and activates the session. First success sends nothing back; a failed activation
+sends Interrupted, and recovery sends Resumed. Before a GPU module makes a
+surface, the owner sets an unclaimed session to `.ambient` without activating:
+output opened before the request is handled mixes with other apps' audio and
+obeys the ring/silent switch until the request takes the app's configuration.
+This preparation runs neither for Canvas 2D nor under the driver's frozen
+clock, which makes surfaces seekable and opens no output. It runs under
+`EXACT_AGENT_TIMING=platform`, where surfaces can open output; the driver
+drops `exact:audio` requests, so they do not raise the prepared ambient session.
+Failed activation retries at 300 live display-link frames, or on a new Visible
+transition or explicit gesture;
 failed activation never emits Resumed. An interruption ending without `shouldResume`
 blocks automatic resume process-wide, including later lifecycles and automatic
 `exact:audio` requests. A subsequent Hidden → Visible transition or trusted key/pointer

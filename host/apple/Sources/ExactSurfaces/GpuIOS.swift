@@ -346,6 +346,7 @@ final class CanvasesHost {
         let h = UInt32(max(1, (Float(metal.bounds.height) * scale).rounded()))
         let ptr = Unmanaged.passUnretained(layer).toOpaque()
         let bytes = Array(e.name.utf8)
+        AudioSession.prepareForSurface()
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }

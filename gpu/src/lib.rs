@@ -332,6 +332,17 @@ pub trait Surface {
         true
     }
     /// Strings posted to the app, drained after render, input and agent calls (S2).
+    /// The host consumes `"exact:audio"` instead of dispatching it to the app.
+    /// On iOS/tvOS it asks for the app's `audio_session` configuration and activation;
+    /// first success sends no reply. Failure sends `Lifecycle::Interrupted`,
+    /// retries after 300 live display-link frames, on becoming visible or a
+    /// gesture, and sends `Lifecycle::Resumed` only on recovery. An interruption
+    /// without `shouldResume` blocks automatic retries until visibility or input.
+    /// Before making a surface, iOS/tvOS prepare an unclaimed session as ambient,
+    /// without activation: output started before the request mixes with other
+    /// apps and obeys the ring/silent switch. The driver's frozen clock skips
+    /// preparation and opens no output. With `EXACT_AGENT_TIMING=platform`,
+    /// preparation runs, but the driver drops requests, leaving ambient in force.
     fn messages(&mut self) -> Vec<String> {
         Vec::new()
     }

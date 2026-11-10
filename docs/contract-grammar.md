@@ -393,7 +393,7 @@ heard as `midimessage`. A sequence that follows a clock sends none
 (`clockOut=` is ignored and journaled), and a changed `clock=` restarts it,
 as a changed key does. One
 sequence plays at a time; leaving the foreground on iOS stops it (reason
-`background`) unless `audio_session` is `playback` with `audio` in
+`background`) unless `audio_session` is `playback` or `playback-mix` with `audio` in
 `host.ios.backgroundModes`. `resource t = exactTransport() as shape T` reads
 it: `state` (`stopped`, `waiting`, `countin`, `playing`), `reason` (`gate`,
 `ended`, `background`, `bpm`, `clock`, or `""`), `bpm`, `anchorAt` and

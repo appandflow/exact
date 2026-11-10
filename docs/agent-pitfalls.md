@@ -1016,8 +1016,12 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   missing. Refresh availability after installation. (LLP 1133.020.)
 - **An audio player is silent in iPhone Silent mode.** The default audio
   session is `ambient`. An app whose purpose includes media playback should
-  set `"audio_session": "playback"` in `app.json`, as Recorder does; raising
-  the media volume alone does not override Silent mode. (LLP 1096 D8.)
+  set `"audio_session": "playback"` in `app.json`, as Recorder does. For sound
+  over another app's audio, `"playback-mix"` also ignores the switch on iOS and
+  tvOS while mixing without ducking. On the web only sound output applies the
+  setting, mapping it to `ambient`, which obeys the switch in WebKit; media or
+  GPU audio alone leaves the browser's `auto`. Raising the media volume alone
+  does not override Silent mode. (LLP 1096 D8.)
 
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step
   ahead (`playSounds(…)` with a future `at=`) keeps sounding the hits already
@@ -1052,8 +1056,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 - **On iOS a media session needs a playback session and background audio.**
   `build.mjs --ios` refuses a `metadata=` without `"audio_session": "playback"`
   and `"audio"` in `host.ios.backgroundModes`: the lock screen shows only a
-  playback session's media, and audio stops at the lock without the mode. (LLP
-  1098 D8.)
+  non-mixable playback session's media, and audio stops at the lock without the
+  mode. `"playback-mix"` does not qualify. (LLP 1098 D8.)
 
 ## Input
 
