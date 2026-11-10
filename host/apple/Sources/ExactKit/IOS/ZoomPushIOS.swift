@@ -65,8 +65,9 @@ extension NavigationHost {
     /// once for the Back button. Its tail runs for most of a second with the route beneath already
     /// taking touches, as no other pop's does. A tap there reached an app still on the popped route,
     /// and its push kept that route under the new one: Back then showed the product just left.
-    /// So a touch in the tail brings the app to where UIKit is first (`followDecidedPop`). Without
-    /// one the app waits for `completeTransition`, as for any pop: its nodes are what the zoom draws.
+    /// So the app follows a swipe as the finger lifts, as it follows the Back button at once
+    /// (`followDecidedPop`): the tab bar and its accessory a pushed route hid come back with
+    /// the tail and not after it. A touch in the tail of any other decided pop does the same.
     func noteZoomPop(_ transition: UIViewControllerTransitionCoordinator, on nav: UINavigationController) {
         guard #available(iOS 18.0, *), let source = transition.viewController(forKey: .from) as? RouteController,
               source.preferredTransition != nil, !nav.viewControllers.contains(source) else { return }
@@ -75,7 +76,9 @@ extension NavigationHost {
         }
         if transition.initiallyInteractive {
             transition.notifyWhenInteractionChanges { [weak self, weak source] context in
-                if !context.isCancelled { self?.decidedPop = source }
+                guard !context.isCancelled, let self else { return }
+                decidedPop = source
+                followDecidedPop()
             }
         } else {
             decidedPop = source
