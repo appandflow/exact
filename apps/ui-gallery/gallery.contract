@@ -97,6 +97,8 @@ style Page
   margin-left="auto"
   margin-right="auto"
 
+fn sectionTitle(s: string): string = s == "typography" ? "Typography" : s == "textcolors" ? "Text colors" : s == "css" ? "CSS color spaces" : s == "profiles" ? "Platform profiles" : s == "images" ? "Image profiles" : s == "hdr" ? "HDR" : s == "effects" ? "Effects & controls" : s == "media" ? "Canvas & video" : s == "menus" ? "Context menus" : ""
+
 component GalleryDemo
   props
     section: string
@@ -136,24 +138,13 @@ component GalleryDemo
         if authoredHeader and compact
           button id="back" press=back aria-label="Back to UI Gallery" testId="gallery-back" appearance="none" padding=8
             image "symbol:back"
-        if section == "typography"
-          text "Typography" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "textcolors"
-          text "Text colors" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "css"
-          text "CSS color spaces" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "profiles"
-          text "Platform profiles" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "images"
-          text "Image profiles" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "hdr"
-          text "HDR" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "effects"
-          text "Effects & controls" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "media"
-          text "Canvas & video" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
-        if section == "menus"
-          text "Context menus" role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
+        // Under a native bar (iOS, the Mac) the heading is the platform's
+        // title, its type unsaid: iOS draws its bold large title, at the
+        // reader's Dynamic Type size. A header the page draws keeps its own.
+        if sectionTitle(section) != "" and (authoredHeader or host == "web")
+          text sectionTitle(section) role="heading" aria-level=1 font-size=(authoredHeader ? 22 : 34) font-weight=600
+        if sectionTitle(section) != "" and not authoredHeader and host != "web"
+          text sectionTitle(section) role="heading" aria-level=1
       if section != "hdr" and section != "menus" and (host != "web" or section == "images") and (section != "media" or nativeFeatures.video)
         column id="range-bar" hatch="sticky-limit" position="relative" z-index=1 flex-shrink=0 padding-top=8 padding-bottom=12 padding-left="calc(env(safe-area-inset-left) + 16px)" padding-right="calc(env(safe-area-inset-right) + 16px)" testId=`range-bar-${section}`
           column testId=`range-card-${section}`
