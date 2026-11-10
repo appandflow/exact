@@ -37,6 +37,19 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
         app?.tabBarController?(tabs, didSelect: controller)
     }
 
+    /// The same two for a container built with `UITab`s (a search tab), by its tab's controller.
+    @available(iOS 18.0, tvOS 18.0, *)
+    func tabBarController(_ tabs: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+        guard host?.searchPanels.isEmpty == false, let controller = tab.viewController else { return true }
+        return tabBarController(tabs, shouldSelect: controller)
+    }
+
+    @available(iOS 18.0, tvOS 18.0, *)
+    func tabBarController(_ tabs: UITabBarController, didSelectTab tab: UITab, previousTab: UITab?) {
+        guard host?.searchPanels.isEmpty == false, let controller = tab.viewController else { return }
+        tabBarController(tabs, didSelect: controller)
+    }
+
     #if os(iOS)
     /// More's Edit moved tabs between the bar and More, and UIKit their
     /// routes with them (`syncNextTurn`).
@@ -94,11 +107,32 @@ extension NavigationHost {
             let container = UITabBarController()
             tabProxy.host = self
             container.delegate = tabProxy
-            container.setViewControllers(navs, animated: false)
-            container.selectedIndex = p.at
+            searchPanels = Set(zip(tabs.panels, tabs.tabs).filter { $0.1.props["tabRole"] == "search" }.map { $0.0.id })
+            setTabControllers(container, navs, selected: p.at)
             tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
             if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                // `-exact-tab-minimize`: the bar collapses to the selected tab as content scrolls.
+                container.tabBarMinimizeBehavior = switch tabs.tablist.props["tabMinimize"] {
+                case "on-scroll-down": .onScrollDown
+                case "on-scroll-up": .onScrollUp
+                case "never": .never
+                default: .automatic
+                }
+            }
+            #endif
+            #if os(iOS)
+            // A `pan` on the tablist is the bar's: held (`-exact-pan-hold`) or not, reported as the tablist's.
+            if tabs.tablist.handlers.contains("pan") {
+                let hold = tabs.tablist.props["panHold"].flatMap(Double.init) ?? 0
+                let g = HoldLayoutPan(target: tabs.tablist, action: #selector(NodeView.holdPanning(_:)))
+                g.minimumPressDuration = max(hold, 1) / 1000
+                g.cancelsTouchesInView = true
+                container.tabBar.addGestureRecognizer(g)
+            }
+            #endif
             // A path's glyph is sized by the idiom and the size class: the items again as either changes (and
             // once the bar is in its window, whose traits it then has).
             container.tabBar.registerForTraitChanges([UITraitUserInterfaceIdiom.self, UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
@@ -179,8 +213,7 @@ extension NavigationHost {
             let navs = tabPanels.compactMap { tabStacks[$0] }
             if container.viewControllers?.count != navs.count {
                 presenter.session?.log("hatch: tabContainer took the tabs' stacks but returned no container; Exact's has them back")
-                container.setViewControllers(navs, animated: false)
-                container.selectedIndex = max(0, routerTab)
+                setTabControllers(container, navs, selected: max(0, routerTab))
             }
             return
         }
@@ -270,7 +303,7 @@ extension NavigationHost {
         if routerTab != p.at {
             routerTab = p.at
             if let container = tabController, container.selectedViewController !== navs[p.at], navs[p.at] !== tapping {
-                container.selectedViewController = navs[p.at]
+                selectTabController(navs[p.at], in: container)
                 refollowFloatingBar() // (no push or pop: the stack it shows keeps its wish on an iPad)
             }
             if tabController == nil { presenter.session?.natives.tabsHatch(nil, event: 2, index: p.at) }
@@ -291,6 +324,45 @@ extension NavigationHost {
     /// The items, from the authored tabs: each tab's own item, written in
     /// place when its face changes, so what else the app set on it (a badge)
     /// and a handle to it stay good.
+    /// Give the container its stacks: as `UITab`s when a tab is the search tab
+    /// (`UISearchTab`, which iOS 26 draws apart at the bar's end), else as view
+    /// controllers. A tab's title and image are its stack's item's.
+    func setTabControllers(_ container: UITabBarController, _ controllers: [UIViewController], selected: Int) {
+        if #available(iOS 18.0, tvOS 18.0, *), !searchPanels.isEmpty {
+            let made: [UITab] = zip(tabPanels, controllers).map { panel, controller in
+                if let kept = madeTabs[ObjectIdentifier(controller)] as? UITab { return kept }
+                let item = controller.tabBarItem
+                let tab: UITab = searchPanels.contains(panel)
+                    ? UISearchTab { _ in controller }
+                    : UITab(title: item?.title ?? "", image: item?.image, identifier: "exact-tab-\(panel)") { _ in controller }
+                if let id = item?.accessibilityIdentifier { tab.accessibilityIdentifier = id }
+                madeTabs[ObjectIdentifier(controller)] = tab
+                return tab
+            }
+            let live = Set(controllers.map(ObjectIdentifier.init))
+            madeTabs = madeTabs.filter { live.contains($0.key) }
+            container.setTabs(made, animated: false)
+            if made.indices.contains(selected) { container.selectedTab = made[selected] }
+            // iOS 27 draws apart the one tab the controller crowns prominent; iOS 26 a `UISearchTab` by itself.
+            if #available(iOS 27.0, *), let search = made.first(where: { $0 is UISearchTab }), container.prominentTabIdentifier != search.identifier {
+                container.setProminentTabIdentifier(search.identifier, animated: false)
+            }
+        } else {
+            container.setViewControllers(controllers, animated: false)
+            if container.selectedIndex != selected { container.selectedIndex = selected }
+        }
+    }
+
+    /// Select a tab by its controller: in a container of `UITab`s by its tab, as its
+    /// `viewControllers` is empty and UIKit selects no controller outside that list.
+    func selectTabController(_ controller: UIViewController, in container: UITabBarController) {
+        if #available(iOS 18.0, tvOS 18.0, *), !searchPanels.isEmpty, let tab = madeTabs[ObjectIdentifier(controller)] as? UITab {
+            container.selectedTab = tab
+        } else {
+            container.selectedViewController = controller
+        }
+    }
+
     /// The items again, from the tabs they were last made from (a size class change).
     func resyncTabItems() {
         if let tabs = tabItemsSource { syncItems(tabs) }
@@ -331,6 +403,13 @@ extension NavigationHost {
             if face.badge != nil || had { item.badgeValue = face.badge }
         }
         tabItems = signature
+        // A container of `UITab`s takes each one's title and image from its tab, not its stack's item.
+        if #available(iOS 18.0, tvOS 18.0, *), let container = tabController, !searchPanels.isEmpty {
+            for (tab, nav) in zip(container.tabs, navs) where !(tab is UISearchTab) {
+                tab.title = nav.tabBarItem.title ?? tab.title
+                tab.image = nav.tabBarItem.image
+            }
+        }
         tint(tabs.tablist)
     }
 
@@ -536,7 +615,7 @@ extension NavigationHost {
     /// it, the app's answer to a person's pick of `index`.
     func showRouterTab(declining index: Int) {
         guard let tabs = tabController, let stack = tabStack(routerTab) else { return }
-        tabs.selectedViewController = stack
+        selectTabController(stack, in: tabs)
         presenter.session?.log("navigation: tab \(index)'s press left the router on tab \(routerTab), which UIKit shows again")
     }
 

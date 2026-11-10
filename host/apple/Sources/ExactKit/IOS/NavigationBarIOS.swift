@@ -372,7 +372,7 @@ extension NavigationHost {
                     return reselect ? ["error": "tab #\(id): \(backRefusal)"] : reply
                 }
                 if reselect { (controller as? UINavigationController)?.popToRootViewController(animated: true) }
-                else { tabsController.selectedViewController = controller }
+                else { selectTabController(controller, in: tabsController) }
                 tabProxy.tabBarController(tabsController, didSelect: controller)
                 return reply
             }

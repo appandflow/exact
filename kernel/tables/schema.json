@@ -1805,6 +1805,24 @@
       "name": "svgRelativeFontWeight",
       "kind": "str",
       "_comment": "An SVG file's bolder/lighter declaration, kept beside its numeric font_weight row so the scene can resolve it again under use inheritance (SVG 2 §5.6)."
+    },
+    {
+      "id": 303,
+      "name": "panHold",
+      "kind": "float",
+      "_comment": "`-exact-pan-hold` on a node with `pan`: milliseconds the finger rests before the pan begins (a long press that keeps going), so a tap inside stays a press. The pan then reports from where the hold began, with one zero delta as it begins, and `panrelease` with the finger's velocity. iOS; other hosts begin the pan as they would without it."
+    },
+    {
+      "id": 304,
+      "name": "tabRole",
+      "kind": "str",
+      "_comment": "`-exact-tab-role` on a tab: `search` makes it the system's search tab, which iOS 26 draws apart at the bar's trailing end. Other hosts keep it an ordinary tab."
+    },
+    {
+      "id": 302,
+      "name": "tabMinimize",
+      "kind": "str",
+      "_comment": "`-exact-tab-minimize` on a tablist: `on-scroll-down`, `on-scroll-up`, `never` or `automatic` (the default), UIKit's tabBarMinimizeBehavior on iOS 26: the bar collapses to the selected tab while content scrolls. Other hosts ignore it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
