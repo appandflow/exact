@@ -1202,10 +1202,11 @@ impl Em<'_> {
             if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
                 continue;
             }
-            // Nor has the status bar's style (LLP 1105 D7).
+            // Nor have the system bars (LLP 1105 D7).
             if b.kind == BindingKind::Prop
                 && (b.id == PropId::StatusBarStyle as u16
-                    || b.id == PropId::StatusBarAnimation as u16)
+                    || b.id == PropId::StatusBarAnimation as u16
+                    || b.id == PropId::SystemBarsHidden as u16)
             {
                 continue;
             }

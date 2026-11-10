@@ -270,8 +270,9 @@ export function render(op, r, how = {}) {
       // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
       // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
-      const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
+      // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default, and the system bars' hiding.
+      const bar = (r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '')
+        + (r.statusBar?.hidden ? ` · system bars hidden (#${r.statusBar.hiddenSource})` : '');
       // The title-bar area beside the window's controls, where the host defines it.
       const titlebar = e && e['titlebar-area-width'] != null ? ` · titlebar-area ${e['titlebar-area-x']},${e['titlebar-area-y']} ${e['titlebar-area-width']}×${e['titlebar-area-height']}` : '';
       const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}${rangeAndPort(n)}` : ''}${past(n)}`}`));

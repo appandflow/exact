@@ -1201,15 +1201,20 @@ component App
       text `${n}`
 ```
 
-## status-bar: the colour of the iPhone's status bar
-names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar
+## status-bar: the colour of the iPhone's status bar, and hiding it
+names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar, system-bars-hidden, statusBarHidden, prefersStatusBarHidden, prefersHomeIndicatorAutoHidden, autoHideHomeIndicator, immersive
 
 `status-bar-style="light-content"` (light text, for a dark surface), `"dark-content"` or
 `"auto"` on any node, bound to state if it changes, sets an iPhone's status bar; of what the
 bar sits over, the declaration painted on top wins. `status-bar-animation="fade"` fades a
 change. Other hosts ignore both.
 
-More: docs/contract-for-agents.md (`status-bar-style`)
+`system-bars-hidden=true` (or `=toyOpen`) hides the status bar and auto-hides the home
+indicator while that node's screen is under them, resolved the same way: a `fullscreen`
+route's wins over the stack, a `medium` sheet's does not, and a descendant's `false` shows
+them again.
+
+More: docs/contract-for-agents.md (`status-bar-style`, `system-bars-hidden`)
 
 ## toast: a message that shows for a moment
 names: Toast, snackbar, Snackbar, react-native-toast-message, burnt

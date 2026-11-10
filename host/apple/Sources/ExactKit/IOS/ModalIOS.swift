@@ -113,8 +113,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     required init?(coder: NSCoder) { nil }
     #if os(iOS)
     // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
-    // it answers the presenter's one resolved style, as the root does.
+    // it answers the presenter's one resolved style and hiding, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    override var prefersStatusBarHidden: Bool { host?.presenter.statusBar.hidden ?? false }
+    override var prefersHomeIndicatorAutoHidden: Bool { host?.presenter.statusBar.hidden ?? false }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { host?.presenter.statusBarUpdateAnimation ?? .none }
     // LLP 1133.029 D5: and the session's orientation lock, as the root does.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
@@ -372,7 +375,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
     /// Every presented controller re-reads the style with the root (D6):
     /// UIKit asks the topmost one that covers, which a sheet over it may hide.
-    func statusBarChanged() { for layer in layers { layer.controller.setNeedsStatusBarAppearanceUpdate() } }
+    func statusBarChanged() {
+        for layer in layers {
+            layer.controller.setNeedsStatusBarAppearanceUpdate()
+            layer.controller.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        }
+    }
     #endif
 
     init(presenter: Presenter) { self.presenter = presenter }

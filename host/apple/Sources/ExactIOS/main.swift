@@ -159,8 +159,11 @@ final class Controller: UIViewController {
     // tvOS has no pointer lock, nor a status bar.
     #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
-    /// The style the app declared (LLP 1105 D6); `onStatusBarStyle` says when.
+    /// The style and hiding the app declared (LLP 1105 D6); `onStatusBarStyle` says when.
     override var preferredStatusBarStyle: UIStatusBarStyle { exactView.statusBarStyle }
+    override var prefersStatusBarHidden: Bool { exactView.systemBarsHidden }
+    override var prefersHomeIndicatorAutoHidden: Bool { exactView.systemBarsHidden }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { exactView.statusBarUpdateAnimation }
     /// The session's orientation lock (LLP 1133.029 D5).
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         exactView?.orientationMask ?? super.supportedInterfaceOrientations
@@ -311,7 +314,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let c = Controller()
         w.rootViewController = c
         #if !os(tvOS)
-        exactView.onStatusBarStyle = { [weak c] _ in c?.setNeedsStatusBarAppearanceUpdate() }
+        exactView.onStatusBarStyle = { [weak c] _ in
+            c?.setNeedsStatusBarAppearanceUpdate()
+            c?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        }
         #endif
         window = w
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"], frameHealthContainer: c.view)

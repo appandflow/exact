@@ -125,5 +125,52 @@ final class StatusBarIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["statusBarStyle", "statusBarAnimation"]]]))
         XCTAssertEqual(told.map(\.style), [.darkContent, .lightContent])
     }
+
+    /// `system-bars-hidden` resolves by the same rule as the style, apart
+    /// from it: a descendant's `false` over its ancestor's `true`, and a
+    /// later branch over an earlier one.
+    func testHidingResolvesAsTheStyleDoes() {
+        let p = presenter()
+        screen(p, route: "light-content", header: nil)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["systemBarsHidden": "true"]]]))
+        XCTAssertEqual([p.statusBar.hidden, p.statusBar.style == .lightContent], [true, true])
+        XCTAssertEqual(p.statusBar.hiddenSource, 1)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["systemBarsHidden": "false"]]]))
+        XCTAssertFalse(p.statusBar.hidden, "the descendant's declaration")
+        XCTAssertEqual(p.statusBar.source, 1, "the style is still the route's")
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["systemBarsHidden": "true", "statusBarAnimation": "fade"]]]))
+        XCTAssertTrue(p.statusBar.hidden, "painted later")
+        XCTAssertTrue(p.statusBar.hiddenFade)
+        p.apply(wireBatch([["op": "props", "id": 4, "set": [:], "clear": ["systemBarsHidden", "statusBarAnimation"]]]))
+        XCTAssertFalse(p.statusBar.hidden, "the descendant's again")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["systemBarsHidden"]]]))
+        XCTAssertTrue(p.statusBar.hidden, "the route's again")
+    }
+
+    /// Which animation each update takes: the style's from the style's
+    /// winner, hiding's from the hiding winner, or the outgoing one's when
+    /// none wins any more.
+    func testEachChangeTakesItsOwnWinnersAnimation() {
+        func pick(_ a: StatusBarChoice, _ b: StatusBarChoice) -> [String] {
+            let r = Presenter.statusBarAnimation(from: a, to: b)
+            return [r.fadeStyle ? "style fades" : "style snaps", r.hiding == .fade ? "hiding fades" : "hiding snaps"]
+        }
+        let light = StatusBarChoice(style: .lightContent, fade: true, source: 1)
+        XCTAssertEqual(pick(StatusBarChoice(), light), ["style fades", "hiding snaps"], "style only")
+        var hidden = light
+        hidden.hidden = true; hidden.hiddenSource = 2
+        XCTAssertEqual(pick(light, hidden), ["style snaps", "hiding snaps"], "hide only, `none`: the style's fade does not reach it")
+        hidden.hiddenFade = true
+        XCTAssertEqual(pick(light, hidden), ["style snaps", "hiding fades"], "hide only, `fade`")
+        XCTAssertEqual(pick(StatusBarChoice(), hidden), ["style fades", "hiding fades"], "both at once")
+        XCTAssertEqual(pick(hidden, light), ["style snaps", "hiding fades"], "shown when the declaration goes: the outgoing one's")
+        var shown = hidden
+        shown.hidden = false; shown.hiddenFade = false
+        XCTAssertEqual(pick(hidden, shown), ["style snaps", "hiding snaps"], "true/fade to false/none: the winner's `none`")
+        var none = hidden
+        none.hiddenFade = false
+        shown.hiddenFade = true
+        XCTAssertEqual(pick(none, shown), ["style snaps", "hiding fades"], "true/none to false/fade: the winner's `fade`")
+    }
 }
 #endif

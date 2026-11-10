@@ -1,15 +1,20 @@
 // The status bar's style, declared from state (LLP 1105): `status-bar-style`
 // on any node; the declaration painted on top of what covers the bar wins.
+// `system-bars-hidden` resolves by the same rule, separately.
 // tvOS has no status bar.
 #if os(iOS)
 import UIKit
 
 /// What the bar shows (D1, D4) and how a change reaches it, with the node
-/// that decided it (the agent's `layout`, D7).
+/// that decided it (the agent's `layout`, D7); and whether the status bar
+/// and the home indicator give way, from the node that decided that.
 struct StatusBarChoice: Equatable {
     var style: UIStatusBarStyle = .default
     var fade = false
     var source: UInt32?
+    var hidden = false
+    var hiddenFade = false
+    var hiddenSource: UInt32?
 }
 
 extension Presenter {
@@ -27,21 +32,58 @@ extension Presenter {
         HostLog.note(session, {
             let style = choice.style == .lightContent ? "light content" : choice.style == .darkContent ? "dark content" : "default"
             let scheme = session?.view?.traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
-            return "appearance: status bar \(style)\(choice.source.map { " (from #\($0))" } ?? " (no declaration)"), under a \(scheme) interface style"
+            let hidden = choice.hidden ? ", system bars hidden (from #\(choice.hiddenSource ?? 0))" : ""
+            return "appearance: status bar \(style)\(choice.source.map { " (from #\($0))" } ?? " (no declaration)")\(hidden), under a \(scheme) interface style"
         }())
+        let animation = ExactEnv.agentFreezes ? (fadeStyle: false, hiding: UIStatusBarAnimation.none) : Self.statusBarAnimation(from: statusBar, to: choice)
         statusBar = choice
+        statusBarUpdateAnimation = animation.hiding
         let apply = { [self] in
             onStatusBar?(choice)
             modals.statusBarChanged()
         }
         // `none` is no animation, even inside one already running (a keyboard's).
-        if choice.fade, !ExactEnv.agentFreezes { UIView.animate(withDuration: 0.3, animations: apply) } else { UIView.performWithoutAnimation(apply) }
+        if animation.fadeStyle || animation.hiding == .fade { UIView.animate(withDuration: 0.3, animations: apply) } else { UIView.performWithoutAnimation(apply) }
     }
 
-    /// The declarations in scope that show; the one painted on top (D2, D3).
+    /// How an update from `old` to `new` animates. A style change fades when
+    /// the style's winner says `fade` (D5). Hiding or showing takes the
+    /// winning `system-bars-hidden` declaration's `status-bar-animation`, or,
+    /// when none wins any more, the outgoing one's. That is the controllers'
+    /// `preferredStatusBarUpdateAnimation`, which UIKit applies only to a
+    /// change of `prefersStatusBarHidden`, so a style's fade block that
+    /// carries a hide does not fade it. When the bar hides or shows in the
+    /// same update, a style change is not seen apart from it.
+    static func statusBarAnimation(from old: StatusBarChoice, to new: StatusBarChoice) -> (fadeStyle: Bool, hiding: UIStatusBarAnimation) {
+        let fadeStyle = new.style != old.style && new.fade
+        guard new.hidden != old.hidden else { return (fadeStyle, UIStatusBarAnimation.none) }
+        return (fadeStyle, (new.hiddenSource != nil ? new.hiddenFade : old.hiddenFade) ? .fade : .none)
+    }
+
+    /// The style and the hiding the winners in scope declare (D2, D3).
     func statusBarChoice() -> StatusBarChoice {
-        let declared = carrying("statusBarStyle")
-        guard !declared.isEmpty else { return StatusBarChoice() }
+        var choice = StatusBarChoice()
+        if let winner = statusBarWinner("statusBarStyle", "status-bar-style", ["light-content", "dark-content", "auto"]) {
+            choice.style = switch winner.props["statusBarStyle"] {
+            case "light-content": .lightContent
+            case "dark-content": .darkContent
+            default: Self.schemeStatusBar(winner)
+            }
+            choice.fade = winner.props["statusBarAnimation"] == "fade"
+            choice.source = winner.id
+        }
+        if let winner = statusBarWinner("systemBarsHidden", "system-bars-hidden", ["true", "false"]) {
+            choice.hidden = winner.props["systemBarsHidden"] == "true"
+            choice.hiddenFade = winner.props["statusBarAnimation"] == "fade"
+            choice.hiddenSource = winner.id
+        }
+        return choice
+    }
+
+    /// Of the nodes declaring `key` in scope that show, the one painted on top (D2, D3).
+    private func statusBarWinner(_ key: String, _ attribute: String, _ values: Set<String>) -> NodeView? {
+        let declared = carrying(key)
+        guard !declared.isEmpty else { return nil }
         let scope = modals.statusBarScope
         // A node shown in a context menu's preview is UIKit's, not the screen's:
         // the scope is the session's view, the route presentations and the
@@ -68,22 +110,17 @@ extension Presenter {
             return !scope.presented.contains { node.isDescendant(of: $0) }
         }
         let candidates = declared.filter { node in
-            let value = node.props["statusBarStyle"] ?? ""
-            guard ["light-content", "dark-content", "auto"].contains(value) else {
-                noteStatusBarValue(node, "status-bar-style", value)
+            let value = node.props[key] ?? ""
+            guard values.contains(value) else {
+                noteStatusBarValue(node, attribute, value)
                 return false
             }
             if let a = node.props["statusBarAnimation"], a != "none", a != "fade" { noteStatusBarValue(node, "status-bar-animation", a) }
             return inScope(node) && shows(node)
         }
-        guard var winner = candidates.first else { return StatusBarChoice() }
+        guard var winner = candidates.first else { return nil }
         for next in candidates.dropFirst() where Self.paintedAbove(next, winner) { winner = next }
-        let style: UIStatusBarStyle = switch winner.props["statusBarStyle"] {
-        case "light-content": .lightContent
-        case "dark-content": .darkContent
-        default: Self.schemeStatusBar(winner)
-        }
-        return StatusBarChoice(style: style, fade: winner.props["statusBarAnimation"] == "fade", source: winner.id)
+        return winner
     }
 
     /// A bound value outside the set counts as unset (D1), said once per node and value.

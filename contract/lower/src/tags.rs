@@ -684,6 +684,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // The status bar's text over this node's screen, from state (LLP 1105).
         "status-bar-style" => AttrTarget::Prop(p("statusBarStyle")),
         "status-bar-animation" => AttrTarget::Prop(p("statusBarAnimation")),
+        // The status bar and the home indicator give way to this node's screen.
+        "system-bars-hidden" => AttrTarget::Prop(p("systemBarsHidden")),
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
@@ -951,6 +953,15 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
+        // React Native's and Expo's `hidden`, React Navigation's screen
+        // options, UIKit's controller properties, Android's immersive mode.
+        "status-bar-hidden"
+        | "statusBarHidden"
+        | "navigationBarHidden"
+        | "autoHideHomeIndicator"
+        | "prefersStatusBarHidden"
+        | "prefersHomeIndicatorAutoHidden"
+        | "immersive" => "system-bars-hidden",
         // Android's view attribute, UIKit's idle timer, Expo's hook (LLP 1125 D11).
         "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
             "wakelock"

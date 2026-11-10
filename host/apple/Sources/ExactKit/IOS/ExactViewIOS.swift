@@ -55,10 +55,16 @@ public final class ExactView: UIView {
     #if os(iOS)
     /// The status bar's style the app declared (LLP 1105), for the
     /// controller that hosts this view to return from
-    /// `preferredStatusBarStyle`, and the hook that says it changed, called
-    /// inside the change's animation (a fade, when the app asks for one) and
-    /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
+    /// `preferredStatusBarStyle`; whether the system bars give way, for
+    /// `prefersStatusBarHidden` and `prefersHomeIndicatorAutoHidden`, and how
+    /// that change animates, for `preferredStatusBarUpdateAnimation`; and the
+    /// hook that says any changed, called inside the change's animation (a
+    /// fade, when the app asks for one) and with the current style when set:
+    /// call `setNeedsStatusBarAppearanceUpdate` and
+    /// `setNeedsUpdateOfHomeIndicatorAutoHidden`.
     public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
+    public var systemBarsHidden: Bool { session.presenter.statusBar.hidden }
+    public var statusBarUpdateAnimation: UIStatusBarAnimation { session.presenter.statusBarUpdateAnimation }
     public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
     /// The session's orientation lock (LLP 1133.029 D5), for the controller
     /// that hosts this view to return from `supportedInterfaceOrientations`

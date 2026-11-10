@@ -1438,8 +1438,8 @@ package final class Presenter {
     var onTitle: ((String?) -> Void)?
     #if os(iOS)
     lazy var textSelection = TextSelectionHost(self) // `user-select: text` (LLP 1115.000 D11.6)
-    /// The status bar's resolved style (LLP 1105), and who is told of a change.
-    var statusBar = StatusBarChoice()
+    /// The status bar's resolved style (LLP 1105), the controllers' `preferredStatusBarUpdateAnimation`, and who is told of a change.
+    var statusBar = StatusBarChoice(), statusBarUpdateAnimation = UIStatusBarAnimation.none
     var onStatusBar: ((StatusBarChoice) -> Void)?
     var statusBarNoted = Set<String>()
     #endif

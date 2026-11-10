@@ -951,8 +951,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FocusGuide => continue,
             // The kernel's word from the grouped sheet; the page's sheet has the ink already.
             PropId::GroupedAction => continue,
-            // A page cannot style the phone's status bar (LLP 1105 D7).
-            PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
+            // A page cannot style or hide the phone's system bars (LLP 1105 D7).
+            PropId::StatusBarStyle | PropId::StatusBarAnimation | PropId::SystemBarsHidden => {
+                continue
+            }
             // Read by wakelock-glue.js (LLP 1125 D11).
             PropId::Wakelock => "data-exact-wakelock",
             // Read by orientationlock-glue.js (LLP 1133.029 D7).

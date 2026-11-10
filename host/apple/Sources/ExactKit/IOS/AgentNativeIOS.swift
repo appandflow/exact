@@ -78,10 +78,12 @@ extension Agent {
         let scaled = presenter.modals.drawnScales.map { ["route": $0.route.props["navigationKey"] ?? "", "presentation": $0.kind, "scale": (Double($0.scale) * 1000).rounded() / 1000] as [String: Any] }
         if !scaled.isEmpty { reply["scaled"] = scaled }
         #if os(iOS)
-        // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
+        // The status bar's style and the system bars' hiding Exact asks for
+        // (LLP 1105 D7), and the nodes that decided them.
         let bar = presenter.statusBar
         reply["statusBar"] = ["style": bar.style == .lightContent ? "light-content" : bar.style == .darkContent ? "dark-content" : "default",
-                              "source": bar.source.map { Int($0) } ?? NSNull()] as [String: Any]
+                              "source": bar.source.map { Int($0) } ?? NSNull(),
+                              "hidden": bar.hidden, "hiddenSource": bar.hiddenSource.map { Int($0) } ?? NSNull()] as [String: Any]
         #endif
         // The device's screen, where the viewport sits on it (LLP 1035.002
         // D4's `screen` space) and the scene's interface orientation: what a
