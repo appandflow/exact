@@ -20,6 +20,7 @@ mod field;
 mod fonts;
 pub mod foresee;
 mod in_flight;
+mod mapper_turns;
 mod module_work;
 mod trace;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
@@ -437,6 +438,7 @@ pub struct Runner<D: DataSource> {
     background: background::Background,
     /// Module work's requests in flight (LLP 1146 D2).
     module_work: module_work::ModuleWork,
+    mapper_turns: mapper_turns::MapperTurns,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
     /// Second edges waiting for the first action's async targets to settle,
@@ -837,6 +839,7 @@ impl<D: DataSource> Runner<D> {
             next_ticket: 1,
             background: Default::default(),
             module_work: Default::default(),
+            mapper_turns: Default::default(),
             picked_count: 0,
             forgot: false,
             heard_aborts: Vec::new(),

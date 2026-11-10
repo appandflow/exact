@@ -200,6 +200,7 @@ fn main() {
         "overlay-getter",
         "socket",
         "listen",
+        "mapper",
         "process",
         "heap",
         "snapshot",

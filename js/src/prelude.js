@@ -508,8 +508,8 @@
     if (overlaying) return Promise.reject(inOverlay("scheduler.yield()"));
     var call = currentCall;
     if (call && (call.letGo || (call.replied && call.status === "pending"))) return Promise.reject(new DOMException("the answer was let go", "AbortError"));
-    // No answer's turn to end (module evaluation, a mapper, background work, a continuation after its reply): go on.
-    if (!call || call === background || inMapper || call.status !== "pending" || call.replied) return Promise.resolve();
+    // No answer's turn to end (module evaluation, a mapper where it cannot await, background work, a continuation after its reply): go on.
+    if (!call || call === background || inMapper && !call.mapper || call.status !== "pending" || call.replied) return Promise.resolve();
     return new Promise(function (resolve, reject) { (call.yields || (call.yields = [])).push([resolve, reject]); yielded++; });
   }
   // End a call's yields, resolved or rejected with `error`: how many there were.
@@ -569,7 +569,7 @@
   // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1); `own(ticket,
   // call)`: a child's stream owner and `child`: the call is js/src/process.js's, the one path to `exact-process:`.
   function request(url, init, listen, own, child) {
-    if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
+    if (overlaying || mapping || currentCall && currentCall.mapper) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error(mapping ? "fetch() is unavailable in a socket's mapper: it answers each frame now" : "fetch() is unavailable in a stream's mapper: fetch in the answer that opens the stream"));
     url = String(url); // read once: the URL checked here and below is the one the host is sent
     if (!child && /^exact-process:/i.test(url)) return Promise.reject(new TypeError("fetch: exact-process: is @exact/child-process's: import spawn or execFile from it (LLP 1133.007 D12)"));
     var call = currentCall;
@@ -832,8 +832,8 @@
     // Before any answer, during module evaluation, it is refused, as it is
     // on a worker placement, where answers wait for their storage.
     if (moving && (call ? call.replied : !initializing)) call = background;
-    if (!call || call.replied) {
-      var refused = storageError("storage." + method + "() called outside an answer: it was never run. Start storage inside an answer");
+    if (!call || call.replied || call.mapper) {
+      var refused = storageError("storage." + method + "() called " + (call && call.mapper ? "in a stream's mapper" : "outside an answer") + ": it was never run. Start storage inside an answer");
       journal("storage refused: " + refused.message);
       return Promise.reject(refused);
     }
@@ -1297,15 +1297,12 @@
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
-  // The runner let this call's request go (LLP 1016 D5): drop the call, and
-  // reject the fetches it waits on, so its continuation runs (a `finally`
-  // clears what the call set) rather than vanishing: the runner drops the
-  // reply when it comes. The request may already be on the wire. A send
-  // that needs every reply is a `queue` mutation (LLP 1092).
-  // One let go between storage steps answers "storage": its steps are
-  // running and the chain behind them goes on, so the executor delivers them
-  // until `__exact_let_go` says none is left, and its answer is never given
-  // (ledger F12). A fetch it makes then is refused: no one wants its reply.
+  // The runner let this call's request go (LLP 1016 D5): drop the call, and reject the fetches it waits on, so its
+  // continuation runs (a `finally` clears what the call set) rather than vanishing: the runner drops the reply when it
+  // comes. The request may already be on the wire. A send that needs every reply is a `queue` mutation (LLP 1092).
+  // One let go between storage steps answers "storage": its steps are running and the chain behind them goes on, so the
+  // executor delivers them until `__exact_let_go` says none is left, and its answer is never given (ledger F12). A fetch
+  // it makes then is refused: no one wants its reply.
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return ""; call.letGo = true; // a fetch, yield or timer it makes from here is refused
@@ -1351,10 +1348,8 @@
     var at = headOwner();
     return at && at.letGo ? "storage" : "queued";
   };
-  // One message of the stream answer `id` began, or its end: the mapper's
-  // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
-  // is `{ type: "error" }` with the failure's kind and message, or the
-  // status and body of a reply that was not 2xx; an upload's reply is `load`.
+  // One message of the stream answer `id` began, or its end (`{ type: "error" }` with the failure's kind and message, or
+  // the status and body of a reply that was not 2xx; an upload's reply is `load`), mapped to the answer (LLP 1016.000 D1).
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
@@ -1371,18 +1366,24 @@
     // A child's owner reads its own events (js/src/process.js).
     if (socket && socket.event) event = socket.event(o, event);
     else if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
-    currentCall = call; inMapper = true;
+    // Each mapper call is a call of its own (`mapper`), settled as an answer's: one that returns a promise is tag 3, its
+    // yields turns with their own budget, its value the stream's when it settles (Charlie, 2026-11-10). Not on wasm.
+    var mine = moduleWide ? { id: nextCall++, status: "pending", tickets: [], storage: 0, replied: false, mapper: call, answer: true, sync: true, socketOps: null, epoch: gcEpoch() } : call;
+    currentCall = mine; inMapper = true; if (mine !== call) work.setTurn(mine);
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     // A listener's, on the connection whose `connection` or `message` it answers (LLP 1133.005 D6).
     var own = listened && listened.connection && (event.type === "connection" || event.type === "message") ? listened.connection : null;
     var turn = mapping = socket && o.message && socket.state === 1 && (!socket.listen || own) ? { owner: socket, connection: own, socketOps: null, overload: null } : null;
     try {
       var value = !socket ? call.stream(event) : socket.listen ? call.stream(event, listened && listened.connection ? listened.connection.handle : undefined) : call.stream(event, socket.handle);
-      if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
+      if (value && typeof value.then === "function" && mine === call) throw new Error("exactStream answers each event now on this target; it cannot await");
       if (turn && turn.overload) throw turn.overload;
-      return ok(value);
-    } catch (e) { return fail(e); }
-    finally { currentCall = null; mapping = null; inMapper = false; if (turn) handSocketOps(turn); }
+      if (!value || typeof value.then !== "function") { if (mine !== call) { endYields(mine); mine.replied = true; } return ok(value); }
+      calls.set(mine.id, mine);
+      value.then(function (v) { mine.status = "done"; mine.value = v; }, function (e) { mine.status = "failed"; mine.error = e; });
+      return JSON.stringify({ tag: 3, call: mine.id });
+    } catch (e) { if (mine !== call) { endYields(mine); mine.replied = true; } return fail(e); }
+    finally { mine.sync = false; currentCall = null; mapping = null; inMapper = false; if (turn) handSocketOps(turn); }
   };
   // The module's storage, after a call or a delivery (LLP 1097 D5, D8):
   // whether the operation in flight is the background's (`head`), the
@@ -1468,7 +1469,7 @@
   // The answer a timer belongs to (binary.js `timers`), or the refusal.
   function timerOwner(api) {
     if (overlaying) throw inOverlay(api);
-    if (inMapper || !currentCall || currentCall === background || currentCall.replied || currentCall.letGo)
+    if (inMapper || !currentCall || currentCall.mapper || currentCall === background || currentCall.replied || currentCall.letGo)
       throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow");
     return currentCall;
   }

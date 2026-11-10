@@ -1317,11 +1317,22 @@ it beside a held fetch may count as held. Hermes reaches no such globals.
 
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
-The promise never settles; each message, and the end, is mapped now (the
-mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
-URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-WebSocket under `net.websocket` alone. Except for TypeScript sources on the
-web JS target and native hosts, described below, sockets are receive-only. An event is
+The promise never settles; each message, and the end, is mapped and commits
+as the resource's answer. A mapper may return a promise (an `async` mapper):
+the message commits when it settles, and until then the messages after it, and
+the end, wait, so they are mapped in the order they arrived and a later
+message's mapper call never overtakes an earlier one's. Natively its later
+turns are an answer's: each `await scheduler.yield()` ends one, and the next
+has a budget of its own. A rejection is a throw: it ends the stream with that
+error and the resource keeps its last value. A stream let go (new arguments,
+`refresh`) lets go the call still pending, whose `scheduler.yield()` rejects
+with an `AbortError`. A mapper may await promises and `scheduler.yield()`;
+`fetch`, timers and storage are refused in it. At most 4096 messages, or 64 MiB
+of them, wait; one more ends the stream. The web's wasm host maps each message
+now and refuses a promise. An `http:`/`https:` URL is read as server-sent
+events under `net.fetch`; a `ws:`/`wss:` URL is a WebSocket under
+`net.websocket` alone. Except for TypeScript sources on the web JS target and
+native hosts, described below, sockets are receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side

@@ -153,29 +153,43 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   const refused = why => journal.push(`t=${clock.now} mapper ${controller.streamName} failed: ${why}; socket frames were refused`);
   // `frame`: the socket's `open` or a `message`, which its mapper may answer
   // with replies on it (D7). They ride the frame's answer as effects
-  // (rt.js `reply`), sent once its commit stands.
+  // (rt.js `reply`), sent once its commit stands. A mapper that returns a
+  // promise answers when it settles (Charlie, 2026-11-10); the replies it
+  // staged before its first `await` go now, as natively they go with the
+  // frame's first commit, and after it, it cannot send.
+  const failed = (e, turn) => {
+    if (turn?.socketOps?.length) refused(e?.message ?? e);
+    return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
+  };
   const value = (event, frame) => {
     if (controller.active?.() === false) return { error: 'the stream was let go', code: 'error' };
     const turn = socket && frame ? answering.mapper = { owner: controller, socketOps: null, overload: null } : null;
     try {
       const v = map(event, socket);
-      if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
       if (turn?.overload) throw turn.overload;
       // A socket no resource owns (a mutation's stream) takes none, as natively.
       if (turn?.socketOps?.length && !controller.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
-      const ops = turn?.socketOps;
-      return ops?.length ? { v: conv(v), effects: [Object.assign(() => { try { publish(ops)(); } catch (e) { refused(e?.message ?? e); } }, { refused })] } : { v: conv(v) };
-    } catch (e) {
-      if (turn?.socketOps?.length) refused(e?.message ?? e);
-      return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
-    } finally { if (turn) answering.mapper = null; }
+      const ops = turn?.socketOps, effects = ops?.length ? [Object.assign(() => { try { publish(ops)(); } catch (e) { refused(e?.message ?? e); } }, { refused })] : null;
+      if (!v || typeof v.then !== 'function') return effects ? { v: conv(v), effects } : { v: conv(v) };
+      effects?.[0]();
+      return Promise.resolve(v).then(v => controller.active?.() === false ? { error: 'the stream was let go', code: 'error' } : { v: conv(v) }).catch(e => failed(e));
+    } catch (e) { return failed(e, turn); } finally { if (turn) answering.mapper = null; }
   };
+  // A later frame's mapper call waits for an earlier one's promise, and so
+  // does the end: `behind` is the last call still settling.
+  let behind = null;
+  const inOrder = run => {
+    const r = behind ? behind.then(run) : run();
+    if (r && typeof r.then === 'function') { const done = () => { if (behind === at) behind = null; }, at = behind = r.then(done, done); }
+    return r;
+  };
+  const settled = (r, then) => r && typeof r.then === 'function' ? r.then(then) : then(r);
   // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper, nor an upload's start
   // (`exact:sending`), which, as any bytes sent, says it reached the network (rt.js); its bytes sent are a `progress`
   // event, as XMLHttpRequest's.
   const event = m => req.upload && m.event === 'exact:progress' ? { type: 'progress', ...JSON.parse(m.data), lengthComputable: true, data: '', lastEventId: '', coalesced: m.coalesced } : { type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced };
   const message = m => (controller.sent ||= !!req.upload, req.longPoll && m.event === 'exact:reply' || req.upload && m.event === 'exact:sending')
-    ? undefined : deliver({ ...value(event(m), true), coalesced: m.coalesced });
+    ? undefined : void inOrder(() => settled(value(event(m), true), r => deliver({ ...r, coalesced: m.coalesced })));
   const timed = m => {
     const g = gate();
     if (!g) return message(m);
@@ -186,10 +200,10 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
     .then(o => {
       gate()?.ended(controller.streamName);
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
-      return value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
+      return inOrder(() => value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
       : req.upload ? { type: 'load', status: o.status, data: said.decode(o.body), lastEventId: '', coalesced: 0 }
-      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status });
+      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status }));
     })
     .finally(() => heard?.removeEventListener('abort', abort));
 }

@@ -46,6 +46,7 @@ impl<D: DataSource> Runner<D> {
         );
         out.extend(self.tool_tickets());
         out.extend(self.module_work_tickets());
+        out.extend(self.mapper_turn_tickets());
         out
     }
 
@@ -78,6 +79,7 @@ impl<D: DataSource> Runner<D> {
         self.background_ticket().is_some()
             || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
             || !self.module_work_tickets().is_empty()
+            || !self.mapper_turn_tickets().is_empty()
             // A child's outcomes its work owes on the agent's clock (LLP 1133.007 §7).
             || self.work_owed()
             || self
@@ -132,6 +134,7 @@ impl<D: DataSource> Runner<D> {
         );
         out.extend((self.tool_tickets().into_iter()).filter(|(_, t)| !self.data_timer_held(*t)));
         out.extend(self.module_work_tickets());
+        out.extend(self.mapper_turn_tickets());
         out
     }
 

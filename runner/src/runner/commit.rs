@@ -991,7 +991,7 @@ impl<D: DataSource> Runner<D> {
     /// worker's snapshot is the store as committed then.
     pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
         // A module request the runner holds for the agent (LLP 1133.002 §6).
-        if let Some(dispatch) = self.module_dispatch(token) {
+        if let Some(dispatch) = self.module_dispatch(token).or(Self::held_dispatch(token)) {
             return dispatch;
         }
         self.store.set_clock_ms(self.now_ms);
@@ -1098,6 +1098,7 @@ impl<D: DataSource> Runner<D> {
         self.is_background(ticket)
             || self.is_tool(ticket)
             || self.is_module_work(ticket)
+            || self.is_mapper_turn(ticket)
             || self.pending.iter().any(|p| p.ticket == ticket)
     }
 
@@ -1130,7 +1131,7 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
-    fn fulfill_now(
+    pub(super) fn fulfill_now(
         &mut self,
         ticket: u64,
         outcome: Outcome,
@@ -1150,6 +1151,11 @@ impl<D: DataSource> Runner<D> {
             // Module work's (LLP 1146 D2): its turn, then a commit of its own.
             return self.module_work_landed(ticket, outcome);
         }
+        // A stream's mapper turn, and what lands behind one (`mapper_turns.rs`).
+        let outcome = match self.behind_turns(ticket, outcome) {
+            std::ops::ControlFlow::Continue(outcome) => outcome,
+            std::ops::ControlFlow::Break(done) => return done,
+        };
         let mut summary = outcome.summary();
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);
@@ -1302,6 +1308,7 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::Poisoned);
         }
         let name = self.target_name(p.target);
+        let turn = std::mem::take(&mut self.mapper_turns.landing);
         let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
         let failed_end = matches!(outcome, Outcome::Failed { .. });
         let ty = match p.target {
@@ -1380,6 +1387,19 @@ impl<D: DataSource> Runner<D> {
             error,
         })? {
             Answer::Now(value) => value,
+            // A mapper that answered with a promise: its next turn (`mapper_turns.rs`).
+            // What it sent before its first `await` goes with this commit.
+            Answer::Later(request) if (message || turn) && request.continuation.is_some() => {
+                if let (true, Err(why)) = (message, self.stage_replies(&p)) {
+                    let error = DataError::Unavailable(why);
+                    return Err(RunnerError::Data {
+                        resource: name,
+                        error,
+                    });
+                }
+                self.mapper_turn(p.ticket, request);
+                return self.update();
+            }
             Answer::Later(request) if message && !request.stream => {
                 // A message commits as its own settlement; a request that is
                 // not a stream would replace the stream's ticket with one

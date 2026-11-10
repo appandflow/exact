@@ -1151,7 +1151,14 @@ impl Module {
             ));
         }
         let key = Module::key(target, source, args);
-        if let (true, Some(store)) = (self.streams.iter().any(|(k, _)| *k == key), &mut store) {
+        // A stream's mapper call parked on its key is resumed first: the
+        // runner delivers no message while one is out (`mapper_turns.rs`).
+        let turn = self.parked.iter().any(|(k, _)| *k == key);
+        if let (true, false, Some(store)) = (
+            self.streams.iter().any(|(k, _)| *k == key),
+            turn,
+            &mut store,
+        ) {
             return self.message(store, source, key, outcome);
         }
         let Some(pos) = self.parked.iter().position(|(k, _)| *k == key) else {
@@ -1336,7 +1343,9 @@ impl Module {
     }
 
     /// One message of the stream answer `key` began, or its end: the
-    /// source's `exactStream` maps it to the answer, now (LLP 1016.000 D1).
+    /// source's `exactStream` maps it to the answer (LLP 1016.000 D1). A
+    /// mapper that returns a promise is settled as an answer is, and parks
+    /// on the stream's key until it gives its value (Charlie, 2026-11-10).
     fn message(
         &mut self,
         store: &mut Store,
@@ -1362,16 +1371,27 @@ impl Module {
         let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
         let clock = TurnClock::start(&self.turn_time);
+        let mut mapper = None;
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
+            let threw = |e| DataError::Unavailable(format!("`{source}` threw: {e}"));
             let text = engine
                 .call("__exact_message", [&call.to_string(), &outcome_text, ""])
-                .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+                .map_err(threw)?;
             let Some(sig) = self.sigs.get(source) else {
                 engine.clear_reply();
                 return Err(DataError::UnknownSource(source.to_string()));
             };
-            let reply = Module::decode_reply(sig, engine, source, &text)?;
+            let mut reply = Module::decode_reply(sig, engine, source, &text)?;
+            if reply.fields.get("tag").and_then(Json::as_u64) == Some(3) {
+                mapper = reply.fields.get("call").and_then(Json::as_u64);
+                let id = mapper.unwrap_or_default().to_string();
+                engine.drain().map_err(threw)?;
+                let text = engine
+                    .call("__exact_settle", [&id, "", ""])
+                    .map_err(threw)?;
+                reply = Module::decode_reply(sig, engine, source, &text)?;
+            }
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
@@ -1410,6 +1430,7 @@ impl Module {
                 .as_mut()
                 .expect("checked by resume")
                 .clear_reply();
+            self.forget_calls(mapper.into_iter().collect());
         }
         if let Some(why) = over {
             self.overruns += 1;
@@ -1417,9 +1438,20 @@ impl Module {
         }
         match result? {
             Step::Done(r) => r.map(Answer::Now),
-            Step::Pending { .. } => Err(DataError::Unavailable(format!(
-                "`{source}`: exactStream answers each event now"
-            ))),
+            // Its later turns: a yield's, or a wait on another answer's work.
+            Step::Pending { call, ticket, due }
+                if matches!(ticket, WAITING | YIELDED | secrets::TICKET) =>
+            {
+                let request = timer_due(Request::continuation(call), ticket, due);
+                self.park(key, call, ticket, &request)?;
+                Ok(Answer::Later(request))
+            }
+            Step::Pending { call, .. } => {
+                self.forget_calls(vec![call]);
+                Err(DataError::Unavailable(format!(
+                    "`{source}`: a stream's mapper awaits only promises and scheduler.yield()"
+                )))
+            }
         }
     }
 }

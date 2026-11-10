@@ -1055,8 +1055,11 @@ Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper may also send and close on its own socket while it
 answers `open` or a `message` (a subscribe, an Ack per frame), with no
-`fetch`. Sends run after the commit that settles the mutation or the frame
-stands, in order, and have bounded admission. A mutation's source that
+`fetch`. A mapper may be `async` (inflating a frame with `DecompressionStream`,
+splitting a large parse with `await scheduler.yield()`): later frames wait for
+it, in order; after its first `await` it sends as an answer's turn does
+natively and cannot send on the web. Sends run after the commit that settles
+the mutation or the frame stands, in order, and have bounded admission. A mutation's source that
 sends answers now or with a promise, and cannot also `fetch` (whichever
 comes second refuses it). A resource's answer may send its own
 request on its module's socket and await the reply, with no timer, and so
