@@ -32,6 +32,12 @@ final class BoxFilter {
     private let content = CALayer()
     /// The box's mask while filtered: nothing of the box itself shows.
     let hide = CALayer()
+    /// A lone `brightness()` of at most 1, in sRGB, is the drawing under
+    /// black at 1 − the amount, masked to the drawing's alpha: a change of
+    /// the amount is then the shade's opacity, which the render server
+    /// composites, with no chain run and no new picture to upload.
+    private let shade = CALayer()
+    private let shadeMask = CALayer()
     /// `Filter::encode` over a box of no size: its region is how far past
     /// the box the result reaches. `darkProgram`: the chain under a dark
     /// appearance, when its colours differ there.
@@ -48,6 +54,10 @@ final class BoxFilter {
     /// for it to finish. Each drawing is numbered; one numbered `cleared`
     /// or below is not shown.
     private struct Job { let source: CGImage, program: [Float], rect: CGRect, scale: CGSize, generation: Int }
+    /// The last unfiltered drawing: a change of the chain alone runs again
+    /// over it, without drawing the subtree on the main thread.
+    private var source: (image: CGImage, rect: CGRect, scale: CGSize, dark: Bool)?
+    private var lastRegion: [Float] = []
     private var running = false
     private var waiting: Job?
     private var generation = 0, cleared = 0
@@ -63,6 +73,14 @@ final class BoxFilter {
         }
         content.anchorPoint = .zero
         picture.addSublayer(content)
+        for l in [shade, shadeMask] {
+            l.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "hidden": NSNull()]
+            l.anchorPoint = .zero
+        }
+        shade.backgroundColor = CGColor(gray: 0, alpha: 1)
+        shade.mask = shadeMask
+        shade.isHidden = true
+        picture.addSublayer(shade)
     }
 
     /// The style's `filter` (`{"p": [...], "pd": [...], "rc": [...]}`);
@@ -125,6 +143,7 @@ final class BoxFilter {
         let first = drawn?.node != node
         if first { clear() }
         drawn = now
+        lastRegion = Array(program[0..<4])
         let region = CGRect(x: b.minX + CGFloat(program[0]), y: b.minY + CGFloat(program[1]),
                             width: b.width + CGFloat(program[2]), height: b.height + CGFloat(program[3]))
         guard let (rect, w, h, _) = SvgIsland.extent(region, k: scale, seen: nil, limit: SvgIsland.budget / 24),
@@ -149,6 +168,15 @@ final class BoxFilter {
         box.mask = mask
         box.opacity = opacity
         guard let source = ctx.makeImage() else { clear(); return }
+        self.source = (source, rect, CGSize(width: CGFloat(w) / rect.width, height: CGFloat(h) / rect.height), dark)
+        if let amount = Self.dim(program) {
+            generation += 1
+            cleared = generation
+            waiting = nil
+            shadeOver(source, in: rect, amount: amount)
+            return
+        }
+        shade.isHidden = true
         generation += 1
         let job = Job(source: source, program: program, rect: rect,
                       scale: CGSize(width: CGFloat(w) / rect.width, height: CGFloat(h) / rect.height), generation: generation)
@@ -157,6 +185,26 @@ final class BoxFilter {
         } else {
             run(job, landed: landed)
         }
+    }
+
+    /// The chain changed and nothing the box shows did: run the new chain
+    /// over the last drawing, off the main thread. False when there is none
+    /// to run over, or the box casts a shadow instead.
+    func refilter(landed: @escaping () -> Void) -> Bool {
+        guard shadow == nil, caster == nil, picture.superlayer != nil, let source, drawn != nil else { return false }
+        let program = source.dark ? darkProgram ?? self.program : self.program
+        guard program.count > 5, program[0..<4] == self.lastRegion[...] else { return false }
+        if let amount = Self.dim(program) {
+            generation += 1
+            cleared = generation
+            waiting = nil
+            shadeOver(source.image, in: source.rect, amount: amount)
+            return true
+        }
+        shade.isHidden = true
+        generation += 1
+        run(Job(source: source.image, program: program, rect: source.rect, scale: source.scale, generation: generation), landed: landed)
+        return true
     }
 
     private static func run(_ job: Job) -> CGImage? {
@@ -187,6 +235,30 @@ final class BoxFilter {
         }
     }
 
+    /// The amount of a chain that is one `brightness()` of at most 1 in
+    /// sRGB: region (4), count 1, then component transfer (9) of the
+    /// source graphic, its subregion, sRGB (0), and the same linear
+    /// function (3, slope, 0) on red, green and blue, alpha untouched (0).
+    static func dim(_ p: [Float]) -> Float? {
+        guard p.count == 23, p[4] == 1, p[5] == 9, p[6] == -1, p[12] == 0,
+              p[13] == 3, p[16] == 3, p[19] == 3, p[22] == 0,
+              p[14] == p[17], p[17] == p[20], p[15] == 0, p[18] == 0, p[21] == 0,
+              p[14] >= 0, p[14] <= 1 else { return nil }
+        return p[14]
+    }
+
+    private func shadeOver(_ image: CGImage, in rect: CGRect, amount: Float) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if (content.contents as AnyObject?) !== image { show(image, in: rect) }
+        if shade.frame != rect { shade.frame = rect }
+        if shadeMask.frame.size != rect.size { shadeMask.frame = CGRect(origin: .zero, size: rect.size) }
+        if (shadeMask.contents as AnyObject?) !== image { shadeMask.contents = image }
+        shade.opacity = 1 - amount
+        shade.isHidden = false
+        CATransaction.commit()
+    }
+
     private func show(_ image: CGImage?, in rect: CGRect) {
         guard let image else { content.contents = nil; return }
         content.frame = rect
@@ -196,6 +268,9 @@ final class BoxFilter {
     /// No picture, and none on its way.
     private func clear() {
         content.contents = nil
+        shade.isHidden = true
+        shadeMask.contents = nil
+        source = nil
         cleared = generation
         waiting = nil
     }
@@ -282,6 +357,13 @@ final class BoxFilters {
             if views[key] != nil { pending.insert(key) }
             at = v.superview
         }
+    }
+
+    /// A batch changed only what `view` shows of itself through its own
+    /// filter or transform: the filtered boxes above it draw again, and a
+    /// picture of its own follows it without being drawn again.
+    func touchedAbove(_ view: PlatformView) {
+        if let parent = view.superview { touched(parent) }
     }
 
     /// `view` published pixels between batches: it and every filtered box

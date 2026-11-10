@@ -1030,7 +1030,8 @@ package final class Presenter {
             let id = op.id
             if kind == .children { touched(id, children: true) } else if ![.roots, .create, .fieldContent].contains(kind) {
                 let wordsOnly = kind == .props && op.props.keys.allSatisfy { $0 == "text" } && op.clear.allSatisfy { $0 == "text" }
-                touched(id, textChanged: [.props, .style, .destroy].contains(kind), boxChanged: kind != .paragraph && !wordsOnly)
+                let picture = views[id].map { !$0.hasBoxFilter || !Self.leavesPicture(op, $0) } ?? true
+                touched(id, textChanged: [.props, .style, .destroy].contains(kind), boxChanged: kind != .paragraph && !wordsOnly, picture: picture)
             }
             if animating { moveOrPlace(kind == .create ? nil : views[id] ?? leaving[id]?.view) { applyOp(op, kind, id) } } else { applyOp(op, kind, id) }
         }
@@ -1463,11 +1464,24 @@ package final class Presenter {
         let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
+    /// Whether `op` leaves a filtered box's unfiltered picture as it is: a
+    /// presented transform or opacity (the picture follows the box and is
+    /// drawn at opacity 1), or a style whose only change is `filter`.
+    static func leavesPicture(_ op: BatchOp, _ v: NodeView) -> Bool {
+        switch op.op {
+        case .present: return ["translate", "scale", "rotate", "opacity"].contains(op.property)
+        case .style: return v.onlyFilterDiffers(v.presented(op.style))
+        default: return false
+        }
+    }
     /// An op touched a node: every canvas it is painted
     /// through captures again at the end of the batch — the canvas above it, and itself for its own `children` op.
-    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false, boxChanged: Bool = true) {
+    /// `picture`: false when the op leaves a filtered box's own unfiltered picture as it is (`leavesPicture`).
+    func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false, boxChanged: Bool = true, picture: Bool = true) {
         // A filtered box draws again when it or anything in it changes, a flat leaf (a layer in its parent's view) included.
-        if !boxFilters.isEmpty, let v = views[id] ?? flats.parent(of: id).flatMap({ views[$0] }) { boxFilters.touched(v) }
+        if !boxFilters.isEmpty, let v = views[id] ?? flats.parent(of: id).flatMap({ views[$0] }) {
+            if picture { boxFilters.touched(v) } else { boxFilters.touchedAbove(v) }
+        }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {

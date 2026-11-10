@@ -1201,15 +1201,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
-    func applyFilter() {
+    /// Whether `next` differs from the style shown only in `filter`.
+    func onlyFilterDiffers(_ next: NodeStyle) -> Bool {
+        next["filter"] != style["filter"] && Set(next.keys).union(style.keys).allSatisfy { $0 == "filter" || next[$0] == style[$0] }
+    }
+    func applyFilter(onlyFilter: Bool = false) {
         // A node with no `filter` and none before makes no `BoxFilter` (three
         // layers) to learn so: every styled node passes through here.
         guard boxFilter != nil || style["filter"] != nil else { return }
+        let had = boxFilter
         let f = boxFilter ?? BoxFilter()
         if f.set(style["filter"]) {
             boxFilter = f
             layer.mask = f.hide
             presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            // A new chain over the same content runs over the last drawing.
+            if onlyFilter, had != nil, f.refilter(landed: { [weak self] in if let self { self.presenter?.boxFilters.landed(self) } }) { return }
             redrawFilter()
         } else if let f = boxFilter {
             f.remove()
@@ -1259,7 +1266,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()
-        applyFilter()
+        applyFilter(onlyFilter: old["filter"] != s["filter"] && Set(old.keys).union(s.keys).allSatisfy { $0 == "filter" || old[$0] == s[$0] })
         updateMaterial()
         syncVibrancy()
         presenter?.accent.restyled(self)
