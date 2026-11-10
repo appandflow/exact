@@ -405,9 +405,12 @@ final class CanvasesHost {
             child.alpha = outcome == 0 ? 1 : 0
             if changed { child.placementChanged() }
         }
-        // Alpha suppresses duplicate composition only. VoiceOver traverses the
-        // explicitly supplied children; hidden placements are excluded.
-        overlay.accessibilityElements = overlay.subviews.compactMap { $0 as? NodeView }.filter { !$0.placementHidden && !$0.isHidden }
+        // Alpha 0 keeps UIKit from drawing what the surface composites, and
+        // UIKit's own walk skips a view at alpha 0, so the children are
+        // listed. UIKit takes a list as given: what its walk leaves out
+        // (`isHidden`; `accessibilityElementsHidden`, which `aria-hidden`,
+        // `inert` and a hidden placement set) is left out here.
+        overlay.accessibilityElements = overlay.subviews.compactMap { $0 as? NodeView }.filter { !$0.accessibilityElementsHidden && !$0.isHidden }
     }
 
     /// Every canvas whose children changed since its last capture is painted
