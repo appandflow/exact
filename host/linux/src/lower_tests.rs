@@ -252,3 +252,34 @@ fn a_look_arriving_mid_track_takes_the_readers_track_back() {
     h.tick(1000.);
     assert_eq!(shown(&h), 0.2);
 }
+
+/// Where a reader plays a node's opacity, the engine still samples its
+/// exit: the reader's layer goes with the node.
+#[test]
+fn a_lowered_nodes_exit_is_sampled() {
+    let source = "component App\n  state shown = true\n  action toggle\n    shown = not shown\n  view\n    column\n      button testId=\"toggle\" press=toggle\n        text \"Toggle\"\n      if shown\n        box testId=\"card\" height=40 animation=\"enter 100ms both\" -exact-exit-animation=\"leave 1000ms linear both\"\n\nkeyframes enter\n  from opacity=0\n  to opacity=1\n\nkeyframes leave\n  from opacity=1\n  to opacity=0\n";
+    let (mut h, error) = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    h.lowering = true;
+    h.engine.set_lowered_properties(&LOWERED);
+    let card = h.kernel().find_by_test_id("card")[0];
+    let toggle = h.kernel().find_by_test_id("toggle")[0];
+    let toggle = h.kernel().node_by_key(toggle).unwrap().id;
+    h.tick(200.);
+    assert!(h.dispatch_at(toggle, Event::Press, 200.).is_none());
+    h.tick(700.);
+    let leaving = h.leaving_paint();
+    assert_eq!(leaving.len(), 1);
+    assert_eq!(leaving[0].key, card);
+    let opacity = leaving[0].opacity.unwrap();
+    assert!((opacity - 0.5).abs() < 0.05, "{opacity}");
+    h.tick(1300.);
+    assert!(h.leaving_paint().is_empty());
+}

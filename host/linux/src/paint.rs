@@ -38,7 +38,9 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
 mod dialog_shadow;
+mod exit;
 pub(crate) use dialog_shadow::DialogShadow;
+pub(crate) use exit::Leaving;
 pub mod gradient;
 mod grouped;
 mod overlay;
@@ -48,7 +50,9 @@ pub(crate) use overlay::TopSurface;
 pub(crate) mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits, slop_hits};
-pub(crate) use lift::{Ghost, Lift};
+#[cfg(test)]
+pub(crate) use lift::revealed;
+pub(crate) use lift::{paints, Ghost, Lift};
 mod alert;
 pub(crate) mod inline;
 pub(crate) mod inline_frame;
@@ -562,6 +566,8 @@ pub struct Painter {
     pub(crate) numerals: numerals::Numerals,
     /// Material's fields' labels, floated or resting (`material.rs`).
     pub(crate) labels: material::Labels,
+    /// Leaving nodes' drawings (`exit.rs`).
+    exits: exit::Exits,
 }
 
 struct Walk<'a, 'b> {
@@ -654,6 +660,7 @@ impl Painter {
             svg_layers: Vec::new(),
             numerals: Default::default(),
             labels: Default::default(),
+            exits: Default::default(),
         }
     }
 
@@ -932,6 +939,7 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let walked = offset;
         let offset = sticky(walk.scene, id, offset);
         if self.placed(walk, id, ts, offset, clip_rect) {
             self.row_refuse();
@@ -992,6 +1000,7 @@ impl Painter {
             false => self.box_layer(node.key, &p, (x, y, w, h), origin, ts),
         };
         self.damage.unsupported |= layer.lowered != 0;
+        let parent_ts = ts;
         let ts = if layer.transform() {
             // The layer turns it; a layout transition's offset is drawn.
             ts.pre_translate(p.layout[0], p.layout[1])
@@ -1066,6 +1075,8 @@ impl Painter {
             None => {}
         }
         self.layer_close(layer);
+        let taped = (parent_ts, walked, offset);
+        self.tape(walk, &node, taped, (x, y, w, h), origin, p, clip_rect);
     }
 
     fn content(
@@ -1443,35 +1454,3 @@ pub const POINTER: [(f32, f32); 7] = [
 mod inline_image_tests;
 #[cfg(test)]
 mod paragraph_tests;
-
-/// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
-/// otherwise the computed `visibility` (inherited). A missing node does not
-/// veto a caller that already has nothing to draw.
-pub(crate) fn paints(kernel: &Kernel, id: ViewId, reveal: Option<ViewId>) -> bool {
-    match reveal {
-        Some(root) => revealed(kernel, id, root),
-        None => kernel.node(id).is_none_or(|n| {
-            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
-                == exact_kernel::Visibility::Visible
-        }),
-    }
-}
-
-/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
-/// on it or an ancestor below the ghost's root decides, as in the web's
-/// clone whose root alone is made visible (`group-glue.js`); none set shows.
-pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
-    let arena = kernel.arena();
-    let mut at = arena.key_of(id).map(|k| k.index);
-    while let Some(slot) = at {
-        if arena.local_id(slot) == root {
-            return true;
-        }
-        let style = arena.style(slot);
-        if style.mask.has(exact_kernel::StyleId::Visibility) {
-            return style.visibility == exact_kernel::Visibility::Visible;
-        }
-        at = arena.parent(slot);
-    }
-    true
-}

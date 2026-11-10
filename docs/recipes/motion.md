@@ -48,7 +48,7 @@ component App
 - **Keyframes** take literals or the app's own `fn` on constants.
 - **Exit:** plays when an `if` arm or `for` row leaves, and must end (`infinite` and
   `paused` are refused). The node leaves layout at once, inert; others move by their layout
-  transition. Not inside a screen being popped, nor on Linux.
+  transition. Not inside a screen being popped.
 - **Layout transition:** a transition without a property. It moves the box and resizes its
   surface; children jump to their place, unscaled. `sharedElement=` flies between boxes on
   iOS, macOS and the web, not Linux.

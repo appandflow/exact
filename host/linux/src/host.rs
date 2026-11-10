@@ -713,13 +713,13 @@ impl<D: DataSource> Host<D> {
 
     /// Whether motion is running (the presenter runs frames).
     pub fn motion(&self) -> bool {
-        !self.engine.quiescent() || self.press_settle().is_some()
+        !self.engine.quiescent() || self.press_settle().is_some() || self.leaving()
     }
 
     /// The next sampled visual change, in the host's milliseconds. A change
     /// due now needs display callbacks; a later change needs only a timer.
     pub fn motion_due_ms(&self) -> Option<f64> {
-        if self.press_settle().is_some() {
+        if self.press_settle().is_some() || self.leaving() {
             Some(self.now_ms)
         } else {
             self.engine.next_change().map(|seconds| seconds * 1000.0)
@@ -1315,6 +1315,7 @@ impl<D: DataSource> Host<D> {
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()
                 || !r.touched.is_empty();
+            self.begin_exits(r);
             for key in &r.destroyed {
                 self.forget_height_handle(*key);
                 self.forget_transform_handle(*key);
@@ -1384,9 +1385,12 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms.min(self.now_ms) / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let mut sync = self.runner.kernel().motion_sync(&t.receipt);
+            let spared = self.spare_exits(&mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            sync.removed.extend(spared);
+            self.play_exits();
             self.lower_eligibility(&sync);
             self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {

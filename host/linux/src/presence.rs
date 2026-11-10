@@ -1,4 +1,4 @@
-//! Layout transition on Linux, and its refusal of exit animation (LLP 1063).
+//! Exit animation and layout transition on Linux (LLP 1063).
 //!
 //! A node with a `-exact-layout-transition` has its laid-out box in its parent
 //! (`Kernel::layout_box`) observed as `Property::Layout` after every layout;
@@ -10,23 +10,39 @@
 //! seeded with the box it had before the commit's layout, so its first move
 //! after gaining it animates.
 //!
-//! Exit animation is refused here: this painter reads the live kernel tree
-//! every frame, and a destroyed node is not in it, so there is nothing to
-//! keep painting. A removed node leaves at once and the journal says so.
+//! A receipt's exits name the one node of each removed subtree that leaves
+//! (the kernel's rule). Its motion node is spared from the commit's removals
+//! and plays its `-exact-exit-animation` from the commit's clock, sampled by
+//! the engine even where a reader plays the node's other animations; the
+//! painter draws the node's last recorded drawing under its parent with the
+//! sampled values (`paint/exit.rs`) until the engine passes the exit's end,
+//! or the parent goes.
 //!
 //! Shared-element flights (LLP 1013.000) are refused for a like reason in
 //! stage 1: an arriver appears in place, and the journal says so once.
 
 use super::*;
 use exact_kernel::motion::LayoutMotion;
+use exact_kernel::CommitReceipt;
+
+/// A node leaving with its exit.
+#[derive(Debug)]
+struct Exiting {
+    key: NodeKey,
+    parent: NodeKey,
+    animations: exact_motion::Animations,
+    played: bool,
+    /// The engine time its exit ends, once known (a pending exit has none).
+    end: Option<f64>,
+}
 
 /// What the host keeps for layout transitions.
 #[derive(Debug, Default)]
 pub(super) struct Presence {
     /// Nodes declaring a layout transition.
     pub(super) layout: LayoutMotion,
-    /// Whether the refusal of exit animation is in the journal.
-    refused: bool,
+    /// The nodes leaving with their exits.
+    leaving: Vec<Exiting>,
     /// Whether the refusal of shared-element flights is.
     refused_flights: bool,
     /// A resize lays out next: positions are taken, not animated.
@@ -43,10 +59,6 @@ impl<D: DataSource> Host<D> {
     /// its layout; and the refusal, the first time a node leaves with an exit.
     pub(super) fn track_presence(&mut self, receipts: &[Timed]) {
         for t in receipts {
-            if !t.receipt.exits.is_empty() && !self.presence.refused {
-                self.presence.refused = true;
-                self.log("-exact-exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
-            }
             if !t.receipt.handoffs.is_empty() && !self.presence.refused_flights {
                 self.presence.refused_flights = true;
                 self.log("shared element: flights are not drawn on Linux (LLP 1013.000); an arriver appears in place");
@@ -57,6 +69,112 @@ impl<D: DataSource> Host<D> {
                     .seed(self.runner.kernel(), &t.receipt, &mut self.engine);
             self.retire_layout(retired);
         }
+    }
+
+    /// A receipt's exits, before its destroys are handled; an exit whose
+    /// parent this commit destroyed ends.
+    pub(super) fn begin_exits(&mut self, r: &CommitReceipt) {
+        let (ended, kept) = std::mem::take(&mut self.presence.leaving)
+            .into_iter()
+            .partition(|l| r.destroyed.contains(&l.parent));
+        self.presence.leaving = kept;
+        for l in ended {
+            self.end_exit(l);
+        }
+        for exit in &r.exits {
+            self.presence.leaving.push(Exiting {
+                key: exit.key,
+                parent: exit.parent,
+                animations: exit.animations.clone(),
+                played: false,
+                end: None,
+            });
+        }
+    }
+
+    /// Take the leaving nodes out of a commit's removals, so the engine
+    /// keeps them; they go back once applied, for what else reads them.
+    pub(super) fn spare_exits(&self, sync: &mut MotionSync) -> Vec<u64> {
+        let leaving = |n: &u64| (self.presence.leaving.iter()).any(|l| motion_node(l.key) == *n);
+        let spared = sync.removed.iter().copied().filter(leaving).collect();
+        sync.removed.retain(|n| !leaving(n));
+        spared
+    }
+
+    /// Start every exit the engine has not heard, at its clock, sampled
+    /// by the engine: a reader's layer for the node is gone with it.
+    pub(super) fn play_exits(&mut self) {
+        for l in &mut self.presence.leaving {
+            if !l.played {
+                let node = motion_node(l.key);
+                self.engine.set_node_sampled(node, true);
+                let played = self.engine.play_exit(node, &l.animations);
+                debug_assert!(played.is_ok(), "the kernel validated the row");
+                l.played = true;
+            }
+        }
+    }
+
+    /// A presentation the engine reported for a leaving node: its parent
+    /// paints again. Whether it was one.
+    pub(super) fn exit_presented(&mut self, key: NodeKey) -> bool {
+        let Some(parent) = self.presence.leaving.iter().find(|l| l.key == key) else {
+            return false;
+        };
+        self.row_dirty.node(parent.parent);
+        true
+    }
+
+    /// End the exits the engine's clock has passed; whether any did.
+    pub(super) fn end_exits(&mut self) -> bool {
+        let now = self.engine.now();
+        for l in &mut self.presence.leaving {
+            if l.played && l.end.is_none() {
+                l.end = (self.engine).exit_end(motion_node(l.key), l.animations.0.len());
+            }
+        }
+        let (ended, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.presence.leaving)
+            .into_iter()
+            .partition(|l| l.end.is_some_and(|end| end <= now));
+        self.presence.leaving = kept;
+        let any = !ended.is_empty();
+        for l in ended {
+            self.end_exit(l);
+        }
+        any
+    }
+
+    fn end_exit(&mut self, l: Exiting) {
+        self.engine.remove(motion_node(l.key));
+        self.row_dirty.node(l.parent);
+    }
+
+    /// Whether a node is leaving now.
+    pub(super) fn leaving(&self) -> bool {
+        !self.presence.leaving.is_empty()
+    }
+
+    /// The leaving nodes as the engine samples them now, for the painter.
+    pub(crate) fn leaving_paint(&self) -> Vec<crate::paint::Leaving> {
+        let sampled = |l: &Exiting, p: Property| {
+            l.animations
+                .properties()
+                .contains(&p)
+                .then(|| self.engine.sampled_value(motion_node(l.key), p))
+                .flatten()
+        };
+        (self.presence.leaving.iter())
+            .filter(|l| l.played)
+            .map(|l| crate::paint::Leaving {
+                key: l.key,
+                parent: l.parent,
+                opacity: sampled(l, Property::Opacity).map(|v| v.x as f32),
+                translate: sampled(l, Property::Translate)
+                    .map(|v| ((v.x as f32, v.y as f32), (v.z as f32, v.w as f32))),
+                scale: sampled(l, Property::Scale).map(|v| v.x as f32),
+                rotate: sampled(l, Property::Rotate).map(|v| v.x as f32),
+            })
+            .collect()
     }
 
     /// An agent's jump to `to`, stopping after a timer that sends
