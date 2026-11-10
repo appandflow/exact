@@ -4,6 +4,7 @@ use exact_logic_abi::{ABI, MAX_MESSAGE};
 use wasmi::{
     Config, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
 };
+use wasmparser::{Validator, WasmFeatures};
 
 // @ref LLP 1029.000 — a call's fuel is a base for any request plus an
 // allowance for each byte the host hands it: a runaway loop stops at the
@@ -35,7 +36,25 @@ struct Wasm {
 fn err(e: impl std::fmt::Display) -> String {
     format!("Rust wasm: {e}")
 }
+/// The proposals a module may use: wasmi's defaults without multi-memory,
+/// SIMD, relaxed SIMD and memory64. wasmi enables SIMD and memory64 whenever
+/// any crate of the app compiles in its feature for them, and without that
+/// feature its `Config` has no setter to disable them, so `load` validates
+/// against this set first.
+const PROPOSALS: WasmFeatures = WasmFeatures::MUTABLE_GLOBAL
+    .union(WasmFeatures::MULTI_VALUE)
+    .union(WasmFeatures::SATURATING_FLOAT_TO_INT)
+    .union(WasmFeatures::SIGN_EXTENSION)
+    .union(WasmFeatures::BULK_MEMORY)
+    .union(WasmFeatures::REFERENCE_TYPES)
+    .union(WasmFeatures::GC_TYPES)
+    .union(WasmFeatures::TAIL_CALL)
+    .union(WasmFeatures::EXTENDED_CONST)
+    .union(WasmFeatures::FLOATS);
 pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
+    Validator::new_with_features(PROPOSALS)
+        .validate_all(bytes)
+        .map_err(err)?;
     let mut config = Config::default();
     config
         .consume_fuel(true)

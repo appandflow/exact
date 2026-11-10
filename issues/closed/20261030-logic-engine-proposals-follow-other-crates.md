@@ -1,6 +1,7 @@
 # exact-logic's wasm engine accepts SIMD when another crate of the app enables wasmi's `simd`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** load validates against an explicit proposal set before wasmi, so another crate's simd or memory64 feature no longer widens it
 **Systems:** Logic (Rust wasm executor, `logic/src/wasm.rs`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from the T3 Code clone's timeline lane
@@ -15,3 +16,34 @@
 **Fix.** exact-logic sets each proposal it accepts explicitly, so another crate's features cannot widen them. For example, depend on wasmi with `simd` and call `.wasm_simd(false).wasm_relaxed_simd(false)` (and the same for `memory64`). Or check the module's features against an allow-list before `Module::new`.
 
 **Acceptance.** A test in `logic` loads a module with one SIMD instruction and gets a refusal, also when the test crate enables wasmi's `simd` feature.
+
+## Resolution
+
+`load` (`logic/src/wasm.rs`) first validates the module with wasmparser against
+`PROPOSALS`, an explicit set: wasmi's defaults without multi-memory, SIMD, relaxed SIMD and
+memory64. Only then does it call `Module::new`, whose wasmi validation may accept more. The
+set does not depend on wasmi's crate features, so another crate of the app cannot widen it.
+The validator is wasmparser 0.228, the version wasmi 2.0 already links, so no second copy
+is linked; `Cargo.lock` gains only the edge.
+
+The issue's other fix, enabling wasmi's `simd` and `memory64` and turning them off in
+`Config`, was not taken: compiling `simd` into wasmi adds about 400 KB to a stripped,
+size-optimized binary that links it (1,150,080 to 1,549,328 bytes in a probe of wasmi
+alone). The cost of the fix taken is a second validation pass when a module loads, after
+first pixel: 1.4 ms for Caltrain's 358 KB module on an M-series Mac, beside wasmi's 1.6 ms.
+
+## Verification
+
+`wasm_refuses_simd_and_memory64_whatever_wasmi_compiles_in` (`logic/src/tests.rs`) loads a
+module with one `i32x4.splat` and one with an `i64` memory and expects refusals. exact-logic's
+dev-dependencies compile wasmi's `simd` and `memory64` in, so the test runs with both on.
+
+| Command | Result |
+|---|---|
+| `cargo test -p exact-logic --lib wasm_refuses` before the fix | Fails: `load` accepts the SIMD module. |
+| The same after the fix | Passes. |
+| The same with the dev-dependency removed (wasmi without `simd`) | Passes. |
+| `cargo test -p exact-logic -p exact-linux-update -p exact-apple-update -p caltrain-logic --tests --no-fail-fast` | Pass. |
+| Caltrain's release `caltrain_logic.wasm` through `load` (a test not kept) | Loads. |
+| `cargo clippy -p exact-logic --all-targets -- -D warnings`, `cargo fmt --all -- --check` | Pass. |
+| `bun scripts/caps.mjs` | Pass, wasm32 check included. |

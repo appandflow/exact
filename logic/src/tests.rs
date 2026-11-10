@@ -240,6 +240,20 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
     assert!(executor.call(&vec![0; abi::MAX_MESSAGE + 1]).is_err());
 }
 
+// This crate's dev-dependencies compile wasmi's `simd` and `memory64` in, as
+// another crate of an app may: the engine still refuses both proposals.
+#[test]
+fn wasm_refuses_simd_and_memory64_whatever_wasmi_compiles_in() {
+    let excessive = wasm("i32.const 0 global.set $out i32.const 0 global.set $len");
+    assert!(crate::wasm::load(&excessive).is_ok());
+    let simd = wasm("i32.const 0 i32x4.splat drop");
+    let refused = crate::wasm::load(&simd).err().unwrap();
+    assert!(refused.contains("SIMD"), "{refused}");
+    let memory64 = wat::parse_str("(module (memory i64 1))").unwrap();
+    let refused = crate::wasm::load(&memory64).err().unwrap();
+    assert!(refused.contains("memory64"), "{refused}");
+}
+
 // @ref LLP 1029.000 — work in proportion to the input passes the flat base: 100
 // loop turns a byte over 60,000 bytes is past 20 million fuel, within the
 // per-byte allowance.

@@ -14,9 +14,15 @@ sha2 = "0.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch"] }
+# The version wasmi 2.0 validates with, so an app links one copy.
+wasmparser = { version = "0.228", default-features = false, features = ["std", "validate", "features"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", target_os = "android"))'.dependencies]
 libloading = "0.8"
 
 [dev-dependencies]
 wat = "1.0"
+
+# Compiles wasmi's SIMD and memory64 in, as another crate of an app may (src/wasm.rs, `PROPOSALS`).
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+wasmi = { version = "2.0", default-features = false, features = ["simd", "memory64"] }
