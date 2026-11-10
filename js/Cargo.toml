@@ -20,6 +20,9 @@ exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 serde_json = "1.0"
 sha2 = "0.10"
+# The Compression standard's codecs (src/compression.rs), already in the lockfile through `png`/`flate2`.
+miniz_oxide = "0.8"
+crc32fast = "1.5"
 
 # A turn's own time: this thread's CPU clock (src/turn.rs).
 [target.'cfg(unix)'.dependencies]

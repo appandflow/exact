@@ -25,11 +25,14 @@ fn main() {
         "src/shim.cc",
         "src/pure.js",
         "src/standard.js",
+        "src/streams.js",
         "src/binary.js",
         "src/prelude.js",
         "src/process.js",
         "src/intl.js",
         "tests/fixtures/harden-probe.js",
+        // (imported by `pure.ts`, which the loop below names)
+        "tests/fixtures/pure-streams.ts",
         "../packages/oauth/index.ts",
     ] {
         println!("cargo:rerun-if-changed={source}");
@@ -110,6 +113,7 @@ fn main() {
     let prelude = [
         "src/pure.js",
         "src/standard.js",
+        "src/streams.js",
         "src/binary.js",
         "src/prelude.js",
         "src/process.js",

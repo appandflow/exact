@@ -141,7 +141,10 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
 /// under the agent only, which copies the bytes at `a`'s offset and length
 /// and drops them; 9 the
 /// binary message being mapped, written into the buffer, which the prelude
-/// made its size; 10 releases an unreachable key after the shim's weak-owner sweep.
+/// made its size; 10 releases an unreachable key or codec after the shim's
+/// weak-owner sweep; 12–15 the Compression standard's codecs
+/// (`compression.rs` [`crate::compression::door`]; 15 copies what the last
+/// write or end yielded into the buffer, which the prelude made its size).
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -159,17 +162,22 @@ pub(crate) unsafe extern "C" fn bytes_door(
     // Op 9 writes: no shared slice of the buffer may live while it does.
     // SAFETY: the shim hands over JSI's `ArrayBuffer::data`, the prelude's
     // own buffer, writable and `len` long for this call.
-    if op == 9 {
-        let (status, text) = if len == state.binary.len() {
+    if op == 9 || op == 15 {
+        let (source, what) = if op == 9 {
+            (&mut state.binary, "message")
+        } else {
+            (&mut state.codec_out, "codec")
+        };
+        let (status, text) = if len == source.len() {
             if len > 0 {
-                std::ptr::copy_nonoverlapping(state.binary.as_ptr(), bytes as *mut u8, len);
+                std::ptr::copy_nonoverlapping(source.as_ptr(), bytes as *mut u8, len);
+            }
+            if op == 15 {
+                source.clear();
             }
             (0, String::new())
         } else {
-            (
-                1,
-                "message: a buffer that is not the message's size".to_string(),
-            )
+            (1, format!("{what}: a buffer that is not the output's size"))
         };
         *out = c_string(&text);
         return status;
@@ -185,9 +193,18 @@ pub(crate) unsafe extern "C" fn bytes_door(
         10 => {
             if let Ok(handle) = a.parse::<u64>() {
                 state.keys.remove(&handle);
+                state.codecs.remove(&handle);
             }
             Ok(String::new())
         }
+        12..=14 => crate::compression::door(
+            &mut state.codecs,
+            &mut state.next_key,
+            &mut state.codec_out,
+            op,
+            &a,
+            data,
+        ),
         8 if state.agent.is_none() => Err("decode: the gate's stub decode is the agent's".into()),
         8 => {
             let mut range = a.split(' ').map(str::parse::<usize>);
@@ -303,11 +320,7 @@ mod tests {
         let (status, text) = call(&mut state, 9, "", &mut wrong);
         assert_eq!(
             (status, text.as_str(), wrong),
-            (
-                1,
-                "message: a buffer that is not the message's size",
-                [0, 0]
-            )
+            (1, "message: a buffer that is not the output's size", [0, 0])
         );
         let mut right = [0u8; 3];
         assert_eq!(call(&mut state, 9, "", &mut right).0, 0);

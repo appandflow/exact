@@ -58,6 +58,7 @@
 
 mod abort;
 mod background;
+mod compression;
 mod crypto;
 mod door;
 mod engine;
@@ -274,6 +275,11 @@ struct HostState {
     /// `CryptoKey`s by handle, never on the heap (LLP 1069.005 D1b).
     keys: HashMap<u64, exact_data::crypto::EcKey>,
     next_key: u64,
+    /// `DecompressionStream`s' and `CompressionStream`s' contexts by handle,
+    /// from the keys' counter, and what the last write yielded
+    /// (`compression.rs`).
+    codecs: HashMap<u64, compression::Codec>,
+    codec_out: Vec<u8>,
     /// `authCallback()`: this native build's, from the grants (LLP 1069.006).
     auth_callback: Option<String>,
     /// The engine has app storage: the host configured directories.

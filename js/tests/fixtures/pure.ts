@@ -2,6 +2,7 @@
 // Contract signature small; the separate transfer corpus also uses Bun's JSON.
 // What an object says of itself never steers a copy (review r4a 5, 9, 10):
 // its own `constructor`, getters and tags, a key named `__proto__`, holes.
+import { streams } from './pure-streams.ts';
 function steered() {
   const proto=structuredClone(JSON.parse('{"__proto__":{"admin":true},"ok":1}'));
   const bytes=new Uint8Array([1,2]);
@@ -415,4 +416,4 @@ function wire(text:string,mode:string):unknown {
   const value=mode.includes('capture')?'a\\\0é😀\u2028\u2029'.repeat(8192):'settled';
   return mode.startsWith('async')?Promise.resolve(value):value;
 }
-(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='wire'?wire(String(args[0]),String(args[1])):source==='transfer'?transfer(String(args[0])):exercise(source)};
+(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='wire'?wire(String(args[0]),String(args[1])):source==='transfer'?transfer(String(args[0])):source==='streams'?streams():exercise(source)};
