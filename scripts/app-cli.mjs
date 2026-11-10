@@ -23,6 +23,39 @@ export function compilerWarnings(text, cwd = process.cwd()) {
   return [...lines];
 }
 
+/** What a failed JS-target web build (`host/web-js/build.mjs`) said that is the app's to act on, from its stderr: the
+ * types app.ts imports when rewritten, warnings, the diagnostics, then the compiler's warnings. Cargo's progress, a
+ * rustc warning's excerpt and Bun's trace (a frame and its version line) are left out; with no diagnostic, the last
+ * three lines stand for one. */
+export function webBuildFailure(stderr) {
+  const ambientDiagnostic = (l) => /^.+:\d+:\d+: .+ is unavailable in data sources[;:]/.test(l);
+  const all = (stderr ?? '').trim().split('\n').filter((l) => ambientDiagnostic(l) || !/^\s*(Compiling|Finished|Running)/.test(l) && !compilerWarnings(l).length);
+  const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
+  // Keep TypeScript's lines (`app.ts(2,8): error TS…`), the shared ambient
+  // check's file:line:col diagnostics, including paths with spaces, and its
+  // refusals of package code (js/bake/src/typescript.mjs `capturedSources`).
+  const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name|loads code from a string|uses the page's)|, (?:which is not installed|a native addon|which the checked capture did not resolve)|: not an npm package name and version| must be a constant the build reads without running|^(?:Error: )?two copies of /.test(l);
+  const marker = /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/;
+  const kept = (l) => marker.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b|import\.meta\.env/.test(l);
+  const message = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!kept(lines[i])) continue;
+    message.push(lines[i]);
+    // A marker with nothing after it says its message below, to the next diagnostic or Bun's trace: wasm-bindgen's
+    // schema mismatch is `error: `, a blank line, then paragraphs.
+    if (!/^\s*(error|[A-Z]\w*Error|E[A-Z]+)\b:\s*$/.test(lines[i])) continue;
+    let end = i + 1;
+    while (end < lines.length && !kept(lines[end]) && !/^\s+at |^Bun v\d/.test(lines[end])) end++;
+    while (end > i + 1 && !lines[end - 1].trim()) end--;
+    message.push(...lines.slice(i + 1, end));
+    i = end - 1;
+  }
+  // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
+  const reason = (message.length ? message : lines.slice(-3)).map((l) => l.replace(/^Error: (?=module outside captured app: )/, '')).join('\n');
+  const types = all.filter((l) => /^app\.contract\.d\.ts: /.test(l));
+  return [...types, ...warnings, reason, ...compilerWarnings(stderr)];
+}
+
 /** A drive's lines for the compiler's `warnings` (`compilerWarnings`) of the app in `dir` built for `host`: the
  * warnings no build of it said before, each in full, then one line counting them all and naming the file that lists
  * them, `.exact/warnings-<host>.txt`, which this replaces. A drive repeated over unchanged warnings says the count

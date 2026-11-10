@@ -2,7 +2,7 @@
 // `test ios|macos` and `agent ios|macos`, on the driver's own record, with no simulator and no build run.
 import { afterEach, beforeEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -629,6 +629,36 @@ test('a drive counts a warning that is information apart (tamber-unreachable, LL
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// What a failed JS-target web build says (host/web/build.mjs): a diagnostic whose marker line is bare keeps the
+// paragraphs below it, as wasm-bindgen's schema mismatch says them; Cargo's progress and Bun's trace stay out.
+test('a failed web build keeps the explanation under a bare error marker', async () => {
+  const { webBuildFailure } = await import('./app-cli.mjs');
+  const said = [
+    '   Compiling demo-gpu v0.1.0 (/tmp/demo/gpu)',
+    '    Finished `web` profile [optimized] target(s) in 1.20s',
+    'error: ',
+    '',
+    'it looks like the Rust project used to create this Wasm file was linked against',
+    'version of wasm-bindgen that uses a different bindgen format than this binary:',
+    '',
+    '  rust Wasm file schema version: 0.2.130',
+    '     this binary schema version: 0.2.127',
+    '',
+    'Currently the bindgen format is unstable enough that these two schema versions',
+    'must exactly match.',
+    '',
+    'demo: wasm-bindgen demo-gpu failed',
+    '',
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['-e', `process.stderr.write(${JSON.stringify(said)}); process.exit(1)`], { encoding: 'utf8' });
+  assert.equal(child.status, 1);
+  assert.deepEqual(webBuildFailure(child.stderr), [said.split('\n').slice(2, -1).join('\n')]);
+  // A diagnostic that says its message on its line keeps that line alone: a rustc error's excerpt and Bun's trace stay out.
+  const rustc = 'error[E0308]: mismatched types\n --> gpu/src/lib.rs:3:5\n  |\n3 |     1u8\n  |     ^^^ expected `u32`\n';
+  const trace = 'error: no plan\n      at main (/x/build.mjs:1:1)\n\nBun v1.3.0 (macOS arm64)\n';
+  assert.deepEqual(webBuildFailure(rustc + trace), ['error[E0308]: mismatched types\nerror: no plan']);
 });
 
 // An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
