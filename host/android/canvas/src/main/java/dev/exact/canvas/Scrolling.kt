@@ -16,6 +16,7 @@ import android.widget.OverScroller
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sign
 
 /**
  * A finger scrolls (LLP 1115.001 D7.1 to D7.3). The gesture and its physics are the reader's, with the platform's own
@@ -114,6 +115,9 @@ internal class Scrolling(private val view: ExactView) {
     private var downY = 0f
     private var lastX = 0f
     private var lastY = 0f
+    /** Where the finger is: a move before exact2's answer is not lost to the drag that answer allows. */
+    private var fingerX = 0f
+    private var fingerY = 0f
     private var flingAt = 0
     /** Where the drag's innermost scroller was when the drag began, along its axis ([snapRest]'s start). */
     private var dragFrom = 0f
@@ -128,7 +132,7 @@ internal class Scrolling(private val view: ExactView) {
                 tracker?.recycle()
                 tracker = VelocityTracker.obtain().also { it.addMovement(e) }
                 pointer = e.getPointerId(0); tool = e.getToolType(0)
-                downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
+                downX = e.x; downY = e.y; lastX = e.x; lastY = e.y; fingerX = e.x; fingerY = e.y
                 serial++
                 if (mode == FLINGING) {
                     // A finger on a list that is flinging stops it and has it, as the platform's lists do: no press.
@@ -148,6 +152,7 @@ internal class Scrolling(private val view: ExactView) {
                 val i = e.findPointerIndex(pointer)
                 if (i < 0) return mode == DRAGGING
                 val x = e.getX(i); val y = e.getY(i)
+                fingerX = x; fingerY = y
                 if (mode == WATCHING && answered) decide(x, y)
                 if (mode != DRAGGING) return false
                 val d = if (sideways) lastX - x else lastY - y
@@ -226,6 +231,13 @@ internal class Scrolling(private val view: ExactView) {
         for (s in scrollers.values) if (links.none { it.s === s }) s.bar?.let { (it.parent as? ViewGroup)?.removeView(it); s.bar = null }
         chain = links
         answered = true
+        // An answer a slow frame held back: the finger may be past the slop already, and moves no more. The drag
+        // starts now and takes the way it went past the slop, as it would have with the answer in time.
+        decide(fingerX, fingerY)
+        if (mode == DRAGGING) {
+            val d = pastSlop(if (sideways) downX - fingerX else downY - fingerY, slop.toFloat())
+            if (d != 0f) drag(d, fingerX, fingerY)
+        }
     }
 
     /** Past the slop: whose the touch is. Along an axis exact2 claims, its own; along one a scroller under it scrolls
@@ -711,3 +723,7 @@ internal fun mergeSnaps(s: Scrolling.Scroller, axis: Int, w: IntArray) {
     s.snaps[axis] = s.snaps[axis] + FloatArray(2 * n) { java.lang.Float.intBitsToFloat(w[1 + 3 * (it / 2) + it % 2]) }
     s.stops[axis] = s.stops[axis] + BooleanArray(n) { w[3 + 3 * it] != 0 }
 }
+
+/** The way a finger went along a drag's axis ([total] px from its down) beyond the touch slop, which a drag takes from
+ * the moment it is known to be one. */
+internal fun pastSlop(total: Float, slop: Float): Float = sign(total) * max(abs(total) - slop, 0f)
