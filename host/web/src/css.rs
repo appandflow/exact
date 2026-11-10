@@ -153,14 +153,34 @@ fn css_text_in(
             // A clock is no CSS timeline either: the
             // animations play on the page's, and the glue sets their start
             // (navigation.js `animationClocks`).
+            // A name a `view-timeline` above declares is CSS's own timeline,
+            // which the browser runs where it has one (`--exact-view-ok`,
+            // index.html); any other stays paused for the drag code.
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
                 if let Some(clock) = t.clock() {
                     push_text!(&mut out, "--exact-animation-clock:{};", clock);
                 } else if t.0.is_some() {
+                    let t = t.css();
                     push_text!(
                         &mut out,
-                        "--exact-animation-timeline:{};animation-play-state:paused;",
-                        t.css()
+                        "--exact-animation-timeline:{};animation-timeline:var(--exact-view{},auto);animation-play-state:var(--exact-view-play{},paused);",
+                        t,
+                        t,
+                        t
+                    );
+                }
+            }
+            // CSS's own row, and the names its consumers read: they inherit
+            // to the subtree, where CSS looks a view timeline's name up.
+            (StyleId::ViewTimeline, RowValue::DragTimeline(d)) => {
+                if let Some(name) = &d.name {
+                    push_text!(
+                        &mut out,
+                        "view-timeline:{};--exact-view{}:{};--exact-view-play{}:var(--exact-view-ok,paused);",
+                        d.css(),
+                        name,
+                        name,
+                        name
                     );
                 }
             }
@@ -235,7 +255,8 @@ fn css_text_in(
             // `rotate` is the angle and its axis, and
             // `translate` x, y and z: one declaration each.
             (StyleId::Rotate, RowValue::Number(n)) if style.rotate_axis.0 != [0.0, 0.0, 1.0] => {
-                push_text!(&mut out, "rotate:{} ", style.rotate_axis.css());
+                let axis = style.rotate_axis.css();
+                push_text!(&mut out, "--exact-turn-axis:{};rotate:{} ", axis, axis);
                 num_into(&mut out, *n as f32);
                 out.push_str("deg;");
             }
@@ -487,7 +508,9 @@ pub fn keyframes_name(a: &exact_motion::animation::Animation, press: bool) -> St
 /// each `scale` keyframe into `--exact-scale`: its important `scale`
 /// composition wins over the animation's own.
 pub fn keyframes_css(a: &exact_motion::animation::Animation, press: bool) -> String {
-    let text = a.keyframes.css();
+    // A keyframe's angle turns about the node's own `rotate` axis
+    // (`--exact-turn-axis`, beside a `rotate` that names one).
+    let text = a.keyframes.css().replace("rotate:", "rotate:var(--exact-turn-axis,z) ");
     if !press_rule(a, press) {
         return text;
     }

@@ -35,6 +35,8 @@
      `APPLE_ON_THE_WEB`). Elsewhere a corner is round at the radius written. A capsule stays round: its ends are
      half-circles on every platform. */
   :root { --exact-curve: round; --exact-curve-reach: 1; }
+  @property --exact-turn-axis { syntax: "*"; inherits: false; }
+  @supports (view-timeline: --a) { :root { --exact-view-ok: running; } }
   @supports (corner-shape: superellipse(2)) { :root { --exact-curve: superellipse(1.6); --exact-curve-reach: 1.52; } }
   @media (min-resolution: 1.5dppx) { :root { --exact-hairline: calc(1px / 1.5); } }
   @media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }
