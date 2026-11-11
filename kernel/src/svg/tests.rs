@@ -330,6 +330,42 @@ fn a_filter_chain_reaches_as_far_as_its_primitives_read() {
 }
 
 #[test]
+fn drop_shadow_currentcolor_matches_the_omitted_color() {
+    use crate::svg::filter::{FilterFn, FilterList};
+
+    for (lengths, blur) in [("0 2px", 0.0), ("0 2px 4px", 4.0)] {
+        let expected = FilterList(vec![FilterFn::DropShadow(0.0, 2.0, blur, None)]);
+        assert_eq!(
+            FilterList::parse(&format!("drop-shadow({lengths})")),
+            Some(expected.clone())
+        );
+        for keyword in ["currentcolor", "currentColor", "CURRENTCOLOR"] {
+            for args in [
+                format!("{lengths} {keyword}"),
+                format!("{keyword} {lengths}"),
+            ] {
+                let css = format!("drop-shadow({args})");
+                let parsed = FilterList::parse(&css).unwrap_or_else(|| panic!("{css}"));
+                assert_eq!(parsed, expected, "{css}");
+                assert_eq!(FilterList::parse(&parsed.css()), Some(expected.clone()));
+                assert_eq!(FilterList::parse(&parsed.wire()), Some(expected.clone()));
+            }
+        }
+    }
+    for args in [
+        "0 2px currentcolor currentColor",
+        "currentcolor 0 2px #000",
+        "#000 0 2px currentcolor",
+        "currentcolor 0",
+        "0 2px -4px currentcolor",
+        "0 2px 4px 6px currentcolor",
+    ] {
+        let css = format!("drop-shadow({args})");
+        assert!(FilterList::parse(&css).is_none(), "{css}");
+    }
+}
+
+#[test]
 fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     use crate::svg::filter::{FilterList, Op};
     let black = crate::style::ColorValue::Fixed(crate::style::Color::rgba(0, 0, 0, 255));

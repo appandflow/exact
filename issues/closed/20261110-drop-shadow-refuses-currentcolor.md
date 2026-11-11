@@ -1,6 +1,7 @@
 # `filter: drop-shadow(… currentcolor)` is refused, though `currentcolor` is the colour the function already holds by default
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** drop-shadow() accepts currentcolor in any ASCII case as the omitted colour while still rejecting duplicate colours.
 **Systems:** kernel/src/svg/filter.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

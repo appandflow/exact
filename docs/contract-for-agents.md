@@ -4388,6 +4388,8 @@ Effects 1 §12); the web, macOS and iOS draw it, and Linux draws it unfiltered
 for now (SVG Gallery's `fx-box-filter` and `fx-image-filter`). `url(#id)`
 naming an SVG `filter` works on SVG elements everywhere, but on a box or an
 image only on the web: Apple does not take it there yet (LLP 1055.000 §0).
+In `drop-shadow()`, an omitted colour or `currentcolor` uses the element's
+`color`; the colour may precede or follow the two or three lengths.
 
 `backdrop-filter="blur(8px) saturate(1.14)"` filters content behind a box;
 the two functions may appear in either order. On macOS it samples only the
