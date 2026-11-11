@@ -1,6 +1,7 @@
 # A Mac window keeps the old sidebar after a restart into a plan that wants none
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Mac window is notified after a restart changes whether the new plan needs a sidebar, so removing or opting out of root tabs removes the old sidebar.
 **Systems:** host/apple/Sources/ExactKit/Mac/SidebarMac.swift, host/apple/Sources/ExactMac/main.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
