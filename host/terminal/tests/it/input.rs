@@ -1,14 +1,29 @@
-//! Keys as a terminal sends them: bytes written to the host in a
-//! pseudo-terminal, and the keys its app hears.
+//! Keys as a terminal sends them (bytes written to the host in a
+//! pseudo-terminal) and as a headless drive names them, and the keys the
+//! app hears.
 
+use std::path::PathBuf;
+use std::process::Command;
 #[cfg(unix)]
 use std::{
     fs::File,
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd},
-    process::{Child, Command},
+    process::Child,
     time::{Duration, Instant},
 };
+
+/// An entry file holding `source`.
+fn entry(name: &str, source: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "exact-terminal-input-{}-{name}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, source).unwrap();
+    path
+}
 
 /// The app on a pseudo-terminal, its output read into a terminal emulator.
 #[cfg(unix)]
@@ -21,13 +36,7 @@ struct Pty {
 #[cfg(unix)]
 impl Pty {
     fn spawn(name: &str, source: &str) -> Pty {
-        let dir = std::env::temp_dir().join(format!(
-            "exact-terminal-input-{}-{name}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("app.contract");
-        std::fs::write(&path, source).unwrap();
+        let path = entry(name, source);
         let (mut master_fd, mut slave_fd) = (-1, -1);
         let mut size = libc::winsize {
             ws_row: 6,
@@ -173,5 +182,59 @@ fn control_backslash_always_leaves() {
             "{case}: {}",
             vt.text(false)
         );
+    }
+}
+
+/// A drive's `key` presses the key the terminal's decoder makes of the same
+/// chord, and refuses a name that is no key.
+#[test]
+fn a_driven_key_is_the_chord_it_names() {
+    // Each key heard as the modifiers held (Control, Alt, Shift, Meta) and
+    // the key.
+    let path = entry(
+        "driven-keys",
+        r#"component App
+  state heard = ""
+  action keyed(k: string, e: KeyboardEvent)
+    heard = `${heard}${e.ctrlKey ? "C" : ""}${e.altKey ? "A" : ""}${e.shiftKey ? "S" : ""}${e.metaKey ? "M" : ""} ${k};`
+  view
+    column key=keyed
+      text `heard [${heard}]`
+"#,
+    );
+    let drive = |keys: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+            .arg(&path)
+            .args(["--size", "120x4"])
+            .args(keys.iter().flat_map(|k| ["key", k]))
+            .arg("print")
+            .output()
+            .expect("runs");
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (ok, out, err) = drive(&[
+        "Control+ArrowUp",
+        "Control+Enter",
+        "Shift+Control+Enter",
+        "Control+x",
+        "Alt+b",
+        "Shift+Tab",
+        "Meta+s",
+        "Space",
+        "Shift+n",
+        "/",
+    ]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("heard [C ArrowUp;C Enter;CS Enter;C x;A b;S Tab;M s; Space;S N; /;]"),
+        "{out}"
+    );
+    for name in ["F99", "Control+Nope", "Super+a"] {
+        let (ok, _, err) = drive(&[name]);
+        assert!(!ok && err.contains(name), "{name}: {err}");
     }
 }

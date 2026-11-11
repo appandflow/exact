@@ -121,8 +121,9 @@ fn chord_words(mods: u16) -> String {
     chord
 }
 
-/// A named key with modifiers.
-fn with_mods(name: &'static str, mods: u16) -> Key {
+/// A named key with modifiers (bits as [`modifiers`] returns them), as the
+/// decoder and a drive's `key` both make it.
+pub(crate) fn with_mods(name: &'static str, mods: u16) -> Key {
     if mods == 0 {
         return Key::Named(name);
     }
@@ -133,9 +134,11 @@ fn with_mods(name: &'static str, mods: u16) -> Key {
 }
 
 /// A text key with modifiers. The protocol sends the unshifted key with
-/// Shift as a modifier; Control with or without Shift is the control key.
-fn text_with_mods(c: char, mods: u16) -> Key {
+/// Shift as a modifier, so Shift alone capitalizes a letter; Control with
+/// or without Shift is the control key.
+pub(crate) fn text_with_mods(c: char, mods: u16) -> Key {
     match mods & !1 {
+        0 if mods == 1 => Key::Char(c.to_ascii_uppercase()),
         0 => Key::Char(c),
         4 => Key::Ctrl(c.to_ascii_lowercase()),
         m => Key::Chord(chord_words(m) + c.encode_utf8(&mut [0; 4])),

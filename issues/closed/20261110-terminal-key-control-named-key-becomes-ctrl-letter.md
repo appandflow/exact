@@ -1,6 +1,7 @@
 # The terminal host's headless `key Control+ArrowUp` presses Ctrl-A
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `key_of` reads the modifiers in any order and builds the key with the decoder's own `with_mods` and `text_with_mods`, so `Control+ArrowUp` is the decoder's `Control+ArrowUp` chord, and the `key` verb refuses a name that is no key.
 **Systems:** host/terminal/src/cli.rs
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)
