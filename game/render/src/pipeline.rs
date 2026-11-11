@@ -198,11 +198,13 @@ pub(crate) const PCF_SOFT: usize = 256;
 pub(crate) const PREPASS: usize = 512;
 /// Model forward variant bits beyond the primitive ones they share (shadowed 1,
 /// fogged 2, PCF-soft and prepass): double-sided 4, blended 8, mirrored 16,
-/// opaque without coverage fading 32, untextured 64, one cascade 128, and direct
-/// (`MODEL_DIRECT`, tonemapped into the target's format).
+/// opaque without coverage fading 32, untextured 64, one cascade 128, direct
+/// (`MODEL_DIRECT`, tonemapped into the target's format) and layered.
 pub(crate) const MODEL_DIRECT: usize = 1024;
+/// A clearcoat or sheen (`model_pipeline::layered`): their lobes compile in.
+pub(crate) const MODEL_LAYERED: usize = 8192;
 /// A model build key's uniform-driven fallback, never an index.
-pub(crate) const MODEL_GENERAL: usize = 8192;
+pub(crate) const MODEL_GENERAL: usize = 16384;
 pub(crate) const MODEL_BILINEAR: usize = 4096;
 pub(crate) const BILINEAR: usize = 1024;
 const PRIMITIVE_GENERAL: usize = 2048;
@@ -706,7 +708,8 @@ pub(crate) struct ModelPipelines {
     pub material: wgpu::BindGroupLayout,
     pub instance: wgpu::BindGroupLayout,
     pub forward: std::sync::Arc<[OnceLock<wgpu::RenderPipeline>; MODEL_GENERAL]>,
-    pub fallback: [OnceLock<wgpu::RenderPipeline>; 2048],
+    /// By class; a layered class's 2048 above its unlayered twin's.
+    pub fallback: [OnceLock<wgpu::RenderPipeline>; 4096],
     #[cfg(not(target_arch = "wasm32"))]
     workers: Specializations,
     pub camera_depth: [OnceLock<wgpu::RenderPipeline>; 16],
@@ -873,15 +876,16 @@ impl Pipelines {
             return pipeline;
         }
         {
-            let class = key & (4 | 8 | 16 | 64 | PREPASS | MODEL_DIRECT);
+            let class = key & (4 | 8 | 16 | 64 | PREPASS | MODEL_DIRECT | MODEL_LAYERED);
+            let slot = |class: usize| class & 2047 | usize::from(class & MODEL_LAYERED != 0) << 11;
             #[cfg(target_arch = "wasm32")]
-            let first = family.fallback[class].get().is_none();
+            let first = family.fallback[slot(class)].get().is_none();
             // Uniform-driven opaque and coverage programs handle live settings.
             // The opaque fallback must retain early depth while a worker specializes it.
             let coverage =
-                family.fallback[class].get_or_init(|| make(class | MODEL_GENERAL | 3, false));
+                family.fallback[slot(class)].get_or_init(|| make(class | MODEL_GENERAL | 3, false));
             let opaque = (class & 8 == 0).then(|| {
-                family.fallback[class | 32]
+                family.fallback[slot(class | 32)]
                     .get_or_init(|| make(class | MODEL_GENERAL | 3 | 32, false))
             });
             let fallback = if key & 32 != 0 {

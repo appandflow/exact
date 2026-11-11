@@ -158,6 +158,14 @@ pub(crate) fn pipeline(
                                 if !shadow && variant & 64 != 0 { 0. } else { 1. },
                             ),
                             ("DIRECT", if direct { 1. } else { 0. }),
+                            (
+                                "LAYERED",
+                                if variant & crate::pipeline::MODEL_LAYERED != 0 {
+                                    1.
+                                } else {
+                                    0.
+                                },
+                            ),
                             ("ENCODE_SRGB", if format.is_srgb() { 0. } else { 1. }),
                         ],
                         ..Default::default()
@@ -196,6 +204,12 @@ pub(crate) fn pipeline(
             cache,
         })
     })
+}
+
+/// A clearcoat or a sheen: the material draws in the pipelines with their
+/// lobes (`MODEL_LAYERED`), which no other material compiles or runs.
+pub(crate) fn layered(m: &exact_game::asset::MaterialData) -> bool {
+    !m.unlit && (m.clearcoat > 0. || m.sheen_color.iter().any(|&c| c > 0.))
 }
 
 /// A missing normal map uses the geometric normal, without a quantized default map.

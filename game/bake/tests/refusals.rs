@@ -86,6 +86,47 @@ fn an_unlit_material_bakes_its_base_colour_alone() {
     assert_eq!(material.emissive_texture, None);
     assert_eq!(m.textures.len(), 1);
 }
+/// KHR_materials_clearcoat and KHR_materials_sheen bake their factors; a
+/// layer's texture is refused by name, never dropped.
+#[test]
+fn clearcoat_and_sheen_bake_their_factors_and_refuse_their_textures() {
+    let mut v = source();
+    v["extensionsUsed"] = json!(["KHR_materials_clearcoat", "KHR_materials_sheen"]);
+    v["materials"][0]["extensions"] = json!({
+        "KHR_materials_clearcoat": {"clearcoatFactor": 1.0, "clearcoatRoughnessFactor": 0.05},
+        "KHR_materials_sheen": {"sheenColorFactor": [0.5, 0.25, 0.125], "sheenRoughnessFactor": 0.75}
+    });
+    let m = bake(v.clone()).unwrap();
+    let material = &m.materials[0];
+    assert_eq!(
+        (material.clearcoat, material.clearcoat_roughness),
+        (1.0, 0.05)
+    );
+    assert_eq!(material.sheen_color, [0.5, 0.25, 0.125]);
+    assert_eq!(material.sheen_roughness, 0.75);
+    // Present without factors: the extensions' defaults, which are no layer.
+    let mut bare = v.clone();
+    bare["materials"][0]["extensions"] =
+        json!({"KHR_materials_clearcoat": {}, "KHR_materials_sheen": {}});
+    let material = &bake(bare).unwrap().materials[0];
+    assert_eq!((material.clearcoat, material.sheen_color), (0.0, [0.0; 3]));
+    let texture = json!({"index": 0});
+    for (extension, key) in [
+        ("KHR_materials_clearcoat", "clearcoatTexture"),
+        ("KHR_materials_clearcoat", "clearcoatRoughnessTexture"),
+        ("KHR_materials_clearcoat", "clearcoatNormalTexture"),
+        ("KHR_materials_sheen", "sheenColorTexture"),
+        ("KHR_materials_sheen", "sheenRoughnessTexture"),
+    ] {
+        let mut textured = v.clone();
+        textured["materials"][0]["extensions"][extension][key] = texture.clone();
+        let error = bake(textured).unwrap_err();
+        assert!(
+            error.contains("fixture.gltf") && error.contains(extension) && error.contains(key),
+            "{error}"
+        );
+    }
+}
 #[test]
 fn permitted_extensions_are_baked_per_texture() {
     let mut v = source();

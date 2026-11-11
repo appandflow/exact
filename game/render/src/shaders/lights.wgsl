@@ -32,6 +32,78 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, metallic:
     let peak = shading(min(distribution * visibility, SHADING_LIMIT));
     return (diffuse + peak * fresnel) * shading(nl);
 }
+// A clearcoat and a sheen over the base lobe (`MaterialData::clearcoat`,
+// `sheen_color`), compiled only into the model pipelines that draw them
+// (`MODEL_LAYERED`); elsewhere `layered_brdf` is `brdf`. The model shader sets
+// `surface_layer` before it lights a fragment.
+override LAYERED: bool = false;
+struct SurfaceLayer { coat: f32, coat_roughness: f32, sheen_roughness: f32, sheen: vec3<f32> }
+var<private> surface_layer: SurfaceLayer;
+// KHR_materials_clearcoat, "Layering": the coat's Fresnel at NdotV with F0 0.04
+// (ior 1.5), which weights the coat and attenuates the layers under it.
+fn coat_fresnel(nv: f32) -> f32 {
+    let f = 1.0 - nv;
+    let f2 = f * f;
+    return 0.04 + 0.96 * f2 * f2 * f;
+}
+// KHR_materials_sheen, "Sheen visibility": the Charlie visibility's curve fit.
+fn sheen_l(x: f32, alpha: f32) -> f32 {
+    let t = (1.0 - alpha) * (1.0 - alpha);
+    let a = mix(21.5473, 25.3245, t);
+    let b = mix(3.82987, 3.32435, t);
+    let c = mix(0.19823, 0.16801, t);
+    let d = mix(-1.97760, -1.27393, t);
+    let e = mix(-4.32054, -4.85967, t);
+    return a / (1.0 + b * pow(x, c)) + d * x + e;
+}
+fn sheen_lambda(cos_theta: f32, alpha: f32) -> f32 {
+    if cos_theta < 0.5 { return exp(sheen_l(cos_theta, alpha)); }
+    return exp(2.0 * sheen_l(0.5, alpha) - sheen_l(1.0 - cos_theta, alpha));
+}
+// The sheen's directional albedo E(NdotV), which KHR_materials_sheen leaves to a
+// table: the curve fit three.js's IBLSheenBRDF uses (Estevez and Kulla,
+// "Production Friendly Microfacet Sheen BRDF", 2017).
+fn sheen_albedo(nv: f32, roughness: f32) -> f32 {
+    let r2 = roughness * roughness;
+    let low = roughness < 0.25;
+    let a = select(-8.48 * r2 + 14.3 * roughness - 9.95, -339.2 * r2 + 161.4 * roughness - 25.9, low);
+    let b = select(1.97 * r2 - 3.27 * roughness + 0.72, 44.0 * r2 - 23.7 * roughness + 3.26, low);
+    let e = exp(a * nv + b) + select(0.1 * (roughness - 0.25), 0.0, low);
+    return clamp(e, 0.0, 1.0);
+}
+// The base lobe under a sheen, then under a clearcoat, lit from `l`.
+fn layered_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, metallic: f32,
+        roughness: f32) -> vec3<shading> {
+    let lobe = brdf(n, v, l, base, metallic, roughness);
+    if !LAYERED || MATTE { return lobe; }
+    let nl = max(dot(n, l), 0.0001);
+    let nv = max(dot(n, v), 0.0001);
+    let sum = v + l;
+    let h = sum * inverseSqrt(max(dot(sum, sum), 0.000001));
+    let nh = max(dot(n, h), 0.0);
+    // KHR_materials_sheen, "Sheen distribution" (Charlie, alpha = roughness²) and
+    // "Sheen visibility" (Charlie); "Albedo-scaling technique", its simpler form,
+    // scales the base by 1 - max3(sheenColor) E(NdotV).
+    let alpha = surface_layer.sheen_roughness * surface_layer.sheen_roughness;
+    let inv = 1.0 / alpha;
+    let distribution = (2.0 + inv) * pow(max(1.0 - nh * nh, 0.0000001), inv * 0.5) / (2.0 * PI);
+    // The visibility's 1/(4 NdotV NdotL) times NdotL, as `brdf`'s lobes are.
+    let sheen_visibility = 1.0 / ((1.0 + sheen_lambda(nv, alpha) + sheen_lambda(nl, alpha)) * 4.0 * nv);
+    let sheen = vec3<shading>(surface_layer.sheen) * shading(min(distribution * sheen_visibility, SHADING_LIMIT));
+    let tallest = max(surface_layer.sheen.r, max(surface_layer.sheen.g, surface_layer.sheen.b));
+    let scaling = shading(1.0 - tallest * sheen_albedo(nv, surface_layer.sheen_roughness));
+    // KHR_materials_clearcoat, "Clearcoat BRDF": GGX with the coat's roughness and
+    // the height-correlated Smith visibility of `brdf`; "Layering":
+    // mix(material, clearcoat_brdf, clearcoat × fresnel).
+    let a = surface_layer.coat_roughness * surface_layer.coat_roughness;
+    let a2 = a * a;
+    let d0 = nh * nh * (a2 - 1.0) + 1.0;
+    let gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    let coat = min(a2 / (PI * d0 * d0) * 0.5 / max(gv + gl, 0.00001), SHADING_LIMIT) * max(dot(n, l), 0.0);
+    let fc = surface_layer.coat * coat_fresnel(nv);
+    return (lobe * scaling + sheen * shading(f32(dot(n, l) > 0.0))) * shading(1.0 - fc) + vec3<shading>(shading(coat * fc));
+}
 fn light_f(at: u32) -> f32 { return bitcast<f32>(light_words[at]); }
 fn light_v(at: u32) -> vec3<f32> { return vec3(light_f(at), light_f(at + 1u), light_f(at + 2u)); }
 // The fragment's cluster: its screen tile and exponential view-depth slice.
@@ -89,16 +161,16 @@ fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world:
         let falloff = shading(lit.y);
         let c = shading(cone);
         if model {
-            *color += brdf(n, v, l, base, metallic, roughness) * tint * intensity * w * w / falloff * c;
+            *color += layered_brdf(n, v, l, base, metallic, roughness) * tint * intensity * w * w / falloff * c;
         } else {
             let radiance = tint * intensity * w * w / falloff;
-            *color += brdf(n, v, l, base, metallic, roughness) * radiance * c;
+            *color += layered_brdf(n, v, l, base, metallic, roughness) * radiance * c;
         }
     }
 }
 // The second directional light, unshadowed.
 fn fill_light(n: vec3<f32>, v: vec3<f32>, base: vec3<shading>, metallic: f32, roughness: f32) -> vec3<shading> {
     let l = (-frame.fill_direction_illuminance.xyz);
-    return brdf(n, v, l, base, metallic, roughness) * vec3<shading>(frame.fill_color.xyz)
+    return layered_brdf(n, v, l, base, metallic, roughness) * vec3<shading>(frame.fill_color.xyz)
         * shading(frame.fill_direction_illuminance.w);
 }

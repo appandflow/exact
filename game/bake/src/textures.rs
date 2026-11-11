@@ -59,6 +59,9 @@ pub fn materials(
             occlusion_strength: material.occlusion_texture().map_or(1.0, |t| t.strength()),
             ..Default::default()
         };
+        if !unlit {
+            layers(&material, &mut m)?;
+        }
         let textures = [
             pbr.base_color_texture().map(|i| i.texture()),
             material.normal_texture().map(|i| i.texture()),
@@ -205,6 +208,46 @@ pub fn materials(
     }
     out.materials.push(MaterialData::default());
     Ok(payloads)
+}
+/// The factors of `KHR_materials_clearcoat` and `KHR_materials_sheen`, at
+/// their defaults (zero, no layer) where absent. Their textures are refused
+/// by name: a model never bakes with an authored layer map dropped.
+fn layers(material: &gltf::Material<'_>, m: &mut MaterialData) -> Result<(), String> {
+    let index = material.index().unwrap();
+    let factor = |value: &serde_json::Value, key: &str| value[key].as_f64().unwrap_or(0.) as f32;
+    let refuse = |extension: &str, value: &serde_json::Value, keys: &[&str]| match keys
+        .iter()
+        .find(|key| !value[**key].is_null())
+    {
+        Some(key) => Err(format!(
+            "material {index}: {extension} {key} is unsupported (factors only)"
+        )),
+        None => Ok(()),
+    };
+    if let Some(coat) = material.extension_value("KHR_materials_clearcoat") {
+        refuse(
+            "KHR_materials_clearcoat",
+            coat,
+            &[
+                "clearcoatTexture",
+                "clearcoatRoughnessTexture",
+                "clearcoatNormalTexture",
+            ],
+        )?;
+        m.clearcoat = factor(coat, "clearcoatFactor");
+        m.clearcoat_roughness = factor(coat, "clearcoatRoughnessFactor");
+    }
+    if let Some(sheen) = material.extension_value("KHR_materials_sheen") {
+        refuse(
+            "KHR_materials_sheen",
+            sheen,
+            &["sheenColorTexture", "sheenRoughnessTexture"],
+        )?;
+        m.sheen_color =
+            [0, 1, 2].map(|i| sheen["sheenColorFactor"][i].as_f64().unwrap_or(0.) as f32);
+        m.sheen_roughness = factor(sheen, "sheenRoughnessFactor");
+    }
+    Ok(())
 }
 /// A glTF image whose URI names a PNG under `art/textures/` (colour) or
 /// `art/data/` (linear) samples that standalone texture, baked once for every

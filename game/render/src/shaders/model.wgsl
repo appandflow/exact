@@ -3,6 +3,8 @@ override MODEL_TEXTURES: bool = true;
 struct BakedMaterial {
     base: vec4<f32>, surface: vec4<f32>, emission_cutoff: vec4<f32>, flags: vec4<f32>,
     uv: array<vec4<f32>, 10>,
+    // clearcoat, its roughness, the sheen's roughness; the sheen's colour
+    coat: vec4<f32>, sheen: vec4<f32>,
 }
 @group(2) @binding(0) var<uniform> baked: BakedMaterial;
 @group(2) @binding(1) var base_texture: texture_2d<f32>;
@@ -43,6 +45,25 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     if length2 < 1e-16 { return n; }
     return normalize((t*sampled.x+b*sampled.y)*baked.surface.z*inverseSqrt(length2)+n*sampled.z);
 }
+// The environment's light on the layers over the base (`layered_brdf`): the
+// coat's split-sum specular with F0 0.04 at its roughness, attenuating `lobe`
+// by its Fresnel (KHR_materials_clearcoat, "Layering"), and the sheen's
+// directional albedo times the diffuse irradiance, scaling `lobe` by
+// 1 - max3(sheenColor) E(NdotV) (KHR_materials_sheen, "Albedo-scaling technique").
+fn layered_ambient(n:vec3<f32>, v:vec3<f32>, lobe:vec3<shading>) -> vec3<shading> {
+    let nv=max(dot(n,v),0.0001);
+    let strength=shading(frame.zenith_ambient.w);
+    let albedo=sheen_albedo(nv,surface_layer.sheen_roughness);
+    let e=select(irradiance(n),max(sh(0u),vec3<shading>(0.0)),UNIFORM_AMBIENT);
+    let sheen=e*vec3<shading>(surface_layer.sheen)*shading(albedo)*strength;
+    let tallest=max(surface_layer.sheen.r,max(surface_layer.sheen.g,surface_layer.sheen.b));
+    let ab=environment_brdf(shading(surface_layer.coat_roughness),shading(nv));
+    let direction=select(reflect(-v,n),vec3(0.0,1.0,0.0),UNIFORM_AMBIENT);
+    let radiance=vec3<shading>(textureSampleLevel(environment_radiance,environment_sampler,direction,surface_layer.coat_roughness*ENVIRONMENT_LODS).rgb);
+    let coat=radiance*(shading(0.04)*ab.x+ab.y)*strength*shading(surface_layer.coat);
+    let fc=surface_layer.coat*coat_fresnel(nv);
+    return (lobe*shading(1.0-tallest*albedo)+sheen)*shading(1.0-fc)+coat;
+}
 // An unlit material (`MaterialData::unlit`): its base and emission, which no
 // light, environment or rim changes; fog and fading still apply.
 @diagnostic(off, derivative_uniformity)
@@ -78,9 +99,15 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let v=view_direction(input.world);
     // The colour in `shading` (frame.wgsl): f16 where the device has it.
     let albedo=vec3<shading>(base.rgb);
-    var color=ambient(n,v,albedo,metallic,roughness)*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
+    var environment=ambient(n,v,albedo,metallic,roughness);
+    if LAYERED && !MATTE {
+        // The roughness floors keep the coat's GGX peak and the sheen's 1/alpha finite.
+        surface_layer=SurfaceLayer(clamp(baked.coat.x,0.0,1.0),clamp(baked.coat.y,0.045,1.0),clamp(baked.coat.z,0.07,1.0),max(baked.sheen.rgb,vec3(0.0)));
+        environment=layered_ambient(n,v,environment);
+    }
+    var color=environment*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
     if frame.sun_direction_illuminance.w>0.0 {
-        color+=brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility*water_caustics(input.world));
+        color+=layered_brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility*water_caustics(input.world));
     }
     if LIGHTS && frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,albedo,metallic,roughness); }
     if LIGHTS { add_local_lights(&color,input.clip.xy,input.world,n,v,albedo,metallic,roughness,true); }

@@ -275,9 +275,43 @@ fn the_material_record_writes_its_shading_only_when_it_is_not_the_default() {
     assert!(back.unlit);
     assert_ne!(hash::of(&lit), hash::of(&unlit));
     // A stale value never survives a read of a record without shading.
-    let mut dirty = unlit.clone();
+    let mut dirty = MaterialData {
+        clearcoat: 1.0,
+        sheen_color: [0.5; 3],
+        ..unlit.clone()
+    };
     bin::read_into(&bytes, &mut dirty).unwrap();
-    assert!(!dirty.unlit);
+    assert!(!dirty.unlit && dirty.clearcoat == 0.0 && dirty.sheen_color == [0.0; 3]);
+    // Every shading field is written together: two materials that differ in
+    // which field holds a value hash apart, and a negative zero survives.
+    let coat = MaterialData {
+        clearcoat: 0.5,
+        ..Default::default()
+    };
+    let rough = MaterialData {
+        clearcoat_roughness: 0.5,
+        ..Default::default()
+    };
+    assert_ne!(hash::of(&coat), hash::of(&rough));
+    let layered = MaterialData {
+        clearcoat: 1.0,
+        clearcoat_roughness: 0.05,
+        sheen_color: [0.2, 0.3, 0.4],
+        sheen_roughness: -0.0,
+        ..Default::default()
+    };
+    let back: MaterialData = bin::from_slice(&bin::to_vec(&layered)).unwrap();
+    assert_eq!(
+        (back.clearcoat, back.clearcoat_roughness, back.sheen_color),
+        (1.0, 0.05, [0.2, 0.3, 0.4])
+    );
+    assert_eq!(back.sheen_roughness.to_bits(), (-0.0f32).to_bits());
+    let negative = MaterialData {
+        clearcoat: -0.0,
+        ..Default::default()
+    };
+    let back: MaterialData = bin::from_slice(&bin::to_vec(&negative)).unwrap();
+    assert_eq!(back.clearcoat.to_bits(), (-0.0f32).to_bits());
 }
 
 /// A complete record (a tuning table's JSON) names every material field, as the

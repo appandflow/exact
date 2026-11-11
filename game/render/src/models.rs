@@ -28,6 +28,8 @@ pub(crate) struct Material {
     pub alpha: AlphaMode,
     pub double_sided: bool,
     pub untextured: bool,
+    /// Draws in the layered pipelines (`model_pipeline::layered`).
+    pub layered: bool,
     data: MaterialData,
     names: [Option<String>; 5],
 }
@@ -869,6 +871,7 @@ fn material_bind(
         alpha: m.alpha_mode,
         double_sided: m.double_sided,
         untextured: crate::model_pipeline::untextured(m),
+        layered: crate::model_pipeline::layered(m),
         data: m.clone(),
         names: names.clone(),
     }
@@ -903,6 +906,9 @@ fn baked(m: &MaterialData) -> Vec<f32> {
     for uv in m.uv_transforms {
         values.extend([uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], 0., 0.]);
     }
+    values.extend([m.clearcoat, m.clearcoat_roughness, m.sheen_roughness, 0.]);
+    values.extend(m.sheen_color);
+    values.push(0.);
     values
 }
 

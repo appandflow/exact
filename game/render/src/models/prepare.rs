@@ -77,6 +77,7 @@ impl ModelFrame {
         self.forward
             + crate::pipeline::PREPASS * usize::from(prepassed)
             + 64 * usize::from(m.untextured)
+            + crate::pipeline::MODEL_LAYERED * usize::from(m.layered)
             + 4 * usize::from(m.double_sided)
             + 16 * usize::from(mirrored)
             + 32 * usize::from(opaque)
@@ -85,6 +86,7 @@ impl ModelFrame {
     pub fn blended(self, m: &super::Material, mirrored: bool) -> usize {
         self.forward
             + 64 * usize::from(m.untextured)
+            + crate::pipeline::MODEL_LAYERED * usize::from(m.layered)
             + 4 * usize::from(m.double_sided)
             + 8
             + 16 * usize::from(mirrored)

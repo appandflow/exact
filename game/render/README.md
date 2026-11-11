@@ -533,6 +533,28 @@ the emission is zero and no other texture is baked. The flag is a word of the
 material's uniform, read once per fragment, so no pipeline is added for it.
 SSAO, a screen effect, still darkens an opaque unlit surface.
 
+### Clearcoat and sheen
+
+`MaterialData.clearcoat` and `clearcoat_roughness` lay a clear coat over a model
+material, and `sheen_color` and `sheen_roughness` a sheen under it, as glTF's
+`KHR_materials_clearcoat` and `KHR_materials_sheen` (and three.js's
+`MeshPhysicalMaterial`) define them; all four default to zero, which is no
+layer. The coat is a second GGX lobe with F0 0.04 at its own roughness; its
+Fresnel at the view angle weights it and attenuates everything under it. The
+sheen is a Charlie lobe (roughness squared, Charlie visibility), and the base
+under it is scaled by one less the sheen's brightest channel times its
+directional albedo. Both reach the sun, the fill, local lights and the
+environment: the coat reflects the prefiltered environment at its roughness,
+the sheen its diffuse irradiance. Toon (matte) models draw neither. The bake
+reads both extensions' factors; a model that uses either extension's textures
+(`clearcoatTexture`, `clearcoatRoughnessTexture`, `clearcoatNormalTexture`,
+`sheenColorTexture`, `sheenRoughnessTexture`) is refused by name.
+
+A material with either layer draws in a *layered* pipeline, a variant key bit
+(`MODEL_LAYERED`) beside the others above, made on first use like them and with
+its own uniform-driven fallback; a material with neither never compiles or runs
+the lobes, and keeps its pixels.
+
 ### Environment lighting
 
 Ambient light is image-based, from the procedural sky (`Environment.zenith`,

@@ -95,6 +95,15 @@ pub struct MaterialData {
     /// The colour is `base + emission` alone, with no light, environment or
     /// rim (glTF's `KHR_materials_unlit`); fog and fading still apply.
     pub unlit: bool,
+    /// A clear coat over the material, 0 to 1 (`KHR_materials_clearcoat`);
+    /// zero is none.
+    pub clearcoat: f32,
+    /// The coat's roughness, 0 to 1.
+    pub clearcoat_roughness: f32,
+    /// A sheen's linear colour (`KHR_materials_sheen`); black is none.
+    pub sheen_color: [f32; 3],
+    /// The sheen's roughness, 0 to 1.
+    pub sheen_roughness: f32,
 }
 impl Default for MaterialData {
     fn default() -> Self {
@@ -117,21 +126,40 @@ impl Default for MaterialData {
             alpha_cutoff: 0.5,
             double_sided: false,
             unlit: false,
+            clearcoat: 0.0,
+            clearcoat_roughness: 0.0,
+            sheen_color: [0.0; 3],
+            sheen_roughness: 0.0,
         }
     }
 }
 /// The record's optional `shading` field: every shading field, written
-/// together so that no two materials share one hash stream.
+/// together so that no two materials share one hash stream. Its default is
+/// the material's.
 #[derive(Data, Default, Clone, Copy)]
 struct Shading {
     unlit: bool,
+    clearcoat: f32,
+    clearcoat_roughness: f32,
+    sheen_color: [f32; 3],
+    sheen_roughness: f32,
 }
 impl Shading {
     fn of(m: &MaterialData) -> Self {
-        Self { unlit: m.unlit }
+        Self {
+            unlit: m.unlit,
+            clearcoat: m.clearcoat,
+            clearcoat_roughness: m.clearcoat_roughness,
+            sheen_color: m.sheen_color,
+            sheen_roughness: m.sheen_roughness,
+        }
     }
     fn assign(self, m: &mut MaterialData) {
         m.unlit = self.unlit;
+        m.clearcoat = self.clearcoat;
+        m.clearcoat_roughness = self.clearcoat_roughness;
+        m.sheen_color = self.sheen_color;
+        m.sheen_roughness = self.sheen_roughness;
     }
     /// Bitwise, so that a negative zero is written and read back.
     fn is_default(self) -> bool {
@@ -492,8 +520,12 @@ impl Model {
             if m.base_color
                 .iter()
                 .chain(&m.emissive)
+                .chain(&m.sheen_color)
                 .chain(m.uv_transforms.iter().flatten())
                 .chain([
+                    &m.clearcoat,
+                    &m.clearcoat_roughness,
+                    &m.sheen_roughness,
                     &m.metallic,
                     &m.roughness,
                     &m.normal_scale,
