@@ -74,6 +74,21 @@ fn scene_frame(p: &Presenter<()>, dark: bool, backend: Box<dyn Backend>) -> Fram
     painter.paint(&scene, (300.0, 300.0)).unwrap()
 }
 
+#[test]
+fn repainting_an_unchanged_headline_reuses_its_stroke() {
+    let p = fixture(concat!(
+        r##"      text "Exact paints a headline" font-size=32 font-weight=800 color="#fdd835" -webkit-text-stroke="2px #000000""##,
+        "\n"
+    ));
+    let first = scene_frame(&p, false, Box::new(crate::raster::Raster::new())).pixmap;
+    let built = text_stroke::BAND_BUILDS.get();
+    for _ in 0..6 {
+        let frame = scene_frame(&p, false, Box::new(crate::raster::Raster::new())).pixmap;
+        assert_eq!(frame.data(), first.data());
+    }
+    assert_eq!(text_stroke::BAND_BUILDS.get(), built);
+}
+
 const COLORS: &str = "      text testId=\"paragraph\" color=\"#00000000\" font-size=24 line-height=1.5\n        text color=\"light-dark(#ff0000,#008000)\"\n          text \"MMMM \" font-weight=700 testId=\"red\"\n        text color=\"light-dark(#0000ff,#800080)\" href=\"https://example.com/\" testId=\"link\"\n          text \"WWWW\" font-family=\"monospace\" font-style=\"italic\" font-size=18 testId=\"blue\"\n";
 
 fn has_color(frame: &tiny_skia::Pixmap, color: [u8; 4]) -> bool {

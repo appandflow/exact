@@ -199,6 +199,10 @@ pub trait Backend {
         ts: Transform,
         tint: Option<[u8; 4]>,
     );
+    /// Whether this backend can composite CPU islands (including text strokes).
+    fn supports_island_image(&self) -> bool {
+        false
+    }
     /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
     fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
     /// Composite a rendered canvas child (not a decoded image asset).

@@ -1,6 +1,7 @@
 # `-webkit-text-stroke` is recomputed on the CPU at every paint, on every painter, at a cost that grows with the square of its width and about the fourth power of the scale
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Paragraphs reuse bounded stroke bands while preserving glyph phases and pixel rows; disc morphology uses linear row passes, and painters without island images skip the work.
 **Systems:** host/linux/src/paint/text_stroke.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

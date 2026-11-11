@@ -904,6 +904,10 @@ impl Backend for Raster {
     }
 
     // @ref LLP 1055.000 D14 — an island in its element's user space.
+    fn supports_island_image(&self) -> bool {
+        true
+    }
+
     fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
         if mode != 0 {
             self.window_underlay = None;

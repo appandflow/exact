@@ -31,6 +31,7 @@ mod font_cache;
 mod fonts;
 mod lines;
 mod shaping;
+mod stroke;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
 #[cfg(test)]
@@ -307,6 +308,7 @@ pub struct Paragraph {
     /// Each wrapped line box's bottom (LLP 1093 D6): where a column may end.
     bottoms: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
+    pub(crate) strokes: RefCell<stroke::Cache>,
     ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
     // S + width scalars, excluding canonical key K. Shared S must be
     // deduplicated across snapshots; lazy lines and ink are read separately.
@@ -407,7 +409,10 @@ impl Paragraph {
     /// Current accessible capacity in O(1), without visiting shaped glyphs.
     /// Accounting/maintenance runs outside paint's exclusive ink borrow.
     fn owned_capacity_bytes(&self) -> usize {
-        self.resident_capacity_bytes + self.lines_capacity_bytes() + self.ink_capacity_bytes()
+        self.resident_capacity_bytes
+            + self.lines_capacity_bytes()
+            + self.ink_capacity_bytes()
+            + self.strokes.borrow().bytes()
     }
 
     /// CSS inline backgrounds (LLP 1053 §0): each run's `background-color`
