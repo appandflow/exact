@@ -320,6 +320,29 @@ test('the web build refuses, by name, a canvas surface that nothing draws and a 
   }
 }, 60000);
 
+// Issue #104: `web-build --json` names the build it made. The JS target is a release under `--out` alone, so the trust
+// it reports is that, never an inherited EXACT_UPDATE_TRUST the page did not build under.
+test('web-build --json reports the trust the JS target built under, not the environment\'s', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-json-trust-')));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Trust', app: { id: 'test.exact.trust', name: 'Trust' }, rust: false }));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "hello"\n');
+    const build = (...args) => {
+      const r = spawnSync(process.execPath, ['host/web/build.mjs', 'trust', '--render', 'none', '--json', ...args], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'target/web-dist'), EXACT_UPDATE_TRUST: 'production' }, encoding: 'utf8' });
+      expect(r.status, r.stderr).toBe(0);
+      // Run alone, the object is stdout's last line, after the build's own.
+      return JSON.parse(r.stdout.trim().split('\n').at(-1));
+    };
+    const development = build();
+    expect(development).toEqual({ path: resolve(dir, 'target/web-dist'), target: 'web', trust: 'development' });
+    expect(readdirSync(development.path).some((name) => name.startsWith('agent-')), 'a development page carries agent support').toBe(true);
+    expect(build('--out', resolve(dir, 'dist'))).toEqual({ path: resolve(dir, 'dist'), target: 'web', trust: 'production' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);
+
 // LLP 1153 D3: `web-build --out` writes a site any static host serves (its pages, the shell, the route table and
 // 404.html, none of the build's intermediates but the server bundle), ends saying how a host serves it, and serve.mjs
 // serves it so; `serve` (serve.mjs as the verb runs it) renders a `render=request` route's page for each request and

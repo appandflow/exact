@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
+import { reportBuilt } from '../../scripts/help.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
 import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url))), pkg = resolve(root, 'host/apple');
@@ -106,6 +107,8 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     }
     runApple('xcrun', ['simctl', 'install', pair.phone.udid, parent.bundle]);
     runApple('xcrun', ['simctl', 'install', pair.watch.udid, bundle]);
+    // The launcher prints the last object: this one, naming the phone both bundles are installed for.
+    if (args.includes('--json')) reportBuilt({ path: parent.bundle, target: 'ios-simulator', trust: process.env.EXACT_UPDATE_TRUST ?? 'development', signing: 'ad-hoc', installed: { name: pair.phone.name, udid: pair.phone.udid } });
     if (args.includes('--run')) runApple('xcrun', ['simctl', 'launch', pair.watch.udid, watch.id]);
   } finally { release(); }
 }

@@ -155,8 +155,27 @@ export const beforeBuild = {
 const checksDesign = ([command, ...rest]) => ['check', 'eval', 'ir', 'gen', 'serve'].includes(command)
   || command === 'import' && rest[0] === 'css' || command === 'tool' && !rest.includes('--via');
 
-/** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
-export async function run({ dir, name, game = false, exact2, args }) {
+/** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code.
+ * A build verb under `--json` (help.mjs `jsonBuilt`) prints exactly one object on stdout however it ends: the artifact
+ * the build named, or `{code, error}` with a non-zero status, a refusal or a throw included. */
+export async function run(options) {
+  const { args } = options;
+  if (!JSON_BUILDS.includes(args[0]) || !args.includes('--json') || args.includes('--help') || args.includes('-h')) return verbRun(options, null);
+  let said = false;
+  const reply = (object) => { said = true; console.log(JSON.stringify(object)); };
+  let status;
+  try { status = await verbRun(options, reply); }
+  catch (error) {
+    const message = String(error?.message ?? error);
+    console.error(message);
+    if (!said) reply({ code: 'build_failed', error: message });
+    return 1;
+  }
+  if (!said) reply({ code: 'build_failed', error: `${args[0]} ${status ? `failed (exit ${status})` : 'named no artifact'}; what it said is on stderr` });
+  return said && !status ? 0 : status || 1;
+}
+
+async function verbRun({ dir, name, game = false, exact2, args }, reply) {
   // Before any process starts: which settings Bun loaded from this directory's `.env` files (LLP 1153 D4).
   noteBunLoaded();
   // The design tool's tests, drives and verify run on this checkout's own port (port-lock.mjs `checkoutPort`, unless
@@ -176,11 +195,21 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // `commands`, each a command as argv (`"seed": ["bun", "seed.mjs"]`), run in the app's directory with the
   // arguments after the verb. A game's app.json is optional.
   const manifest = resolve(dir, 'app.json');
-  const declared = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {};
+  let declared = {};
+  try { if (existsSync(manifest)) declared = JSON.parse(readFileSync(manifest, 'utf8')); }
+  catch (error) {
+    if (!reply) throw error;
+    const message = `${manifest}: ${error.message}`;
+    console.error(message);
+    reply({ code: 'app_json', error: message });
+    return 1;
+  }
   const own = declared.commands ?? {};
   const clash = Object.keys(own).find((name) => verbs[name]);
   if (clash) {
-    console.error(`app.json commands.${clash}: ${clash} is one of exact.mjs's own verbs; give the app's another name`);
+    const message = `app.json commands.${clash}: ${clash} is one of exact.mjs's own verbs; give the app's another name`;
+    console.error(message);
+    reply?.({ code: 'app_json', error: message });
     return 2;
   }
   // Help (LLP 1116 D4): `--help` or `-h` among a verb's arguments, `help [<verb>]` or no verb prints exact2's own
@@ -220,6 +249,21 @@ export async function run({ dir, name, game = false, exact2, args }) {
     for (const line of feedback.nudge(dir, { verb, host, exit, ms: Date.now() - started, args: rest, interrupted })) console.error(line);
   } catch {}
   return exit; };
+  // A build verb's `--json` (`reply`): one object on stdout, and the build's output on stderr. A failure is
+  // `{code, error}`, as share's, with a non-zero status. It reports a finished artifact, so it takes no launch, no build
+  // left running and no test run; and a flag the build's script refuses is refused before anything is built.
+  const jsonBuilt = reply != null;
+  if (jsonBuilt && ['--run', '--prebuild', '--test'].some((flag) => rest.includes(flag))) {
+    const error = `${verb} --json reports the built artifact, so it takes none of --run, --prebuild and --test`;
+    console.error(error);
+    reply({ code: 'json_flags', error });
+    return log(2);
+  }
+  if (jsonBuilt) {
+    let refusal = null;
+    const refused = (await import(resolve(exact2, 'scripts/help.mjs'))).guardFlags(verb, rest, { fail: (message) => { refusal = message; console.error(message); }, exit: (code) => ({ code }) })?.code;
+    if (refused != null) { reply({ code: 'unknown_flag', error: refusal }); return log(refused); }
+  }
   // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
   // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
   // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.
@@ -230,7 +274,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
     const device = rest.includes('--device') || verb === 'share';
     const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device }), { device })).catch((error) => ({ error: String(error?.message ?? error) }));
     const brought = await shells.bringPlatform(dir, platform, { report, name });
-    if (brought.refused) { console.error(brought.refused); return log(1); }
+    if (brought.refused) { console.error(brought.refused); reply?.({ code: 'platform_refused', error: brought.refused }); return log(1); }
     for (const line of brought.lines) console.error(line);
   }
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
@@ -266,6 +310,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
     : verb === 'contract' && rest[0] === 'build' ? (message) => [{ id: 'app-before-build', severity: 'error', message, file: manifest, line: 0, col: 0, end_col: 0, related: [] }]
     : verb === 'share' ? (message) => ({ code: 'before_build', error: message })
     : verb === 'verify' ? (message) => ({ error: message, exit: 1 })
+    : jsonBuilt ? (message) => ({ code: 'before_build', error: message })
     : null;
   const quiet = verb === 'contract' && jsonFailure != null;
   const prepare = async () => {
@@ -273,7 +318,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
     if (before === undefined || process.env.EXACT_BEFORE_BUILD) return 0;
     const refuse = (code, message) => {
       if (!jsonFailure) { console.error(message); return code; }
-      console.log(JSON.stringify(jsonFailure(message)));
+      (reply ?? ((object) => console.log(JSON.stringify(object))))(jsonFailure(message));
       return 1;
     };
     if (!(Array.isArray(before) && before.length && before.every((part) => typeof part === 'string' && part))) {
@@ -338,7 +383,9 @@ if (verb === 'contract') {
     && !rest.some((a, i) => (a === '--url' && !rest[i + 1]?.startsWith('/')) || a === '--web-dist');
   // Xcode's builds are a Mac's: on Windows, the verbs that need one say what Windows has instead.
   if (process.platform === 'win32' && (['ios', 'mac'].includes(verb) || ['test', 'agent', 'verify'].includes(verb) && ['ios', 'macos', 'mac'].includes(host))) {
-    console.error(`${verb}${verb === 'ios' || verb === 'mac' ? '' : ` ${host}`} needs a Mac (Xcode); on Windows: bun exact.mjs windows --run opens the app, test windows and verify windows check it`);
+    const message = `${verb}${verb === 'ios' || verb === 'mac' ? '' : ` ${host}`} needs a Mac (Xcode); on Windows: bun exact.mjs windows --run opens the app, test windows and verify windows check it`;
+    console.error(message);
+    reply?.({ code: 'platform_refused', error: message });
     return log(2);
   }
   const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac', 'windows'].includes(host) && !rest.includes('--device');
@@ -403,6 +450,7 @@ if (verb === 'contract') {
   // A finished site is served to this machine unless --lan asks for every interface (LLP 1153 D3.3); the dev loop
   // and serve.mjs run alone keep LAN (LLP 1023 D8).
   if (verb === 'serve' && !rest.includes('--lan')) rest.push('--loopback');
+  if (jsonBuilt) return log(await jsonBuild(spawned, [resolve(exact2, verbs[verb][0]), ...verbs[verb].slice(1), ...rest], verb, reply));
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).
@@ -417,6 +465,29 @@ if (verb === 'contract') {
     }
     return failed;
   }, { verb: 'test', optional: true }));
+}
+
+/** The verbs whose build reports its artifact under `--json` (help.mjs `reportBuilt`). */
+const JSON_BUILDS = ['ios', 'mac', 'web-build', 'linux', 'windows', 'android'];
+
+/** A build verb under `--json`: the build runs with its stdout on this stderr and writes its result to descriptor 3,
+ * and this prints that object, or `{code, error}` when the build failed or named no artifact. The exit code. */
+async function jsonBuild(spawned, args, verb, reply) {
+  let said = '', ended;
+  const code = await spawned(process.execPath, args, ['inherit', 2, 2, 'pipe'], undefined, (child) => {
+    child.stdio[3].setEncoding('utf8');
+    child.stdio[3].on('data', (chunk) => { said += chunk; });
+    ended = new Promise((done) => { child.stdio[3].on('end', done); child.stdio[3].on('error', done); });
+  }, { EXACT_JSON_FD: '3' });
+  // What it wrote before it exited, unless a process it left running holds the descriptor open
+  await Promise.race([ended, new Promise((done) => setTimeout(done, 2000).unref())]);
+  let result = null;
+  try { result = JSON.parse(said.trim().split('\n').at(-1)); } catch {}
+  if (!code && typeof result?.path === 'string') { reply(result); return 0; }
+  const error = code ? `${verb} failed (exit ${code}); what it said is on stderr` : `${verb} built nothing it could name; what it said is on stderr`;
+  console.error(error);
+  reply({ code: 'build_failed', error });
+  return code || 1;
 }
 
 /** The app's web build, run as a drive's first step: what it says goes to stderr as it comes, except the compiler's

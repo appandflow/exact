@@ -12,6 +12,7 @@
 // adds its other flags and `bodyAll`'s lines (the ports, the rarer forms).
 //
 //   bun scripts/help.mjs [<verb>] [all]      a verb's help (all: every flag and the ports), or the index
+import { writeSync } from 'node:fs';
 
 /** A flag's spec is its name, then its argument if it takes one (`--port <n>`); one row may hold
  * several, joined by " · ". */
@@ -58,6 +59,8 @@ const APPLE = ['--painted-benchmark', '--watchos', '--watch-sim <udid>', '--ios'
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
+/** A build verb's `--json` (`reportBuilt`), with what else its object names and the flags it refuses. */
+const jsonBuilt = (more = '', refuses = '') => ['--json', `one JSON object on stdout, its last line: the artifact's path, target, trust${more} (a failure: code, error); the build's own output on stderr${refuses}`];
 const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production: it ignores EXACT_AGENT and EXACT_MODULES, so drive the development build; a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
 
 export const HELP = {
@@ -107,10 +110,11 @@ export const HELP = {
   },
   'web-build': {
     line: 'build the web app once (the page test web and agent web drive)',
-    usage: 'bun exact.mjs web-build [--out <dir>] [--render rust|js|none]',
+    usage: 'bun exact.mjs web-build [--out <dir>] [--render rust|js|none] [--json]',
     flags: [
       ['--out <dir>', 'a release build there (inside the app: dist), as deploy publishes, and how a static host serves it'],
       ['--render rust|js|none', 'pre-rendered pages: rust (the app\'s <app>-render entry; the default where it has one), js (Bun; the default otherwise), none'],
+      jsonBuilt(),
     ],
     internal: ['--js', '--wasm', '--bake'],
     body: `Builds the JS target (a game: wasm) into the app's target/web-dist; about a second when
@@ -231,10 +235,12 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run|--prebuild] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild|--no-install] [--json] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
     common: ['ios [--run] [--sim <name>]    build for a simulator; --run launches it'],
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
+      ['--no-install', 'build and sign the simulator .app, and install it on no simulator'],
+      jsonBuilt(', signing (an identity\'s SHA-1, or ad-hoc), installed ({name, udid}, unless --no-install)', '; not with --run, --prebuild or --test'),
       PREBUILD,
       RELEASE,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
@@ -278,9 +284,10 @@ Ports    none. Runs to completion.`,
   },
   mac: {
     line: 'build the macOS app (--run launches it here)',
-    usage: 'bun exact.mjs mac [--run|--prebuild] [--release] [--bundle] [--url <url>] [--optimize speed|size]',
+    usage: 'bun exact.mjs mac [--run|--prebuild] [--json] [--release] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
       ['--run', 'assemble the .app and launch it when built, in the foreground (its log here) until it quits'],
+      jsonBuilt(', signing (an identity\'s SHA-1, or ad-hoc)', '; not with --run, --prebuild or --test'),
       PREBUILD,
       RELEASE,
       ['--bundle', 'assemble the .app bundle (the macOS default)'],
@@ -295,8 +302,8 @@ Ports    none. Runs to completion; with --run, until the app quits (^C ends it).
   },
   linux: {
     line: 'build the Linux host (test and agent linux drive it headless)',
-    usage: 'bun exact.mjs linux',
-    flags: [],
+    usage: 'bun exact.mjs linux [--json]',
+    flags: [jsonBuilt()],
     body: `A development build (cargo profile host-dev); prints the binary's path. It runs headless
 anywhere, macOS included, with no display.
 Ports    none. Runs to completion.`,
@@ -304,10 +311,11 @@ Ports    none. Runs to completion.`,
   },
   android: {
     line: 'build the APK and install it (test, agent and verify android drive it)',
-    usage: 'bun exact.mjs android [--run] [--headless]',
+    usage: 'bun exact.mjs android [--run] [--headless] [--json]',
     flags: [
       ['--run', 'launch it once installed'],
       ['--headless', 'build the Linux host for Android instead (agent android --headless runs it under adb shell)'],
+      jsonBuilt(', installed (the device\'s serial, or null with none ready)', '; printed after the install; not with --run'),
     ],
     // `--apk --install` are the verb's own; --release builds the release profile, for measuring; --write-locks writes
     // the Gradle lock and verification files of an app whose modules name Maven libraries.
@@ -508,8 +516,8 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   },
   windows: {
     line: 'build for Windows into dist-windows/ (--run opens it)',
-    usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
-    flags: [['--run', 'open it when built: here, until it quits; from SSH, on the signed-in desktop, returning once its window is up'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
+    usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>] [--json]',
+    flags: [['--run', 'open it when built: here, until it quits; from SSH, on the signed-in desktop, returning once its window is up'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running'], jsonBuilt('', '; not with --run')],
     body: 'Needs Windows and the MSVC Rust target; test windows and agent windows build first when the build is stale, and\ndrive it headless. A build closes the copy the last --run opened from the same directory.\nPorts    none. Runs to completion; with --run here, until the app quits.',
     example: 'bun exact.mjs windows --run',
   },
@@ -620,6 +628,15 @@ export function guardFlags(verb, argv, { parsed = false, say = console.log, fail
   const takes = documented(verb).flatMap(([row]) => specs(row).map(name)).join(', ');
   fail(`${verb}: unknown flag ${unknown.join(', ')}. ${takes ? `It takes ${takes} (--help says what each takes and does).` : 'It takes no flags.'}`);
   return exit(2);
+}
+
+/** A build verb's result under `--json` (`jsonBuilt`): one object, the artifact's `path`, `target` and `trust`, and what
+ * else its verb names. An app's exact.mjs runs the build with its stdout on stderr and prints the object it reads from
+ * the descriptor EXACT_JSON_FD names (app-cli.mjs `jsonBuild`); a build run alone writes it to stdout. */
+export function reportBuilt(result) {
+  const line = `${JSON.stringify(result)}\n`, fd = Number(process.env.EXACT_JSON_FD);
+  if (fd > 2) writeSync(fd, line);
+  else process.stdout.write(line);
 }
 
 if (import.meta.main) { const args = process.argv.slice(2); process.exit(printHelp(args.find((a) => a !== 'all') ?? '', { all: args.includes('all') })); }

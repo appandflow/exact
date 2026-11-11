@@ -458,6 +458,81 @@ test('app.json\'s before_build runs before each command that builds, and its fai
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
+// Issue #104: a script takes the built artifact from `--json`'s one object, not from the build's log. Every way a build
+// verb ends under `--json` prints exactly one object: the artifact, or `{code, error}` with a non-zero status.
+test('a build verb under --json prints one object on stdout however it ends, the build\'s own output on stderr', () => {
+  const parent = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact new-')));
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk');
+    createApp(dir);
+    withCli(sdk);
+    // Each fake build talks on stdout, directly and through a child, as SwiftPM and Cargo do, then names an artifact
+    // whose path has a space in it; BUILD_EXIT fails it, BUILD_SILENT names none and BUILD_THROW throws.
+    const build = (target, artifact) => `import { spawnSync } from 'node:child_process';
+      import { appendFileSync, mkdirSync } from 'node:fs';
+      import { reportBuilt } from '../../scripts/help.mjs';
+      appendFileSync(process.env.EXACT_APP_DIR + '/runs.log', process.argv.slice(2).join(' ') + '\\n');
+      console.log('[1/2] compiling');
+      spawnSync(process.execPath, ['-e', 'console.log("[2/2] linking")'], { stdio: 'inherit' });
+      if (process.env.BUILD_EXIT) process.exit(Number(process.env.BUILD_EXIT));
+      if (process.env.BUILD_THROW) throw new Error('the build threw');
+      const path = process.env.EXACT_APP_DIR + ${JSON.stringify(artifact)};
+      mkdirSync(path, { recursive: true });
+      if (!process.env.BUILD_SILENT && process.argv.includes('--json')) reportBuilt({ path, target: '${target}', trust: 'development' });`;
+    for (const file of ['host/web', 'host/apple']) mkdirSync(resolve(sdk, file), { recursive: true });
+    writeFileSync(resolve(sdk, 'host/web/build.mjs'), build('web', '/target/web dist'));
+    writeFileSync(resolve(sdk, 'host/apple/build.mjs'), build('ios-simulator', '/target/clients/x/ios-simulator/Field Log.app'));
+    const exact = (args, env = {}) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk, ...env }, encoding: 'utf8' });
+    const runs = () => { const log = resolve(dir, 'runs.log'), lines = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []; rmSync(log, { force: true }); return lines; };
+    // stdout is one line, one object; its keys and, for a failure, its code.
+    const one = (r, status) => {
+      assert.equal(r.status, status, r.stderr);
+      assert.equal(r.stdout.split('\n').length, 2, `stdout is one line: ${r.stdout}`);
+      return JSON.parse(r.stdout);
+    };
+    const built = [[['web-build', '--json'], 'target/web dist', 'web']];
+    // The launcher refuses an Apple build on Windows, as the object says.
+    if (process.platform !== 'win32') built.push([['ios', '--no-install', '--json'], 'target/clients/x/ios-simulator/Field Log.app', 'ios-simulator']);
+    else assert.equal(one(exact(['ios', '--no-install', '--json']), 2).code, 'platform_refused');
+    for (const [args, path, target] of built) {
+      const r = exact(args);
+      const result = one(r, 0);
+      assert.deepEqual(result, { path: resolve(dir, path), target, trust: 'development' });
+      assert.ok(existsSync(result.path), result.path);
+      assert.match(r.stderr, /\[1\/2\] compiling\r?\n\[2\/2\] linking\r?\n/);
+      assert.equal(runs().length, 1);
+    }
+    // Without --json the build's output is stdout's, as before.
+    assert.match(exact(['web-build']).stdout, /^\[1\/2\] compiling\r?\n\[2\/2\] linking\r?\n$/);
+    runs();
+    // A failed build, one that names no artifact, one that throws, and a launch, a build left running or a test run,
+    // or a flag the script refuses, each before any build: `{code, error}`.
+    for (const [args, env, status, code] of [[['web-build', '--json'], { BUILD_EXIT: '3' }, 3, 'build_failed'], [['web-build', '--json'], { BUILD_SILENT: '1' }, 1, 'build_failed'],
+      [['web-build', '--json'], { BUILD_THROW: '1' }, 1, 'build_failed']]) {
+      const failed = one(exact(args, env), status);
+      assert.deepEqual(Object.keys(failed), ['code', 'error']);
+      assert.equal(failed.code, code, args.join(' '));
+    }
+    assert.equal(runs().length, 3);
+    for (const [args, status, code] of [[['ios', '--run', '--json'], 2, 'json_flags'], [['mac', '--prebuild', '--json'], 2, 'json_flags'], [['ios', '--test', '--json'], 2, 'json_flags'],
+      [['web-build', '--bogus', '--json'], 2, 'unknown_flag'], [['windows', '--bogus', '--json'], 2, 'unknown_flag']]) {
+      const refused = one(exact(args), status);
+      assert.equal(refused.code, code, args.join(' '));
+      if (code === 'unknown_flag') assert.match(refused.error, /unknown flag --bogus/);
+    }
+    assert.deepEqual(runs(), [], 'a refusal builds nothing');
+    // app.json that does not parse, an own command that takes a verb's name, and a before_build that fails.
+    const manifest = readFileSync(resolve(dir, 'app.json'), 'utf8');
+    for (const [text, status] of [['{ not json', 1], [JSON.stringify({ ...JSON.parse(manifest), commands: { 'web-build': ['bun', 'x.mjs'] } }), 2],
+      [JSON.stringify({ ...JSON.parse(manifest), before_build: [process.execPath, '-e', 'process.exit(5)'] }), 1]]) {
+      writeFileSync(resolve(dir, 'app.json'), text);
+      const failed = one(exact(['web-build', '--json']), status);
+      assert.equal(failed.code, text.includes('before_build') ? 'before_build' : 'app_json', text);
+    }
+    assert.deepEqual(runs(), []);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
 test('a new app and a new game get VS Code tasks over their own verbs, and update writes only a missing file', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {

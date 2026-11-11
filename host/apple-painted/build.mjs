@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cargoReproducibilityFlags, executableName, injectedProfiles } from '../../scripts/app.mjs';
+import { reportBuilt } from '../../scripts/help.mjs';
 
 const root = resolve(import.meta.dir, '../..');
 const run = (command, args, options = {}) => {
@@ -40,5 +41,7 @@ export function buildPainted(app, args, { macInfoPlist }) {
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(bundle, 'Contents/Resources/assets'), { recursive: true });
   run('codesign', ['--force', '--deep', '--sign', '-', bundle]);
   console.log(executable);
+  // Its bake reads EXACT_UPDATE_TRUST, which `--release` sets to production (host/apple/build.mjs).
+  if (args.includes('--json')) reportBuilt({ path: bundle, target: 'macos', trust: process.env.EXACT_UPDATE_TRUST ?? 'development', signing: 'ad-hoc' });
   if (args.includes('--run')) run(executable, [], { env: { ...process.env, EXACT_ASSETS: app.dir } });
 }

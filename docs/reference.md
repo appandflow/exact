@@ -860,7 +860,35 @@ roster. From the app's directory:
 ```sh
 bun exact.mjs ios --device --archive out.ipa --unsigned   # an ad-hoc signed .ipa, for a service that re-signs it
 bun exact.mjs ios --no-install                            # a development simulator .app; the build prints its path
+bun exact.mjs ios --no-install --json                     # the same, its path in one JSON object on stdout
 ```
+
+With `--json`, `ios`, `mac`, `web-build`, `linux`, `android` and `windows`
+print one JSON object on stdout, its last and only line, however they end, and
+send the build's own output to stderr. The object names the artifact's
+absolute `path` (the `.app`, the `.ipa` of `--archive`, `--embed`'s directory,
+`target/web-dist` or `--out`'s directory, the executable, the APK), its
+`target` (`ios-simulator`, `ios`, `tvos-simulator`, `tvos`, `macos`, `web`,
+`linux`, `windows` or `android`) and its `trust` (`development` or
+`production`: what the build baked; the JS target's `web-build` is
+`production` only with `--out`, and a game's reports the trust it baked). The Apple builds add `signing`, the signing identity's SHA-1 or
+`ad-hoc`. `ios` without `--no-install` adds `installed`, the simulator's or
+phone's `name` and `udid` (with `--watchos`, the paired phone's), and
+`android` adds `installed`, the device's serial, or null when no device was
+ready; its object is printed once the install has succeeded:
+
+```sh
+app=$(bun exact.mjs ios --no-install --json | jq -r .path)
+```
+
+A failure prints `{"code": …, "error": …}` instead, as `share --json` does,
+and exits non-zero: `build_failed` (the build failed, an install after it
+failed, or it named no artifact), `before_build` (app.json's `before_build`
+failed), `app_json` (app.json does not parse, or a command of its own takes a
+verb's name), `platform_refused` (the platform's setup is missing, or an Apple
+build asked for on Windows), `unknown_flag` (a flag the verb does not take,
+refused before anything builds), or `json_flags` (`--json` takes none of
+`--run`, `--prebuild` and `--test`).
 
 `EXACT_IDENTITY` and `EXACT_PROFILE` in place of `--unsigned` sign the `.ipa`
 on the runner. The runner needs Xcode 27.1 or later selected (`DEVELOPER_DIR`,

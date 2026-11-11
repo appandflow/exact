@@ -49,7 +49,7 @@ import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes
 import { executableName, HOST_DEV, PINNED_RUST, checkModuleRoster, moduleDirectory, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
-import { guardFlags } from '../../scripts/help.mjs';
+import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
@@ -707,6 +707,7 @@ async function main(args, lockHeld = false) {
       HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
     } : {}),
   };
+  const built = () => ({ target: destination, trust: cargoEnv.EXACT_UPDATE_TRUST, signing: sha1 && sha1 !== '-' ? sha1 : 'ad-hoc' }); // `--json`'s object (help.mjs `jsonBuilt`)
   // A production bake is `release`; any other builds `host-dev` (Cargo.toml),
   // the same optimizations without whole-graph LTO, for the touch-one-line budget.
   // An app outside this repo gets it with the root's other profiles, injected
@@ -966,7 +967,7 @@ async function main(args, lockHeld = false) {
     const bytes = statSync(resolve(embed, archive)).size;
     placeAppleArtifact(embed, paths.embed);
     console.log(`host/apple: ${paths.embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${gpu ? `, ${gpu}` : ''}${svgFilterBuilt ? `, ${svgFilterLibraryName} (the bundle's top level)` : ios ? ', no SVG filter kernels (no Metal toolchain)' : ''}, shaders, assets, compat.json; link it with ExactKit${composition === 'updating' ? ' + ExactUpdates' : ''} from the package at ${pkg.replace(root + '/', '')}`);
-    if (embedOnly) return;
+    if (embedOnly) { if (args.includes('--json')) reportBuilt({ path: paths.embed, ...built() }); return; }
   }
   const t1 = Date.now();
   // The host's loaded modules only where the plan can reach them (LLP 1047
@@ -1310,10 +1311,9 @@ async function main(args, lockHeld = false) {
   const canvasGpuBuilt = canvasGpu ? resolve(webBuildDir, canvasGpuLoadName) : null;
   if (canvasGpu) copyFileSync(moduleLib['exact-canvas-vello'], canvasGpuBuilt);
   const t2 = Date.now();
-  // Where the build's time went, said at its end: the app's Rust and bake; the
-  // Swift host's link, and what of its compile the bake did not cover; the
-  // arms and the app's module artifact; what of the host's two Rust modules
-  // those did not cover; and assembling, signing and installing.
+  // Where the build's time went, said at its end: the app's Rust and bake; the Swift host's link, and what of its compile
+  // the bake did not cover; the arms and the app's module artifact; what of the host's two Rust modules those did not
+  // cover; and assembling, signing and installing.
   const seconds = (ms) => (ms / 1000).toFixed(1);
   const timing = () => `cargo ${seconds(t1 - t0)} s, swift ${seconds(tSwift - t1)} s, arms ${seconds(tArms - tSwift)} s, modules ${seconds(t2 - tArms)} s, package ${seconds(Date.now() - t2)} s`;
   const bin = resolve(binDir, paths.executable);
@@ -1337,10 +1337,9 @@ async function main(args, lockHeld = false) {
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
-    console.log(`host/apple: ${paths.binary.replace(root + '/', '')} (${timing()}; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
-    // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web
-    // output may belong to another app, and TypeScript edits publish complete
-    // URL generations rather than rewriting its initial app.plan.
+    console.log(`host/apple: ${paths.binary.replace(root + '/', '')} (${timing()}; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`); if (args.includes('--json')) reportBuilt({ path: bundlePath ?? paths.binary, ...built() });
+    // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web output may belong to another app, and
+    // TypeScript edits publish complete URL generations rather than rewriting its initial app.plan.
     if (args.includes('--run')) spawnSync(bundlePath ? resolve(bundlePath, 'Contents/MacOS', paths.executable) : paths.binary, [], { stdio: 'inherit', env: { ...env, ...launchEnv, EXACT_ASSETS: paths.capture } });
     return;
   }
@@ -1356,9 +1355,9 @@ async function main(args, lockHeld = false) {
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
     console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)${frameworkSymbols.count ? `, ${frameworkSymbols.dir} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)` : ''}`);
-    return;
+    if (args.includes('--json')) reportBuilt({ path: ipa, ...built() }); return;
   }
-  if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
+  if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); if (args.includes('--json')) reportBuilt({ path: paths.bundle, ...built() }); return; }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
   const place = () => {
     // A phone installs the clip with the app that embeds it; a simulator registers it (`simctl listapps`, a launch
@@ -1373,6 +1372,7 @@ async function main(args, lockHeld = false) {
       } else install(dev, placed, app, host, !!clip, clip?.executable);
     }
     console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+    if (args.includes('--json')) reportBuilt({ path: paths.bundle, ...built(), installed: { name: dev.name, udid: dev.udid ?? null } });
     if (args.includes('--run')) {
       if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
       else {

@@ -38,7 +38,7 @@ import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust
 import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
-import { guardFlags } from '../../scripts/help.mjs';
+import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { interfaceStyle, withInterfaceStyle, withLook } from './look.mjs';
 import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, hostingNotes, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
@@ -144,6 +144,8 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     replaceBuild(stage, dist);
     stage = null;
     if (outDir) console.log(hostingNotes(dist, existsSync(resolve(app.dir, 'exact.mjs')) ? 'bun exact.mjs serve' : 'bun host/web/serve.mjs').join('\n'));
+    // A release is `--out`'s alone: without it the JS target builds for development, whatever EXACT_UPDATE_TRUST says.
+    if (process.argv.includes('--json')) reportBuilt({ path: dist, target: 'web', trust: outDir ? 'production' : 'development' });
     process.exit(0);
   }
   console.error(`${webBuildFailure(js.stderr).join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
@@ -575,7 +577,9 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
 publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 stage = null;
+if (bakeOnly && process.argv.includes('--json')) reportBuilt({ path: dist, target: 'web', trust: buildEnv.EXACT_UPDATE_TRUST });
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}${passkeyNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
 console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}${authNote}${passkeyNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+if (process.argv.includes('--json')) reportBuilt({ path: dist, target: 'web', trust: buildEnv.EXACT_UPDATE_TRUST });

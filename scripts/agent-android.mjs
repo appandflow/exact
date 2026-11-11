@@ -39,7 +39,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, PINNED_RUST, bakeWatchEnv, buildBake, hermesBundle, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { ANDROID_PAGE_SIZE, androidCargo } from './cargo-check.mjs';
-import { guardFlags } from './help.mjs';
+import { guardFlags, reportBuilt } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
 import { recordBuiltSettings } from '../js/bake/src/__exact_env.mjs';
 import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
@@ -494,7 +494,7 @@ function extensionArgs(app, out, config) {
 
 /** `--install` (`--run`: and launch it): the APK onto the device `androidDevice` names. With none ready the build
  * stands and says how to install it; with several and no ANDROID_SERIAL it refuses. The exit code. */
-function installApk(app, apk, { run = false, built = 0 } = {}) {
+function installApk(app, apk, { run = false, built = 0, installed: onInstalled = () => {} } = {}) {
   let serial;
   try { serial = androidDevice(); } catch (error) {
     if (/^no Android device/.test(error.message)) { console.error(`built in ${(built / 1000).toFixed(1)} s; not installed: ${error.message}`); return run ? 1 : 0; }
@@ -505,6 +505,7 @@ function installApk(app, apk, { run = false, built = 0 } = {}) {
   const installed = spawnSync(adb(), ['-s', serial, 'install', '-r', apk], { encoding: 'utf8' });
   if (installed.status !== 0 || /^Failure/m.test(installed.stdout)) { console.error(`adb install: ${(installed.stderr || installed.stdout).trim()}`); return 1; }
   console.error(`built in ${(built / 1000).toFixed(1)} s, installed on ${serial} as ${id} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  onInstalled(serial);
   if (!run) return 0;
   const launched = spawnSync(adb(), ['-s', serial, 'shell', 'am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`], { encoding: 'utf8' });
   if (launched.status !== 0 || /Error/.test(launched.stdout + launched.stderr)) { console.error(`am start: ${(launched.stderr || launched.stdout).trim()}`); return 1; }
@@ -575,11 +576,15 @@ if (import.meta.main && process.argv[2] === 'relay') {
     const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'));
     if (!apk) process.exit(1);
     console.log(apk);
-    if (args.includes('--install') || args.includes('--run')) process.exit(installApk(app, apk, { run: args.includes('--run'), built: Date.now() - started }));
-    process.exit(0);
+    // `--json`'s object once the install is done: `installed` names the device, or is null when none was ready.
+    const trust = process.env.EXACT_UPDATE_TRUST ?? 'development', install = args.includes('--install') || args.includes('--run');
+    let serial = null;
+    const code = install ? installApk(app, apk, { run: args.includes('--run'), built: Date.now() - started, installed: (s) => { serial = s; } }) : 0;
+    if (!code && args.includes('--json')) reportBuilt({ path: apk, target: 'android', trust, ...(install ? { installed: serial } : {}) });
+    process.exit(code);
   }
   const [cmd, ...rest] = androidBuild(app);
   const built = spawnSync(...androidCargo(cmd, rest, { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' }));
-  if (built.status === 0) { recordBuiltSettings(androidBinary(app), app); console.log(androidBinary(app)); }
+  if (built.status === 0) { recordBuiltSettings(androidBinary(app), app); console.log(androidBinary(app)); if (args.includes('--json')) reportBuilt({ path: androidBinary(app), target: 'android', trust: process.env.EXACT_UPDATE_TRUST ?? 'development' }); }
   process.exit(built.status ?? 1);
 }
