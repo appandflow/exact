@@ -648,6 +648,11 @@ impl<D: DataSource> Runner<D> {
         // A request that answers the status answers it denied too (WebKit's
         // `requestPermission` resolves `denied`, LLP 1133.013 D11).
         let answers_denied = send && sub["deniedAnswers"] == true;
+        // A source that reads a value of its own until the permission is
+        // granted (`ungranted`: a push subscription's none, LLP 1133.004 §9 P3).
+        if let (false, true, Some(value)) = (send, state != "granted", sub.get("ungranted")) {
+            return Some(Decision::Now(value.clone()));
+        }
         if state == "denied" && self.denial_fails(&sub, args) && !answers_denied {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
@@ -784,9 +789,12 @@ impl<D: DataSource> Runner<D> {
         if let Some(listed) = self.listed_value(row, &sub) {
             return Some(listed);
         }
-        let default = (!sub["default"].is_null()).then(|| {
-            let mut default = sub["default"].clone();
-            if let Some(restricted) = sub["targets"].get(self.host_target()) {
+        // A `default` written `null` is a value: an option source's none.
+        let default = sub.get("default").map(|default| {
+            let mut default = default.clone();
+            if let (Some(restricted), true) =
+                (sub["targets"].get(self.host_target()), default.is_object())
+            {
                 admit::overlay(&mut default, restricted);
             }
             default

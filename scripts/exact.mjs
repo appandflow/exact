@@ -48,6 +48,8 @@ const { freeSpace, ROOM_GB } = await import('./filesystem.mjs');
 const IOS_SDK = '27.1';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { grantAdvice } from './grant-advice.mjs';
+export { grantAdvice, grantLines } from './grant-advice.mjs';
 const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
 const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
@@ -886,7 +888,7 @@ export function add(args, say = console.log) {
   if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
   if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
   const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
-  say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and grant one of ${grants.join(', ')} with its purpose's strings key in app.ts (exact docs a capability that asks permission)` : ''}.`);
+  say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and in app.ts grant ${grantAdvice(grants)} (exact docs a capability that asks permission)` : ''}.`);
 }
 
 /** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):

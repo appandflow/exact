@@ -1295,3 +1295,18 @@ test('exact hatch writes the stubs of an app whose crates are generated', async 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('exact add says how each grant line is written, from the device table', async () => {
+  const { grantAdvice } = await import('./exact.mjs');
+  // A row nothing asks the person about is written alone, beside the row it needs (LLP 1133.004 §9 P2).
+  assert.equal(grantAdvice(['device.push']), '`device.push` alone, beside `device.notifications purpose.<key>`');
+  assert.equal(grantAdvice(['device.notifications']), '`device.notifications purpose.<key>`, a strings key whose text is the purpose');
+  assert.equal(grantAdvice(['device.attestation']), '`device.attestation` alone');
+  assert.match(grantAdvice(['device.geolocation', 'device.geolocation-approximate']), /^one of `device.geolocation purpose.<key>`.*; `device.geolocation-approximate purpose.<key>`/);
+  // Every other namespace as its own grammar has it, never in the device table's form
+  // (bake/src/reach.rs `grant_lines_parse` parses each package's lines with the real parsers).
+  assert.equal(grantAdvice(['auth.apple', 'auth.google']), 'one of `auth.apple <client id>`, a client id the provider issued; `auth.google <client id>`, a client id the provider issued');
+  assert.equal(grantAdvice(['payment.apple-pay', 'payment.google-pay']), 'one of `payment.apple-pay <merchant id>`, an Apple Pay merchant ID; `payment.google-pay` alone');
+  assert.equal(grantAdvice(['browser.automation']), '`browser.automation` alone');
+  assert.equal(grantAdvice(['net.fetch']), '`net.fetch <its target>`, what it reaches');
+});

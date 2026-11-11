@@ -222,3 +222,67 @@ mod shared_permission {
         );
     }
 }
+
+/// A source whose substitute's `default` is written `null` reads none, an
+/// option's absent value; one with no `default` at all has no value.
+#[test]
+fn a_default_written_null_is_a_value() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    for (name, substitute) in [("none", r#"{"default":null}"#), ("unset", "{}")] {
+        let source = b.source(name, &[], string);
+        b.module(
+            source,
+            "test.push",
+            name,
+            true,
+            false,
+            "never",
+            "",
+            substitute,
+        );
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let r = boot(b.finish().unwrap());
+    let rows = r.plan.modules.clone();
+    assert_eq!(r.value_of(&rows[0]), Some(serde_json::Value::Null));
+    assert_eq!(r.value_of(&rows[1]), None);
+}
+
+/// A source with an `ungranted` value reads it while its permission is not
+/// granted, whatever it was given before, and its own value once granted
+/// (a push subscription, LLP 1133.004 §9 P3).
+#[test]
+fn an_ungranted_value_stands_until_the_permission_is_granted() {
+    use super::Decision;
+    use serde_json::{json, Value};
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let source = b.source("subscription", &[], string);
+    let substitute = r#"{"default":null,"ungranted":null,"permission":{"name":"notifications","status":"status","field":"state","denied":"NotAllowedError"}}"#;
+    b.module(
+        source,
+        "test.push",
+        "subscription",
+        true,
+        false,
+        "never",
+        "",
+        substitute,
+    );
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut r = boot(b.finish().unwrap());
+    let row = r.plan.modules[0].clone();
+    let token = json!({"apple": {"deviceToken": "ab12"}});
+    r.extensions.preferred.insert(r.key(&row), token.clone());
+    let read = |r: &Runner<Source>| match r.decide(&row, false, &json!({})) {
+        Decision::Now(value) => value,
+        _ => panic!("a read answers now"),
+    };
+    for state in ["prompt", "denied"] {
+        r.set_permission("notifications", state);
+        assert_eq!(read(&r), Value::Null, "{state}");
+    }
+    r.set_permission("notifications", "granted");
+    assert_eq!(read(&r), token);
+}

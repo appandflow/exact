@@ -781,6 +781,10 @@ fn family_enforcement(line: &str) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "reach_grant_lines_tests.rs"]
+mod grant_lines_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
