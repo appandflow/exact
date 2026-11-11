@@ -5,8 +5,8 @@
 use super::{Definition, Graph, Resolver};
 use crate::sources::Sources;
 use contract_syntax::*;
-use contract_types::{Scope, Shapes, Types};
-use std::{borrow::Cow, collections::BTreeSet};
+use contract_types::{strings::Strings, Scope, Shapes, Types};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
 /// A name the syntax refused, in the scope it would have been declared in:
 /// a component's members, or a file's declarations.
@@ -89,15 +89,15 @@ pub(super) fn shadows(file: &File, hidden: &[(u32, Hidden)]) -> Vec<Shadow> {
 /// The shapes and functions that check: one a refusal is in is left out and
 /// the check run again, so a reference to it has no edge and the rest keep
 /// theirs. A refusal in none of them is the route table's, and the rest are
-/// checked without it.
-pub(super) fn declared(file: &File) -> Shapes {
+/// checked without it. A `t(…)` is checked against `strings`, the app's tables.
+pub(super) fn declared(file: &File, strings: &Option<Arc<Strings>>) -> Shapes {
     enum Out {
         Shape(usize, ShapeDecl),
         Fn(usize, FnDecl),
     }
     let mut file = Cow::Borrowed(file);
     loop {
-        let error = match contract_types::check_declarations(&file) {
+        let error = match contract_types::check_declarations(&file, strings.clone()) {
             Ok(shapes) => return shapes,
             Err(error) => error,
         };
@@ -120,7 +120,7 @@ pub(super) fn declared(file: &File) -> Shapes {
             (None, None) => None,
         };
         if let Some(out) = out {
-            let again = contract_types::check_declarations(&file).err();
+            let again = contract_types::check_declarations(&file, strings.clone()).err();
             let same = again.is_some_and(|e| {
                 (e.id, e.span, &e.message) == (error.id, error.span, &error.message)
             });
@@ -142,7 +142,7 @@ pub(super) fn declared(file: &File) -> Shapes {
 
 /// Each source that parses, resolved on its own and unchecked: what a program
 /// that does not load still declares, with no edge from one file to another.
-pub(super) fn file_by_file(sources: &Sources) -> Graph {
+pub(super) fn file_by_file(sources: &Sources, strings: &Option<Arc<Strings>>) -> Graph {
     let mut graph = Graph::default();
     let mut read = BTreeSet::new();
     for (id, (path, text)) in sources.paths().iter().zip(&sources.texts).enumerate() {
@@ -167,7 +167,7 @@ pub(super) fn file_by_file(sources: &Sources) -> Graph {
             file.components.len() - 1
         });
         let types = Types {
-            shapes: declared(&file),
+            shapes: declared(&file, strings),
             components: Vec::new(),
         };
         let hidden: Vec<_> = hidden.into_iter().map(|h| (id as u32, h)).collect();

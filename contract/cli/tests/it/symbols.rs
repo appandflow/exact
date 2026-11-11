@@ -841,6 +841,16 @@ fn a_refused_shape_or_function_leaves_the_others_their_edges() {
 }
 
 #[test]
+fn a_fn_that_calls_t_keeps_its_edges_when_something_else_is_refused() {
+    let f = Fixture::new("partial-strings");
+    f.write("strings/en.json", r#"{ "hi": "Hello" }"#);
+    let source = "fn greeting(): string = t(\"hi\")\ncomponent App\n  view\n    text greeting()\n    text nope\n";
+    let root = f.write("app.contract", source);
+    let graph = refused(&root, &[]);
+    assert_eq!(edges(&graph, "greeting", 4), ["fn"], "{graph}");
+}
+
+#[test]
 fn a_type_refusal_keeps_what_names_alone_resolve() {
     let f = Fixture::new("partial-types");
     let source = "shape Item\n  label: string\ncomponent App\n  state count = 0\n  state item = Item(label=\"a\")\n  action bump\n    count = \"many\"\n  view\n    button press=bump\n      text item.label\n";

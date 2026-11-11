@@ -187,6 +187,18 @@ fn an_initializer_may_call_t() {
 }
 
 #[test]
+fn a_fn_may_call_t_and_its_text_follows_the_locale() {
+    let app = AppDir::new(
+        "fn greeting(n: number): string = t(\"greeting\", name=\"Ada\", count=n)\n\ncomponent App\n  view\n    text greeting(2) testId=\"greeting\"\n",
+        &tables(),
+    );
+    let mut r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "greeting"), "Hi Ada, 2 entries");
+    r.set_place("fr-FR", "Europe/Paris", None).unwrap().unwrap();
+    assert_eq!(text(&r, "greeting"), "2 entrées, Ada");
+}
+
+#[test]
 fn the_manifest_names_the_base() {
     let app = AppDir::new(
         "component App\n  view\n    text t(\"title\") testId=\"title\"\n",

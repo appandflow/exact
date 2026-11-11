@@ -239,7 +239,7 @@ fn a_faces_profile_colour_is_a_standard_spaces_only() {
 fn the_bridge_reads_atom_face_in_the_compilers_order() {
     use contract_types::Ty;
     let file = contract_syntax::parse("component G\n  view\n    column\n").unwrap();
-    let shapes = contract_types::check_declarations(&file).unwrap();
+    let shapes = contract_types::check_declarations(&file, None).unwrap();
     let read: Vec<(String, Ty)> = exact_runner::decorations::ATOM_FACE_FIELDS
         .iter()
         .map(|&f| {

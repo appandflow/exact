@@ -1135,8 +1135,15 @@ pub(crate) fn disagree(e: &Expr, ta: &Ty, tb: &Ty) -> TypeError {
 
 /// Check shared shapes and functions, including a module without a root component.
 /// Navigation uses the same declaration rules as executable compilation.
-pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
-    let mut shapes = Shapes::default();
+/// `strings` are the app's tables, which a `t(...)` in a `fn` body is checked against.
+pub fn check_declarations(
+    file: &File,
+    strings: Option<Arc<strings::Strings>>,
+) -> Result<Shapes, TypeError> {
+    let mut shapes = Shapes {
+        strings,
+        ..Shapes::default()
+    };
     for c in &file.components {
         for a in &c.actions {
             shapes
@@ -1283,9 +1290,8 @@ fn check_with_sites(
             span: Span::point(1, 1),
         }]);
     }
-    let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
+    let mut shapes = check_declarations(file, strings).map_err(|e| vec![e])?;
     shapes.style_attr = Some(style_attr);
-    shapes.strings = strings;
     // A call naming both a host command and an action in its component's
     // scope, refused before anything expands (LLP 1089 D1).
     let ambiguous = contract_syntax::inline::calls::ambiguous(file);

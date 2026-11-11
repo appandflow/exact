@@ -223,7 +223,7 @@ fn event(name: &str) -> Option<Event> {
     }
     let shapes = contract_syntax::parse("component G\n  view\n    column\n")
         .ok()
-        .and_then(|f| contract_types::check_declarations(&f).ok());
+        .and_then(|f| contract_types::check_declarations(&f, None).ok());
     let fields = shapes
         .and_then(|s| s.map.get(name).cloned())
         .unwrap_or_default()

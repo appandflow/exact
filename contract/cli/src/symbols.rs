@@ -296,22 +296,25 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, PartialSy
         .canonicalize()
         .map_err(unreadable)?;
     // As the build does, the passes after the syntax check what parsed.
+    // Refused tables are reported by the check; recovery reads without them.
+    let strings = crate::strings::load(&root, path);
+    let tables = strings.as_ref().ok().cloned().flatten();
     let mut refused = sources::Refused::default();
     let (file, sources) = match sources::load_partial(path, &src, &root, &mut refused) {
         Ok(loaded) => loaded,
         Err(all) => {
             let errors = refused.join::<()>(Err(all)).unwrap_err();
             let sources = sources::read_all(path, &src, &root);
-            let json = partial::file_by_file(&sources).json(&sources, name, &errors);
+            let json = partial::file_by_file(&sources, &tables).json(&sources, name, &errors);
             return Err(PartialSymbols { json, errors });
         }
     };
-    let checked = if file.components.is_empty() {
-        contract_types::check_declarations(&file)
-            .map(|shapes| (shapes, Vec::new(), None))
-            .map_err(|e| vec![sources.resolve(e.into())])
-    } else {
-        crate::strings::load(&root, path).and_then(|strings| {
+    let checked = strings.and_then(|strings| {
+        if file.components.is_empty() {
+            contract_types::check_declarations(&file, strings)
+                .map(|shapes| (shapes, Vec::new(), None))
+                .map_err(|e| vec![sources.resolve(e.into())])
+        } else {
             contract_types::check_all(&file, false, contract_lower::tags::style, strings)
                 .map(|c| (c.types.shapes, c.types.components, Some(c.expanded)))
                 .map_err(|all| {
@@ -319,15 +322,15 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, PartialSy
                         .map(|e| sources.resolve(authored_action_hint(&file, e.into())))
                         .collect()
                 })
-        })
-    };
+        }
+    });
     let typed = checked.is_ok();
     let ((shapes, components, expanded), errors) = match checked {
         Ok(checked) => (checked, refused.join(Ok(())).err().unwrap_or_default()),
         // A refused check's inferences may be wrong where it refused; its
         // declarations' types are checked before anything is inferred.
         Err(all) => (
-            (partial::declared(&file), Vec::new(), None),
+            (partial::declared(&file, &tables), Vec::new(), None),
             refused.join::<()>(Err(all)).unwrap_err(),
         ),
     };

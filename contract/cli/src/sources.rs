@@ -1327,7 +1327,7 @@ impl Loader<'_> {
 /// The types the compiler declares for every program, read from the type
 /// checker's own declarations of an empty file.
 fn builtin_types() -> HashSet<String> {
-    contract_types::check_declarations(&File::default())
+    contract_types::check_declarations(&File::default(), None)
         .map(|shapes| shapes.map.into_keys().collect())
         .unwrap_or_default()
 }

@@ -987,7 +987,7 @@ fn source(
 fn compiler_records() -> BTreeMap<String, Vec<(String, Ty)>> {
     let shapes = contract_syntax::parse("component G\n  view\n    column\n")
         .ok()
-        .and_then(|f| contract_types::check_declarations(&f).ok());
+        .and_then(|f| contract_types::check_declarations(&f, None).ok());
     contract_types::records::COMPILER_RECORDS
         .iter()
         .filter_map(|n| Some((n.to_string(), shapes.as_ref()?.map.get(*n)?.clone())))
