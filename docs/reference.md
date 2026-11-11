@@ -1634,7 +1634,9 @@ steps after an `await` and the answer's own timers are its later turns
 too, and each sends when it ends; a plain `.then` callback outside an
 `async` function runs under no answer there, and its send throws. An
 answer that has given its value has no later turn: a send from code it
-left running throws `InvalidStateError`. An answer
+left running throws `InvalidStateError`. What a turn sent while its
+answer's commit had not yet stood waits for it, and is refused, in `logs`,
+if the answer is let go first. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the
 view) sends nothing more as its own; what it sent stays sent. It may also
 `fetch`, though a mutation's synchronous source still may not do both. A
@@ -1645,9 +1647,8 @@ answer. A handle that is not open, or whose socket a mutation's stream
 owns, throws `InvalidStateError`, and so does an operation after the
 answer's own `close` of that socket. A batch the host refuses is said in
 `logs` as `answer <resource or mutation> failed: …; socket frames were refused`. Its
-`bufferedAmount` counts the transport's bytes as the turn began and what
-this turn has sent, and natively also what earlier turns sent that the host
-has not yet taken.
+`bufferedAmount` counts the transport's bytes as the turn began, what
+this turn has sent, and what earlier turns sent that has not left yet.
 
 A mutation or mapper call stages at most 256 operations and 1 MiB, including
 bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or

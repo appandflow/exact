@@ -201,14 +201,18 @@ export function commit(f, what = "commit", finished) {
   // A key handler's preventDefault/stopPropagation act on its event before the dispatch ends, a tree update a view transition defers too (review C3).
   if (KeyEvent || Propagating) for (const c of cmds.filter(c => c[0] === "preventDefault" || c[0] === "stopPropagation")) { cmds.splice(cmds.indexOf(c), 1); command(...c); }
   Writes = Finishes = null; unpark();
-  const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
+  // What the commit would have sent and did not is refused, whatever stopped its tree update (a hook that threw, a
+  // poisoned tree, a tail a view transition never ran): an answer's batches that wait for it too (ts-stream.js).
+  let sent = 0; const unrun = why => { for (const go of out.splice(sent)) go.refused?.(why); };
+  const tail = Object.assign(() => { try { return update(); } finally { unrun("its tree update failed"); } }, { unrun: () => unrun("its tree update never ran") });
+  const update = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: gains() }, Views); // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
     try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); for (const f of finishes) f(false); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     for (const f of finishes) f(ok);
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
+    while (sent < out.length) out[sent++](); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
@@ -521,7 +525,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, upload: ans.upload, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, upload: ans.upload, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (t.call) t.call.ticket = t; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -601,7 +605,7 @@ export function mut(name, slot, refreshes, type, queue) {
         if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
       } else {
         const t = { id: ++Ticket, name: m.name, owner: m, source, args, req: a.req, promise: a.promise, call: a.call, stream: a.stream, write: Ov.asked(m) };
-        m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
+        if (t.call) t.call.ticket = t; m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       }
       if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
     },

@@ -2,7 +2,7 @@
 // shared web reader owns admission and lifetime; the mapper produces a
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
-import { answering, answers, isSignal, ownSignal, SOCKET_AND_FETCH } from './ts-fetch.js';
+import { answering, answers, isSignal, letGo, ownSignal, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { rt } from './rt-link.js'; // (rt.js's own, as a lazy chunk takes them: rt-link.js)
 const { clock, journal } = rt;
 import { failureCode, failureReason } from './shape.js';
@@ -80,16 +80,24 @@ const publish = (operations, call) => () => {
   }
 };
 // What an answer in flight sent in a later turn (its code after an `await` in an async function, or its
-// own timer): one batch for the turn, sent when the turn ends, behind what its source sent, which waits for
-// the commit that asked it (LLP 1016.000 D7, the amendment of 2026-11-10 on later turns). A refused commit
-// takes the batches that waited for it back and says so.
+// own timer): one batch for the turn, sent when the turn ends (a timer's as its callback returns, before the
+// next timer of the advance; an `await`'s step in the microtask after it), behind what its source sent,
+// which waits for the commit that asked it (LLP 1016.000 D7, the amendment of 2026-11-10 on later turns). A
+// refused commit takes the batches that waited for it back, and so does the answer's being let go while one
+// waits; the journal says which.
 function later(call) {
-  const batch = call.laterOps, go = publish(batch, call);
+  const batch = call.laterOps;
+  if (!batch) return; // the turn's end already took it
   call.laterOps = null;
+  const go = publish(batch, call);
   const said = why => journal.push(`t=${clock.now} answer ${call.name} failed: ${why}; socket frames were refused`);
-  const run = Object.assign(() => { try { go(); } catch (e) { said(e?.message ?? e); } }, { refused: why => { call.unsent = call.unsent.filter(x => !batch.includes(x)); said(why); } });
-  if (call.stood) run(); else if (call.stood === false) run.refused('the commit that asked it was refused'); else (call.waiting ??= []).push(run);
+  const refused = why => { call.unsent = call.unsent.filter(x => !batch.includes(x)); said(why); };
+  // Let go since it staged these, it sends nothing more. Its ticket is its owner's until its reply lands, which
+  // rt.js wires after the commit that asked it stands, so an answer that gave its value still sends what waited.
+  const run = Object.assign(() => { if (letGo(call)) return refused('the answer was let go'); try { go(); } catch (e) { said(e?.message ?? e); } }, { refused });
+  if (call.stood) run(); else if (call.stood === false) refused('the commit that asked it was refused'); else (call.waiting ??= []).push(run);
 }
+answering.later = later;
 // The module never sees the browser socket. Operations belong to the current
 // mutation's answer, to the socket's own mapper while it answers `open` or a
 // `message` (`answering.mapper`), or to an answer in flight: while its source

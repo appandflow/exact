@@ -75,6 +75,10 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
   action rollbackAsync
     send sent = write("async-rollback")
     send second = refuse()
+  task swap when q == "swap 10"
+    after(30, askNext)
+  action askNext
+    q = "now 11"
   view
     column
       text feed testId="feed"
@@ -134,6 +138,12 @@ test('JS target socket mutations, mapper replies and answers echo ordered frames
         text "ask, send after an await"
       button press=askFor("timer 8") testId="ask-timer"
         text "ask, send from a timer"
+      button press=askFor("swap 10") testId="ask-swap"
+        text "ask, send from a timer, then asked again"
+      button press=askFor("held 9") testId="ask-held"
+        text "ask, held"
+      button press=write("release") testId="release"
+        text "release"
       button press=write("awaited") testId="awaited"
         text "send after an await"
       button press=write("leak") testId="leak"
@@ -162,7 +172,9 @@ export function answer(name: string, args: any): any {
     if (what === 'throw') { answers.send('request ' + n); throw new Error('the answer threw'); }
     // An async function's later turn is the answer's: it sends its thanks after the reply it awaited. So is its timer.
     if (what === 'awaited') return (async () => { answers.send('request ' + n); const got = await new Promise(resolve => waiters.set(n, resolve)); answers.send('thanks ' + n); return 'thanked ' + got; })();
-    if (what === 'timer') return new Promise(resolve => setTimeout(() => { answers.send('tick ' + n); resolve('ticked ' + n); }, 20));
+    if (what === 'timer' || what === 'swap') return new Promise(resolve => setTimeout(() => { answers.send('tick ' + n); resolve('ticked ' + n); }, 20));
+    // Let go while it waits (the next ask), then resumed (the release button): its send is refused.
+    if (what === 'held') return (async () => { await new Promise(resolve => waiters.set('held', resolve)); try { answers.send('thanks ' + n); leaked = 'sent'; } catch (e: any) { leaked = e.name + ': ' + e.message; } return 'held'; })();
     answers.send('request ' + n);
     return new Promise(resolve => waiters.set(n, resolve)).then(got => {
       if (what !== 'later') return 'got ' + got;
@@ -242,6 +254,7 @@ export function answer(name: string, args: any): any {
   if (mode === 'awaited') return (async () => { await Promise.resolve(); t.send('awaited'); return 'awaited:' + t.bufferedAmount; })();
   if (mode === 'leak') { (async () => { await Promise.resolve(); try { t.send('leak'); leaked = 'sent'; } catch (e: any) { leaked = e.name + ': ' + e.message; } })(); return 'leak'; }
   if (mode === 'leaked') return leaked;
+  if (mode === 'release') { waiters.get('held')?.('x'); return 'released'; }
   if (mode === 'later') return Promise.resolve().then(() => { try { s.send('later'); return 'sent later'; } catch (e: any) { return 'later: ' + e.message; } });
   s.send(mode);
   if (mode === 'throw') throw new Error('source failed');
@@ -301,8 +314,20 @@ export function answer(name: string, args: any): any {
     await browser.clock('+20');
     expect((await until(s => s.resources.asked === 'ticked 8')).resources.asked).toBe('ticked 8');
     await until(() => asked.includes('tick 8'));
+    // One jump of the clock covers the answer's timer and, 10 ms later, the task that asks again and so lets
+    // it go: what the timer sent goes all the same, ahead of the next ask's request.
+    await browser.tap('ask-swap');
+    await browser.clock('+40');
+    expect((await until(s => s.resources.asked === 'got 11')).resources.asked).toBe('got 11');
+    // An answer let go while it waited sends nothing more: resumed, its send throws.
+    await browser.tap('ask-held');
+    await browser.tap('ask');
+    await until(s => s.resources.asked === 'got 1' && asked.filter(x => x === 'request 1').length === 2);
+    await browser.tap('release');
+    await browser.tap('leaked');
+    await until(s => JSON.stringify(s.slots.sent).includes('InvalidStateError: socket.send: the answer has given its value or was let go'));
     await browser.tap('ask-many');
-    expect((await until(s => s.resources.asked !== 'ticked 8')).resources.asked).toBe('socket answer exceeds 256 operations');
+    expect((await until(s => s.resources.asked !== 'got 1')).resources.asked).toBe('socket answer exceeds 256 operations');
     await browser.tap('ask-refuse');
     await browser.tap('ask-probe');
     expect((await until(s => s.resources.asked === '0:3')).resources.asked).toBe('0:3');
@@ -311,7 +336,7 @@ export function answer(name: string, args: any): any {
     await browser.tap('ask-throw');
     await until(s => s.failed?.asked?.includes('the answer threw'));
     await until(() => asked.includes('request 6'));
-    expect(asked).toEqual(['request 1', 'request 2', 'request 7', 'thanks 7', 'tick 8', ...Array(256).fill('many'), 'abc', 'request 6']);
+    expect(asked).toEqual(['request 1', 'request 2', 'request 7', 'thanks 7', 'tick 8', 'tick 10', 'request 11', 'request 1', ...Array(256).fill('many'), 'abc', 'request 6']);
     const answerLogs = (await browser.logs()).lines.join('\n');
     expect(answerLogs).toMatch(/answer asked failed: .*deliberate commit refusal; socket frames were refused/);
     // A socket no resource owns (a mutation's stream) takes none of its

@@ -136,7 +136,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null, entropy: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null, entropy: null, later: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -190,6 +190,8 @@ function runAs(call, run) {
   call.firing = (call.firing ?? 0) + 1; call.recount?.();
   globalThis.setTimeout(() => { call.firing--; call.recount?.(); });
   asCall(call, () => { try { run(); } catch (e) { journal.push(`t=${clock.now} data: a timer's callback threw: ${e?.message ?? e}`); } });
+  // What the callback sent on a socket goes now, before the next timer of the same advance (ts-stream.js `later`).
+  answering.later?.(call);
 }
 // `run`'s answer, with `call` the answer running while it runs
 function asCall(call, run) {
@@ -197,8 +199,10 @@ function asCall(call, run) {
   answering.call = call;
   try { return run(); } finally { answering.call = before; }
 }
+/** Whether `call`'s ticket was let go (new arguments, a refresh, a newer send, its view's end). rt.js ties the two as it makes the ticket. */
+export function letGo(call) { const t = call.ticket; return !!t && (t.owner.ticket !== t || t.owner.gone); }
 /** Whether `call` still answers: it has not answered, and its ticket was not let go. */
-export function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
+export function answers(call) { return !call.settled && !letGo(call); }
 function disarm(id) {
   const armed = Armed.get(id);
   if (!armed) return;

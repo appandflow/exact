@@ -509,7 +509,7 @@ export function install(data, mixed = false, modules = null) {
       // that asked it stands; a refused commit takes those batches back.
       call.flight = true;
       const stood = Object.assign(() => { call.stood = true; for (const go of call.waiting ?? []) go(); call.waiting = null; },
-        { refused: why => { call.stood = false; for (const go of call.waiting ?? []) go.refused(why); call.waiting = null; } });
+        { refused: why => { call.stood = false; for (const go of call.waiting ?? []) go.refused(why); call.waiting = null; call.unsent = []; } });
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects: [...(effects ?? []), stood], call };
     }
     call.settled = true; dropTimers(call); answering.untraced.delete(call);
