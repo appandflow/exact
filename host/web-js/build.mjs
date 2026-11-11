@@ -373,14 +373,12 @@ async function typecheck(checking) {
   capture(appDir, stage, true);
   for (const [name, dir] of mounts) capture(dir, resolve(stage, name), false);
   writeFileSync(resolve(stage, 'app.contract.d.ts'), declarations);
-  // The bake's generated entry (js/bake/src/lib.rs `bake_in`), less the
+  // The bake's generated entry (js/bake/src/lib.rs `bake_in`, `OPTIONAL_ENTRY`), less the
   // Canvas 2D seam, which adds no type the module must meet.
-  // An overlay shows writes over the resources they change (js/bake's entry does the same).
-  const overlay = /export\s+(const|function|let)\s+overlay\b|export\s*\{[^}]*\boverlay\b/.test(readFileSync(resolve(stage, 'app.ts'), 'utf8'))
-    ? "import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n" : '';
+  const optional = "import type { Overlay } from './app.contract.d.ts';\ntype Optional<K extends string> = K extends keyof typeof app ? (typeof app)[K] : undefined;\nexport const overlay: Overlay | undefined = (app as { overlay?: unknown }).overlay as Optional<'overlay'>;\nexport const tools = (app as { tools?: unknown }).tools as Optional<'tools'>;\n";
   // The app's id is app.json's; app.ts need not name it, and one it names is checked against it below.
   const id = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
-  writeFileSync(resolve(stage, '__exact_entry.ts'), `import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = (app as unknown as { appId?: string }).appId ?? ${JSON.stringify(id)};\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n` + overlay);
+  writeFileSync(resolve(stage, '__exact_entry.ts'), `import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = (app as unknown as { appId?: string }).appId ?? ${JSON.stringify(id)};\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n` + optional);
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts, target: 'web' }));
   writeFileSync(resolve(stage,'__exact_backend_source.json'), JSON.stringify(readFileSync(resolve(stage,'app.ts'),'utf8')));
   const real = realpathSync(stage);

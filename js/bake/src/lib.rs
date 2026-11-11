@@ -1080,13 +1080,7 @@ fn bake_in(
         .map(|m| m.id)
         .unwrap_or_default();
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = (app as unknown as {{ appId?: string }}).appId ?? {};\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 }, serde_json::to_string(&id).unwrap_or_default());
-    // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
-    if exports(&app_ts, "overlay") {
-        entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
-    }
-    if exports(&app_ts, "tools") {
-        entry.push_str("export const tools = app.tools;\n");
-    }
+    entry.push_str(OPTIONAL_ENTRY);
     if draws {
         entry.push_str(CANVAS_ENTRY);
     }
@@ -1214,6 +1208,14 @@ fn bake_in(
         entries,
     })
 }
+
+/// The module's optional members, read from its namespace however app.ts exports them, as the web
+/// JS target reads them: `undefined` where it exports none, which `__exact_has_overlay` reads at
+/// load. An overlay shows writes over what they change; `tools` are the handlers a package calls
+/// (LLP 1133.016 D9). `Optional` types a member the module exports by its own type, so an overlay
+/// is checked against `Overlay`. The web build's type check writes the same lines
+/// (`host/web-js/build.mjs`).
+const OPTIONAL_ENTRY: &str = "import type { Overlay } from './app.contract.d.ts';\ntype Optional<K extends string> = K extends keyof typeof app ? (typeof app)[K] : undefined;\nexport const overlay: Overlay | undefined = (app as { overlay?: unknown }).overlay as Optional<'overlay'>;\nexport const tools = (app as { tools?: unknown }).tools as Optional<'tools'>;\n";
 
 /// The TypeScript recorder (LLP 1056 D3), bundled into a module that draws.
 const RECORDER: &str = include_str!("../../../canvas/recorder.js");
