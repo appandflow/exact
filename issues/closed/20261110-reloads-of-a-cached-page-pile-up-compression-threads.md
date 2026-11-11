@@ -1,6 +1,7 @@
 # Each reload of a cached page starts another best-compression thread, with no bound on how many run
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** One worker thread makes every kept page's best variants, and a page replaced before its turn is skipped and its body dropped.
 **Systems:** host/render/src/serve.rs (`render_kept`), host/render/src/encode.rs (`Best::of`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

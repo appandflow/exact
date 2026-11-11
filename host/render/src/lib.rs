@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 
 mod activation;
+mod best;
 mod compare;
 mod direct;
 mod encode;

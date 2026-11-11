@@ -109,6 +109,7 @@ struct Shared {
     /// What of the viewport the plan reads (LLP 1048.006).
     reads: crate::viewport::Reads,
     pages: Mutex<VecDeque<CachedPage>>,
+    best: Arc<crate::best::Compressor>,
     variants: Variants,
     generations: Option<crate::generations::Generations>,
     /// The entry's `modulepreload`s, for a 103 ([`crate::stream::hint`]).
@@ -221,6 +222,7 @@ impl Server {
                 page_headers,
                 reads,
                 pages: Mutex::new(VecDeque::new()),
+                best: Arc::default(),
                 variants,
                 generations,
                 hints,
@@ -978,10 +980,7 @@ fn render_kept<D: DataSource + 'static>(
         // This response goes out compressed as it is sent; later hits get the
         // best, made here once, off every request's path.
         let best = Arc::new(OnceLock::new());
-        let (made, body) = (Arc::clone(&best), response.body.clone());
-        let _ = std::thread::Builder::new()
-            .name("exact-render-best".into())
-            .spawn(move || made.set(encode::Best::of(&body)));
+        shared.best.make(&best, response.body.clone());
         let dictionary = wanted.and_then(|wanted| {
             (wanted == hash).then(|| response.body.clone()).or_else(|| {
                 pages
