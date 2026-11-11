@@ -33,6 +33,8 @@ export function fetch(input, options) {
   }
   // A stream counts by its own rule (D5), never here.
   if (options?.exactStream !== undefined) return fetchNow(input, options);
+  // In a render a body from a file or to one is storage, refused there (ts-body-from.js): it is no work to count.
+  if (globalThis.__exactRender && (options?.exactBodyFrom !== undefined || options?.exactBodyTo !== undefined)) return fetchNow(input, options);
   // An upload or a download to a file is never held (Request::is_held).
   return counting(held && options.exactBodyFrom === undefined && options.exactBodyTo === undefined ? 'held' : 'plain', () => fetchNow(input, options));
 }
@@ -75,7 +77,7 @@ function fetchNow(input, options) {
     }
     return fetchOf(input, options, call);
   }
-  return fetchOf(input, options);
+  return fetchOf(input, options, call);
 }
 // What `fetch` reads of its options, read now (inherited ones too), with
 // the headers and a body that can change copied.
@@ -117,6 +119,9 @@ function fetchOf(input, options, call) {
     } catch (e) { return Promise.reject(e); }
     const started = globalThis.performance.now();
     if (signal?.aborted) return Promise.reject(signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'));
+    // A render has no storage: the file is refused (ts-body-from.js `refusedFile`) after the device's checks, with no
+    // deadline or later abort armed around a refusal that never answers.
+    if (globalThis.__exactRender) return import('./ts-body-from.js').then(m => m.refusedFile(input, init, call));
     // The signal's deadline covers the file work too, as natively, replacing an `exactTimeout` no earlier
     const armed = signalDeadline.arm(signal, ms);
     if (armed) init.exactTimeout = ms = undefined;

@@ -290,14 +290,14 @@ export function renderer(dist, { closed = false } = {}) {
         // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
         // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
         // Settled when no work was left in flight, whatever is still pending (lib.rs `Settled::Complete`).
-        const settled = !out.outstanding;
+        const refused = out.refused, settled = !out.outstanding;
         const status = info.notfound ? (out.status === 410 ? 410 : 404) : !settled ? 503 : out.status ?? 200;
         // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
         // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
         // another render would make until the first of those answers goes stale: it may be given again until then, for
         // at most 60 s (LLP 1048.007 D8).
         const keep = status === 200 && settled && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
-        return { html: markedHead + body(''), rest: mark + body(late), status, settled, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
+        return { html: markedHead + body(''), rest: mark + body(late), status, settled, failed: out.failed ?? [], refused, render: out.render, location, policy: info.policy, activate, keep };
       } finally { made.dispose(); }
     } };
   }
@@ -336,6 +336,8 @@ function heroImage(out) {
   return '';
 }
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+const refusedLine = ([name, api]) => `resource ${name} is pending: a page rendered on the server has no storage (${api}); the reader's page asks it`;
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css', '.mp4': 'video/mp4', '.plan': 'application/octet-stream' };
 
@@ -387,6 +389,7 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
       if (ms > 0) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + ms, cacheControl: page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store' }); }
       log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
       for (const failure of page.failed) log(`  ${page.location}: resource ${failure}`);
+      for (const refused of page.refused) log(`  ${page.location}: ${refusedLine(refused)}`);
     };
     // A browser's navigation gets the head now and the rest after the
     // render (host/render/src/stream.rs): a 200, `private, no-cache`; the
@@ -458,6 +461,7 @@ if (import.meta.main) {
       writeFileSync(resolve(dist, file), page.html);
       console.log(`${p.location} → ${file} (${page.html.length} B${page.settled ? '' : ', at the deadline'})`);
       for (const failure of page.failed) console.log(`  ${p.location}: resource ${failure}`);
+      for (const refused of page.refused) console.log(`  ${p.location}: ${refusedLine(refused)}`);
     }
   } else for (const location of args.slice(1)) {
     const page = await render(location);

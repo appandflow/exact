@@ -14,7 +14,7 @@ const Answers = new Set();
 /** In a render, whether an answer is still at work: it has I/O out (`call.plain`, `call.held`; ts-fetch.js counts
  * them) or a timer of its own while its ticket is current, or one firing. A render waits only for work, as the render
  * host does (host/render/src/lib.rs `settle`): an answer with none waits on nothing the render runs (a promise nothing
- * settles, another answer's), and stays pending without holding the page. With
+ * settles, another answer's, a storage call the render refused), and stays pending without holding the page. With
  * `discarded`, an answer whose ticket was let go counts too: its work can still write the store, and so a status. */
 export function answersAtWork(discarded = false) {
   for (const t of Answers) {
@@ -56,8 +56,9 @@ export function counted(t, inflight) {
   const waits = !!t.waiting && !t.closed, candidate = waits && t.call?.held > 0;
   // An answer with only its own timers out waits on the clock, not on I/O (ts-fetch.js `arm`).
   const held = candidate && !t.call.plain && !loose.n, timed = waits && !held && t.call?.timers > 0 && !t.call.plain && !t.call.firing && !loose.n;
-  // In a render an answer's ticket counts nothing: `answersAtWork` says what holds the page.
-  const counts = waits && !held && !timed && !(globalThis.__exactRender && t.call);
+  // In a render an answer's ticket counts nothing (`answersAtWork` says what holds the page), and nor does a stream's
+  // whose body file the render refused as it opened (ts-data.js `refuseInRender`): it started no request.
+  const counts = waits && !held && !timed && !(globalThis.__exactRender && (t.call || t.ctl?.refused));
   if (counts !== !!t.counted) { t.counted = counts; inflight.n += counts ? 1 : -1; }
   if (counts) Counting.add(t); else Counting.delete(t);
   if (held) HeldAsks.add(t); else HeldAsks.delete(t);

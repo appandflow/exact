@@ -120,7 +120,11 @@ names one.
 It reaches only what its `grants` name: `export const grants = \`net.fetch ${API}\``, with
 `const API = import.meta.env.API_BASE_URL` (app.json's `env`). A failed read should throw,
 failing its resource. It imports its own `.ts` and pure-JS npm packages; one needing Node
-(`fs`, `Buffer`) or the DOM is refused by name.
+(`fs`, `Buffer`) or the DOM is refused by name. A page rendered on the server has no
+storage. A source still waiting there on a `storage` call is left pending: its placeholder
+shows with `pending(x)` true, and the reader's page asks it once it loads. A `storage` call
+the source does not wait for does not run there, and nothing it chains runs either. If the
+source answers anyway, the page keeps that answer and asks the source again on the reader's device.
 
 ## CSS that is not here
 

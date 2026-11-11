@@ -713,7 +713,8 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   `  const unfinished = () => answersAtWork(true)${ts ? ' || unfinishedIO()' : ''};`,
   // A stream or long poll holds the page until its first message, as on the render host (runner.rs `in_flight`): a long
   // poll's reply that carries none (a 204, a 503 to wait out) takes it out of `inflight`, for clocks, but not here.
-  '  const unmessaged = t => !!t && (!!t.stream || !!t.req?.stream) && !t.messages && !t.closed;',
+  // A stream whose body file the render refused as it opened started no request, and holds nothing (ts-data.js).
+  '  const unmessaged = t => !!t && (!!t.stream || !!t.req?.stream) && !t.messages && !t.closed && !t.ctl?.refused;',
   '  const outstanding = () => inflight.n > 0 || Resources.some(r => r.waiting || (r.pending() && unmessaged(r.ticket))) || answersAtWork() || looseOut() || (waitStatus && unfinished());',
   '  do await new Promise(r => setTimeout(r, 1)); while (outstanding() && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
@@ -723,10 +724,12 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(planResources, types[2], sourceTypes),`,
   // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
   '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
-  // `open`: each resource that answered and keeps its ticket, an open stream (rt.js `land`), which the client asks again;
+  // Each pending resource whose source the render refused storage, and what that was (ts-data.js `refuseInRender`), for the log.
+  '    refused: Resources.filter(r => r.pending() && (r.ticket?.call ?? r.ticket?.ctl)?.refused).map(r => [r.name, (r.ticket.call ?? r.ticket.ctl).refused]),',
+  // `open`: answered resources the client asks again: an open stream, a watch, or a source refused storage in the render;
   // `continuing`: work that outlives the render, whatever it waited for (a page with no status does not wait for an
   // answered source's I/O): the client asks every answer again (render.mjs `revalidate`).
-  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: [...new Set(Resources.filter(r => r.ticket && !r.pending()).map(r => r.name))], outstanding: outstanding(), continuing: outstanding() || unfinished(), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
+  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: [...new Set(Resources.filter(r => !r.pending() && (r.ticket || data.watchedInRender?.has(r.name) || data.refusedInRender?.has(r.name))).map(r => r.name))], outstanding: outstanding(), continuing: outstanding() || unfinished(), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
   // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
   '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
   // Only a TypeScript source is held to no clock and no Math.random (ts-fetch.js): a Rust module's page is never kept.

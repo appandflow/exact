@@ -237,7 +237,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
     g.enter(controller.streamName, m.received);
     try { message(m); } finally { g.leave(); }
   };
-  return streamed(req, grantSet, timed, controller, readBodyFile, protocol)
+  return streamed(req, grantSet, timed, controller, (path, set) => readBodyFile(path, set, controller), protocol)
     .then(o => {
       gate()?.ended(controller.streamName);
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);

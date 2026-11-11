@@ -349,6 +349,89 @@ function leftOpen() {
     journal.push(`t=${clock.now} storage: ${h.path} is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)`);
   }
 }
+const FILE_METHODS = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+const DIRECTORIES = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+// A page rendered on the server has no storage (LLP 1048.000 D9): each call is
+// refused here, before any adapter loads, and never answers, so the answer that
+// made it stays pending and keeps its placeholder, as the render host holds a
+// storage request. The render does not wait for it, and the reader's page asks
+// it again once it adopts the page (render.mjs). Each answer is handed its own
+// facade, `owner` its call: the server bundle does not carry the answer across
+// an await or into a `.then`, where `answering.call` is null.
+// `compressImage` and `transformImage` options, checked as the native prelude checks them (binary.js
+// `imageOptions`) before anything is asked of storage: the options to run with, or the TypeError a call rejects with.
+function imageOptions(method, from, to, options, limits) {
+  const api = `storage.fs.${method}()`, out = { ...limits }, o = options ?? {};
+  const finite = n => typeof n === 'number' && Number.isFinite(n), side = n => Number.isInteger(n) && n >= 1 && n <= 16384;
+  const checks = { rotate: [finite, 'a finite number of degrees'], flip: [w => w === 'horizontal' || w === 'vertical', '"horizontal" or "vertical"'],
+    crop: [c => c && typeof c === 'object' && [c.x, c.y, c.width, c.height].every(finite) && c.width > 0 && c.height > 0, '{x, y, width, height}, finite, with a positive width and height'] };
+  if (method === 'transformImage') Object.assign(checks, { resizeWidth: [side, 'an integer from 1 to 16384'], resizeHeight: [side, 'an integer from 1 to 16384'],
+    resizeQuality: [w => ['pixelated', 'low', 'medium', 'high'].includes(w), '"pixelated", "low", "medium" or "high"'], type: [t => typeof t === 'string' && /^image\/[a-z0-9.+-]+$/.test(t), 'a media type such as "image/jpeg"'],
+    quality: [q => typeof q === 'number' && q >= 0 && q <= 1, 'a number from 0 to 1'], metadata: [w => ['keep', 'no-location', 'none'].includes(w), '"keep", "no-location" or "none"'] });
+  if (typeof from !== 'string' || typeof to !== 'string') return new TypeError(`${api}: from and to must be app:/ paths`);
+  if (typeof o !== 'object') return new TypeError(`${api}: options must be an object`);
+  for (const [name, [ok, says]] of Object.entries(checks)) {
+    if (o[name] === undefined) continue;
+    if (!ok(o[name])) return new TypeError(`${api}: ${name} must be ${says}`);
+    out[name] = o[name];
+  }
+  return out;
+}
+function compressLimits(from, to, options) {
+  const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
+  if (typeof from !== 'string' || typeof to !== 'string') return new TypeError(`${api}: from and to must be app:/ paths`);
+  if (!options || typeof options !== 'object') return new TypeError(`${api}: options must be {maxDimension, maxBytes}`);
+  if (!Number.isInteger(d) || d < 1 || d > 8192) return new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`);
+  if (!Number.isInteger(b) || b < 1 || b > 67108864) return new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`);
+  const type = options.type === undefined ? 'image/jpeg' : options.type;
+  if (type !== 'image/jpeg' && type !== 'image/png') return new TypeError(`${api}: type must be "image/jpeg" or "image/png"`);
+  return { maxDimension: d, maxBytes: b, type };
+}
+const optionsRefusal = (...args) => { const out = imageOptions(...args); return out instanceof Error ? out : null; };
+const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
+// A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
+const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
+const expectRefusal = (m, args) => expecting(m, args) && !isDocument(args) ? new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`) : null;
+// A page rendered on the server has no storage (LLP 1048.000 D9): a call is refused before any adapter loads and never
+// answers. Nothing was started, so nothing waits for it (held.js `answersAtWork`). The reader's page asks its source
+// again even if the source answered without waiting for storage. `owner`, the answer's call, is named in the
+// journal and the server's log; a stream's controller is the owner of the file its body is read from as it opens, and
+// a stream refused that file starts no request, so it no longer counts as in flight (held.js `counted`).
+const refusedInRender = new Set();
+function refuseInRender(api, owner) {
+  journal.push(`t=${clock.now} storage refused (render): ${owner?.name ?? owner?.streamName ?? 'background work'}: ${api}: a page rendered on the server has no storage; the reader's page asks again`);
+  if (owner) { owner.refused = api; owner.recount?.(); }
+  const name = owner?.name ?? owner?.streamName;
+  if (name) refusedInRender.add(name);
+  return new Promise(() => {});
+}
+// Set as this module loads, before any app module's code can make a file-body fetch (a prewarmed realm evaluates them
+// well before its render starts).
+if (globalThis.__exactRender) answering.refuseStorage = refuseInRender;
+// Answers that watched a document in a render (`storage.fs.watch`), by name: the reader's page asks each again, as it
+// does an open stream's, and makes its watch.
+const watchedInRender = new Set();
+function renderStorage(owner) {
+  // What the device rejects before asking storage it rejects here too, so a source that catches it answers alike.
+  const refuse = (api, check = () => null) => (...args) => {
+    const error = check(...args);
+    return error ? Promise.reject(error) : refuseInRender(api, answering.call ?? owner);
+  };
+  const fs = Object.fromEntries([...FILE_METHODS.map(m => [m, refuse(`storage.fs.${m}()`, (...args) => expectRefusal(m, args))]),
+    ['compressImage', refuse('storage.fs.compressImage()', (from, to, options) => { const limits = compressLimits(from, to, options); return limits instanceof Error ? limits : optionsRefusal('compressImage', from, to, options, limits); })],
+    ['transformImage', refuse('storage.fs.transformImage()', (from, to, options) => optionsRefusal('transformImage', from, to, options, {}))],
+    ...['recentDocuments', 'forgetDocument'].map(m => [m, refuse(`storage.fs.${m}()`)])]);
+  // A watch makes the device's checks (`watchDocument`), so what throws there throws here. The answer it belongs to is
+  // the one running now, as on the device: a facade is no answer context.
+  const watch = path => {
+    const api = 'storage.fs.watch()';
+    if (overlaying.on) throw inOverlay(api);
+    if (!watching) throw new Error(`${api} outside an answer`);
+    if (typeof path !== 'string' || !path.startsWith('doc:/')) throw new TypeError(`${api}: path must be a doc:/ path`);
+    watchedInRender.add(answering.call.name);
+  };
+  return Object.freeze({ fs: Object.freeze({ directories: DIRECTORIES, ...fs, watch }), sqlite: Object.freeze({ open: refuse('storage.sqlite.open()') }), work: promise => Promise.resolve(promise) });
+}
 function storageOf(grants) {
   const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
@@ -375,7 +458,6 @@ function storageOf(grants) {
   // In the storage queue, as every storage call is (an overlay refuses it).
   const keptDocuments = (what, f) => ordinary(() => queued(what, () => documents().then(() => f(globalThis.exact.documents))).catch(refused));
   let listWatched = false;
-  const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
   // A document copied into an app file needs both (documents-glue.js `copyFile`).
   const copiesIn = (m, args) => m === 'copyFile' && typeof args[0] === 'string' && args[0].startsWith('doc:/') && typeof args[1] === 'string' && args[1].startsWith('app:/');
   // `op` is `fs.<method>` or `sqlite.open <path>: …`: a mapper's call is refused before the grants, as natively.
@@ -420,36 +502,16 @@ function storageOf(grants) {
       return db.close(...args).catch((e) => { openDatabases.add(handle); throw e; });
     } });
   };
-  const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
-  // `compressImage` (LLP 1069.002 A1) and `transformImage` (LLP 1133.019
-  // D14): their options are checked before either is queued, as the native
-  // prelude checks them (binary.js `imageOptions`); app files only.
+  // `compressImage` (LLP 1069.002 A1) and `transformImage` (LLP 1133.019 D14): their options are checked before either
+  // is queued (`imageOptions`); app files only.
   const image = (method, from, to, options, limits) => {
-    const api = `storage.fs.${method}()`, out = { ...limits }, o = options ?? {};
-    const finite = n => typeof n === 'number' && Number.isFinite(n), side = n => Number.isInteger(n) && n >= 1 && n <= 16384;
-    const checks = { rotate: [finite, 'a finite number of degrees'], flip: [w => w === 'horizontal' || w === 'vertical', '"horizontal" or "vertical"'],
-      crop: [c => c && typeof c === 'object' && [c.x, c.y, c.width, c.height].every(finite) && c.width > 0 && c.height > 0, '{x, y, width, height}, finite, with a positive width and height'] };
-    if (method === 'transformImage') Object.assign(checks, { resizeWidth: [side, 'an integer from 1 to 16384'], resizeHeight: [side, 'an integer from 1 to 16384'],
-      resizeQuality: [w => ['pixelated', 'low', 'medium', 'high'].includes(w), '"pixelated", "low", "medium" or "high"'], type: [t => typeof t === 'string' && /^image\/[a-z0-9.+-]+$/.test(t), 'a media type such as "image/jpeg"'],
-      quality: [q => typeof q === 'number' && q >= 0 && q <= 1, 'a number from 0 to 1'], metadata: [w => ['keep', 'no-location', 'none'].includes(w), '"keep", "no-location" or "none"'] });
-    if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
-    if (typeof o !== 'object') return Promise.reject(new TypeError(`${api}: options must be an object`));
-    for (const [name, [ok, says]] of Object.entries(checks)) {
-      if (o[name] === undefined) continue;
-      if (!ok(o[name])) return Promise.reject(new TypeError(`${api}: ${name} must be ${says}`));
-      out[name] = o[name];
-    }
+    const out = imageOptions(method, from, to, options, limits);
+    if (out instanceof Error) return Promise.reject(out);
     return (admitted ? queued(`${method} ${from}`, () => files().then(f => f[method](from, to, out))) : denied(`fs.${method}`)).catch(refused);
   };
   const compressImage = (from, to, options) => {
-    const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
-    if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
-    if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
-    if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
-    if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
-    const type = options.type === undefined ? 'image/jpeg' : options.type;
-    if (type !== 'image/jpeg' && type !== 'image/png') return Promise.reject(new TypeError(`${api}: type must be "image/jpeg" or "image/png"`));
-    return image('compressImage', from, to, options, { maxDimension: d, maxBytes: b, type });
+    const limits = compressLimits(from, to, options);
+    return limits instanceof Error ? Promise.reject(limits) : image('compressImage', from, to, options, limits);
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
   // on a document the person chose; the page's FileSystemObserver announces
@@ -465,15 +527,14 @@ function storageOf(grants) {
     if (path === 'doc:/') return void (listWatched || documents().then(() => { if (!listWatched) globalThis.exact.documents.onList(() => announce(topic, 'changed')); listWatched = true; }).catch(() => {}));
     documents().then(() => globalThis.exact.documents.observe(path, recursive, grants, () => announce(topic, 'changed'))).catch(() => {});
   };
-  const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
   return Object.freeze({
-    fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
+    fs: Object.freeze({ directories: DIRECTORIES,
       compressImage: (...a) => ordinary(() => compressImage(...a)), watch: watchDocument,
       recentDocuments: () => keptDocuments('fs.recentDocuments', d => d.recent(grants)), forgetDocument: path => keptDocuments(`fs.forgetDocument ${path}`, d => d.forget(path, grants)),
       transformImage: (from, to, options) => ordinary(() => image('transformImage', from, to, options, {})),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => ordinary(() => {
-        // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
-        if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
+      ...Object.fromEntries(FILE_METHODS.map(m => [m, (...args) => ordinary(() => {
+        const wrongExpect = expectRefusal(m, args);
+        if (wrongExpect) return Promise.reject(wrongExpect);
         const captured = structuredClone(args);
         const run = () => copiesIn(m, captured) ? documents().then(files).then(f => globalThis.exact.documents.copyFile(captured[0], captured[1], grants, f))
           : isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
@@ -490,7 +551,8 @@ export function install(data, mixed = false, modules = null) {
   data.appId = appId;
   bodyFiles.appId = appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
   data.grants = setAppGrantSet(tsGrantSet);
-  const storage = storageOf(tsGrantSet);
+  const storage = globalThis.__exactRender ? renderStorage(null) : storageOf(tsGrantSet);
+  if (globalThis.__exactRender) { data.watchedInRender = watchedInRender; data.refusedInRender = refusedInRender; }
   // The module's storage, as the runner's `state.background` (LLP 1097 D8).
   if (storage) data.background = () => ({ queued: queue.length, inFlight: head ? 1 : 0, ...counts });
   // A rejection nothing handled reaches the journal, as on every host (D8):
@@ -560,7 +622,7 @@ export function install(data, mixed = false, modules = null) {
     };
     let r;
     thrown = null;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { call.turn = false; asking = ''; watching = null; answering.call = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, globalThis.__exactRender ? renderStorage(call) : storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { call.turn = false; asking = ''; watching = null; answering.call = null; }
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
     // Socket operations go out only with a value given now: not with a

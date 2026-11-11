@@ -28,23 +28,44 @@ async function build(dir) {
 // The rule a render settles by, as the render host settles (host/render/src/lib.rs `settle`; LLP 1048.000 D9): it
 // waits for work in flight (a fetch, a held fetch, an upload, a stream until its first message, an answer's own
 // timer) and for nothing else. An answer waiting on nothing the render runs (a promise nothing settles, another
-// answer's) stays pending without holding the page, which is complete. The pages
+// answer's, a storage call the render refused) stays pending without holding the page, which is complete. The pages
 // are the ones the render host was run on for #108, with what it gave (status, settled, pending names, whether it
 // answered at once or waited, or waited out the deadline); where this renderer gives another answer, `DIFFERS` says
 // which and why.
 const NATIVE = {
-  '/never': [200, true, ['r'], 'quick'], '/shared-plain': [200, true, ['r', 'other'], 'quick'],
-  '/fetch': [200, true, [], 'waited'], '/held-status': [200, true, [], 'waited'], '/timer': [503, false, ['r'], 'deadline'],
-  '/stream': [200, true, [], 'quick'], '/second-plain': [200, true, ['r'], 'quick'], '/upload': [200, true, [], 'waited'],
-  '/ignored-plain': [200, true, [], 'waited'], '/mapper-never': [503, false, ['r'], 'deadline'],
+  '/never': [200, true, ['r'], 'quick'], '/shared': [200, true, ['r', 'other'], 'quick'], '/shared-plain': [200, true, ['r', 'other'], 'quick'],
+  '/read': [200, true, ['r'], 'quick'], '/fetch': [200, true, [], 'waited'], '/held-status': [200, true, [], 'waited'],
+  '/timer': [503, false, ['r'], 'deadline'], '/stream': [200, true, [], 'quick'], '/second': [200, true, ['r'], 'quick'],
+  '/second-plain': [200, true, ['r'], 'quick'], '/upload': [200, true, [], 'waited'], '/body-from': [200, true, ['r'], 'quick'],
+  '/body-from-await': [200, true, ['r'], 'quick'], '/ignored': [200, true, [], 'waited'], '/ignored-plain': [200, true, [], 'waited'],
+  '/fallback': [200, true, [], 'quick'], '/watch-sync': [200, true, [], 'quick'], '/watch-await': [200, true, [], 'quick'],
+  '/watch-then': [200, true, [], 'quick'], '/compress': [200, true, [], 'quick'], '/mapper-before': [200, true, ['r'], 'quick'],
+  '/mapper-never': [503, false, ['r'], 'deadline'], '/mapper-inside': [200, true, ['r'], 'quick'],
   // A long poll is a stream: it holds the page until its first message, whatever replies it gets without one (a 204,
   // a 503 to wait out), and the page's own status (410 here) waits for it.
   '/lp-later': [200, true, [], 'waited'], '/lp-busy': [503, false, ['r'], 'deadline'], '/lp-status': [503, false, ['r'], 'deadline'],
 };
-// Where this renderer differs from the render host, and why.
+// Where this renderer differs from the render host, and why (each is listed in QUEUE.md).
 const DIFFERS = {
-  // An upload's stream fails in a JavaScript render (`data.parse is not a function`).
+  // The render host rejects a refused storage call, so a source that catches it answers its fallback; here the call
+  // never answers and the resource stays pending, as LLP 1048.000 D9 has a refused source (keeps its placeholder).
+  '/fallback': [200, true, ['r'], 'quick'],
+  // On the web a plain `.then` runs outside its answer, so the reader's page refuses this watch (`watchDocument`): the
+  // render refuses it as the page does. On a device the turn's answer is current in a `.then` (LLP 1146 D2).
+  '/watch-then': [200, true, [], 'quick'],
+  // A mapper awaiting a storage promise made before the stream opened holds the stream in flight to the deadline, as a
+  // mapper awaiting a promise nothing settles does (`/mapper-never`). The render host's rejection ends the message.
+  '/mapper-before': [503, false, ['r'], 'deadline'],
+  // A mapper that calls storage itself: its first message never comes, so the stream holds the page to the deadline,
+  // as a stream whose mapper never answers does. A stream holds a page until its first message whatever storage calls
+  // are made around it; the render host's rejection of the refused call ends the message (QUEUE.md).
+  '/mapper-inside': [503, false, ['r'], 'deadline'],
+  // An upload's stream fails in a JavaScript render (`data.parse is not a function`), with or without storage.
   '/upload': [200, true, [], 'quick'],
+  // Not in these numbers, which match: the server bundle does not carry the answer across an `await` (only the
+  // page's lowers async code), so this watch throws and its resource fails in the render where the render host
+  // answers it; the reader's page asks it again and its watch holds (below).
+  '/watch-await': [200, true, [], 'quick'],
 };
 test('a render waits for work in flight and for nothing else, as the render host does', async () => {
   const dir = scratch();
@@ -62,6 +83,7 @@ test('a render waits for work in flight and for nothing else, as the render host
     await new Promise(r => setTimeout(r, path === '/slow' ? 200 : 100));
     return new Response(path === '/slow' ? 'slow' : 'done');
   } });
+  let site, browser;
   try {
     writeFileSync(resolve(dir, 'app.contract'), `routes nav
   home "/" render=request
@@ -172,10 +194,31 @@ export const answer = async (name: string, [route]: string[], _store: unknown, s
       const ms = reply.render, timing = ms >= DEADLINE ? 'deadline' : ms >= 90 ? 'waited' : 'quick';
       seen[path] = [reply.status, reply.settled, checkpoint.pending, timing];
       wanted[path] = DIFFERS[path] ?? native;
+      if (path === '/shared') site = reply.html;
     }
     expect(seen).toEqual(wanted);
+    // The shared queue's page adopts in a browser, and the reader's page asks both its sources; so does the page whose
+    // watch after an `await` failed in the render, and there the watch holds.
+    const pages = { '/shared': site, '/watch-await': (await render('/watch-await', DEADLINE)).html };
+    site = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (pages[path]) return new Response(pages[path], { headers: { 'content-type': 'text/html' } });
+      const asset = Bun.file(resolve(dist, path.slice(1)));
+      return await asset.exists() ? new Response(asset) : new Response(null, { status: 404 });
+    } });
+    browser = await open({ host: 'web', url: new URL('/shared', site.url).href });
+    await browser.clock('settle');
+    const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+    expect(journal.some(l => l.endsWith('adopted the document')), journal.join('\n')).toBe(true);
+    expect(await browser.carrier.evaluate(`['rstate', 'otherstate'].map(id => document.querySelector('[data-testid="' + id + '"]').textContent)`))
+      .not.toContain('pending');
+    await browser.close();
+    browser = await open({ host: 'web', url: new URL('/watch-await', site.url).href });
+    await browser.clock('settle');
+    expect(await browser.carrier.evaluate(`[document.querySelector('[data-testid="r"]').textContent, document.querySelector('[data-testid="rstate"]').textContent]`))
+      .toEqual(['watched', 'answered']);
   } finally {
-    api.stop(true);
+    await browser?.close(); if (site?.stop) site.stop(true); api.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 }, 180000);

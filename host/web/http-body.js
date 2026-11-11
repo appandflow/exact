@@ -452,6 +452,21 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // passes (9 is an auth session's delivery, glue.js). A body read from a file
   // counts against it.
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
+  // `exactBodyFrom`'s checks, made before anything is read: a refusal, or null.
+  const fileBodyRefusal = () => {
+    if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
+    if (body || bytes) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
+    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
+    if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
+    if (new TextEncoder().encode(op.bodyFrom).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
+    // Refused before the storage adapters load, which an app without file grants does not ship.
+    if (!coversPath(effective, 'fs.read', op.bodyFrom))
+      return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
+    return null;
+  };
+  // A render has no storage: after the same checks, and an abort already made, the file is refused (ts-body-from.js)
+  // before any timer, signal or controller is made, so nothing outlives the render on its account.
+  if (globalThis.__exactRender && op.bodyFrom != null) return fileBodyRefusal() ?? (controller.signal.aborted ? failed(4, 'request aborted') : bodyFile(op.bodyFrom, effective));
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
   // The same deadline as an instant, checked by the clock just before the request goes out:
   // a body read or grant work that held the event loop past it fires no timer first.
@@ -464,14 +479,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // File, never copied into a string), or refused before anything is sent.
   let fileBody;
   if (op.bodyFrom != null) {
-    if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
-    if (body || bytes) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
-    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
-    if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
-    if (new TextEncoder().encode(op.bodyFrom).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
-    // Refused before the storage adapters load, which an app without file grants does not ship.
-    if (!coversPath(effective, 'fs.read', op.bodyFrom))
-      return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
+    const refused = fileBodyRefusal();
+    if (refused) return refused;
     // The read yields to the deadline and to letting go: nothing is sent once either has ended it.
     if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     if (signal.aborted) return failed(4, 'request aborted');
