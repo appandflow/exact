@@ -736,7 +736,7 @@ export function renderMarkup(el, json) {
       if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
       if (flags & 4) span.style.textDecoration = "line-through";
       if (flags & 16) span.style.opacity = "0.62";
-      if (destination) span.href = destination;
+      if (destination) span.href = href.trim(); // as written, once it is known to navigate: a page rendered ahead of time has a placeholder base (render.mjs), and the browser resolves it against the page's
       if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
       return paragraph(indent).appendChild(span);
     };

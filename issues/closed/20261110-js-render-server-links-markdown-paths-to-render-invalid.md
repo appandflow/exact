@@ -1,6 +1,7 @@
 # The JavaScript render server writes a Markdown link to an app path as `http://render.invalid/…`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `renderMarkup` writes a Markdown link's destination as authored once it is known to navigate, so a page the JS render server writes links app paths, not the placeholder base.
 **Systems:** host/web-js/render.mjs, host/web/navigation.js (`renderMarkup`), host/web-js/markdown.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
