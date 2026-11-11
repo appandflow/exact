@@ -281,9 +281,10 @@ engine's saved types.
   Shadow-disabled lighting is unfaded. Ambient, emission and the fill light are unaffected.
 - Local light shadows are opt-in: add the `LightShadows` marker to a `SpotLight` or
   `PointLight`. A spot takes one 1024² Depth32Float layer (a perspective view of
-  its cone, up to 170°), a point light six (a cube's faces, picked per pixel by the major axis
-  from the light). Lights are served nearest first while the frame has layers
-  left, at most eight (`local_shadows::MAX_VIEWS`). One shadowed point light takes
+  its cone, up to 170°), a point light six (a cube's faces, picked per pixel by the
+  major axis from the light to the offset receiver). Lights are served nearest
+  first while the frame has layers left, at most eight (`local_shadows::MAX_VIEWS`).
+  One shadowed point light takes
   six of the eight, leaving two spots; eight spots fit otherwise; the rest light
   unshadowed. The layer array grows to the most layers a frame has used (4 MiB
   each, at most 32 MiB) and is kept, so toggling a light reallocates nothing. Each layer's casters are culled

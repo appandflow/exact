@@ -1,6 +1,7 @@
 # A shadowed point light shows a lit line inside its shadows along each cube-face boundary
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Point-light shadow face selection and projection use the same offset receiver, keeping shadows dark across cube-face boundaries.
 **Systems:** game/render/src/shaders/shadow_sample.wgsl
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

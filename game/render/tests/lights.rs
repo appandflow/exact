@@ -278,6 +278,97 @@ fn a_shadowed_point_light_casts_through_each_cube_face() {
     }
 }
 
+#[derive(Default, Args)]
+struct BoundaryScene {
+    shadowed: bool,
+}
+struct PointShadowBoundary;
+impl Game for PointShadowBoundary {
+    const ID: &'static str = "point-shadow-boundary";
+    type Args = BoundaryScene;
+    fn setup(w: &mut World, args: &BoundaryScene) {
+        w.insert_resource(Environment {
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        w.spawn((
+            Transform::default(),
+            DirectionalLight {
+                illuminance: 0.,
+                ..Default::default()
+            },
+        ));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(40., 40.),
+            Material::rgb(0.6, 0.6, 0.6),
+        ));
+        let light = w.spawn((
+            Transform::at(0., 2., 0.),
+            PointLight {
+                intensity: 20_000.,
+                range: 8.,
+                ..Default::default()
+            },
+        ));
+        if args.shadowed {
+            w.insert(light, LightShadows);
+        }
+        // The plate's shadow covers x = 1..7, across the -Y/+X boundary at x = 2.
+        w.spawn((
+            Transform::at(2., 1., 0.).with_scale([3., 0.05, 3.]),
+            Mesh::cube(1.),
+            Material::rgb(0.6, 0.6, 0.6),
+        ));
+        // Below the plate, looking at 18 cm of floor across the boundary.
+        w.spawn((
+            Transform::at(2., 0.5, 0.).looking_at(Vec3::new(2., 0., 0.), -Vec3::Z),
+            Camera::orthographic(0.036),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &BoundaryScene) {}
+}
+
+#[test]
+fn a_point_lights_shadow_stays_dark_across_a_cube_face_boundary() {
+    let Some(gpu) = gpu() else { return };
+    let frame = Frame {
+        width: 320.,
+        height: 64.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    for shadowed in [false, true] {
+        let mut surface = WorldSurface::<PointShadowBoundary>::default();
+        surface
+            .bind(&BoundaryScene { shadowed }.values(), None)
+            .unwrap();
+        let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+        assert!(surface.error().is_none(), "{:?}", surface.error());
+        let row: Vec<_> = (0..pixels.width)
+            .map(|x| pixels.at(x, pixels.height / 2)[0])
+            .collect();
+        let min = *row.iter().min().unwrap();
+        let max = *row.iter().max().unwrap();
+        eprintln!("point shadow boundary: shadowed={shadowed}, red={min}..{max}");
+        if shadowed {
+            assert!(max < 5, "the shadow must cover the whole row: {row:?}");
+        } else {
+            assert!(
+                min > 30,
+                "the whole row must receive the point light: {row:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn toggling_a_shadowed_flashlight_reuses_its_shadow_layers() {
     use exact_game_render::{shapes, Batch, FrameInput, LightInput, Renderer};

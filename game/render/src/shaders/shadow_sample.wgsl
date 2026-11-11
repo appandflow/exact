@@ -146,11 +146,17 @@ fn sun_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
 
 // A local light's shadow at `world` (lights.wgsl record words 13-15: first layer,
 // matrix word offset, texel width per metre). A point light picks its cube face
-// by the major axis from the light; 3x3 PCF in that face's map.
+// from the offset receiver so the projection stays inside that face; 3x3 PCF.
 fn light_visibility(at: u32, world: vec3<f32>, n: vec3<f32>, l: vec3<f32>) -> f32 {
     let layer = light_f(at + 13u);
     if layer < 0.0 { return 1.0; }
-    let from_light = -l;
+    // Normal offset of one and a half texels at this distance, less towards the light.
+    let position = light_v(at);
+    let cosine = clamp(dot(n, l), 0.0, 1.0);
+    let texel = distance(world, position) * light_f(at + 15u);
+    let offset = n * texel * 1.5 * sqrt(max(1.0 - cosine * cosine, 0.0)) + l * texel * 0.5;
+    let receiver = world + offset;
+    let from_light = receiver - position;
     var face = 0u;
     if light_f(at + 11u) < -1.5 {
         let a = abs(from_light);
@@ -164,11 +170,7 @@ fn light_visibility(at: u32, world: vec3<f32>, n: vec3<f32>, l: vec3<f32>) -> f3
         vec4(light_f(m + 4u), light_f(m + 5u), light_f(m + 6u), light_f(m + 7u)),
         vec4(light_f(m + 8u), light_f(m + 9u), light_f(m + 10u), light_f(m + 11u)),
         vec4(light_f(m + 12u), light_f(m + 13u), light_f(m + 14u), light_f(m + 15u)));
-    // Normal offset of one and a half texels at this distance, less towards the light.
-    let cosine = clamp(dot(n, l), 0.0, 1.0);
-    let texel = distance(world, light_v(at)) * light_f(at + 15u);
-    let offset = n * texel * 1.5 * sqrt(max(1.0 - cosine * cosine, 0.0)) + l * texel * 0.5;
-    let clip = view * vec4(world + offset, 1.0);
+    let clip = view * vec4(receiver, 1.0);
     if clip.w <= 0.0 { return 1.0; }
     let ndc = clip.xyz / clip.w;
     let uv = ndc.xy * vec2(0.5, -0.5) + 0.5;
