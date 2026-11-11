@@ -235,6 +235,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     let mut r = Rewriter {
         scope,
         locals: Vec::new(),
+        bound: HashMap::new(),
         callable: Vec::new(),
         seen,
     };
@@ -352,6 +353,8 @@ struct Rewriter<'a> {
     /// members, an action's or `fn`'s parameters, `for`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
+    /// Counts keep an outer binding visible after an inner binding is removed.
+    bound: HashMap<String, usize>,
     /// For each of `locals`, whether it is an action, prop or inject: the
     /// innermost binding of `t` being one stops `t(…)` being the strings
     /// intrinsic, as the type checker reads it.
@@ -484,7 +487,14 @@ impl Rewriter<'_> {
     }
 
     fn unbind(&mut self, mark: usize) {
-        self.locals.truncate(mark);
+        for name in self.locals.drain(mark..) {
+            if let Some(count) = self.bound.get_mut(&name) {
+                *count -= 1;
+                if *count == 0 {
+                    self.bound.remove(&name);
+                }
+            }
+        }
         self.callable.truncate(mark);
     }
 
@@ -499,6 +509,9 @@ impl Rewriter<'_> {
     fn bind_as(&mut self, names: impl IntoIterator<Item = String>, callable: bool) -> usize {
         let mark = self.locals.len();
         self.locals.extend(names);
+        for name in &self.locals[mark..] {
+            *self.bound.entry(name.clone()).or_default() += 1;
+        }
         self.callable.resize(self.locals.len(), callable);
         if let Some(seen) = self.seen.as_deref_mut() {
             seen.bound.extend(self.locals[mark..].iter().cloned());
@@ -507,7 +520,7 @@ impl Rewriter<'_> {
     }
 
     fn local(&self, name: &str) -> bool {
-        self.locals.iter().any(|l| l == name)
+        self.bound.contains_key(name)
     }
 
     fn params(&mut self, params: &mut [Param]) -> R {
