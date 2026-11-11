@@ -4883,6 +4883,8 @@ A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"
 weight applies where it names none, and a size in px is warned of
 (`tamber-type-fixed`: it does not follow the person's text size). A family token
 is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
+The checker validates family stacks in both token kinds even when no row reads
+them. Unsupported generics such as `cursive` are refused at the token's value.
 One that varies by a mode goes on the text, not its container
 (`tamber-inherited-axis`); on the JS target each row it writes is a property
 per mode (`--x-type-body-size`).
@@ -5216,3 +5218,6 @@ mapped generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif,
 ui-monospace, monospace and ui-rounded. Other CSS generics and CSS-wide
 font-family values are refused with the native mapping/stack representation
 reason, rather than being silently treated as local family names.
+CSS escapes and literal double quote characters at the start or end of a family
+name are not implemented. Apostrophes and interior double quotes are supported
+inside a name quoted with the other quote character.

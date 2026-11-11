@@ -1,6 +1,7 @@
 # The design checker accepts a family stack the build refuses, and the build's refusal names no token or line
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Family and type tokens share the compiler's stack validation and report refusals at their design values; stack lowering retains token source spans.
 **Systems:** tamber/src/typeface.rs, contract/lower/src/type_tokens.rs, contract/lower/src/fonts.rs, contract/cli/src/tamber.rs, contract/cli/src/tamber_import_css.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

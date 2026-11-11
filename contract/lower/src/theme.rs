@@ -44,6 +44,8 @@ pub(crate) struct ThemeEntry {
     pub slices: Vec<String>,
     /// Its kind (D3).
     pub kind: tamber::Kind,
+    /// Where the token was declared, including its design file.
+    pub span: Span,
 }
 
 /// The plan's `theme.kind` for a kind (LLP 1121 D3); `None` for a motion
