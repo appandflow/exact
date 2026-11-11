@@ -1,6 +1,7 @@
 # macOS: a dialog reads Command-period by key code, so ⌘V on a Dvorak layout dismisses it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** macOS dialogs and modal routes match Command-period by its character, so keyboard layouts can move the shortcut without turning other commands into dismissal.
 **Systems:** host/apple/Sources/ExactKit/Mac/DialogsMac.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
@@ -23,7 +24,7 @@ if event.keyCode == 53 || period {
 
 Key code 47 is a physical key (`kVK_ANSI_Period`), and the keyboard layout decides what it types. `Presenter.routeKey` (`KeyEvents.swift:219-236`) calls this from the session's event monitor (`ExactViewMac.swift:389`), which runs before the menu bar's key equivalents and drops an event the route took.
 
-An app's own `aria-keyshortcuts="Meta+."` is matched by character (`Shortcut.matches`, `ShortcutsMac.swift:50-73`), as NSEvent documents for key equivalents (`charactersIgnoringModifiers`). The two rules disagree on every layout that does not type `.` at that key.
+An app's own `aria-keyshortcuts="Meta+."` is matched by character (`Shortcut.matches`, `ShortcutsMac.swift:50-73`). The two rules disagree on every layout that does not type `.` at that key. The shortcut matcher also reads `charactersIgnoringModifiers`, which loses Command's layout change under Dvorak - QWERTY ⌘.
 
 ## The failure
 
@@ -52,7 +53,7 @@ Not run: a person's key under a Dvorak input source, which would change this Mac
 
 ## Direction
 
-Match the character as `Shortcut.matches` does: Command alone and `.`. Dvorak - QWERTY ⌘ types `.` at key code 47 only while Command is held, so check that layout. Escape (53) and Tab (48) are the same key on every layout and can stay.
+Match Command alone and `.` in `characters`, preserving Command's effect on the layout in both dialog dismissal and `Shortcut.matches`. Dvorak - QWERTY ⌘ produces `characters == "."` and `charactersIgnoringModifiers == "v"` at key code 47; its ⌘E at key code 14 produces `"e"` and `"."`. Escape (53) and Tab (48) are the same key on every layout and can stay.
 
 ## Related
 
