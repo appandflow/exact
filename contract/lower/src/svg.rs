@@ -501,18 +501,7 @@ impl Lowerer<'_> {
                 }
                 Err(e) => errors.push(LowerError {
                     id: "lower-keyframes",
-                    message: match e {
-                        // @ref LLP 1019 §13 D10 — the axes interpolate one by one.
-                        exact_motion::ParseError::InvalidAnimation(
-                            exact_motion::AnimationError::NotAnimatable(
-                                Property::FontVariationSettings,
-                            ),
-                        ) => format!(
-                            "`keyframes {}`: every keyframe that sets `font-variation-settings` names the same axes, which interpolate one by one",
-                            decl.name
-                        ),
-                        e => format!("`keyframes {}`: {e:?}", decl.name),
-                    },
+                    message: format!("`keyframes {}`: {e}", decl.name),
                     span: decl.span,
                 }),
             }
@@ -690,7 +679,7 @@ impl Lowerer<'_> {
         };
         let base: Vec<Animation> = match short {
             Some(s) if literal(&s.value) => Animations::parse(&text(&s.value))
-                .map_err(|e| bad(s.span, format!("`animation`: {e:?}")))?
+                .map_err(|e| bad(s.span, format!("`animation`: {e}")))?
                 .0,
             Some(s) => {
                 return Err(bad(
@@ -721,7 +710,7 @@ impl Lowerer<'_> {
                 for (i, entry) in list.iter_mut().enumerate() {
                     entry
                         .set_longhand(&a.name, &items[i % items.len()])
-                        .map_err(|e| bad(a.span, format!("`{}`: {e:?}", a.name)))?;
+                        .map_err(|e| bad(a.span, format!("`{}`: {e}", a.name)))?;
                 }
             }
             list.retain(|a| a.name != "none");
@@ -1316,5 +1305,15 @@ fn default_part(a: &Animation, index: usize) -> String {
         5 => a.direction.name().into(),
         6 => a.fill.name().into(),
         _ => if a.paused { "paused" } else { "running" }.into(),
+    }
+}
+
+/// The motion grammar's own sentence for a literal `animation` it refuses.
+pub(crate) fn animation_reason(e: &exact_kernel::StyleValueError, value: &Expr) -> Option<String> {
+    match (e, value) {
+        (exact_kernel::StyleValueError::BadAnimation { .. }, Expr::Str(t, _)) => {
+            Animations::parse(t).err().map(|e| e.to_string())
+        }
+        _ => None,
     }
 }

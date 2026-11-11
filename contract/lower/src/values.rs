@@ -552,7 +552,7 @@ fn style_value(
                         exact_motion::ParseError::UnknownProperty(property) => {
                             crate::motion::layout_property_refusal(&property, supported).unwrap_or_else(|| format!("`{property}` is not a supported transition property: transitions animate {supported}"))
                         }
-                        other => format!("invalid transition components ({other:?}); supported properties: {supported}"),
+                        other => format!("invalid transition components: {other}; supported properties: {supported}"),
                     };
                     return err(
                         "lower-attr-value",
@@ -760,7 +760,9 @@ fn style_value(
                                 a.name,
                                 literal_text(value),
                                 a.name,
-                                named(&e, &v).map_or_else(|| describe(&e), String::from),
+                                crate::svg::animation_reason(&e, value)
+                                    .or_else(|| named(&e, &v).map(String::from))
+                                    .unwrap_or_else(|| describe(&e)),
                                 hint.unwrap_or_default()
                             ),
                             span,

@@ -1286,8 +1286,13 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
     }
     assert!(!e.message.contains("not a CSS"), "{e}");
-    let malformed = refused("transition=\"opacity 20ms gibberish\"");
-    assert!(malformed.message.contains("invalid transition components"));
+    let malformed = refused("transition=\"opacity 20ms gibberish\"").message;
+    assert!(
+        malformed.contains("components: `gibberish` is neither a time"),
+        "{malformed}"
+    );
+    let unitless = refused("transition=\"opacity 0.3\"").message;
+    assert!(unitless.contains("`0.3` is not a time"), "{unitless}");
     for v in [
         "opacity 200ms ease",
         "border-color 200ms ease",

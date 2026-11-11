@@ -98,7 +98,7 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
         (
             app("keyframes k\n  to opacity=\"lots\"\n", ""),
             "lower-keyframes",
-            "`keyframes k`",
+            "`keyframes k`: `lots` is not a value `opacity` takes",
         ),
         (
             app("keyframes k\n  120% opacity=1\n", ""),
@@ -111,7 +111,17 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
                 "",
             ),
             "lower-keyframes",
-            "`keyframes k`",
+            "a spring is a transition's timing function, not an animation's",
+        ),
+        (
+            app(breathe, "animation=\"breathe\" animation-duration=\"1\""),
+            "lower-animation-longhand",
+            "`animation-duration`: `1` is not a time: a time is a number with `s` or `ms`",
+        ),
+        (
+            app(breathe, "animation=\"breathe 1s\" animation-direction=\"bogus\""),
+            "lower-animation-longhand",
+            "`bogus` is not a direction: normal, reverse, alternate or alternate-reverse",
         ),
         (
             app("keyframes k\n  to opacity=1 opacity=0\n", ""),
@@ -135,6 +145,29 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, id, "{source}\n{error}");
         assert!(error.message.contains(says), "{error}");
+    }
+    // A refusal states the parser's rule, the shorthand alone or beside a
+    // longhand, never a Rust variant's name.
+    for (attrs, says) in [
+        (
+            "animation=\"breathe 1s steps(0)\"",
+            "`steps()` takes at least one step",
+        ),
+        (
+            "animation=\"breathe 1s steps(0)\" animation-delay=\"0s\"",
+            "`steps()` takes at least one step",
+        ),
+        (
+            "animation=\"breathe 1s 2s 3s\"",
+            "has a third time: an animation takes a duration, then a delay",
+        ),
+    ] {
+        let error = contract::compile(&app(breathe, attrs)).unwrap_err();
+        assert!(error.message.contains(says), "{error}");
+        assert!(
+            !error.message.contains("not a CSS `animation` shorthand"),
+            "{error}"
+        );
     }
     // A condition may choose between literals; `none` is one.
     contract::compile(&app(
