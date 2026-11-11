@@ -667,7 +667,7 @@ iOS 27.0.1 (24A446), using production codec and vendored job code from Exact
 transforms, RGBA16 input, predecode refusal, cancellation, owner close, and
 cancellation after commit starts. The largest observed process resident peak
 was 195,837,952 bytes; sampled physical footprint peaked at 118,916,840 bytes.
-[LLP 1069.002](../../llp/1069.002-media-picker.rfc.md) records the fixtures,
+LLP 1069.002 records the fixtures,
 source hashes, retained receipts and limits. This finite workload does not prove
 a whole-app memory limit or behavior under memory pressure.
 

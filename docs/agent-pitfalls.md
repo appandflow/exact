@@ -35,7 +35,7 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   there only while the view shows. iOS and macOS keep it in place. Cause: the web
   build (the JS target) reads a leaving view's box during its page update, after it
   has already applied the action's other changes; iOS and macOS read it before any
-  change ([LLP 1063](../llp/1063-presence-and-layout-motion.rfc.md), "Known gaps"). What to
+  change (LLP 1063, "Known gaps"). What to
   do: give the space to the leaving view instead of its parent, for example a
   `margin-top` on a banner in place of a column's `padding-top` that follows whether a
   banner shows, so the action that removes the view does not also change its
@@ -183,14 +183,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
   beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
-  CSS (a declared deviation, [LLP 1001](../llp/1001-kernel-v1.spec.md) "`z-index`
+  CSS (a declared deviation, LLP 1001 "`z-index`
   orders siblings"), and on the web a box that follows a positioned or stacked box
   becomes a paint group (`isolation: isolate`). A child cannot rise above its
   parent's later siblings. Fix: raise the ancestor that is a sibling of the others
   (the card's column, while it holds the dragged card), or draw the dragged card in
   an overlay at the board level. For cards between lists, a `reorderGroup` on the
-  lists has the host draw the card in its top layer instead ([LLP
-  1094](../llp/1094-dropping-across-lists.rfc.md)). (Authoring bench, LLP 1087,
+  lists has the host draw the card in its top layer instead (LLP
+  1094). (Authoring bench, LLP 1087,
   t4-kanban: two builders, 5 and 10 minutes, 2026-10-04.) A chess board's drag ghost
   is the same: a ghost inside the square it left stays under the squares after it;
   draw it as a later sibling of the squares, positioned in the board (chess diary #5).
@@ -1879,9 +1879,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   feature already exists under a name you did not search for. Haptics
   (`haptic()`, `-exact-press-haptic`) were proposed as a new gap after they had
   landed. Fix: before calling something missing, search
-  `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
-  <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
-  Clone, 2026-10-04.)
+  `docs/contract-for-agents.md` and `docs/reference.md`, and ask `contract vocab
+  <name>`. (Signal Clone, 2026-10-04.)
 
 - **`build.mjs --test --ios` never returns after the tests pass.** Cause:
   `xcodebuild test` can sit for ten minutes or more after `Test Suite 'Selected

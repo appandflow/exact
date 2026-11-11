@@ -11,8 +11,9 @@ for exact forms, built-in functions, tags, and event payloads.
 
 The compiler and executable fixtures are authoritative. Read the repository's
 `AGENTS.md`, `rules/RULES.md`, and `rules/DEFERRED.md` before making changes here.
-This guide is documentation, not an additional policy layer. Documents in
-`llp/research/` describe a predecessor and do not establish current capabilities.
+This guide is documentation, not an additional policy layer. Design documents
+from Exact's predecessor describe that predecessor and do not establish current
+capabilities.
 
 ## Contents
 
@@ -81,9 +82,7 @@ For the implementation, the relevant authorities are:
 | Imports and file boundaries | [`cli/sources.rs`](../contract/cli/src/sources.rs) |
 | CLI flags and output | [`cli/main.rs`](../contract/cli/src/main.rs), [`cli/build.rs`](../contract/cli/src/build.rs), [`cli/lib.rs`](../contract/cli/src/lib.rs) (diagnostic JSON) |
 
-The useful design context is [LLP 1006](../llp/1006-contract-compiler-v1.spec.md),
-[1017.000](../llp/1017.000-contract-v1-1.spec.md), and
-[1035.005.000](../llp/1035.005.000-contract-after-the-apps.rfc.md).
+The design is recorded in LLP 1006, LLP 1017.000 and LLP 1035.005.000.
 A proposal in a design document is not an implemented grammar production.
 
 ## The implementation loop
@@ -975,7 +974,7 @@ pending. Without `with`, every argument identifies that kept answer. Keep
 account/tenant IDs and representation choices in the call, credentials below
 the seam, and use `refresh`/`refreshes` for counters whose only purpose is another
 ask. The default web JS target keeps no persisted resource answers
-([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
+(LLP 1027.005).
 
 Resource inputs are not asynchronous prerequisites, and HTTP request lanes do
 not make resources depend on one another. A resource that reads another resource
@@ -1027,7 +1026,7 @@ the sends of the actions it calls. Every `if` is read as one that can run: two
 sends are separate paths only as arms of one `if … else if … else` or `match`,
 or in `if`s testing one unchanged name against different literals. Send one
 combined request, use a mutation per request, or declare the mutation `queue`
-([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). A
+(LLP 1092). A
 `queue` mutation (`mutation wrote as shape Ack queue then afterWrote`) keeps one
 request in flight; every later send waits, in order, with the arguments it was
 made with, and is asked after the reply before it and that reply's `then`, so
@@ -1447,8 +1446,7 @@ input with `id="attach"`; `change` receives `Picked[]` with copies under
 original name. Read the bytes at `path` (grant `fs.read app:/tmp/picked`), and show or
 upload them under `name`. A specific `accept` list remains bounded to image/video
 types and the app's `file_handlers`. On Linux the agent can answer a held
-picker, but the live picker is unavailable. See [the picker
-spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
+picker, but the live picker is unavailable (LLP 1069.002, "Any-type input").
 
 The view forms are element, component use, `if`/`else` (and `else if`),
 keyed `for`, exhaustive option `match`, and `children`. Wrap root regions in a
@@ -1921,7 +1919,7 @@ logs why; copy the file into `app:/cache` first. An HTML, SVG or XML file is giv
 as `application/octet-stream`, so it never runs as the app: read its bytes, into a
 Blob of your own for an SVG `img`, or into a `srcdoc` frame under a `sandbox`
 without `allow-same-origin` for HTML. The web, macOS and iOS give files; Android
-does not ([LLP 1020.001 D7](../llp/1020.001-a-multi-file-bundled-page-in-an-iframe.rfc.md)). Shrink a picked photo for an upload limit with
+does not (LLP 1020.001 D7). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
@@ -1947,7 +1945,7 @@ file as it arrives (under `fs.write`, at most 1 GiB), so a large file never ente
 usual. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
-([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+(LLP 1069.002 D7, LLP 1011 §2).
 
 An `image` hears HTML `<img>`'s two events, once per source, on every host: `load=` when the picture
 is ready (no payload), and `error=` when it does not
@@ -1958,7 +1956,7 @@ format this host decodes`), and a link it quotes has no query; the browser gives
 not load`. On every native host a download that asking again may mend (the network, a lookup, TLS, a timeout, the spool,
 a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen, after 1, 2, 4, 8, 16 and 30 s
 and never sooner than `Retry-After`, so its `error` comes once those are spent (about a minute of
-waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
+waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown (LLP 1011 §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
 `Referer`, follow redirects to any host (within App Transport Security), take a
 body up to 64 MiB whatever its `Content-Type` and its status, as a browser's `<img>` does
@@ -1970,8 +1968,8 @@ real`; `clock settle` can return just before them.
 
 ### Sound, MIDI and media
 
-A sound effect is a declared WAV that an action plays ([LLP
-1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
+A sound effect is a declared WAV that an action plays (LLP
+1096): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
 reads it), then `playSound(src, at=, gain=, group=, playbackRate=, pan=)` from any
 action. A path built at run time (`` `assets/kits/${kit}/kick.wav` ``) plays only the
@@ -1982,7 +1980,7 @@ voice, so a retrigger is another call. `at=` is the runner's clock
 group starts, as a drum machine's choke does. `playbackRate=` (0.25–4, Web Audio's
 name) moves pitch and length together, as tape does: at 2 a voice is an octave up and
 lasts half as long. `pan=` places it from −1 (left) to 1 (right) by Web Audio's
-equal-power law ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+equal-power law (LLP 1125
 D10). `stopSounds()` (or `stopSounds(group=…)`) ends what
 sounds and cancels what waits. The web plays the first sound after the page's first
 tap or key; Linux and Windows keep the record and play nothing.
@@ -1998,8 +1996,8 @@ component Ding
 ```
 
 To keep time (a metronome, a drum machine, an interval timer, a rhythm game), declare
-what should play with a `sequence` and let the runner play it ([LLP
-1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md) D2–D5); do not
+what should play with a `sequence` and let the runner play it (LLP
+1125 D2–D5); do not
 start hits from a timer ([a step sequencer](recipes/sequencer.md): lanes of their own
 lengths, a kit, pause and resume, MIDI). It has a task's gate, and one `play(tracks,
 bpm=…)`. A track loops at its own `beats`, `loops` times or forever (0), so tracks of
@@ -2175,7 +2173,7 @@ Test it with no device: `prefer midi.outputs "OP-XY"` then `tap "connect"`, and
 1000` a second of its clock at 125 bpm; `state midi` lists the
 queue ([Metronome](../apps/metronome/app.contract) is whole).
 
-A video is HTML's `video`, not a native view ([LLP 1042](../llp/1042-video.spec.md)):
+A video is HTML's `video`, not a native view (LLP 1042):
 `video "assets/intro.mp4" poster="assets/intro.jpg" autoplay=true muted=true loop=true
 playsinline=true object-fit="cover"` is a looping hero, which Apple draws with an
 `AVPlayerLayer`. Give it a `poster` (a still of its first frame): AVPlayer takes 50 ms
@@ -2203,7 +2201,7 @@ image's `pictureinpictureerror(message)`, on every host that cannot float it
 too, so handle it where a press asked: a toast, the control unpressed. The
 image may be a hidden 1-point one that a stream of its own paints; removing it
 closes the window. macOS and the web's JS target float it
-([LLP 1042 §9](../llp/1042-video.spec.md)). Leave the window to the platform
+(LLP 1042 §9). Leave the window to the platform
 unless the app must look like another: `presentation="window"` asks for a
 browser's picture-in-picture window as Chromium draws it on the Mac, and
 `presentation="panel"` for a floating panel with a title bar, each with
@@ -2217,7 +2215,7 @@ at a time, as a browser's does, and moves to the next that asks
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media
 Session's `metadata=MediaMetadata(…)` and bind its actions as the element's events
-([LLP 1098](../llp/1098-the-media-session.rfc.md)):
+(LLP 1098):
 
 ```contract
 component Episode
@@ -2827,7 +2825,7 @@ site?", a Mac app asks its own question — and `close()` closes the window once
 it is answered (studio diary R17). Any other element's `title` is HTML's tooltip. `scroll document` declares page scrolling. Route `render`/`activate`
 policy belongs to the site's renderer/build pipeline; follow
 [the document fixture](../contract/corpus/document.contract) and
-[LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md). Do not claim SEO,
+LLP 1048.003. Do not claim SEO,
 streaming, or deployment correctness from a client-only screenshot.
 
 ### Head tags on the web
@@ -2882,7 +2880,7 @@ A task with `when` (a gated task), such as
 `task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
 timer only while the gate holds, as an `if` arm has its nodes, and a new key
 restarts it, as a new `for` key makes a new row
-([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
+(LLP 1092). Nothing
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
@@ -3028,13 +3026,13 @@ popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
 does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an
 `NSMenu` without the preview; the web and the agent open the popover anchored to
-the node. The menu needs the popover menu-shaped ([LLP 1021](../llp/1021-menus.rfc.md)
+the node. The menu needs the popover menu-shaped (LLP 1021
 D3): each row its text and at most one `image`, with `aria-checked` for a checkmark;
 a row with anything else beside its label (an icon box) makes macOS open the
 painted popover anchored to the node instead. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. A node inside an open popover opens its menu over
 that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
-([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+(LLP 1021 §5.1).
 
 #### Swipe to reply
 
@@ -3174,7 +3172,7 @@ it beside its row with `position-area="right span-bottom"`; give its items
 `popovertarget="<outer menu id>" popovertargetaction="hide"` so a choice closes
 the whole menu; write no `press` on the row that opens it (a native menu never
 runs it); and draw the web's `›` as an `aria-hidden` text, since the native
-menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
+menus draw their own arrow (LLP 1021 §5.2).
 
 For the Mac menu bar, put `-exact-menu="app"` on an ordinary button to add
 an item without a shortcut. Literal destinations are `about` (directly under
@@ -3204,7 +3202,7 @@ chord with `Meta` that is not the host's or the system's own. View has Actual Si
 `setPageZoom(factor)`. See the grammar’s “The Mac’s menu bar”.
 
 Two more presentations of a button reach past the window
-([LLP 1133.025](../llp/1133.025-desktop.rfc.md) D4, D5). `dock` beside a menu
+(LLP 1133.025 D4, D5). `dock` beside a menu
 id, or alone, also files the button in the app's Dock menu:
 `-exact-menu="file dock"` is New Conversation in File and in the Dock menu.
 `-exact-menu="status"`, alone, makes the button the app's status item: a menu

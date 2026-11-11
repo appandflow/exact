@@ -100,7 +100,7 @@ pushes and pops one record on its column; position reads copy the row out and on
 check for an exclusive lease. A leaked guard or query (`mem::forget`) keeps its rows
 refused; after the next spawn, despawn, insert or remove, a leaked query holds every
 row of its components, because its matched rows can no longer be known. The design and its
-measurements are in [LLP 1046.003 §Row leases](../../llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23).
+measurements are in LLP 1046.003 §Row leases.
 
 ## Arguments and restart
 

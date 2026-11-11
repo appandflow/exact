@@ -64,7 +64,7 @@ TypeScript uses Ibex's v4 debugger-off lean bundle. `exact-js` selects the
 `intl` feature and installs `GROUP_INTL`; Ibex binds the Windows 10 2004+ OS
 `icu.dll` from System32 through function pointers, with no ICU linker flags or
 bundled locale data. The ordinary app path still requires the Windows
-qualification in [LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md)
+qualification in LLP 1027.006
 before release claims. Do not
 resurrect Exact's deleted private source builder or use its old
 `%LOCALAPPDATA%/Exact/hermes` cache for this snapshot. `EXACT_JS_ENGINE=stub` remains the Hermes-free,
@@ -114,11 +114,9 @@ Start here:
 
 - **`rules/RULES.md`** — how work happens here. One page. Read it before your first PR.
 - **`rules/DEFERRED.md`** — what v1 deliberately excludes, and why.
-- **`llp/1000-exact2-root.explainer.md`** — the map: what exists, what is next, how the
-  design corpus is laid out.
 
 The predecessor repo is research, not authority: cite it for how something worked,
-never to block. Its design documents are imported under `llp/research/`.
+never to block.
 
 ## What exists
 
@@ -129,7 +127,7 @@ every host; a runtime string does not load a font file.
 
 | Crate | What it is | Spec |
 |---|---|---|
-| `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |
+| `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | LLP 1001 |
 | `motion/` (`exact-motion`) | CSS `transition` semantics over `translate`/`scale`/`rotate`/`opacity`, one spring, a seekable clock. The web executes it as CSS; everywhere else this crate does. | LLP 1002 (decision), LLP 1003 (spec) |
 | `plan/` (`exact-plan`) | The plan format: tables, bytecode, and the validating decoder, generated from one JSON authority. Depends on nothing. | LLP 1005 |
 | `runner/` (`exact-runner`) | The plan runner: VM, keyed instances, kernel ops, events, timers under a seekable clock, the data seam. | LLP 1005 |
@@ -923,7 +921,7 @@ web/macOS/iOS/Linux using the executor selected below. Once built, an agent can 
 the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree state logs`
 (also `web`, `ios`, and `linux`; Linux polls the same URL after first pixel).
 The Go/custom-client sequence
-is in [LLP 1030.000 §7](../llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
+is in LLP 1030.000 §7.
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
@@ -2099,7 +2097,7 @@ the navigation leaves unselected and no screen a stack keeps under its top,
 so a screen kept mounted in a hidden tab panel holds nothing; the page a
 sheet covers, and every sheet between it and the top, is still shown, and
 holds. An exit
-animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+animation's ghost holds nothing (LLP 1125
 D11). Natively an element the host shows as its own control (a header in the
 navigation bar, a confirmation as a native alert, a menu as a native menu)
 holds nothing, because a whole host cover marks both what the host hides and
@@ -2125,7 +2123,7 @@ ids, on every host's driver.
 
 `orientationlock` on any element keeps the window to the orientations it
 names while that element is displayed, by the wake lock's rule above, and
-outside every `dialog` and popover ([LLP 1133.029](../llp/1133.029-screen.rfc.md)).
+outside every `dialog` and popover (LLP 1133.029).
 The words are the Screen Orientation API's lock types, `portrait`,
 `landscape`, `portrait-primary`, `portrait-secondary`, `landscape-primary`,
 `landscape-secondary`, `natural` and `any`, and `current`, the orientation
@@ -2196,7 +2194,7 @@ becomes white and the colour is sRGB. With `type: 'image/png'` it writes a PNG
 instead, which keeps transparency: PNG has no quality, so it is encoded at the
 fitted size and, while over `maxBytes`, the size shrinks by 0.8, at most four
 times. It resolves `{path, type, size, width, height}`, `type` the one written
-([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) Amendment A1, A1.11):
+(LLP 1069.002 Amendment A1, A1.11):
 
 ```ts
 export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
@@ -2226,7 +2224,7 @@ upload the original when it already fits. Under the agent it runs for real with
 `rotate`, `flip` and `crop` edit the picture before the search, with
 `transformImage`'s meanings (below), so an avatar cropped from a turned photo
 is one call; a crop that misses the picture rejects with `code` `outside`
-([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D15).
+(LLP 1133.019 D15).
 
 ### Save an edit of a photo (`storage.fs.transformImage`)
 
@@ -2252,7 +2250,7 @@ source's EXIF, TIFF, GPS, IPTC and XMP with the orientation reset (`'keep'`,
 unsaid), the capture's standard tags and the IPTC rights with no GPS, maker
 note or XMP (`'no-location'`), or nothing (`'none'`). It resolves `{path, type,
 size, width, height, colorSpace, hdr, metadata}`, the last three what was
-written ([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D14, D15):
+written (LLP 1133.019 D14, D15):
 
 ```ts
 export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
@@ -2578,7 +2576,7 @@ tested. The page cannot detect installation, and does not trigger signing/builds
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
 there); `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM, code from a string and native addons are refused; a use that a `typeof` test guards is not, nor a read through the global object, such as `globalThis.process?.env`, whose value is only tested, compared, spread into an object, returned, or held in a `const` whose uses are guarded in turn). A package may not read `import.meta.env`, which is app.ts's to read and pass in; a read the bundle drops, in a function nothing calls, is not one. That check keeps a module portable between Hermes and the page; it is no security boundary: on the web the module runs in the page's realm, and a package is code the author chose, trusted as their own. A package's `/// <reference lib>` to an ES library newer than the data module's (`esnext.disposable`) loads nothing, so what that library declares (`Symbol.dispose`, which Hermes lacks) stays undeclared for the app. Signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
-was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
+was proved on each host is in LLP 1027
 and git.
 
 ## Access hatches
@@ -2906,8 +2904,8 @@ it can reach), for a native client such as Exact2 Go to draw its own install
 sheet. Both web targets write them; a deploy's JS root carries its bake's.
 
 Configure `install.<platform>.methods` in the app’s `app.json`; use
-`recommended` to name a configured method. See [LLP 1030.003 D6a](../llp/1030.003-continuous-release-loop.rfc.md#d6a--the-standard-install-page)
-for the schema and examples. A method links to an already available installation
+`recommended` to name a configured method. The schema is
+[`scripts/app.schema.json`](../scripts/app.schema.json) (LLP 1030.003 D6a). A method links to an already available installation
 flow; configuring it does not build, sign, upload or verify a native app.
 `terminal` displays a command and offers Copy, never executes it.
 
@@ -2936,9 +2934,8 @@ Rust replacement is enabled by default in development and production: native
 shared libraries on macOS/Linux, the browser's Wasm executor on web, and the
 `wasmi` interpreter on iOS devices and simulators. Native hosts start with their
 linked Rust; interpreted execution applies to replaced logic. Android/Windows
-have policy defaults but their hosts remain future work. See
-[LLP 1029.000](../llp/1029.000-rust-development-reload.rfc.md) for the boundary and
-verification status.
+have policy defaults but their hosts remain future work. LLP 1029.000
+records the boundary and verification status.
 
 Control inclusion in `app.json`. `"rust": false` disables everywhere;
 `"rust": {"prod": false}` keeps it in development only. A platform can override
@@ -3028,7 +3025,7 @@ and reader components with large documents, huge individual blocks and reflow,
 and the Markdown editor with a toolbar and a link sheet
 ([`markup`, `format`, `select`](contract-grammar.md#markdown-markup-format-select)).
 These are opt-in developer workloads; none claims automatic virtualization or
-120 Hz performance. [LLP 1041](../llp/1041-graceful-overload.rfc.md) specifies the
+120 Hz performance. LLP 1041 specifies the
 graceful-overload direction and records what the first examples actually prove.
 
 With a fixture running, `bun scripts/metrics.mjs --stress-url

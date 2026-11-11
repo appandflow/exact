@@ -1114,7 +1114,7 @@ Layout, accessibility and ordinary controls stay with the app host. See
 | Collision and sound | [physics](physics/README.md), [audio](audio/README.md) |
 | App adapters | [shell generation](app/shells.mjs) |
 | Measurements and history | [bench](bench/README.md), [diaries](diaries/README.md) |
-| Architecture | [as built](../llp/1046.003-game-engine-as-built.explainer.md), [agent contract](../llp/1046.001-agent-interface-to-a-game.rfc.md) |
+| Architecture | LLP 1046.003 (as built), LLP 1046.001 (the agent contract) |
 
 From `game/` (an unset `EXACT_UPDATE_TRUST` bakes development trust):
 
