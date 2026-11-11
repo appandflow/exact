@@ -1,6 +1,7 @@
 # An SVG `use`, a `text` and a group of them have no object bounding box, so a `filter` or a `mask` on one draws nothing on native hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A `use` (and a group of one) takes the object bounding box of its target, transformed and moved by its `x`/`y`, so a filter, mask, clip or `fill-box` on it measures what it draws; a `filter` or `mask` on a `text` takes a region that holds its glyphs until the resolver has advances.
 **Systems:** kernel/src/svg/scene.rs, kernel/src/svg/scene/filter.rs, native SVG painting (Apple, Linux)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -14,6 +14,8 @@ mod bounds;
 mod filters;
 #[path = "svg_scene/lengths.rs"]
 mod lengths;
+#[path = "svg_scene/object_box.rs"]
+mod object_box;
 
 fn style(id: u32, rows: &[(StyleId, &str)]) -> Op {
     let mut patch = StyleProps::default();

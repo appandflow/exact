@@ -331,7 +331,7 @@ struct Resolver<'k, 'p> {
     /// Bounding boxes found on this walk, by node, instance and viewport:
     /// a group's box asks each child's twice (its own and its
     /// transform's), which nested groups would make exponential.
-    bboxes: std::cell::RefCell<BoxMemo>,
+    bboxes: BoxMemo,
 }
 
 /// [`Resolver::bboxes`]: the node's key in its instance (`uid`), and the
@@ -372,7 +372,7 @@ pub fn relative_font_weight(keyword: &str, inherited: u16) -> Option<u16> {
     }
 }
 
-impl Resolver<'_, '_> {
+impl<'k> Resolver<'k, '_> {
     fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
         self.presented.value(key, p).filter(|v| v.is_finite())
     }
@@ -507,6 +507,7 @@ impl Resolver<'_, '_> {
         let mask = if style.rare.svg_mask.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
+                Kind::Text(t) => Some(t.reach()),
                 _ => self.bbox(node, &style, vp),
             };
             self.mask(node, bbox, vp, ctm).map(Box::new)
@@ -531,6 +532,7 @@ impl Resolver<'_, '_> {
                         0.0
                     },
                 ),
+                Kind::Text(t) => (Some(t.reach()), 0.0),
                 _ => (self.bbox(node, &style, vp), 0.0),
             };
             self.filter(node, &style, bbox, stroke, vp).map(Box::new)
@@ -558,7 +560,12 @@ impl Resolver<'_, '_> {
     }
 
     /// The element's transform, or `None` when every part is the identity.
-    fn transform(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Transform> {
+    fn transform(
+        &mut self,
+        node: &NodeRef<'_>,
+        style: &StyleProps,
+        vp: Viewport,
+    ) -> Option<Transform> {
         let key = node.key;
         // Lengths, then percentages of the reference box (CSS Transforms 1
         // §4, as `transform-origin`'s; chess diary #4).
@@ -624,10 +631,11 @@ impl Resolver<'_, '_> {
     }
 
     /// The object bounding box in the element's own user space, before its
-    /// transform (SVG 2 §8.10): a shape's geometry, or the union of a
-    /// group's children with their transforms.
+    /// transform (SVG 2 §8.10): a shape's geometry, the union of a group's
+    /// children with their transforms, or a `use`'s instance where it
+    /// draws.
     fn bbox(
-        &self,
+        &mut self,
         node: &NodeRef<'_>,
         style: &StyleProps,
         vp: Viewport,
@@ -635,16 +643,16 @@ impl Resolver<'_, '_> {
         // The instance's key: another `use` above may pass another
         // `stroke-width` or font size down.
         let key = (self.uid(node.id), vp.width.to_bits(), vp.height.to_bits());
-        if let Some(found) = self.bboxes.borrow().get(&key) {
+        if let Some(found) = self.bboxes.get(&key) {
             return *found;
         }
         let found = self.bbox_of(node, style, vp);
-        self.bboxes.borrow_mut().insert(key, found);
+        self.bboxes.insert(key, found);
         found
     }
 
     fn bbox_of(
-        &self,
+        &mut self,
         node: &NodeRef<'_>,
         style: &StyleProps,
         vp: Viewport,
@@ -677,6 +685,32 @@ impl Resolver<'_, '_> {
             NodeType::SvgViewport => {
                 let (x, y, w, h) = viewport_rect(style, vp);
                 Some((x, y, w, h))
+            }
+            NodeType::SvgUse => {
+                // Charged as the instance is: a box through `use`s that
+                // copy `use`s is as many walks as the copies.
+                if !self.budget.cost(budget::ITEM) {
+                    return None;
+                }
+                let target = self.instanced(node)?;
+                // A `symbol` or `svg` instance is a viewport, boxed as one.
+                if matches!(
+                    target.node_type,
+                    NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
+                ) {
+                    return Some(viewport_rect(style, vp));
+                }
+                let tstyle = cascade(&target, style);
+                if tstyle.display == Display::None {
+                    return None;
+                }
+                self.uses.push(node.id as u64);
+                let b = self.bbox(&target, &tstyle, vp);
+                let t = self.transform(&target, &tstyle, vp);
+                self.uses.pop();
+                let b = b?;
+                let (x, y, w, h) = t.map_or(b, |t| map_rect(t.affine(), b));
+                Some((x + vp.x(style.x), y + vp.y(style.y), w, h))
             }
             _ => self.geometry(node, style, vp)?.0.bounds(),
         }
@@ -920,23 +954,7 @@ impl Resolver<'_, '_> {
         vp: Viewport,
         ctm: Affine,
     ) -> Option<Kind> {
-        let target_id = node
-            .props
-            .str(PropId::Href)
-            .and_then(|h| h.strip_prefix('#'))
-            .and_then(|h| self.kernel.resolve_id(node.id, h))?;
-        if self.uses.contains(&(node.id as u64)) || self.uses.len() > 16 {
-            return None;
-        }
-        // The target must not contain the `use` itself.
-        let mut up = Some(node.id);
-        while let Some(id) = up {
-            if id == target_id {
-                return None;
-            }
-            up = self.kernel.node(id).and_then(|n| n.parent);
-        }
-        let target = self.kernel.node(target_id)?;
+        let target = self.instanced(node)?;
         let (x, y) = (vp.x(style.x), vp.y(style.y));
         self.uses.push(node.id as u64);
         let kind = if matches!(
@@ -996,6 +1014,28 @@ impl Resolver<'_, '_> {
         };
         self.uses.pop();
         Some(kind)
+    }
+
+    /// The target the `use` `node` instances; `None` when it is missing or
+    /// its instance would contain this `use`.
+    fn instanced(&self, node: &NodeRef<'_>) -> Option<NodeRef<'k>> {
+        let target_id = node
+            .props
+            .str(PropId::Href)
+            .and_then(|h| h.strip_prefix('#'))
+            .and_then(|h| self.kernel.resolve_id(node.id, h))?;
+        if self.uses.contains(&(node.id as u64)) || self.uses.len() > 16 {
+            return None;
+        }
+        // The target must not contain the `use` itself.
+        let mut up = Some(node.id);
+        while let Some(id) = up {
+            if id == target_id {
+                return None;
+            }
+            up = self.kernel.node(id).and_then(|n| n.parent);
+        }
+        self.kernel.node(target_id)
     }
 
     /// `item`, for an instance's target: a definition (a `symbol`, or an
