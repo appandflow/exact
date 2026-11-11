@@ -156,8 +156,10 @@ impl Directory {
     pub fn root(path: &str, create: bool) -> io::Result<Self> {
         let mut parts = Path::new(path).components();
         let drive = match parts.next() {
+            // `\\?\C:\…`, as `std::fs::canonicalize` spells a drive path, is the same path. The walk below
+            // refuses the `.`, `..` and `/` that the verbatim spelling leaves unnormalized.
             Some(Component::Prefix(prefix)) => match prefix.kind() {
-                Prefix::Disk(drive) => drive as char,
+                Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive as char,
                 _ => return Err(refuse("root requires an absolute local drive path")),
             },
             _ => return Err(refuse("root must be absolute")),
