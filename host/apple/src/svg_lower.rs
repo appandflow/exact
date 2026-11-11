@@ -499,6 +499,9 @@ pub(crate) fn eligibility(
             .any(|a| a.duration <= 0.0 || a.iterations <= 0.0);
         let sampled = if paired
             || instant
+            // An inline run has no layer to play a spec on: its paragraph
+            // paints the engine's sample.
+            || n.is_inline_run()
             || (percent && !(boxed && !svg))
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)

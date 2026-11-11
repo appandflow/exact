@@ -204,6 +204,9 @@ impl Batch {
     }
 
     /// Encode a textual descendant without allocating a native view operation.
+    /// `opacity` is its presented opacity times its enclosing runs': a run
+    /// has no layer, so its paragraph multiplies it into the run's paint.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn inline_run(
         out: &mut String,
         id: u32,
@@ -212,6 +215,7 @@ impl Batch {
         style: &str,
         handlers: &[&str],
         paints: bool,
+        opacity: f64,
     ) {
         let _ = write!(
             out,
@@ -226,6 +230,10 @@ impl Batch {
         );
         let _ = write!(out, ",\"style\":{style},\"handlers\":");
         string_list(handlers, out);
+        if opacity != 1.0 {
+            // The row is an `f32`: its shortest form, `0.3`, not `0.30000001…`.
+            let _ = write!(out, ",\"opacity\":{}", opacity as f32);
+        }
         out.push('}');
     }
 

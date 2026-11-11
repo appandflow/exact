@@ -18,6 +18,9 @@ package struct InlineText {
 
     package let handlers: Set<String>
     package let paints: Bool
+    /// Its presented `opacity` times its enclosing runs': it has no layer,
+    /// so its paint is drawn at this alpha (CSS Color 3 §3.2).
+    package let opacity: Double
     /// CSS `user-select: all` on the run: a selection that takes part of its
     /// text takes all of it (`TextSelection.atom`).
     package let selectsAll: Bool
@@ -33,7 +36,7 @@ package struct InlineText {
     package var range: NSRange = NSRange(location: 0, length: 0)
 
     package init(id: UInt32, parent: UInt32, props: [String: String], style: InlineStyle,
-         handlers: Set<String>, paints: Bool) {
+         handlers: Set<String>, paints: Bool, opacity: Double = 1) {
         self.id = id; self.parent = parent; self.props = props
         var value = style.run
         value.text = props["text"] ?? ""
@@ -55,7 +58,7 @@ package struct InlineText {
         hasSchemeColor = style.paired || style.paint.paired
         selectsAll = style.selectsAll
         outlineNone = style.outlineNone
-        self.handlers = handlers; self.paints = paints
+        self.handlers = handlers; self.paints = paints; self.opacity = opacity
     }
 
     package var text: String { lightRun.text }

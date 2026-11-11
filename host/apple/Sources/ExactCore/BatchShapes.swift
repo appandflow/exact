@@ -193,7 +193,7 @@ extension BatchReader {
 
     package mutating func inline() throws -> InlineText {
         var id: UInt32?, parent: UInt32?, props: [String: String] = [:]
-        var style = InlineStyle(), handlers: Set<String> = [], paints = false
+        var style = InlineStyle(), handlers: Set<String> = [], paints = false, opacity = 1.0
         try object { r, key in
             switch key {
             case "id": id = try r.id()
@@ -205,12 +205,13 @@ extension BatchReader {
                 case "style": style = try r.inlineStyle()
                 case "handlers": handlers = Set(try r.array { try $0.string() })
                 case "paint": paints = try r.bool()
+                case "opacity": opacity = try r.number()
                 default: try r.skip()
                 }
             }
         }
         guard let id, let parent else { throw Invalid.wire }
-        return InlineText(id: id, parent: parent, props: props, style: style, handlers: handlers, paints: paints)
+        return InlineText(id: id, parent: parent, props: props, style: style, handlers: handlers, paints: paints, opacity: opacity)
     }
     package mutating func inlineStyle() throws -> InlineStyle {
         var style = InlineStyle(), height: BatchValue?
@@ -277,7 +278,8 @@ package struct BatchFields {
         for (key, value) in rows where key != "line_height" { try style.set(key, value, colorChannels: colorChannels) }
         try style.height(rows["line_height"])
         return InlineText(id: id, parent: parent, props: try strings("props"), style: style,
-                          handlers: Set(try array("handlers", Self.string)), paints: try bool("paint") ?? false)
+                          handlers: Set(try array("handlers", Self.string)), paints: try bool("paint") ?? false,
+                          opacity: try number("opacity") ?? 1)
     }
     package func op(colorChannels: ((BatchValue, Bool) -> [Double]?)? = nil) throws -> BatchOp {
         guard let name = try string("op") else { throw BatchReader.Invalid.wire }

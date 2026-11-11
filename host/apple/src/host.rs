@@ -1266,6 +1266,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.remove(key) {
                     self.ranks.remove(&id);
                     self.paint.runs.remove(&id);
+                    self.paint.opacities.remove(&id);
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
                     } else if self.svg.destroyed(id) {

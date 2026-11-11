@@ -1,6 +1,7 @@
 # An inline run's `opacity`, and any opacity animation or transition on it, never reaches the Apple presenter
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The `paragraph` op carries each run's presented opacity times its enclosing runs' (the engine samples a run's animations, and a frame that moves the value paints the paragraph again), and the presenter multiplies it into the run's ink, background, shadow and stroke.
 **Systems:** host/apple/src/presence.rs, host/apple/src/paragraph.rs, host/apple/src/svg.rs, host/apple/Sources/ExactCore/BatchShapes.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

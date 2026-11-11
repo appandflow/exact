@@ -139,7 +139,11 @@ impl SvgState {
                     up = p.parent;
                 }
             }
-            if !node.style.animation.0.is_empty() || self.box_sent.contains_key(&id) {
+            // An inline run has no view for an `animations` op: its
+            // animations are sampled (`svg_lower::eligibility`).
+            if !node.is_inline_run()
+                && (!node.style.animation.0.is_empty() || self.box_sent.contains_key(&id))
+            {
                 self.boxes.insert(id);
             }
             return None;
