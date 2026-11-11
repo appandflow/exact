@@ -1,6 +1,7 @@
 # A scroller's rows first walked under `opacity: 0` are kept as recorded though no backend recorded them, and stay blank on Android
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rows walked under zero opacity keep no unrecorded row and are recorded before replay when shown.
 **Systems:** host/linux/src/paint.rs, host/linux/src/paint/rows.rs, host/linux/src/canvas.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

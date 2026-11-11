@@ -534,6 +534,10 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        // A transparent ancestor can replace the backend after rows_begin enabled reuse.
+        if !self.backend.rows() {
+            return self.node(walk, id, ts, offset, clip_rect);
+        }
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };

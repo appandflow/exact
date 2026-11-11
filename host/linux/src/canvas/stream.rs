@@ -251,6 +251,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rows_first_walked_at_zero_opacity_are_recorded_when_shown() {
+        use crate::presenter::{PainterChoice, Presenter};
+
+        fn rows() -> (Vec<u32>, Vec<u32>) {
+            let ops = FINISHED
+                .with(|f| f.borrow_mut().take())
+                .expect("finished frame");
+            let (mut recorded, mut drawn) = (Vec::new(), Vec::new());
+            let mut at = 0;
+            while at < ops.len() {
+                match ops[at] {
+                    ROW_BEGIN => recorded.push(ops[at + 1]),
+                    ROW_DRAW => drawn.push(ops[at + 1]),
+                    _ => {}
+                }
+                at = end(&ops, at).expect("valid stream");
+            }
+            (recorded, drawn)
+        }
+
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(
+                r##"component App
+  state shown = false
+  action toggle
+    shown = !shown
+  view
+    column
+      button "Show" press=toggle testId="show" height=40
+      box opacity=(shown ? 1 : 0) width=300 height=300
+        scroll width=200 height=200
+          column
+            box height=50 width=200 background-color="#2468ac" testId="row"
+            box height=50 width=200 background-color="#2468ac"
+            box height=50 width=200 background-color="#2468ac"
+"##,
+            ),
+            (),
+            (400., 500.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.brush.replace_backend(Box::new(Recorder::new()));
+        let k = p.host.kernel();
+        let show = k.node_by_key(k.find_by_test_id("show")[0]).unwrap().id;
+        let row = k.node_by_key(k.find_by_test_id("row")[0]).unwrap().id;
+        for _ in 0..2 {
+            p.frame();
+            assert_eq!(rows(), (vec![], vec![]), "transparent rows draw nothing");
+            assert!(p.boxes().iter().any(|b| b.id == row && b.pointer_hit));
+            p.tap(show).unwrap();
+            p.frame();
+            let (recorded, drawn) = rows();
+            assert_eq!(recorded.len(), 3, "each revealed row must be recorded");
+            assert!(recorded.iter().all(|id| *id != 0));
+            assert_eq!(drawn, recorded, "draw the recordings just defined");
+            p.repaint();
+            p.frame();
+            assert_eq!(rows(), (vec![], drawn), "unchanged rows replay");
+            p.tap(show).unwrap();
+        }
+    }
+
+    #[test]
     fn definitions_apart() {
         let row = [ROW_BEGIN, 7, 0, 0, 0, 2, RESTORE, ROW_END];
         let mut with = vec![MATRIX, 0, 0, 0, 0, 0, 0];
