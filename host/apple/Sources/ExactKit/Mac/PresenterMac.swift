@@ -717,7 +717,7 @@ package final class Presenter {
     /// The view AppKit sends the held button's drags and up to: the one it
     /// went down on, perhaps a child of the held node, kept in the window
     /// until the button comes up even if a batch removes it (`MouseChainMac`).
-    var pointerSource: NodeView?
+    package internal(set) var pointerSource: NodeView?
     /// The drag last delivered as a `pointermove` (LLP 1056 §3 stage 3).
     weak var pointerDrag: NSEvent?
     /// Each node's latest free move, in the order the pointer reached them,

@@ -1,6 +1,7 @@
 # macOS: a grouped reorder's drop never releases the pointer hold its press began
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** macOS grouped drops release the pointer hold and deliver pointerup while the reorder may keep its ghost held.
 **Systems:** host/apple/Sources/ExactDrag/MouseReorderMac.swift, host/apple/Sources/ExactKit/Mac/MouseChainMac.swift, host/apple/tests/ExactKitTests/ReorderGroupMacTests.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
