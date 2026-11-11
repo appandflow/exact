@@ -1230,27 +1230,108 @@ test('setup refuses the removed game warmup flag before provisioning', () => {
   assert.doesNotMatch(result.stdout,/warming|cargo fetch|rustup toolchain install/);
 });
 
+for (const scenario of ['home proxy missing toolchain', 'symlinked rustup proxy', 'symlinked proxy missing toolchain', 'symlinked proxy rejected', 'symlinked proxy absent', 'candidate unrelated failure', 'skip rejected candidate', 'reject every candidate', 'copied proxy missing toolchain', 'unrelated probe failure', 'Windows exe candidate', 'Windows fallback', 'Windows Path environment']) {
+  test.skipIf(process.platform === 'win32')(`cargo proxy advice: ${scenario}`, async () => {
+    const { cargoProxyFault } = await import('./exact.mjs');
+    inDir(dir => {
+      const pin = '1.97.0', calls = [];
+      const reject = 'echo \'error: no such command: `+1.97.0`\' >&2\nexit 101';
+      const missing = `echo "error: toolchain '1.97.0-aarch64-apple-darwin' is not installed" >&2\nexit 1`;
+      const exe = scenario === 'Windows exe candidate' || scenario === 'Windows fallback' ? '.exe' : '';
+      const program = (folder, name, body) => {
+        const path = resolve(dir, folder, name + exe);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+        return path;
+      };
+      const cargo = program('first', 'cargo', scenario === 'copied proxy missing toolchain' ? missing : scenario === 'unrelated probe failure' ? 'echo broken >&2\nexit 1' : reject);
+      const rustup = program(scenario.startsWith('symlinked') ? 'first' : 'second', 'rustup', 'exit 0');
+      const candidate = program('second', 'cargo', scenario === 'skip rejected candidate' || scenario === 'reject every candidate' || scenario === 'Windows fallback' ? reject : 'exit 0');
+      const home = program('home/bin', 'cargo', scenario === 'reject every candidate' || scenario === 'Windows fallback' ? reject : 'exit 0');
+      const linked = scenario.startsWith('symlinked');
+      const target = linked ? realpathSync(program('keg/bin', 'rustup', 'exit 0')) : null;
+      let replacement = home;
+      if (linked) {
+        rmSync(rustup); symlinkSync(target, rustup); rmSync(candidate); rmSync(home);
+        if (scenario !== 'symlinked proxy absent') replacement = program('keg/bin', 'cargo', scenario === 'symlinked proxy rejected' ? reject : scenario === 'symlinked proxy missing toolchain' ? missing : 'exit 0');
+      } else if (scenario === 'home proxy missing toolchain' || scenario === 'candidate unrelated failure') {
+        writeFileSync(candidate, `#!/bin/sh\n${reject}\n`);
+        writeFileSync(home, `#!/bin/sh\n${scenario === 'home proxy missing toolchain' ? missing : 'echo broken >&2\nexit 1'}\n`);
+      }
+      if (scenario === 'copied proxy missing toolchain') cpSync(cargo, rustup);
+      const path = `${dirname(cargo)}:${dirname(rustup)}`;
+      const env = { HOME: resolve(dir, 'user'), CARGO_HOME: resolve(dir, 'home'), [scenario === 'Windows Path environment' ? 'Path' : 'PATH']: path };
+      if (scenario === 'home proxy missing toolchain') {
+        delete env.CARGO_HOME;
+        replacement = program('user/.cargo/bin', 'cargo', missing); rmSync(home);
+      }
+      // These are shell stand-ins on macOS, even when the selection rules are Windows's.
+      const execute = (command, args, options) => {
+        calls.push([command, ...args]);
+        return spawnSync(command === 'cargo' ? cargo : command, args, options);
+      };
+      const os = scenario.startsWith('Windows') || scenario === 'copied proxy missing toolchain' ? 'win32' : 'darwin';
+      const fault = cargoProxyFault(pin, env, execute, os);
+      if (scenario === 'copied proxy missing toolchain' || scenario === 'unrelated probe failure') {
+        assert.equal(fault, null);
+      } else if (['reject every candidate', 'Windows fallback', 'symlinked proxy rejected', 'symlinked proxy absent', 'candidate unrelated failure'].includes(scenario)) {
+        assert.match(fault, /no working rustup cargo proxy found/i);
+        assert.doesNotMatch(fault, /: put /);
+        for (const folder of [dirname(cargo), dirname(rustup), dirname(home), ...(linked ? [dirname(target)] : [])]) assert.ok(fault.includes(folder), fault);
+        assert.match(fault, /Repair or install rustup's proxies/);
+        assert.doesNotMatch(fault, /brew/);
+      } else {
+        const recommended = linked ? realpathSync(replacement) : scenario === 'home proxy missing toolchain' ? replacement : scenario === 'skip rejected candidate' ? home : candidate;
+        assert.equal(fault, `${cargo} is not rustup's cargo and refuses +${pin}: put ${dirname(recommended)} before ${dirname(cargo)} on PATH`);
+        assert.ok(calls.some(call => call[0] === recommended && call[1] === `+${pin}` && call[2] === '--version'), JSON.stringify(calls));
+        assert.equal(spawnSync(recommended, [`+${pin}`, '--version'], { env }).status, scenario.includes('missing toolchain') ? 1 : 0);
+      }
+    });
+  });
+}
+
 test.skipIf(process.platform === 'win32')("setup names rustup's directory when another cargo, which refuses +toolchain, is first on PATH", async () => {
   const { cargoProxyFault } = await import('./exact.mjs');
   inDir((dir) => {
-    const bin = (name, body) => { mkdirSync(resolve(dir, name), { recursive: true }); for (const tool of ['cargo', 'rustup']) if (body[tool]) writeFileSync(resolve(dir, name, tool), `#!/bin/sh\n${body[tool]}\n`, { mode: 0o755 }); return resolve(dir, name); };
-    const rustup = bin('rustup', { cargo: 'exit 0', rustup: 'exit 0' }), brew = bin('brew', { cargo: 'exit 101' });
-    assert.equal(cargoProxyFault('1.97.0', { PATH: `${rustup}:${brew}` }), null);
-    assert.equal(cargoProxyFault('1.97.0', { PATH: `${brew}:${rustup}` }), `${brew}/cargo is not rustup's cargo and refuses +1.97.0: put ${rustup} before ${brew} on PATH`);
+    // rustup's cargo is a link to rustup; another's is a program of its own, which Homebrew links beside a linked rustup.
+    const bin = (name, body) => {
+      mkdirSync(resolve(dir, name), { recursive: true });
+      for (const tool of ['rustup', 'cargo']) if (body[tool]) writeFileSync(resolve(dir, name, tool), `#!/bin/sh\n${body[tool]}\n`, { mode: 0o755 });
+      if (body.rustup && !body.cargo) symlinkSync('rustup', resolve(dir, name, 'cargo'));
+      return resolve(dir, name);
+    };
+    const reject = 'echo \'error: no such command: `+1.97.0`\' >&2\nexit 101';
+    const rustup = bin('rustup', { rustup: 'exit 0' }), brew = bin('brew', { cargo: reject }), linked = bin('linked', { cargo: reject, rustup: 'exit 0' });
+    const env = (PATH, CARGO_HOME = resolve(dir, 'none')) => ({ PATH, CARGO_HOME });
+    assert.equal(cargoProxyFault('1.97.0', env(`${rustup}:${brew}`)), null);
+    assert.equal(cargoProxyFault('1.97.0', env(`${brew}:${rustup}`)), `${brew}/cargo is not rustup's cargo and refuses +1.97.0: put ${rustup} before ${brew} on PATH`);
+    // Sharing rustup's directory, the cargo is still named, with the directory rustup-init makes ($CARGO_HOME/bin) when it holds rustup's.
+    mkdirSync(resolve(dir, 'home'));
+    symlinkSync(rustup, resolve(dir, 'home/bin'));
+    assert.equal(cargoProxyFault('1.97.0', env(`${linked}:${rustup}`, resolve(dir, 'home'))), `${linked}/cargo is not rustup's cargo and refuses +1.97.0: put ${resolve(dir, 'home/bin')} before ${linked} on PATH`);
+    assert.match(cargoProxyFault('1.97.0', env(linked)), /no working rustup cargo proxy found/);
     // rustup's own cargo failing (a toolchain not installed) is not this fault.
-    writeFileSync(resolve(rustup, 'cargo'), '#!/bin/sh\nexit 1\n');
-    assert.equal(cargoProxyFault('1.97.0', { PATH: rustup }), null);
+    writeFileSync(resolve(rustup, 'rustup'), '#!/bin/sh\nexit 1\n');
+    assert.equal(cargoProxyFault('1.97.0', env(rustup)), null);
   });
 });
 
-test.skipIf(process.platform === 'win32' || !Bun.which('rustup'))("the setup report's Rust row fails when only cargo is another's, rustup's rustc working", async () => {
+test.skipIf(process.platform === 'win32')("the setup report's Rust row and exact contract name another's cargo, rustup's rustc working", async () => {
   const { sdkReport } = await import('./exact.mjs');
   const pin = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8')).toolchain.channel;
   inDir((brew) => {
-    writeFileSync(resolve(brew, 'cargo'), '#!/bin/sh\nexit 101\n', { mode: 0o755 });
-    const rust = sdkReport({ ...process.env, PATH: `${brew}:${process.env.PATH}` }, { only: 'web' }).find(row => row.name === 'Rust');
+    writeFileSync(resolve(brew, 'cargo'), `#!/bin/sh\necho 'error: no such command: \`+${pin}\`' >&2\nexit 101\n`, { mode: 0o755 });
+    const proxy = resolve(brew, 'proxy'); mkdirSync(proxy);
+    for (const tool of ['cargo', 'rustup', 'rustc']) writeFileSync(resolve(proxy, tool), `#!/bin/sh\necho '${tool} ${pin}'\n`, { mode: 0o755 });
+    const env = { ...process.env, PATH: `${brew}:${proxy}:${process.env.PATH}` };
+    assert.equal(spawnSync(resolve(proxy, 'cargo'), [`+${pin}`, '--version'], { env }).status, 0);
+    const fault = `${brew}/cargo is not rustup's cargo and refuses +${pin}: put ${proxy} before ${brew} on PATH`;
+    const rust = sdkReport(env, { only: 'web' }).find(row => row.name === 'Rust');
     assert.equal(rust.ok, false);
-    assert.equal(rust.fix, `${brew}/cargo is not rustup's cargo and refuses +${pin}: put ${dirname(Bun.which('rustup'))} before ${brew} on PATH`);
+    assert.equal(rust.fix, fault);
+    const vocab = spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), 'contract', 'vocab', 'button'], { env, encoding: 'utf8' });
+    assert.equal(vocab.status, 101);
+    assert.ok(vocab.stderr.includes(`exact contract: ${fault}`), vocab.stderr);
   });
 }, 60_000);
 

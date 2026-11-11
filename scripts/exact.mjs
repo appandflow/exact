@@ -126,13 +126,26 @@ export function checkHermesBundles(env = process.env, execute = spawnSync, os = 
   return { ok: result.status === 0, message: message || `cargo exited ${result.status ?? 'without a status'}`, fix: install };
 }
 
-/** What to do when the `cargo` first on PATH is not rustup's (Homebrew's `rust` puts its own first), which refuses the
- * `+toolchain` every build passes; null when `cargo +<pin>` runs, or when rustup's own cargo is the one failing. */
-export function cargoProxyFault(pin, env = process.env, execute = spawnSync) {
-  if (execute('cargo', [`+${pin}`, '--version'], { env, encoding: 'utf8' }).status === 0) return null;
-  const cargo = Bun.which('cargo', { PATH: env.PATH ?? '' }), rustup = Bun.which('rustup', { PATH: env.PATH ?? '' });
-  if (!cargo || !rustup || dirname(cargo) === dirname(rustup)) return null;
-  return `${cargo} is not rustup's cargo and refuses +${pin}: put ${dirname(rustup)} before ${dirname(cargo)} on PATH`;
+/** Probe replacements: `rustup which cargo` names the toolchain's cargo, which also refuses +toolchain. */
+export function cargoProxyFault(pin, env = process.env, execute = spawnSync, os = process.platform) {
+  const args = [`+${pin}`, '--version'], options = { env, encoding: 'utf8' };
+  const output = r => `${r.stdout ?? ''}\n${r.stderr ?? ''}`, refuses = r => output(r).includes(`no such command: \`+${pin}\``);
+  const probe = execute('cargo', args, options);
+  if (probe.status === 0 || !refuses(probe)) return null;
+  const PATH = env.PATH ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
+  const names = name => os === 'win32' ? [`${name}.exe`, name] : [name];
+  const which = name => names(name).map(file => Bun.which(file, { PATH })).find(Boolean);
+  const cargo = which('cargo'), rustup = which('rustup');
+  if (!cargo || !rustup) return null;
+  const dirs = new Set([dirname(rustup), resolve(env.CARGO_HOME || resolve(env.HOME || env.USERPROFILE || homedir(), '.cargo'), 'bin'), dirname(realpathSync(rustup))]);
+  const fault = `${cargo} is not rustup's cargo and refuses +${pin}`;
+  for (const dir of dirs) {
+    if (dir === dirname(cargo)) continue;
+    const candidate = names('cargo').map(name => resolve(dir, name)).find(file => existsSync(file));
+    const result = candidate && execute(candidate, args, options);
+    if (result && !refuses(result) && (result.status === 0 || /toolchain '[^'\r\n]+' is not installed/.test(output(result)))) return `${fault}: put ${dir} before ${dirname(cargo)} on PATH`;
+  }
+  return `${fault}: no working rustup cargo proxy found (checked ${[...dirs].join(', ')}). Repair or install rustup's proxies, then put their directory first on PATH`;
 }
 
 /** The Android Hermes bundle a TypeScript app's library links: one `scripts/hermes-android.mjs` installed, which the
@@ -681,7 +694,7 @@ function compilerCargo(verb, env = process.env) {
   const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
-  return { args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
+  return { pin, args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
 }
 const COMPILER = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
@@ -702,6 +715,8 @@ export function contract(args, env = process.env) {
   const json = args[0] === 'build' && args.includes('--json');
   const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
+  // Cargo's own failures exit 101; one that is not rustup's refuses `+<pin>` before the compiler runs.
+  if (result.status === 101) { const fault = cargoProxyFault(cargo.pin, cargo.env); if (fault) console.error(`exact contract: ${fault}`); }
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5); of unsaved text
   // (`--stdin`), whose types no file holds, neither refreshes them nor type-checks app.ts.
   const input = args[0] === 'build' && !args.includes('--stdin') ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
