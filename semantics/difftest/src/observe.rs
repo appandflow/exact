@@ -238,13 +238,11 @@ impl Driver {
                 trapped(&r, 0, &mut out);
                 for res in &plan.resources {
                     let source = plan.str(res.source);
-                    if !matches!(source, "exactTransport" | "exactMIDI")
-                        && !r
-                            .data()
-                            .transcript
-                            .borrow()
-                            .iter()
-                            .any(|c| c.source == source)
+                    // Only the runner's own sources: one of the app's may
+                    // be asked nothing at boot (a closed `when`, LLP
+                    // 1161.002) and asked of the oracle later.
+                    if exact_plan::runner_owned_source(source)
+                        && !matches!(source, "exactTransport" | "exactMIDI")
                     {
                         let name = plan.str(res.name);
                         if let Some(v) = r.resource(name).cloned() {

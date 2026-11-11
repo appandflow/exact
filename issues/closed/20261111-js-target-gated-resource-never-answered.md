@@ -1,6 +1,7 @@
 # On the JS target, a resource whose `when` gate opens is never answered
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The JS target was right; the difftest harness took a resource its closed `when` left unasked at boot for a host fact and answered it the boot zero on the JS side forever, so it now records facts only for the runner's own sources (`exact_plan::runner_owned_source`).
 **Systems:** host/web-js/rt.js, semantics/corpus/resources/gate.contract
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the fix lanes of the 2026-11-10 project review
