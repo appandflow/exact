@@ -1360,9 +1360,7 @@ sits on that list carries the trade it would take.
     compiled from source so `contract::check`'s bake refusals still fail it);
     pipe stdout only for `build` (`tamber serve --stdio` streams); run the
     emitter with `compilerCargo`'s pinned toolchain and keep kept.mjs's cache
-    line off stdout under `--json`; and child-state initializers must run in
-    declaration order (regions.rs; semantics/corpus/rows/
-    row-init-chain.contract is refused otherwise). 2026-10-27, a second
+    line off stdout under `--json`. 2026-10-27, a second
     attempt (branch q24/dynamic-exit-js2 on 450a, at 01897774af, parked after
     three more fix rounds) carries the first attempt's commits onto main.
   - **A press-scale change mid-pinch snaps the target to scale 1** (2026-10-27,

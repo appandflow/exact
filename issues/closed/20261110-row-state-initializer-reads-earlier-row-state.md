@@ -1,6 +1,7 @@
 # On the web JS target a child state initialized from the child's earlier state fails the build, or builds clean and throws when the page runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web JS initializes child state in declaration order within its owning row or arm, so later initializers can read earlier state.
 **Systems:** host/web-js/src/regions.rs, host/web-js/src/code.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
