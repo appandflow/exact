@@ -151,6 +151,15 @@ updates held state directly without tick edges or queued wheel deltas.
 Tables, pads and sequence markers use this contract when admitted;
 this engine currently admits keys, pointers, controls, wheels, messages and typed events.
 
+`Input::pointer()` is the primary pointer only. `Input::pointers()` is every contact
+down (each touch, the mouse while a button is held), sorted by id, and
+`Input::pointer_events()` this tick's Down, Up and Cancel edges per id in the order
+they happened, stamped in world microseconds. A contact that ended this tick stays in
+`pointers()` with `down: false` until the next; deltas and edges clear at each tick
+while contacts still down remain. Blur cancels every contact; paused input leaves no
+edges. A save holds each active contact's id, origin and position, in the raw contacts
+that touch actions read, and no edges.
+
 ## HUD and events
 
 Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,

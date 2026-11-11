@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 mod contexts;
 mod pad;
+mod pointers;
 mod sensor;
 mod triggers;
 pub(crate) use contexts::seed;
 pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
+pub use pointers::{PointerContact, PointerEdge};
 pub use sensor::{tilt_stick, SensorKind, SensorSample, SensorState, Tilt};
 pub use triggers::InputState;
 /// Register the input resources a world restores in any process: contexts,
@@ -618,6 +620,11 @@ pub struct Input {
     sensors: SensorState,
     #[data(skip)]
     tick_samples: Vec<sensor::TickSample>,
+    // Every contact and this tick's edges; a restore rebuilds them from `contacts`.
+    #[data(skip)]
+    pointers: Vec<PointerContact>,
+    #[data(skip)]
+    pointer_edges: Vec<PointerEdge>,
 }
 impl Input {
     /// Events produced by the preceding tick, in emission order for this type.
@@ -698,6 +705,16 @@ impl Input {
             })
         {
             return Err("saved input needs finite points".into());
+        }
+        let mut pointers: Vec<_> = saved
+            .contacts
+            .iter()
+            .filter(|p| p.action.is_empty())
+            .map(|p| p.id)
+            .collect();
+        pointers.sort_unstable();
+        if pointers.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err("saved pointer contacts must have unique ids".into());
         }
         for p in &saved.contacts {
             if !p.origin.is_finite() || !p.position.is_finite() {
@@ -938,6 +955,7 @@ impl Input {
         if let Some(p) = &mut self.pointer {
             p.delta = Vec2::ZERO;
         }
+        self.clear_pointer_edges();
     }
     pub(crate) fn restore_dynamic(&mut self, saved: Self) {
         self.viewport = saved.viewport;
@@ -945,6 +963,7 @@ impl Input {
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;
         self.pads = saved.pads;
+        self.restore_pointers();
         self.clear_edges();
     }
     /// Held state changes; trigger timers start at `at_us`; no edges remain.
@@ -1071,6 +1090,7 @@ impl Input {
                 }
             }
             InputEvent::Blur { .. } => {
+                self.cancel_pointers(at_us);
                 self.keys.clear();
                 self.contacts.clear();
                 self.pads.clear();
@@ -1197,6 +1217,15 @@ impl Input {
                         self.contacts.retain(|p| p.id != id || !p.action.is_empty())
                     }
                 }
+                let ends =
+                    phase == PointerPhase::Cancel || (phase == PointerPhase::Up && buttons == 0);
+                let edge = PointerEdge {
+                    id,
+                    phase,
+                    position,
+                    world_us: at_us,
+                };
+                self.track_pointer(edge, motion, ends, primary_down);
             }
         }
     }

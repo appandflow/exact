@@ -424,6 +424,48 @@ pushed as far, the lower index); a button is down while any pad holds it. Per ho
 | Linux | evdev, at each report, stamped with the report's time moved into the host's clock by one origin per read and kept when that report moves the pads to a canvas, so readings buffered in one read keep their spacing and several pads' arrive in the order they happened (ties by index, then as read); in the kernel's gamepad layout (Xbox drivers' letters read as their positions); a pad's state is read when it opens and delivered ahead of the reports buffered since | pads present at launch only; every pad is reported standard |
 | Windows | XInput's four slots, every 8 ms while one is connected and every 250 ms otherwise, while the window has focus, and all four at once when it regains focus, so a pad unplugged meanwhile reads gone | `GamepadHome` is never down (XInput does not report the guide button); a reading is stamped at its poll |
 
+`input.pointer()` is one primary pointer: the first contact down, or the hovering
+mouse. For several fingers at once, `input.pointers()` is every contact down, sorted by
+id: each touch, and the mouse while a button is held (`PointerContact`: `id`,
+`position`, `press_origin`, `down`, `delta`). `input.pointer_events()` is this tick's
+contact edges in the order they happened (`PointerEdge`: `id`, `phase`, `position`,
+`world_us`): a `Down` where a contact began, an `Up` or `Cancel` where it ended. A move
+is not an edge. A down and up in one tick are two edges, and the contact stays in
+`pointers()` with `down: false` for that tick only. A blur cancels every contact. Input
+applied while the game is paused leaves no edge, so a finger lifted during a pause never
+reads as a tap. A save holds the contacts down with their origins and no edges. Each
+finger holds the die under it:
+
+```rust
+use exact_game::*;
+#[derive(Clone, Default, Data)]
+struct Grab { finger: u64, die: Entity }
+#[derive(Default, Resource)]
+struct Grabs(Vec<Grab>);
+
+fn tick(w: &mut World, input: &Input, _: &()) {
+    for e in input.pointer_events() {
+        w.resource_mut::<Grabs>().0.retain(|g| g.finger != e.id);
+        if e.phase == PointerPhase::Down {
+            if let Some(die) = die_under(w, input.viewport(), e.position) {
+                w.resource_mut::<Grabs>().0.push(Grab { finger: e.id, die });
+            }
+        }
+    }
+    let grabs = w.resource::<Grabs>().0.clone();
+    for p in input.pointers().iter().filter(|p| p.down) {
+        if let Some(g) = grabs.iter().find(|g| g.finger == p.id) {
+            drag_to(w, g.die, input.viewport(), p.position);
+        }
+    }
+}
+// The game's own pick (a ray through the point) and drag.
+fn die_under(w: &World, viewport: Vec2, at: Vec2) -> Option<Entity> {
+    todo!()
+}
+fn drag_to(w: &mut World, die: Entity, viewport: Vec2, at: Vec2) {}
+```
+
 What is saved and what is hashed differ. A save holds the input queue and the keys,
 pads and contacts held, which the world hash leaves out. The world hash covers the world
 the input changed, plus resources that exist only once a game uses them:
@@ -469,6 +511,7 @@ nothing yet.
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
 | Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
 | Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. |
+| Several fingers at once | `input.pointers()` (every contact down, by id) and `input.pointer_events()` (this tick's Down, Up and Cancel edges, in order); [Controls](#controls) has a multi-finger grab |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
