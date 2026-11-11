@@ -1,7 +1,7 @@
 //! TypeScript's side of the data seam, derived from the plan's signatures.
 //! @ref LLP 1027 D2/D5 — no separately maintained argument or result shapes.
 
-use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId};
+use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId, TypesRow};
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
@@ -41,19 +41,7 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
         match row.kind {
             TypeKind::Number => out.push_str("number"),
             TypeKind::Bool => out.push_str("boolean"),
-            TypeKind::String => {
-                if row.fields.is_empty() {
-                    out.push_str("string");
-                } else {
-                    out.push_str(
-                        &row.fields
-                            .iter()
-                            .map(|f| quoted(plan.str(plan.field(f).name)))
-                            .collect::<Vec<_>>()
-                            .join(" | "),
-                    );
-                }
-            }
+            TypeKind::String => out.push_str(&string_type(plan, row)),
             TypeKind::Unit => out.push_str("null"),
             TypeKind::Option | TypeKind::List => {
                 let elem = row.elem.ok_or_else(|| format!("type {i} has no element"))?;
@@ -338,6 +326,24 @@ fn summary(plan: &Plan, out: &mut String) {
     }
 }
 
+fn string_type(plan: &Plan, row: &TypesRow) -> String {
+    if row.fields.is_empty() {
+        "string".into()
+    } else {
+        row.fields
+            .iter()
+            .map(|f| {
+                // JSON leaves these literal, but they terminate the summary's line comments.
+                serde_json::to_string(plan.str(plan.field(f).name))
+                    .expect("a string is JSON")
+                    .replace('\u{2028}', "\\u2028")
+                    .replace('\u{2029}', "\\u2029")
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+}
+
 /// A type as the summary writes it: a named shape by its name (noted in `shapes` once).
 fn inline(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
     let row = &plan.types[ty.0 as usize];
@@ -345,15 +351,17 @@ fn inline(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
     match row.kind {
         TypeKind::Number => "number".into(),
         TypeKind::Bool => "boolean".into(),
-        TypeKind::String => "string".into(),
+        TypeKind::String => string_type(plan, row),
         TypeKind::Unit => "null".into(),
         TypeKind::Option => format!("{} | null", elem().unwrap_or_default()),
         TypeKind::List => {
-            let nullable = row
-                .elem
-                .is_some_and(|e| plan.types[e.0 as usize].kind == TypeKind::Option);
+            let union = row.elem.is_some_and(|e| {
+                let elem = &plan.types[e.0 as usize];
+                elem.kind == TypeKind::Option
+                    || (elem.kind == TypeKind::String && elem.fields.len > 1)
+            });
             let elem = elem().unwrap_or_default();
-            if nullable {
+            if union {
                 format!("({elem})[]")
             } else {
                 format!("{elem}[]")

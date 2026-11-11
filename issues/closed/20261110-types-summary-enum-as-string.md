@@ -1,6 +1,7 @@
 # The summary at the top of `app.contract.d.ts` writes an enum as `string`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** TypeScript summaries preserve enum literals and parenthesize enum unions before array suffixes.
 **Systems:** contract/cli/src/typescript.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
