@@ -1,6 +1,7 @@
 # A tvOS build bundles a Canvas 2D GPU module whose every shader is empty
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** tvOS device and simulator modules carry compiled Metal kernels; unsupported Apple targets build as ABI-0 stubs.
 **Systems:** canvas/vello/build.rs, host/apple/build.mjs, host/apple/Sources/ExactSurfaces/Canvas2DImage.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
