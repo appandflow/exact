@@ -302,13 +302,14 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 }
             }
             // Rapier keeps a dynamic body's force until it is reset, and saves it;
-            // `add_force` ignores other kinds. Both calls do nothing at zero.
+            // `add_force` ignores other kinds. Both calls do nothing at zero, and
+            // either wakes the body when it changes a force.
             if entry
                 .body
                 .as_ref()
                 .is_none_or(|p| p.force != b.force || p.kind != b.kind)
             {
-                rb.reset_forces(false);
+                rb.reset_forces(true);
                 rb.add_force(math::vector(b.force), true);
             }
             if b.kind == BodyKind::Kinematic {
@@ -499,8 +500,9 @@ fn configure(p: &Physics, ip: &mut IntegrationParameters, dt: f32) {
             && [p.contact_frequency, p.static_contact_frequency]
                 .iter()
                 .all(|f| f.is_finite() && *f > 0.0)
+            // Rapier's contact softness divides by the damping ratio.
             && p.contact_damping_ratio.is_finite()
-            && p.contact_damping_ratio >= 0.0
+            && p.contact_damping_ratio > 0.0
             && [p.friction_gravity, p.friction_slip_speed]
                 .iter()
                 .all(|v| v.is_finite() && *v >= 0.0)
@@ -666,7 +668,14 @@ pub fn step(world: &mut World) {
         })
         .collect();
     if !shaped.is_empty() {
-        events.retain(|t| !shaped.contains_key(&t.a) && !shaped.contains_key(&t.b));
+        let mut transient = BTreeSet::new();
+        events.retain(|t| {
+            let keep = !shaped.contains_key(&t.a) && !shaped.contains_key(&t.b);
+            if !keep && t.began {
+                transient.insert((t.a, t.b));
+            }
+            keep
+        });
         for (e, handles) in shaped.iter_mut() {
             *handles = live
                 .entries
@@ -680,6 +689,15 @@ pub fn step(world: &mut World) {
             b,
             began: after.contains(&(a, b)),
         }));
+        // A pair that begins and ends within the step (a kinematic or CCD body
+        // passing through a sensor) touches neither before nor after; Rapier's
+        // events are its only record, so report both.
+        events.extend(
+            transient
+                .into_iter()
+                .filter(|p| !before.contains(p) && !after.contains(p))
+                .flat_map(|(a, b)| [true, false].map(|began| Touch { a, b, began })),
+        );
     }
     events.sort_by_key(|e| (e.a, e.b, e.began));
     events.dedup();

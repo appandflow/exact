@@ -311,7 +311,7 @@ pub struct Physics {
     /// The same for a contact with a fixed body (a static collider, a Static
     /// body); defaults to Rapier's 60.
     pub static_contact_frequency: f32,
-    /// Damping ratio of both contact springs; defaults to Rapier's 10.
+    /// Damping ratio of both contact springs, positive; defaults to Rapier's 10.
     pub contact_damping_ratio: f32,
     /// One friction constraint per contact point (Rapier's Coulomb model) instead
     /// of one per group of four plus a twist constraint (its default, faster).

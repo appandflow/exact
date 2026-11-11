@@ -412,3 +412,130 @@ fn weight_friction_acts_on_a_contact_lifting_off() {
         "box slowed {slowed}"
     );
 }
+
+// A fast CCD body crossing a thin sensor within one tick touches it neither before
+// nor after the step; Rapier's events are the only record. An entity with extras
+// (here one that meets nothing) reports the same begin and end as one without.
+#[test]
+fn a_body_with_extras_reports_a_touch_within_one_step() {
+    let run = |extra: bool| {
+        let mut w = world();
+        let sensor = w.spawn((
+            Transform::at(1.0, 0.0, 0.0),
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::new(0.01, 1.0, 1.0),
+                },
+                sensor: true,
+                ..Collider::default()
+            },
+        ));
+        let bullet = w.spawn((
+            Transform::default(),
+            Body {
+                velocity: Vec3::X * 120.0,
+                gravity: 0.0,
+                ccd: true,
+                ..Body::default()
+            },
+            Collider {
+                shape: Shape::Sphere { radius: 0.05 },
+                extra: if extra {
+                    vec![Collider {
+                        mask: 0,
+                        ..Collider::default()
+                    }]
+                } else {
+                    Vec::new()
+                },
+                ..Collider::default()
+            },
+        ));
+        let mut log = Vec::new();
+        for n in 0..5 {
+            physics::step(&mut w);
+            log.extend(physics::events(&w).iter().map(|t| (n, t.a, t.b, t.began)));
+        }
+        assert!(w.get::<Transform>(bullet).unwrap().position.x > 1.0);
+        (log, sensor, bullet)
+    };
+    let (plain, sensor, bullet) = run(false);
+    let (a, b) = (sensor.min(bullet), sensor.max(bullet));
+    assert!(
+        plain.iter().any(|t| (t.1, t.2, t.3) == (a, b, true)),
+        "{plain:?}"
+    );
+    assert_eq!(run(true).0, plain);
+}
+
+// A body held up by a force falls once the force is cleared, asleep or not.
+#[test]
+fn clearing_a_force_wakes_its_body() {
+    let mut w = world();
+    let e = ball(
+        &mut w,
+        0.0,
+        Body {
+            mass: 1.0,
+            force: Vec3::new(0.0, 9.81, 0.0),
+            ..Body::default()
+        },
+    );
+    for _ in 0..300 {
+        physics::step(&mut w);
+    }
+    assert!(w.get::<Body>(e).unwrap().asleep);
+    w.get_mut::<Body>(e).unwrap().force = Vec3::ZERO;
+    for _ in 0..30 {
+        physics::step(&mut w);
+    }
+    assert!(w.get::<Transform>(e).unwrap().position.y < -1.0);
+}
+
+// Weight-bounded contacts replay exactly after a restore.
+#[test]
+fn weight_friction_replays_after_a_restore() {
+    let mut w = World::new(120, 0);
+    physics::register(&mut w);
+    {
+        let mut p = w.resource_mut::<physics::Physics>();
+        p.coulomb_friction = true;
+        p.friction_gravity = 9.81;
+        p.friction_slip_speed = 0.2;
+    }
+    w.spawn((
+        Transform::at(0.0, -0.5, 0.0),
+        Collider {
+            shape: Shape::Box {
+                half: Vec3::new(20.0, 0.5, 20.0),
+            },
+            ..Collider::default()
+        },
+    ));
+    for i in 0..3 {
+        let f = i as f32;
+        w.spawn((
+            Transform::at(f * 1.5, 0.3 + 0.2 * f, 0.0),
+            Body {
+                velocity: Vec3::new(4.0 + f, 0.0, 1.0 - f),
+                spin: Vec3::new(0.0, f, 2.0),
+                ..Body::default()
+            },
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::splat(0.25),
+                },
+                ..Collider::default()
+            },
+        ));
+    }
+    for _ in 0..20 {
+        physics::step(&mut w);
+    }
+    let mut r = restored(&w);
+    for tick in 0..120 {
+        physics::step(&mut w);
+        physics::step(&mut r);
+        assert_eq!(r.hash(), w.hash(), "tick {tick}");
+    }
+}
