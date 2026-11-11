@@ -2,8 +2,9 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-// Each is an export of its own name, a factory over `say` (the journal) and
-// `agentMode` (rt.js's, whether the agent drives the page): the compiled plan
+// Each is an export of its own name, a factory over `say` (the journal),
+// `agentMode` (rt.js's, whether the agent drives the page) and rt.js's
+// `Choice` (the app's chosen language, `setLocale`'s): the compiled plan
 // imports the ones its actions name and hands them to rt.js's `useCommands`
 // (emit.rs, LLP 1047.002 D1), so a command no action names is never linked.
 // The compiler reads this file's `export const` names as it is built.
@@ -79,6 +80,30 @@ export const setPageZoom = say => () => say("setPageZoom refused: the browser's 
 // A recording of frames is the Apple hosts'; the browser's performance panel records the page.
 export const startTrace_EXPERIMENTAL = say => () => say("startTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel");
 export const stopTrace_EXPERIMENTAL = say => () => say("stopTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel");
+// The app's chosen language, the runner's `take_set_locale` (runner/src/runner/time.rs): each `setLocale(tag)` is taken
+// out of its commit before the writes land (rt.js `Choice`, handed to this factory), the locale slot takes the table
+// the tag resolves to ("" the page's locale) and `exactTime` is asked again; once the commit stands the newest
+// choice is kept in `localStorage`, and one that failed to keep is tried again after each later commit that stands.
+export const setLocale = (say, _, c) => {
+  let latest, unsaved = false;
+  c.hook = commands => {
+    let tag;
+    for (let i = 0; i < commands.length;) {
+      if (commands[i][0] !== "setLocale") { i++; continue; }
+      const [t] = commands.splice(i, 1)[0][1];
+      if (typeof t !== "string" || (t && !/^[A-Za-z0-9-]{1,64}$/.test(t))) { say(`setLocale(${JSON.stringify(t) ?? ""}) refused: a BCP 47 tag ("de", "pt-BR"), or "" for the host's locale`); continue; }
+      const to = c.locale(t || null), was = tag === undefined ? c.slot.n.v : c.locale(tag || null);
+      tag = t;
+      if (to !== was) { c.W(c.slot, to); for (const r of c.Resources) if (r.source === "exactTime") c.R(r); }
+    }
+    if (tag === undefined && !unsaved) return;
+    return () => {
+      if (tag !== undefined) { latest = tag; c.tag = tag || null; }
+      try { if (latest) localStorage.setItem(c.key(), JSON.stringify(latest)); else localStorage.removeItem(c.key()); unsaved = false; } catch (e) { if (!unsaved) say(`store #locale failed: ${e}`); unsaved = true; }
+    };
+  };
+  return () => {};
+};
 // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
 // axes loads; any other refuses it, as the runner does.
 export const setMode = say => (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`);

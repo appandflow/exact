@@ -175,9 +175,9 @@ export function commit(f, what = "commit", finished) {
   Probes?.capture();
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Finishes = finished ? [finished] : []; Refused = null; Why = ""; time();
   const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => [m.ticket, m.tickets, m.concluded]), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
-  let ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
+  let chose, ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
   try {
-    untracked(f);
+    untracked(f); chose = Choice.hook?.(Commands);
     step = "landing its writes and sends"; tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
@@ -218,7 +218,7 @@ export function commit(f, what = "commit", finished) {
     try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); for (const f of finishes) f(false); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     for (const f of finishes) f(ok);
     settled(true); if (!ok) return Sched?.scan(false), false;
-    clock.epoch++; Store.persist();
+    clock.epoch++; Store.persist(); chose?.();
     while (sent < out.length) out[sent++](); if (Open.size) closeLetGo(inflight, say); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
@@ -278,7 +278,7 @@ export const Hosts = {
   scrollIntoView: (id, block, inline, behavior) => { const e = liveById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
   scrollBy: (id, x, y) => { const e = liveById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
   observe: n => say(`observe ${n}`), observeAttributes: () => {}, observeError: m => say(`observeError ${m}`) }; // journal lines only; marks.js replaces these when the app has launch modules
-export function useCommands(table) { for (const name in table) Hosts[name] = table[name](say, () => agentMode()); } // commands.js's, each by name as the compiled plan imported it for an action that names it (emit.rs, LLP 1047.002 D1): a factory over the journal and whether the agent drives the page; one no action names is never linked
+export function useCommands(table) { for (const name in table) Hosts[name] = table[name](say, () => agentMode(), Choice); } // commands.js's, each by name as the compiled plan imported it for an action that names it (emit.rs, LLP 1047.002 D1): a factory over the journal and whether the agent drives the page; one no action names is never linked
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; if (!KeyEvent && Propagating?.type === "pointerdown") Propagating.preventDefault(); /* a pointerdown handler's: the browser keeps the focus, places no caret, starts no selection; the click still fires (LLP 1005 §3) */ }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
 function command(name, args, origin) {
@@ -1438,13 +1438,18 @@ export * from "./roster.js"; // the roster's pure entries
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // holds the table the viewer's launch locale reads before state initializes;
 // `t` reads that table, else the base.
-let Texts = [];
-export function strings(tables) { Texts = tables; }
-/** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
- * subtag prefix a table is named for, without case, else the base. A render has no launch locale: the base (LLP 1060 D4). */
-export function locale() {
-  let tag = Texts[0]?.[0] ?? "";
-  if (!globalThis.__exactRender) try { tag = reportPlace().split("\0")[0]; } catch {}
+// The language the app chose with `setLocale`, kept as persisted state is, under "#locale" (runner/src/runner/time.rs
+// `CHOSEN`): `Choice.tag`, null while it follows the page's; `chooses`, the plan runs `setLocale`, whose commit hook
+// commands.js installs (`Choice.hook`), so a plan that never runs it carries none of it.
+let Texts = []; export const Choice = { tag: null, slot: null, hook: null, key: () => Kept("state") + "#locale" };
+/** The locale slot, for `Choice.hook` from the slot's making on: an action at mount (autofocus, a replayed tap) may choose. */ export const localeSlot = s => { Choice.slot = s; };
+export function strings(tables, chooses) { Texts = tables; if (chooses) try { Object.assign(Choice, { W, R, locale, Resources }); if (globalThis.__exactRender) return; const v = JSON.parse(localStorage.getItem(Choice.key())); if (typeof v === "string" && /^[A-Za-z0-9-]{1,64}$/.test(v)) Choice.tag = v; } catch {} }
+/** RFC 4647 lookup of `tag`, by default the app's chosen language, else the
+ * page's locale (an agent's `?locale`): the longest subtag prefix a table is
+ * named for, without case, else the base. A render has no launch locale
+ * and no store: the base (LLP 1060 D4). */
+export function locale(tag = Choice.tag) {
+  if (tag == null) { tag = Texts[0]?.[0] ?? ""; if (!globalThis.__exactRender) try { tag = reportPlace().split("\0")[0]; } catch {} }
   for (;;) {
     const t = Texts.find(r => r[0].toLowerCase() === tag.toLowerCase());
     if (t) return t[0];

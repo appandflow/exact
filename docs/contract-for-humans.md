@@ -1642,7 +1642,12 @@ such as `t("greeting", name=person.name)`, with `{name}` in the table value. The
 key must be a literal; keys and placeholder names are checked at compilation. The
 base table is `en` unless `app.json` sets `strings.base`, and a translation may
 omit keys but not add them. The locale comes from the host; lookup falls back from
-the exact tag to shorter tags, then to the base. See
+the exact tag to shorter tags, then to the base. An app's own language setting
+calls `setLocale("de")` in its action, and `setLocale("")` for "System": the
+choice stands over the host's locale, is kept across launches, and applies before
+the next launch's first frame, so the setting needs no mount task.
+`exactTime().resolvedLocale` follows it; `locale` and `formatLocale` stay the
+device's. See
 [the locale fixture](../host/web-js/conformance/locale) and
 [the string tests](../contract/cli/tests/it/strings.rs).
 

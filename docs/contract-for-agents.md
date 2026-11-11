@@ -3730,7 +3730,9 @@ mouse is the app's only full screen or while a dialog is open; inline, ⌘-click
 on the run's link is the terminal's own.
 
 Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
-files. Compile against the files to check keys and placeholders. Formatting
+files. Compile against the files to check keys and placeholders. A language
+setting calls `setLocale("de")` (`setLocale("")` for System) in its action; the
+choice is kept across launches and read before the first frame. Formatting
 functions accept a narrow set of literal formats; app wording is an app `fn`.
 
 #### Folds on iOS
