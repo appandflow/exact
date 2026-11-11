@@ -1,6 +1,7 @@
 # `text-transform: capitalize` finds different words on native hosts than Chrome does on the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `capitalize` breaks words at `.` and `:` and keeps word context across UAX #29 WB4 characters within a run, as Chromium does; LLP 1064 D5 states the rule.
 **Systems:** kernel/src/text/case.rs, LLP 1064 D5
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

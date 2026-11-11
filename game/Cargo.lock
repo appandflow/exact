@@ -650,6 +650,7 @@ dependencies = [
  "exact-num",
  "exact-svg-filter",
  "exact-textflow",
+ "icu_properties",
  "serde",
  "serde_json",
  "sha2",
