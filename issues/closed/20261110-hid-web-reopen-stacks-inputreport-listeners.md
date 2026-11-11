@@ -1,6 +1,7 @@
 # On the web, each reopen of a HID device adds another input-report listener that is never removed
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web HID removes its listener when the shared open ends, preserves final report batches, orders device operations, and releases disposed handles.
 **Systems:** packages/hid/web/index.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
