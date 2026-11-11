@@ -219,9 +219,8 @@ export class Repo {
     this.packages = new Map();
     for (const manifest of WORKSPACES) {
       if (!listed.has(manifest)) continue;
-      // The root's packages are resolved (a `[patch]`ed crate is a path package there); the others are read from
-      // their manifests alone (`--no-deps`), their path dependencies with them.
-      const data = metadata?.[manifest] ?? cargoMetadata(root, manifest, manifest === 'Cargo.toml');
+      // Resolved metadata includes path dependencies outside either workspace, including patched crates.
+      const data = metadata?.[manifest] ?? cargoMetadata(root, manifest, true);
       this.#addWorkspace(data, manifest);
     }
     // A file belongs to the deepest package whose directory holds it.
@@ -246,9 +245,6 @@ export class Repo {
       if (members.has(p.id) && !pkg.manifest) pkg.manifest = manifest;
       this.packages.set(p.name, pkg);
       byId.set(p.id, pkg);
-      if (!data.resolve && !known) {
-        for (const d of p.dependencies) if (d.path) pkg.deps.push({ name: d.name, kinds: [d.kind ?? 'normal'] });
-      }
     }
     for (const node of data.resolve?.nodes ?? []) {
       const pkg = byId.get(node.id);

@@ -317,6 +317,22 @@ test("the lane runs the iOS classes a commit's test files reach, and every class
   }
 });
 
+test('a path dependency outside both workspaces selects its consumer and the game lane', async () => {
+  const { laneSelection } = await import('./async.mjs');
+  const repo = new Repo(), graph = new Graph(repo);
+  const cargo = suites(repo).filter(s => s.kind === 'cargo');
+  for (const file of ['vendor/rapier3d/src/lib.rs', 'vendor/rapier3d/Cargo.toml']) {
+    const picked = select(graph, [file], cargo);
+    expect(picked.map(s => s.suite.id)).toEqual(['cargo:exact-game-physics']);
+    expect(commands(picked)).toEqual([
+      ['cargo', 'test', '--manifest-path', 'game/Cargo.toml', '--tests', '--no-fail-fast', '-p', 'exact-game-physics'],
+    ]);
+  }
+  const lane = laneSelection(['vendor/rapier3d/src/lib.rs'], { root: repo.root, repo });
+  expect(lane.game).toBe(true);
+  expect(lane.ids).toContain('cargo:exact-game-physics');
+}, 120_000);
+
 // The checkout itself: a change to one app runs that app's suites, not another's, nor the hosts' own.
 test("this checkout's selection keeps an app's change to that app's suites", () => {
   const repo = new Repo(), graph = new Graph(repo);

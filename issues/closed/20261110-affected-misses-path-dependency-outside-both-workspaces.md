@@ -1,6 +1,7 @@
 # `affected.mjs` selects no suite for a change to `vendor/rapier3d`, which the game's physics crate builds
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Resolved metadata for both workspaces makes Rapier changes select the physics tests and the async game lane.
 **Systems:** scripts/affected.mjs, scripts/async.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
