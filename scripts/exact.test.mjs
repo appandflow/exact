@@ -1134,7 +1134,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['exit', 'animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
     [['-exact-exit-animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
     [['call'], 'docs/recipes/native-module.md', /func call/],
-    [['later'], 'docs/recipes/native-module.md', /func later/],
+    [['later'], 'docs/reference.md', /Answer::Later/],
     [['screenshot'], 'docs/recipes/ios-driving.md', /screenshot\s+\.exact\/x\.png compare/],
     [['scheme', 'fixed'], 'docs/recipes/theme.md', /scheme=fixed/],
     [['tabular', 'numbers'], 'docs/contract-for-agents.md', /^### Tabular numbers/],
