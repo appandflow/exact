@@ -227,6 +227,11 @@
           "name": "each",
           "codec": "range:args",
           "_comment": "@ref LLP 1017.000 P4c (amended 2026-11-04): empty for one request; for `resource r = source(args) for x in list [key=k] as shape S`, two entries: the list, read as a derive is, then the key, which reads the element as its one parameter (the element itself when no `key=` is written). `args` then read the element as their one parameter too; the source is asked once for each element, keyed as a `for` row is; `ty` is `S[]`, and each request answers `S`."
+        },
+        {
+          "name": "transient",
+          "codec": "bool",
+          "_comment": "@ref LLP 1156.005 D4: `resource ... transient`. The runner neither keeps this resource's answer in the device's store nor seeds a launch from one, and a boot forgets an entry an earlier build kept. It is still asked again at `data_ready` as any store reader is."
         }
       ]
     },

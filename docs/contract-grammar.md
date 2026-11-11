@@ -291,7 +291,7 @@ provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "for" IDENT "in" expr [ "key" "=" expr ] ]
                 [ "with" expr { "," expr } ] "as" "shape" type
-                [ "else" source-call ] NL ;
+                [ "else" source-call ] [ "transient" ] NL ;
 mutation      = "mutation" IDENT "as" "shape" type [ "queue" ]
                 [ "refreshes" IDENT { "," IDENT } ]
                 [ "then" IDENT ] NL ;
@@ -543,6 +543,9 @@ mutation's `refreshes r` asks every element again.
 A resource's `else` is a placeholder. `else empty()` is the resource type's zero,
 with `field=constant` overrides for a record. `else source(values…)` names a source
 whose arguments are plain values, not state; it is answered once at build.
+`transient`, last on the line, keeps the answer out of the device's storage: no
+launch shows it before the source answers, and an answer kept before is
+forgotten (LLP 1156.005 D4).
 A mutation's `then` names a parameterless action and follows `refreshes` when
 both are present. `queue`, right after the shape, makes every send of the
 mutation wait its turn (LLP 1092): one request in flight, later sends asked in

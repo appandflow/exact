@@ -711,6 +711,11 @@ kept for the resource is forgotten, so a launch never shows an answer since repl
 identifying argument that changes every launch (the launch's time or seed) never
 matches the kept one: pass it after `with`, as `resource lib = library() with
 time.epochAtZero`; the compiler and `logs` both say so.
+An answer that must never reach the device's storage (a one-time code, a message
+shown once) ends its line with `transient`: `resource code = otp(request) as shape
+Code transient`. It is never kept, a launch starts from its placeholder, and an
+answer an earlier build kept is forgotten at the next launch. To keep no answers at
+all, an app's grants decide (a Health grant keeps none).
 Keep a first screen's resources small and move their bulk into a resource the first
 frame does not need. A write the resource does not hear about (a file or database save from
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that

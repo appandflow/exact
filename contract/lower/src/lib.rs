@@ -96,7 +96,7 @@ pub use error::LowerError;
 pub(crate) use error::{err, err_one};
 pub use fields::Profile;
 pub use identity::compiler_identity;
-pub use lint::lint;
+pub use lint::{lint, lint_unused};
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use native_typed::{DeclaredView, DeclaredViews, EVENT_MARKER};
@@ -594,6 +594,9 @@ fn lower_body(
     for (i, r) in root.resources.iter().enumerate() {
         let ty = l.ty_id(&root_types.resources[i])?;
         let id = l.b.resource(&r.name, &r.source, &[], ty, None);
+        if r.transient {
+            l.b.set_resource_transient(id);
+        }
         l.resources.push(id);
     }
     // The seam's signatures (LLP 1027 D2), in name order; a native module's

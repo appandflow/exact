@@ -246,6 +246,43 @@ mod tests {
         }
     }
 
+    /// A reload that makes a kept reader `transient` forgets what it kept
+    /// (LLP 1156.005 D4), though its source and logic are unchanged.
+    #[test]
+    fn a_reload_into_a_transient_resource_forgets_its_kept_answer() {
+        let mut original_plan = plan("remember", false);
+        original_plan.resources[0].reader = true;
+        let mut original = Runner::boot_stored(
+            original_plan,
+            Source {
+                deferred: true,
+                ..Default::default()
+            },
+            Kernel::with_monospace(),
+            vec![("token".into(), "stored answer".into())],
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        original.data.deferred = false;
+        original.data_ready().unwrap();
+        let carried = original.carry();
+        assert!(carried.store.iter().any(|(n, _)| n == "exact.kept.answer"));
+        let mut next = plan("remember", true);
+        next.resources[0].reader = true;
+        next.resources[0].transient = true;
+        let reloaded = Runner::boot_carrying(
+            next,
+            Source::default(),
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(reloaded.store.kept("exact.kept.answer"), None);
+    }
+
     #[test]
     fn a_carried_kept_seed_cannot_restore_an_answer_from_another_source() {
         let mut original_plan = plan("remember", false);

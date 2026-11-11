@@ -610,7 +610,7 @@ component App
 More: docs/recipes/after-a-write.md
 
 ## resource: a read from the data module
-names: source, sources, fetch, load, useEffect, useQuery, query
+names: source, sources, fetch, load, useEffect, useQuery, query, transient, no-store, volatile, ephemeral
 
 `resource name = source(args) as shape T else empty()` asks the source in `app.ts` and shows its
 answer as `name`; the arguments are state, so a change asks again. Until the first answer it is
@@ -631,6 +631,7 @@ component App
 
 - The source answers exactly the shape (an extra field fails it), and a failed fetch is data, not
   an exception. A child takes what it shows as props; `refresh name` in an action asks again.
+- `transient` after the shape: the answer is never kept on the device for the next launch.
 
 More: docs/recipes/fetch-loading-error.md
 

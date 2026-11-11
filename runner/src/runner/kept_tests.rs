@@ -830,3 +830,25 @@ fn kept_answers_over_their_total_forget_the_longest_other() {
         said[0]
     );
 }
+
+/// `resource … transient` (LLP 1156.005 D4): the answer is neither shown
+/// from the store at launch nor written there, and an entry an earlier build
+/// kept is forgotten at boot.
+#[test]
+fn a_transient_resource_keeps_nothing_and_forgets_what_was_kept() {
+    let mut transient = plan(0, false);
+    transient.resources[0].transient = true;
+    let snapshot = entry(&full("A", "100", 0.), &Value::str("kept"));
+    let mut r = boot(transient, Source::default(), snapshot);
+    shows(&r, "loading");
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
+    // The one write is the boot's forgetting.
+    let forgotten = answer_writes(&r);
+    r.data.ready = true;
+    r.data.value = Value::str("fresh");
+    r.data_ready().unwrap();
+    shows(&r, "fresh");
+    r.act("minute", vec![Value::str("200")]).unwrap();
+    assert_eq!(answer_writes(&r), forgotten);
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
+}

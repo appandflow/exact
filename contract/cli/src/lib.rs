@@ -1101,7 +1101,16 @@ fn compile_file_warned(
             profile,
             warned.as_ref().map(|_| &mut lower_warnings),
         )
-        .map_err(|all| each(all, |e| e)),
+        .map_err(|all| each(all, |e| e))
+        .and_then(|built| {
+            // A component nothing uses is not lowered; its literal values
+            // are checked as the lint checks them (LLP 1156.005 D3).
+            let unused = contract_lower::lint_unused(file);
+            match unused.is_empty() {
+                true => Ok(built),
+                false => Err(each(unused, |e| e)),
+            }
+        }),
         Err(all) => {
             if warned.is_some() {
                 lower_warnings = contract_lower::warnings(&checked);

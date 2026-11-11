@@ -745,7 +745,9 @@ impl<D: DataSource> Runner<D> {
                                 .iter()
                                 .any(|(n, s)| n == resource && s == plan.str(r.source))
                     });
-                if private || !compatible {
+                let transient =
+                    (plan.resources.iter()).any(|r| r.transient && plan.str(r.name) == resource);
+                if private || !compatible || transient {
                     store.forget_kept(name);
                 }
             }

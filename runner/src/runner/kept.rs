@@ -94,7 +94,7 @@ pub(super) fn refuse(
 /// The store name a resource's kept answer lives under.
 /// The kept entries in `snapshot` no declared reader of `plan` seeds. A
 /// cold boot seeds a first frame only from declared readers' kept answers,
-/// so any other entry (a reader made transient, a resource removed) is
+/// so any other entry (a reader made `transient`, a resource removed) is
 /// forgotten on disk, not carried forever. A reload's carried readers are
 /// checked for compatibility instead.
 pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
@@ -104,10 +104,27 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) 
             let resource = name.strip_prefix(Store::KEPT)?;
             (!(0..plan.resources.len()).any(|i| {
                 (plan.resources[i].reader || kept_module(plan, i))
+                    && !plan.resources[i].transient
                     && plan.str(plan.resources[i].name) == resource
             }))
             .then(|| name.clone())
         })
+        .collect()
+}
+
+/// The kept entries in `names` that belong to a `transient` resource of
+/// `plan` (LLP 1156.005 D4): forgotten wherever a snapshot is adopted.
+pub(super) fn transient<'n>(
+    plan: &exact_plan::Plan,
+    names: impl Iterator<Item = &'n String>,
+) -> Vec<String> {
+    names
+        .filter(|name| {
+            name.strip_prefix(Store::KEPT).is_some_and(|resource| {
+                (plan.resources.iter()).any(|r| r.transient && plan.str(r.name) == resource)
+            })
+        })
+        .cloned()
         .collect()
 }
 
@@ -284,6 +301,10 @@ impl<D: DataSource> Runner<D> {
     /// the refusal is noted for the journal.
     pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
         let row = &self.plan.resources[i];
+        // @ref LLP 1156.005 D4 — boot forgot any entry kept before it was.
+        if row.transient {
+            return None;
+        }
         let name = self.plan.str(row.name);
         let entry = self.store.kept(&kept_name(name))?;
         let identity = row.args.len as usize - usize::from(row.context);
@@ -394,7 +415,9 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         let module = self.keeping.modules && kept_module(&self.plan, i);
-        if !module && (!self.keeping.on || !self.store_readers[i]) {
+        if !module && (!self.keeping.on || !self.store_readers[i])
+            || self.plan.resources[i].transient
+        {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
@@ -581,7 +604,12 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         snapshot: Vec<(String, Vec<u8>)>,
     ) -> Result<crate::StoreChange, RunnerError> {
+        // Another writer (an older build of the app) may have kept one again.
+        let transient = transient(&self.plan, snapshot.iter().map(|(name, _)| name));
         let change = self.store.refresh_snapshot(snapshot);
+        for name in &transient {
+            self.store.forget_kept(name);
+        }
         if !change.any {
             return Ok(change);
         }

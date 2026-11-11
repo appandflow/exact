@@ -517,6 +517,9 @@ pub struct ResourceDecl {
     /// `for x in list [key=k]`: one request for each element (LLP 1017.000
     /// P4c, amended 2026-11-04).
     pub each: Option<ResourceEach>,
+    /// `transient` (LLP 1156.005 D4): its answer is never kept across
+    /// launches.
+    pub transient: bool,
     /// Where.
     pub span: Span,
 }

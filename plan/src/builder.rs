@@ -565,6 +565,7 @@ impl PlanBuilder {
             placeholder: None,
             placeholder_value: self.no_data(),
             each: ArgsRange { start: 0, len: 0 },
+            transient: false,
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -1026,6 +1027,12 @@ impl PlanBuilder {
     /// D4): its compiled value is the empty-store placeholder.
     pub fn set_resource_reader(&mut self, id: ResourcesId, reader: bool) {
         self.plan.resources[id.0 as usize].reader = reader;
+    }
+
+    /// Mark a resource whose answer is never kept across launches (LLP
+    /// 1156.005 D4).
+    pub fn set_resource_transient(&mut self, id: ResourcesId) {
+        self.plan.resources[id.0 as usize].transient = true;
     }
 
     /// Replace an action's body.
