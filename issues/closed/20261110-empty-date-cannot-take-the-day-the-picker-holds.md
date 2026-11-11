@@ -1,6 +1,7 @@
 # An empty date input on iOS ignores a choice of today, or of the date it held before it was cleared
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Opening an empty iOS date, time or datetime picker accepts the current local value within its bounds, including after a clear.
 **Systems:** host/apple/Sources/ExactKit/IOS/DatesIOS.swift (BoundDatePicker, ControlHost.dateChanged, configureDate)
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

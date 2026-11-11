@@ -1,6 +1,7 @@
 # An empty date input on the Mac shows today while focused and stays empty when the person types today's date
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Typing, an arrow or Return accepts an empty Mac date field's displayed value once; focus and Tab leave it empty.
 **Systems:** host/apple/Sources/ExactKit/Mac/DatesMac.swift (DateField, ControlHost.dateChanged)
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
