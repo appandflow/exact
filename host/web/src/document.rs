@@ -790,7 +790,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 // `writeValue`: an input's value and a button's (a reflected
                 // attribute) are the element's; a textarea's is its text.
                 "value" => match element {
-                    "input" | "button" | "option" => {
+                    // `progress` is HTML's `<progress value max>` (LLP 1116 D8): without
+                    // its value a determinate bar is written indeterminate.
+                    "input" | "button" | "option" | "progress" => {
                         attrs.push((name.clone(), Some(value.clone())));
                     }
                     "textarea" => content = Some(value.clone()),

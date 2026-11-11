@@ -1,6 +1,7 @@
 # The Rust render host writes a determinate `progress` with no `value`, so it is indeterminate
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The document writer keeps a `progress` element's `value`, as it keeps an input's.
 **Systems:** host/web/src/document.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

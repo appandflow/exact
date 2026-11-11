@@ -1033,3 +1033,25 @@ fn bare_text_styles_fill_unsaid_rows_in_the_js_document() {
     assert!(js.contains("font-weight:700"), "{js}");
     assert!(js.contains("line-height:40px"), "{js}");
 }
+
+/// A `progress` with a `value` is HTML's `<progress value max>`: the page keeps
+/// the value, or a determinate bar is written indeterminate (LLP 1116 D8).
+#[test]
+fn a_progress_prerenders_with_its_value() {
+    let html = document(
+        "component App\n  view\n    column\n      progress value=0.4 testId=\"p1\"\n      progress value=3 max=8 testId=\"p2\"\n",
+    );
+    let tag = |id: &str| {
+        let at = html
+            .find(&format!("data-testid=\"{id}\""))
+            .unwrap_or_else(|| panic!("{id} in {html}"));
+        let start = html[..at].rfind('<').unwrap();
+        html[start..start + html[start..].find('>').unwrap()].to_string()
+    };
+    assert!(tag("p1").contains(r#"value="0.4""#), "{}", tag("p1"));
+    assert!(
+        tag("p2").contains(r#"value="3""#) && tag("p2").contains(r#"max="8""#),
+        "{}",
+        tag("p2")
+    );
+}
