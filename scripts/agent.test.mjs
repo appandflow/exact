@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main, webFrame } from './agent.mjs';
 import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
-import { need } from './coverage.mjs';
+import { need, notApplicable } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
 
@@ -849,6 +849,36 @@ test('a native store is one drive\'s at a time: a second is refused until the fi
     await (await exclusiveNativeStore(key, async () => ({ close: async () => {} }), root)).close();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+notApplicable(process.platform === 'win32' ? 'POSIX executable permissions' : null)('a native launch failure returns its error and releases the store for another drive', () => {
+  const root = mkdtempSync(resolve(import.meta.dir, '.native-launch-'));
+  try {
+    writeFileSync(resolve(root, 'not-executable'), '#!/bin/sh\necho hi\n', { mode: 0o644 });
+    // A subprocess bounds a regression that hangs during cleanup, even after the ready deadline.
+    const ran = spawnSync(process.execPath, ['--eval', `
+      import assert from 'node:assert/strict';
+      import { resolve } from 'node:path';
+      import { openStdio } from './scripts/agent-stdio.mjs';
+      import { exclusiveNativeStore } from './scripts/agent-launch.mjs';
+      const root = process.argv[1];
+      for (const host of ['linux', 'windows']) {
+        const key = { host, device: 'machine', appId: 'native-launch-test', storage: 'default' };
+        for (const bin of [resolve(root, 'not-executable'), root]) {
+          process.env[host === 'linux' ? 'EXACT_LINUX_BIN' : 'EXACT_WINDOWS_BIN'] = bin;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            await assert.rejects(
+              exclusiveNativeStore(key, () => openStdio({ host, app: 'hello' }), root),
+              /launch failed: EACCES:/,
+            );
+          }
+        }
+      }
+    `, root], { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL',
+      env: { ...process.env, EXACT_APP_DIR: '', EXACT_PROOF_PRODUCTS: '' } });
+    assert.equal(ran.error, undefined, ran.stderr);
+    assert.equal(ran.status, 0, ran.stderr);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 15000);
 
 test('compare on a capture: nodes where the window has them, its safe area not scored, a scaled viewport refused, its notes said', async () => {
   const { compareOp } = await import('./agent-compare.mjs');

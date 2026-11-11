@@ -1,6 +1,7 @@
 # A native drive never ends when its app's binary exists and cannot be executed
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Native spawn errors finish cleanup, return the launch failure, and release the store lock.
 **Systems:** scripts/agent-stdio.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
