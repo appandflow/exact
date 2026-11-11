@@ -821,15 +821,16 @@ names no take; `:focus-within` remains out.
   `device.push`. Consumer: expo/exact#127's app, whose own server sends, with
   Live Activities beside. Unblocks a notification from the app's own server, and
   push beside Live Activities without a local patch. Take: none named; the
-  ruling stands as its own waiver. Built: the `device.push` grant and its
-  entitlement, a push's tap opening its `navigate` location, and registration
-  beside Live Activities under the grant. Not built yet: `@exact/push` itself,
-  so no app registers or receives a token through Exact; push on macOS (the row
-  is omitted there), on Android (after local notifications), and on the web
-  (Declarative Web Push or a host worker). Nothing is claimed for a device until
-  a run on one. Still refused: push-to-start; a data-only push as a wake's
-  trigger (`content-available`, the `remote-notification` background mode); a
-  notification service extension; an event raised by a push.
+  ruling stands as its own waiver. Built on iOS and iPadOS: all of it, run on a
+  simulator, which answered a registration with a token. Owed on a device:
+  delivery through APNs, the entitlement signed against a profile with Push
+  Notifications, and a production build (`packages/push/test/checklist.md`);
+  nothing is claimed for a device until that run. Not built: push on macOS (the
+  row is omitted there), on Android (after local notifications), and on the web
+  (Declarative Web Push or a host worker). Still refused: push-to-start; a
+  data-only push as a wake's trigger (`content-available`, the
+  `remote-notification` background mode); a notification service extension; an
+  event raised by a push.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 

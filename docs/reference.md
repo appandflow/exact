@@ -1830,14 +1830,8 @@ iOS shows its own fixed prompt text): without the grant a post and the
 request are refused (`notifications.showNotification: refused, grant-missing
 (device.notifications)`).
 
-`device.push`, written alone beside `device.notifications`, signs
-`aps-environment` into an iOS or iPadOS build: `development` on a simulator
-and under a development profile, `production` under an Ad Hoc, enterprise or
-App Store one, the value a Live Activity that takes pushes signs too. A device
-build is refused unless its profile has Push Notifications. A Mac or tvOS build
-writes nothing for it and is not refused. Exact does not register for a
-device token yet: the grant signs the entitlement, and registering is still the
-app's own native code's.
+A visible push from the app's own server is `@exact/push`, under its own
+grant beside this one: see [Push](#push).
 
 - `showNotification(title=, body=, tag=, silent=, data=, showTrigger=,
   navigate=)` and `closeNotification(tag=)` are statements in an action; data
@@ -1857,16 +1851,8 @@ app's own native code's.
   outermost node: the tag and the notification's `{tag, data, title, body}`,
   delivered once, in order, after first pixel; one that starts the app (macOS,
   iOS) is held until then. A click always brings the app forward.
-- On macOS and iOS a remote notification's click (one the system shows for
-  an app's own registration) opens its payload's top-level `navigate`
-  string, warm or at launch, as a local notification's `navigate=` opens:
-  reduced by `location_of` to the app's own location whatever its scheme or
-  origin, never through the app's `protocol_handlers`. Nothing else of its
-  payload is read and no event is raised; without `navigate`, the app only
-  comes forward. A server writes that string, so a route must not act on
-  being opened. An embedder that keeps the notification delegate itself
-  forwards the tap with `openNotification(_:session:)`, naming the session;
-  a tap for a session that is gone opens nothing.
+- A remote notification's click opens its payload's `navigate` and nothing
+  else ([Push](#push)).
 - `setAppBadge(contents=)` sets the app icon's badge, best effort: a number, no
   number for a flag (`•` on the Mac's Dock tile, `1` on iOS), 0 to clear;
   `clearAppBadge()` clears it. The badge is the app's: an embedded host's
@@ -1897,6 +1883,103 @@ the badge (a number, `"flag"` or `null`). `tap @ref` on a delivered entry is
 its click; `--notification '<entry>'` relaunches the app with one, as the
 system hands a closed app its click. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
+
+### Push
+
+`@exact/push` (LLP 1133.004 §9) is a visible push from the app's own server,
+on iOS and iPadOS, by the Push API's names. Exact sends nothing and relays
+nothing: the app sends its device token to its own server, and the server
+sends to APNs.
+
+```text
+use subscribePush, pushSubscription, PushSubscription from "@exact/push"
+
+component App
+  resource subscription = pushSubscription() as shape option<PushSubscription>
+  mutation subscribed as shape PushSubscription
+  action turnOn
+    send subscribed = subscribePush()
+```
+
+The app depends on the package (`exact add push`) and grants both lines:
+
+```text
+device.notifications purpose.notifications
+device.push
+```
+
+`device.push` names no purpose and needs `device.notifications` beside it. It
+signs `aps-environment` into an iOS or iPadOS build: `development` on a
+simulator and under a development profile, `production` under an Ad Hoc,
+enterprise or App Store one, the value a Live Activity that takes pushes signs
+too. A device build is refused unless its profile has Push Notifications with
+that value. A Mac or tvOS build writes nothing for it and is not refused. An
+app with Live Activities may register beside them under this grant.
+
+- `subscribePush()` is the one call that asks: while notifications'
+  permission is `prompt` it shows the system's prompt; while `denied` it is
+  refused `NotAllowedError`; while `granted`, which includes provisional and
+  ephemeral authorization, it asks nothing. Then the app registers, and the call answers the
+  system's answer: the subscription, or `AbortError` with the system's
+  message.
+- `pushSubscription()` reads `{apple: {deviceToken}}`, the token's bytes in
+  lowercase hex, or null. It never asks: its first read in a launch registers
+  once when permission is already granted, as Apple asks of every launch, and
+  a new token is a new value, which the app sends to its server again. Read it
+  in every launch so the server keeps the current token. While permission is
+  `prompt` or `denied` it reads null and registers nothing; a change of
+  permission in Settings is read again when the app comes back to the front.
+- `pushPermissionState()` reads `{available, state}`, notifications'
+  permission, which the two modules share.
+- On macOS, tvOS, Android, the web, Linux, Windows and the terminal each call
+  is refused `NotSupportedError`, `pushSubscription()` reads null and the
+  state `available: false`.
+
+The server sends APNs an alert (`apns-push-type: alert`, `apns-topic` the
+bundle id), APNs's own `aps` dictionary and one key of Exact's:
+
+```json
+{ "aps": { "alert": { "title": "Delayed", "body": "The 9:41 now leaves at 9:52" }, "sound": "default" },
+  "navigate": "/trips/941" }
+```
+
+The system shows it, with the app in front too. Its tap opens the top-level
+`navigate` string, warm or at launch, as a local notification's `navigate=`
+opens: reduced by `location_of` to the app's own location whatever its scheme
+or origin, never through the app's `protocol_handlers`. Nothing else of the
+payload is read and no event is raised; without `navigate` the app only comes
+forward. A server writes that string, so a route must not act on being opened.
+No app code runs when a push arrives: `content-available` does nothing (the
+`remote-notification` background mode is refused), `mutable-content` changes
+nothing (no service extension is built), and a `category` shows no actions.
+
+The system answers a registration on the app delegate. When the package
+loads, the app delegate is given the two methods that carry the answer where
+it does not answer them already, its own or inherited, so an app that does
+not import the package has neither. An app that embeds Exact's sessions (LLP
+1031) and whose app delegate answers them keeps its own and forwards the
+answers with `ExactApp.registeredForRemoteNotifications(deviceToken:)` and
+`failedToRegisterForRemoteNotifications(error:)`. One that keeps the
+notification delegate itself shows notifications in front itself and forwards
+the taps it wants routed with `openNotification(_:session:)`, naming the
+session; a tap for a session that is gone opens nothing. Each may be called on
+any thread.
+
+Under the agent nothing reaches APNs, and `pushSubscription()` reads null
+while the permission is not granted, as on the phone. A subscribe while
+`prompt` waits on the
+`permission` ticket (`tap @t allow`), then on the subscription's value (`type
+@t '{"apple":{"deviceToken":"ab12"}}'`); `prefer extension
+push.pushSubscription=<json>` sets the value later, as a rotation.
+
+Run on an iOS 27 simulator: the real prompt; a registration the simulator
+answered with a token; a relaunch that only reads `pushSubscription()`
+answering the same token; the entitlement in the built app; pushes sent with
+`xcrun simctl push` shown and their taps opening `navigate`, with the app in
+front, from the Home Screen and at launch. Not yet run: delivery through
+APNs, the entitlement signed against a profile with Push Notifications, and a
+production build. `packages/push/test/checklist.md` is those checks; until
+they pass, nothing here is claimed for a device.
 
 ### Local network
 
