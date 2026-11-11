@@ -1,6 +1,7 @@
 # `arcTo` at a corner that doubles back almost exactly records NaN, and the whole draw is dropped
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both arcTo recorders use Chrome's 1/4096 collinearity tolerance, keeping near-reversal draws finite and drawing a line to the corner.
 **Systems:** canvas/src/geom.rs, canvas/recorder.js, runner/src/runner/canvas2d.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
