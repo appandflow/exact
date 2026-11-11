@@ -368,6 +368,15 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
             "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
         }
+        // LLP 1055.000 §8 ruling 7: the end of a motion is not an event.
+        None if matches!(
+            a.name.as_str(),
+            "animationstart" | "animationiteration" | "animationend" | "animationcancel" | "transitionend"
+        ) =>
+        {
+            "; a motion tells no handler when it starts or ends: change state after one with a gated task's `after(ms, action)`, its length the one the motion declares (docs/recipes/timers.md)"
+                .into()
+        }
         None if css_hint(&a.name).is_some() => css_hint(&a.name).unwrap_or_default(),
         // LLP 1048.007 D5: the build chooses.
         None if tag == "image" && a.name == "loading" => {
