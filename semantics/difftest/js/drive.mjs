@@ -197,6 +197,12 @@ async function drive(code, c, hostSources) {
   // `setMode` is the runtime's own, as the runner's (LLP 1121 D5): no host is
   // told, and the window's mode selects presentation, which no line shows.
   Hosts.setMode = () => {};
+  // So is the row form of `scrollIntoView`, seven arguments (list.js; LLP
+  // 1070.000 §12–13); an element's, four, is a host's (`hostCommands` in the
+  // Lean semantics).
+  const rowScroll = (name, args) => name === 'scrollIntoView' && args.length === 7;
+  const toldScroll = record('scrollIntoView');
+  Hosts.scrollIntoView = (...args) => { if (!rowScroll('scrollIntoView', args)) toldScroll(...args); };
   // The voice table's commands are the runtime's own (rt.js `Sounds.own`): they reach `Sounds.apply`
   // with the commit's whole command list, in order, not `Hosts`. Record the list as the runner does:
   // the host commands just recorded from it are replaced by the whole of it.
@@ -204,8 +210,8 @@ async function drive(code, c, hostSources) {
   Object.defineProperty(Sounds, 'apply', {
     configurable: true,
     get: () => cmds => {
-      // `setMode` was never recorded (above), and the runner tells no host of it.
-      const shown = cmds.filter(([name]) => name !== 'setMode');
+      // `setMode` and a row's `scrollIntoView` were never recorded (above), and the runner tells no host of them.
+      const shown = cmds.filter(([name, args]) => name !== 'setMode' && !rowScroll(name, args));
       if (shown.some(([name]) => Sounds.own.has(name))) {
         const hosts = shown.filter(([name]) => !Sounds.own.has(name)).length;
         commands.splice(commands.length - hosts, hosts, ...shown.map(([name, args]) => `command ${name}${args.map(a => ' ' + untyped(a)).join('')}`));
