@@ -387,7 +387,7 @@ impl Request {
             && !self.stream
             && !self.socket
             && self.long_poll.is_none()
-            && !self.held
+            && !self.is_held()
     }
 
     /// Native ordered lane is mandatory for storage and continuations, even

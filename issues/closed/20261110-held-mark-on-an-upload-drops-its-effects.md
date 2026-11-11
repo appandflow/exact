@@ -1,6 +1,7 @@
 # An upload marked `exactHeld` is not held, yet it stops being a request with effects
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A held mark leaves a file transfer's effects unchanged, so a kept upload runs until its reply lands.
 **Systems:** runner/src/request.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
