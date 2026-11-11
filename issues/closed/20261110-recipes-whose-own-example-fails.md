@@ -1,6 +1,7 @@
 # Two recipes fail as written: fetch-loading-error's test at its fifth line, native-module's `app.ts` at the type check
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The fetch recipe tests settled failure and retry; the native recipe's existing grants export type-checks.
 **Systems:** docs/recipes/fetch-loading-error.md, docs/recipes/native-module.md, contract/cli/tests/it/docs.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

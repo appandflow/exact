@@ -59,7 +59,6 @@ test "a failed refresh retains rows and retries"
   clock data
   fail fetch "https://jsonplaceholder.typicode.com"
   tap "refresh"
-  expect tree has "loading"
   expect tree has "post-0"
   clock data
   expect tree has "post-0"
@@ -70,8 +69,8 @@ test "a failed refresh retains rows and retries"
   expect tree missing "error"
 ```
 
-`fail fetch` rejects; it cannot delay or supply an HTTP status/body. Use a
-[test server](rest-backend.md) for those.
+`fail fetch` rejects before `tap` returns. To assert loading, hold a reply with a
+[test server](rest-backend.md), which can also supply an HTTP status/body.
 
 For private data, gate by principal and auth generation, including after an await
 before caching: A → B → A must reject the first A's answers. Await prerequisites
