@@ -1111,7 +1111,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     // `font-variant-numeric`), a plural never stems onto a type keyword (`strings` is app.json's key, not `: string`),
     // and a query's own section (TOPICS) comes first however it says the words ("dark mode": light and dark).
     [['fonts'], 'docs/recipes/app-json.md', /a `font` block's/],
-    [['strings'], 'docs/recipes/app-json.md', /`strings` \(string\s+tables\)/],
+    [['strings'], 'docs/recipes/app-json.md', /`strings`/],
     [['push'], 'docs/recipes/navigation-stack.md', /^routes nav$/m],
     [['deploy'], 'docs/recipes/porting-and-release.md', /Name the port when you make it/],
     [['haptics'], 'docs/start-here.md', /haptic\("selection"\)/],
@@ -1127,7 +1127,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['keyboard'], 'docs/recipes/keyboard-and-focus.md', /^# Recipe: the keyboard and focus/],
     [['dark', 'mode'], 'docs/recipes/theme.md', /follows light, dark/],
     [['image'], 'docs/recipes/app-json.md', /image "assets\/logo.png"/],
-    [['svg'], 'docs/recipes/symbols.md', /SVG/i],
+    [['svg'], 'docs/recipes/theme.md', /svg "icons\/play\.svg"/],
     [['animation'], 'docs/recipes/motion.md', /animation/],
     [['transition'], 'docs/recipes/motion.md', /transition/],
     [['timer'], 'docs/recipes/timers.md', /^# Recipe: timers/],

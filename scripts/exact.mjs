@@ -1303,9 +1303,10 @@ export function docs(words, say = console.log) {
       while (last < h.own && !(f.kinds[last] === 'text' && f.lines[last].trim() === '')) last++;
       const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
-      // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
+      // A heading that is the words ("Tabular numbers") comes ahead of every section that only mentions them, one that
+      // links to it included; the query's own section comes first of all.
       const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).filter(w => !STOP.has(w)).join(' ');
-      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
+      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 1e6 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
     }
   }
   if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
