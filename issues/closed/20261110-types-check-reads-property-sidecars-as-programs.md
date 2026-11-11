@@ -1,6 +1,7 @@
 # `difftest types` fails on the corpus's `.test.contract` sidecars, which are not programs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The shared program collector excludes .test.contract sidecars, so difftest types checks corpus programs without sidecar compiler refusals.
 **Systems:** semantics/difftest/src/types.rs, scripts/async.mjs (the `difftest` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
