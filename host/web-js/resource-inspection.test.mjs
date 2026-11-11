@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
@@ -10,7 +11,7 @@ function runtimeServer(development = false) {
     if (path === '/') { return new Response('<div id="exact-root"></div>', { headers: { 'content-type': 'text/html' } }); }
     const local = new URL('../..' + path, import.meta.url), file = existsSync(local) ? local : new URL('../web/' + path.split('/').pop(), import.meta.url);
     if (path.endsWith('/rt.js') && development) { return new Response(readFileSync(file, 'utf8').replace('const DEVELOPMENT_STORE = null;', 'const DEVELOPMENT_STORE = "fixture";'), { headers: { 'content-type': 'text/javascript' } }); }
-    return new Response(Bun.file(file));
+    return new Response(hostFixtureFile(file), { headers: { 'content-type': 'text/javascript' } });
   } });
 }
 

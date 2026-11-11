@@ -3,16 +3,24 @@ import vm from 'node:vm';
 import { declaration, fixture } from './glue-fixture.mjs';
 
 test.each(['destroy', 'reload', 'editor replacement'])('beforeunload listeners end on %s', async mode => {
-  const f = fixture(false), window = new EventTarget(), listeners = new Set(), heard = [];
+  const f = fixture(false);
+  const window = new EventTarget();
+  const listeners = new Set();
+  const heard = [];
   Object.assign(f, {
     AbortController,
-    log: message => { throw new Error(message); },
+    log: message => {
+      throw new Error(message);
+    },
     addEventListener(type, fn, options) {
       listeners.add(fn);
       options?.signal?.addEventListener('abort', () => listeners.delete(fn), { once: true });
       window.addEventListener(type, fn, options);
     },
-    removeEventListener(type, fn) { listeners.delete(fn); window.removeEventListener(type, fn); },
+    removeEventListener(type, fn) {
+      listeners.delete(fn);
+      window.removeEventListener(type, fn);
+    },
     inputHandlers: { mouse: (el, kind, event, fire) => fire(36, ''), arrive() {} },
     keyEvent: null, prepareContexts() {}, listSelection: null, pendingStore: { flush() {} },
     focusAutofocus() {}, positionContexts() {}, markScrollDocument() {}, refreshSymbols() {}, syncLists() {},
@@ -34,7 +42,10 @@ test.each(['destroy', 'reload', 'editor replacement'])('beforeunload listeners e
     f.attach(el, id, ['beforeunload']);
     if (mode === 'editor replacement') {
       const installed = new Promise(resolve => {
-        f.loadAfterPaint = async () => (el, { replace }) => { replace(box()); resolve(); };
+        f.loadAfterPaint = async () => (el, { replace }) => {
+          replace(box());
+          resolve();
+        };
       });
       f.markupModule = null;
       f.syncMarkup(el);
@@ -44,7 +55,10 @@ test.each(['destroy', 'reload', 'editor replacement'])('beforeunload listeners e
   const end = id => mode === 'reload' ? f.bootNow(new Uint8Array([1]), null, () => true, null, true)
     : f.apply({ ops: [{ op: 'destroy', id }] });
   f.views.clear();
-  for (let id = 1; id <= 40; id++) { await mount(id); await end(id); }
+  for (let id = 1; id <= 40; id++) {
+    await mount(id);
+    await end(id);
+  }
   await mount(41);
   window.dispatchEvent(new Event('beforeunload'));
   expect(heard).toEqual([41]);

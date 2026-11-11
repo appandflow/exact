@@ -22,7 +22,8 @@ import { generatedInputFiles } from '../../game/inputs.mjs';
 // (LLP 1115.000 D4 part B; look.mjs composes the sheet).
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
-import { grantOrigins } from './navigation.js';
+import { grantOrigins } from './navigation/grant-origins.js';
+import { buildHostGlue, gateAgent } from '../web-js/glue.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -252,27 +253,24 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 copyShaders(app, resolve(stage, 'shaders'));
 // The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
 writeFileSync(resolve(stage, 'index.html'), withInterfaceStyle(withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')), interfaceStyle(app.manifest)));
-// A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
-// host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
-// ships it false, so the minifier drops the agent's paths from a release.
-const AGENT_ADMITTED = 'const AGENT_ADMITTED = true;';
 const production = buildEnv.EXACT_UPDATE_TRUST === 'production';
-const gateAgent = (code, name) => {
-  if (!production) return code;
-  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)/.test(code) && !code.includes(AGENT_ADMITTED)) throw new Error(`${name} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode (LLP 1069.007 D2)`);
-  return code.replaceAll(AGENT_ADMITTED, 'const AGENT_ADMITTED = false;');
-};
+const hostDir = resolve(stage, '.host');
 function copyHostFiles(group) {
   for (const [name, source] of Object.entries(webHostFiles(group))) {
     if (!name.endsWith('.js')) { copyFileSync(resolve(root, source), resolve(stage, name)); continue; }
     // Production ships executable code, without source comments and long
     // local names. Keep exports and property names intact across modules.
-    const result = minifySync(name, gateAgent(readFileSync(resolve(root, source), 'utf8'), name), { module: name !== 'module-prelude.js' && name !== 'module-binary.js' });
+    const code = readFileSync(source.startsWith('target/web-host/') ? resolve(hostDir, name) : resolve(root, source), 'utf8');
+    const result = minifySync(name, production ? gateAgent(code, name) : code, { module: name !== 'module-prelude.js' && name !== 'module-binary.js' });
     if (result.errors.length) throw new Error(`${name}: ${JSON.stringify(result.errors)}`);
     writeFileSync(resolve(stage, name), result.code);
   }
 }
-if (!bakeOnly) copyHostFiles('base');
+if (!bakeOnly) {
+  await buildHostGlue(root, { production, out: hostDir });
+  copyHostFiles('base');
+  rmSync(hostDir, { recursive: true });
+}
 if (!bakeOnly && !production) copyHostFiles('development');
 // These app-independent modules use the same input-checked products as the JS
 // target, so a gameplay edit does not rerun Cargo and wasm-opt for either leaf.

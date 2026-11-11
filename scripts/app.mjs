@@ -1,3 +1,5 @@
+import { webHostFiles, hostModuleSources } from '../host/web-js/glue.mjs';
+export { webHostFiles } from '../host/web-js/glue.mjs';
 import { compilerPaths, unitDepInfo, cargoBakeInputs, inputHashes, sourcePath } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
@@ -324,26 +326,6 @@ if (process.versions.bun && PINNED_BUN && !HELP) ensureBun(PINNED_BUN);
 const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');
 if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt'))) process.env.PATH = `${binaryenBin}${delimiter}${process.env.PATH ?? ''}`;
 
-// @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
-// Groups preserve capability-based shipping; none of these imports enters boot.
-// A group's files import statically only from it or base (web-host-groups.test.mjs): base's documents-glue.js
-// reads storage-environment.js, so it ships in base, not only with storage.
-const WEB_HOST_GROUPS = {
-  base: ['glue.js', 'navigation.js', 'frame-messages.js', 'frame-navigation.js', 'textflow-glue.js', 'timer-glue.js', 'timer-waits-glue.js', 'timer-observations.js', 'input-glue.js', 'agent-input.js',
-    'http-body.js', 'grant-admission.js', 'faults.js', 'address-space.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
-    'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'storage-environment.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js', 'fragment.js'],
-  module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
-  storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
-    'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
-  rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js'],
-  gpuModules: ['gpu-modules.js'],
-  native: ['native-glue.js'],
-  // A development page's frame sampler (LLP 1079 D3); a production build ships none.
-  development: ['frames.js'],
-};
-
 /** A game's world surfaces by name, as its last GPU build declared them (`.shells/surfaces.json`); none before one. */
 export function worldSurfaces(dir) {
   try { return Object.keys(JSON.parse(readFileSync(resolve(dir, '.shells/surfaces.json'), 'utf8'))); } catch { return []; }
@@ -388,15 +370,6 @@ export function checkModuleRoster(app, provided, where, release) {
   if (release) throw new Error(message);
   console.warn(`warning: ${message}; the node reports "error" at runtime`);
 }
-/** Public filename -> repo-relative source; omit groups to inventory every host file. */
-export function webHostFiles(...groups) {
-  return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
-    .flatMap(group => WEB_HOST_GROUPS[group]).map(name => [name,
-      name === 'module-prelude.js' ? 'js/src/prelude.js' : name === 'module-binary.js' ? 'js/src/binary.js'
-        : name.startsWith('sqlite3.') ? 'node_modules/@sqlite.org/sqlite-wasm/dist/' + (name === 'sqlite3.mjs' ? 'index.mjs' : name)
-          : 'host/web/' + name]));
-}
-
 /** The app's GPU modules for the web (LLP 1009 D2, D6) into `stage`: each
  * GPU crate's wasm with wasm-bindgen's glue (its exports are the module's ABI
  * on the web), then wasm-opt; `<stem>.js` + `<stem>_bg.wasm`, the primary as
@@ -1119,7 +1092,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const entries=platform==='ios'&&(app.manifest.widgets?.length||app.manifest.live_activities?.length); if(entries)add(resolve(packageRoot,'widget'),true); if(entries||env.EXACT_WIDGET_GALLERY==='1')add(resolve(packageRoot,'Sources/ExactSnapshot'),true);
   }
   if(platform==='web') {
-    for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
+    for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))).filter(path => !path.startsWith('target/web-host/')),...hostModuleSources(ROOT),'host/web-js/glue.mjs','scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.

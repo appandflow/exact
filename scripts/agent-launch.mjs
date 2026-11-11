@@ -1007,7 +1007,7 @@ export function webInputs(app, js, since = -Infinity) {
     const admitted = since === -Infinity ? files : files.filter(file => statSync(file).mtimeMs > since);
     return {app:admitted.filter(file => file.startsWith(app.dir + '/')), shared:admitted.filter(file => !file.startsWith(app.dir + '/'))};
   }
-  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
+  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }, 'host/web/navigation'] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const backend = resolve(app.dir, '.exact/backend-origin');

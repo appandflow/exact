@@ -1,3 +1,4 @@
+import { hostFixtureFile, wasmSource, glueDeclarations } from './tests/glue-fixture.mjs';
 // @ref LLP 1043.000 §3 D7/D8 — pure glue tests, beside existing bun:test glue tests.
 import { test, expect } from 'bun:test';
 import { baselineIn, fragmentBaseline, fragmentDiff, framePhases, fontStyle, forgetTextBoxEdges, measurementCache, textBoxCut } from './textflow-glue.js';
@@ -577,14 +578,15 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
   const served = new Set(['/navigation.js', ...modules, '/timer-waits-glue.js', '/timer-observations.js']);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
-    if (files[path]) return new Response(Bun.file(files[path]));
+    if (path === '/wasm-input.js') return new Response(glueDeclarations(wasmSource, ['attach']), { headers: { 'content-type': 'text/javascript' } });
+    if (files[path]) return new Response(hostFixtureFile(files[path]), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/timer-observations.js') return new Response(Bun.file(new URL('./timer-observations.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path.endsWith('.js')) {
       const js = Bun.file(new URL('../web-js' + path, import.meta.url));
-      return js.exists().then(exists => new Response(exists ? js : Bun.file(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
+      return js.exists().then(exists => new Response(hostFixtureFile(exists ? js.name : new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
     }
-    return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
+    return served.has(path) ? new Response(hostFixtureFile(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } })
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
   const suite = await cdpBrowser(), { cdp } = suite;
@@ -632,7 +634,7 @@ browserTest('same-target capture precedes a key registered first in both web run
 
 async function targetKeyFixture() {
   const [glue, rt] = await Promise.all(['/glue.js', '/rt.js'].map(url => fetch(url).then(r => r.text())));
-  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const attach = await fetch('/wasm-input.js').then(r => r.text());
   const on = rt.slice(rt.indexOf('export function on('), rt.indexOf('// Each event family')).replace('export ', '');
   // onKey hears a key with nothing focused through atBody, the line before it (0c3cf4405f).
   const onKey = [rt.split('\n').find(line => line.startsWith('let BodyHeard;')), rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '')].join('\n');
@@ -645,6 +647,7 @@ async function targetKeyFixture() {
       heard.push(kind === 44 ? 'capture' : 'key');
       if (kind === 44 && key === 'x') keyEvent.exactStopped = true;
     }};
+    const host = { inputReady, page, wasm, get keyEvent() { return keyEvent; }, set keyEvent(value) { keyEvent = value; } };
     ${attach}
     attach(el, 1, ['key', 'keycapture']);
   `);
@@ -806,13 +809,14 @@ async function flowKeyFixture() {
   const gpuListen = gpuSource.slice(gpuSource.indexOf('function listen('), gpuSource.indexOf('function agent('));
   const { on, onKey, Hosts, act, sig, W, Before, After } = await import('/rt.js');
   const glue = await fetch('/glue.js').then(r => r.text());
-  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const attach = await fetch('/wasm-input.js').then(r => r.text());
   const bindWasm = new Function(`
     let keyEvent = null, bodyHeard; // glue.js declares both; attach reads them (0c3cf4405f)
     const views = new Map(), callbacks = new Map(), retiredViews = new WeakSet(), inputReady = true, page = null;
     const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
     const api = { stopPropagation() { keyEvent.exactStopped = true; }, preventDefault() { keyEvent.preventDefault(); } };
     const wasm = { exact_dispatch(id, kind, key) { callbacks.get(id)[{ 6: 'key', 44: 'keycapture', 43: 'keyup' }[kind]](key, api); } };
+    const host = { inputReady, page, wasm, get keyEvent() { return keyEvent; }, set keyEvent(value) { keyEvent = value; } };
     ${attach}
     return (el, handlers) => {
       const id = views.size + 1; views.set(id, el); callbacks.set(id, handlers);

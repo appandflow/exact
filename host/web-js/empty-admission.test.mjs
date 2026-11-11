@@ -1,6 +1,6 @@
 // A production page that admits nothing gets the empty set's answers in place of the grant parser (LLP 1047.002 D3,
 // host/web-js/build.mjs `emptyGrantAdmission`): the stub answers as the parser does for the empty set, exports what the
-// parser's section exports, and a grant, a development build or a module brings the parser back.
+// admission module exports, and a grant, a development build or a module brings the parser back.
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,9 +10,8 @@ import { webCompiler } from './module.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 const root = resolve(import.meta.dir, '../..');
-const exportsOf = (text) => [...text.matchAll(/^export (?:function|const) (\w+)/gm)].map((m) => m[1]).sort();
 // The parser's Rust whitespace class, the driver's fault table, a fetch option's refusal and the asset path's pattern:
-// text only the section, faults.js, ts-fetch.js's request paths and admission.js's asset check carry.
+// text only admission, faults.js, ts-fetch.js's request paths and admission.js's asset check carry.
 const PARSER = 'u1680', FAULTS = '__exactFaults', REQUESTS = 'exactLongPoll asks again', ASSETS = '\\/assets\\/';
 
 test.each([false, true])('a production page with no grants, module or page module admits nothing without the parser (fetch: %s)', async usesFetch => {
@@ -53,9 +52,9 @@ export const answer: Answer = ${usesFetch ? `async () => {
     expect(development.admission).toContain('function validateGrantSet');
     expect(development.entry).toContain(PARSER);
     expect(development.entry).toContain(REQUESTS);
-    expect(exportsOf(production.admission)).toEqual(exportsOf(development.admission));
     // Parity for the empty set: the stub and the parser answer the same calls the same way.
     const stub = await production.module(), parser = await development.module();
+    expect(Object.keys(stub).sort()).toEqual(Object.keys(parser).sort());
     const empty = parser.createGrantSet(JSON.parse(production.admission.match(/\.\.\.(\{.*?\}), entries:/)[1]));
     expect(parser.grantError(empty)).toBeNull();
     for (const [name, args] of [

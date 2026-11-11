@@ -1,3 +1,4 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // A Canvas 2D canvas's first geometry without ResizeObserver (canvas2d-glue.js
 // `firstGeometry`): a page in a frame scrolled out of view gets no observer
 // entries, and readiness waits on every watched canvas's first geometry
@@ -7,7 +8,6 @@
 // always sent (LLP 1122 queue item (3)'s QUEUE follow-up, review round 2).
 // The module runs in a vm with stand-in browser globals.
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { glueDeclarations } from './glue-fixture.mjs';
 

@@ -8,7 +8,7 @@ import { launchModules } from '../../scripts/launch-modules.mjs';
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
 //    `app.plan` from `host/web/build.mjs`, whose resources carry their
 //    build-time answers) to `app.js` + `app.css`.
-// 2. Bun's bundler joins it with `rt.js`, tree-shaken and minified: one
+// 2. Rolldown joins it with `rt.js`, tree-shaken and minified: one
 //    module, everything needed to be interactive.
 // 3. `index.html` carries the web host's own base stylesheet (from
 //    `host/web/index.html`), the app's static classes, and the module, with a
@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { copyGpuCache } from './gpu-cache.mjs';
 import { analyze } from './page-style.mjs';
-import { localImports, stageHostGlue } from './glue.mjs';
+import { bundleHostModule, gateAgent, localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev, withRuntimeStamp } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { settingLines } from '../../js/bake/src/__exact_env.mjs';
@@ -578,33 +578,18 @@ for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', '
 writeFileSync(resolve(gen, 'modules.js'), localImports(readFileSync(resolve(here, 'modules.js'), 'utf8')));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
-// navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
-// here, which navigation.js re-exports: one module is one chunk, and the lazy admission (admission.js, the TypeScript
-// and Rust data chunks) is the only reader, so a page that admits nothing before a lazy chunk carries none of it. The
-// wasm host serves navigation.js whole (its boot graph is glue.js and navigation.js; scripts/boot.mjs).
-// The local-network classifier just before it (`local network: begin` … `end`), which the section and address-space.js read,
-// moves with it, so the lifted module imports nothing back from navigation.js (a cycle Rolldown would keep whole).
-const { grantSection, grantNames, localNetwork } = (() => {
-  const lines = readFileSync(resolve(root, 'host/web/navigation.js'), 'utf8').split('\n');
-  const section = (name) => {
-    const begin = lines.findIndex(l => l.startsWith(`// ${name}: begin`)), end = lines.findIndex(l => l === `// ${name}: end`);
-    if (begin < 0 || end < begin) throw new Error(`host/web/navigation.js: no \`// ${name}: begin\` … \`end\` section`);
-    return { begin, end, text: lines.slice(begin, end + 1).join('\n') + '\n' };
-  };
-  const local = section('local network'), grant = section('grant admission');
-  if (local.end + 1 !== grant.begin) throw new Error('host/web/navigation.js: the local network section must end where the grant admission begins');
-  const exported = (text) => [...text.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
-  const names = exported(grant.text), classifier = exported(local.text);
-  writeFileSync(resolve(gen, 'navigation.js'), [...lines.slice(0, local.begin), `export { ${[...classifier, ...names].join(', ')} } from './grant-admission.js';`, ...lines.slice(grant.end + 1)].join('\n'));
-  return { grantSection: local.text + grant.text, grantNames: names, localNetwork: local.text };
-})();
+// Keep navigation one runtime module and admission a separate lazy module on the JS target.
+writeFileSync(resolve(gen, 'navigation.js'), await bundleHostModule(root, 'navigation.js', { grants: true, production }));
+const grantNames = Object.keys(await import('../web/grant-admission.js'))
+  .filter(name => !['isCloudMetadata', 'isLocalNetwork'].includes(name));
+writeFileSync(resolve(gen, 'grant-network.js'), await bundleHostModule(root, 'navigation/network.js'));
 // A production page whose every grant set is empty (no TypeScript grant, no Rust module, no native module, no page
-// module) admits nothing, and says so without the parser (LLP 1047.002 D3): each export of the section answers as it
+// module) admits nothing, and says so without the parser (LLP 1047.002 D3): each export of admission answers as it
 // does for the empty set the compiler normalized (`admission-data.js` holds the same one), and the parser is not
-// linked. A name the section exports that this table lacks fails the build, so a new check is answered here before a
-// page ships without it. Development pages keep the section (LLP 1047 D7).
+// linked. A name admission exports that this table lacks fails the build, so a new check is answered here before a
+// page ships without it. Development pages keep the parser (LLP 1047 D7).
 const admitsNothing = production && !tsGrantSet.error && tsGrantSet.entries.length === 0 && !rust && !moduleFlag.extensions.length && !pageModules;
-// Whether any source holds a network grant (the kinds navigation.js's `networkGrants`, `schemeGrants` and `localGrants` name).
+// Whether any source holds a network grant (the kinds grant-admission.js's `networkGrants`, `schemeGrants` and `localGrants` name).
 const netGranted = [tsGrantSet, rustGrantSet].some(set => (set.entries ?? []).some(([, , grant]) => /^(fetch|websocket)(-|$)/.test(grant?.[0] ?? '')));
 const fetchRefused = production && ts && !netGranted;
 const emptyGrantAdmission = () => {
@@ -616,10 +601,11 @@ const emptyGrantAdmission = () => {
     sameGrantDeclaration: "(set, source) => typeof source === 'string'",
   };
   const missing = grantNames.filter(name => !(name in answers));
-  if (missing.length) throw new Error(`host/web/navigation.js: the grant admission exports ${missing.join(', ')}, which build.mjs's empty-set admission does not answer`);
+  if (missing.length) throw new Error(`host/web/grant-admission.js: admission exports ${missing.join(', ')}, which build.mjs's empty-set admission does not answer`);
   return ['// Generated: the grant admission of a page that admits nothing (LLP 1047.002 D3). Every set is the empty set the compiler normalized.',
     `const EMPTY = Object.freeze({ ...${JSON.stringify(tsGrantSet)}, entries: Object.freeze([]) });`,
-    ...grantNames.map(name => `export const ${name} = ${answers[name]};`), localNetwork].join('\n');
+    ...grantNames.map(name => `export const ${name} = ${answers[name]};`),
+    "export { isCloudMetadata, isLocalNetwork } from './grant-network.js';"].join('\n');
 };
 // The agent adapter reads its own copies of the modules it shares with the
 // entry: a module lives in one chunk, so what only the agent reads from
@@ -636,7 +622,7 @@ if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : '')
   .replace("'__FETCH_MODULE__'", JSON.stringify(fetchRefused ? './ts-fetch-refused.js' : './ts-fetch.js')));
-writeFileSync(resolve(gen, 'grant-admission.js'), admitsNothing ? emptyGrantAdmission() : grantSection); // the section navigation.js re-exports (above)
+writeFileSync(resolve(gen, 'grant-admission.js'), admitsNothing ? emptyGrantAdmission() : await bundleHostModule(root, 'grant-admission.js'));
 // With nothing admitted no request leaves the page's origin, so the driver's faults (LLP 1103), which fail a request
 // that would have gone out, have nothing to fail: `fetchWith` keeps its asset path and loses faults.js.
 // Likewise the local network's reach and redirect gates (address-space.js, LLP 1133.036 D6), which check a tool's, a
@@ -741,10 +727,6 @@ cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
 // A release admits no agent mode (LLP 1069.007 D2): every file that reads
 // `?agent` declares AGENT_ADMITTED, written false here, as host/web/build.mjs
 // gates the wasm host's. Lazy host modules pass through the same gate.
-const gateAgent = (code, name) => {
-  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) throw new Error(`${name} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`);
-  return code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;');
-};
 if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))) {
   const code = readFileSync(resolve(gen, f), 'utf8');
   writeFileSync(resolve(gen, f), gateAgent(code, f));
@@ -946,7 +928,13 @@ const moduleImports = code => new Bun.Transpiler({ loader: 'js' }).scanImports(c
 const publicDependency = (from, specifier) => posix.resolve('/', posix.dirname(from), specifier).slice(1);
 async function copyLazyModules(roots) {
   const { webHostFiles } = await import('../../scripts/app.mjs');
-  const inventory = webHostFiles(), queue = roots.map(name => ({ name, source: inventory[name] })), copied = new Set();
+  // These modules were built for this JS runtime and have already passed its
+  // production gate. The wasm inventory belongs to a different build.
+  const inventory = { ...webHostFiles(),
+    'navigation.js': resolve(gen, 'navigation.js'),
+    'grant-admission.js': resolve(gen, 'grant-admission.js'),
+    'grant-network.js': resolve(gen, 'grant-network.js'),
+  }, queue = roots.map(name => ({ name, source: inventory[name] })), copied = new Set();
   while (queue.length) {
     const { name, source } = queue.shift();
     if (copied.has(name)) continue;
@@ -958,7 +946,8 @@ async function copyLazyModules(roots) {
     const from = resolve(root, source), code = name.endsWith('.js') || name.endsWith('.mjs') ? readFileSync(from, 'utf8') : null;
     mkdirSync(dirname(resolve(out, name)), { recursive: true });
     // The adapters' own storage-environment.js names the app's development store, as the page's chunk does (above).
-    const scoped = code == null ? code : production ? gateAgent(code, name) : developmentStore(code, realpathSync(appDir));
+    const scoped = code == null || from.startsWith(gen + '/') ? code
+      : production ? gateAgent(code, name) : developmentStore(code, realpathSync(appDir));
     if (scoped !== code) writeFileSync(resolve(out, name), scoped);
     else cpSync(from, resolve(out, name));
     if (code != null) for (const specifier of [...moduleImports(code), ...literalModuleURLs(code)]) {

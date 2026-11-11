@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { historyURL, launchLocation } from './navigation.js';
+import { historyURL } from './navigation/routes.js';
+import { launchLocation } from './navigation/environment.js';
 
 // A drive's launch facts (scripts/agent-launch.mjs) are the carrier's, not the app's: none reaches the launch
 // route, and every History entry keeps them, so a reload relaunches with them. `formatLocale` (#952) among them.

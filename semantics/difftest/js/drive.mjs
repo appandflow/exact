@@ -19,7 +19,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createDocument } from '../../../host/web-js/dom.js';
-import { driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
+import { bundleHostModule, driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -91,10 +91,15 @@ const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f
 
 // ---------------------------------------------------------------- the runtime
 // Every file the bundle may reach, as host/web-js/build.mjs lays them out.
-function runtime(dir) {
+async function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  for (const f of driverRuntime(root)) cpSync(resolve(root, f), resolve(dir, basename(f)));
+  for (const f of driverRuntime(root)) {
+    if (f.startsWith('host/web/navigation/') || ['host/web/navigation.js', 'host/web/grant-admission.js'].includes(f)) continue;
+    cpSync(resolve(root, f), resolve(dir, basename(f)));
+  }
+  writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(root, 'navigation.js', { grants: true }));
+  writeFileSync(resolve(dir, 'grant-admission.js'), await bundleHostModule(root, 'grant-admission.js'));
   // `sin` and `cos` answer the runner's bits (`trig` below), not `Math`'s.
   const roster = resolve(dir, 'roster.js'), engine = 'export const x_sin = Math.sin, x_cos = Math.cos;';
   const text = readFileSync(roster, 'utf8');
@@ -332,7 +337,7 @@ async function drive(code, c, hostSources) {
 process.on('unhandledRejection', () => {});
 const quiet = process.env.DIFFTEST_JS_DEBUG ? console : { ...console, error() {}, warn() {} };
 const batch = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-runtime(batch.work);
+await runtime(batch.work);
 for (const c of batch.cases) {
   let result;
   try {

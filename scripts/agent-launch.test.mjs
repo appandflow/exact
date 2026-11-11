@@ -8,7 +8,7 @@ import { delimiter, dirname, resolve } from 'node:path';
 import { PINNED_RUST } from './app.mjs';
 import { Cdp, agentPage, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil, quitBrowser } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
-import { placeReporter } from '../host/web/navigation.js';
+import { placeReporter } from '../host/web/navigation/environment.js';
 
 // Every browser carrier opens the page with the same query (LLP 1146 D4): the drive's auth fixture among it.
 test('a web drive opens its page with the facts, its auth fixture, storage and hatches', () => {
@@ -109,7 +109,7 @@ function stampedWasm(stamp = {format: 1, version: engineVersion(), capabilities:
   const body = Buffer.concat([leb(name.length), name, Buffer.isBuffer(stamp) ? stamp : Buffer.from(JSON.stringify(stamp))]);
   return Buffer.concat([Buffer.from([0,97,115,109,1,0,0,0,0]), leb(body.length), body]);
 }
-import { timeReporter } from '../host/web/navigation.js';
+import { timeReporter } from '../host/web/navigation/environment.js';
 // The Snapback device checks need the Snapback client (snapback4/), which this repository does not ship.
 const hasSnapback = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url));
 

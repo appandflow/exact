@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 // A TypeScript answer on the web JS target is what a native host makes of it: the text `JSON.stringify` writes
 // (js/src/binary.js), decoded by the shape (js/value's `decode_tree`). So each answer here must convert, and be
 // refused, exactly as its own JSON round trip does, and what it converts to must pass the runtime's shape check
@@ -27,7 +28,7 @@ beforeAll(async () => {
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(root, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '').replace("'__FETCH_MODULE__'", "'./ts-fetch.js'"));
   for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
-  for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(root, 'host/web', name)));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(root, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/", "'./"));
   writeFileSync(resolve(dir, 'admission-data.js'), "import { createGrantSet } from './admission.js'; export const tsGrantSet = createGrantSet(null);\n");
   writeFileSync(resolve(dir, 'rt.js'), 'export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const drive=()=>{},time=()=>{},Origin={now:()=>"app"};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n');

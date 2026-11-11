@@ -1,3 +1,4 @@
+import { hostFixtureFile } from './tests/glue-fixture.mjs';
 // The page's module realm (module-glue.js) over the real prelude, in a vm
 // context standing in for its iframe, and its worker placement on a Worker,
 // each with a scripted file store.
@@ -20,7 +21,7 @@ test('a parked answer is asked again after another answer delivers its storage',
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-storage-'));
   const saved = Object.fromEntries(['fetch', 'document', 'location'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   try {
-    for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => []; export const agentSeed = () => null;
 export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;
@@ -89,7 +90,7 @@ async function moduleRealm(script, { placement = 'worker', key = 'k', top = '', 
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const storageKey = () => ${JSON.stringify(key)}; export const agentStorageRefusal = 'no store'; export const agentReads = ['readdir']; export const emptyRead = () => []; export const agentSeed = () => null;
 export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;

@@ -182,6 +182,8 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
+import { buildHostGlue } from './host/web-js/glue.mjs';
+await buildHostGlue(process.cwd());
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -254,7 +256,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 // @ref LLP 1043.000 §3 D7/D8 — exercise the actual fixture server without Chrome.
 if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
   try {
-    const glue=readFileSync('host/web/glue.js','utf8');
+    const glue=readFileSync(webHostFiles()['glue.js'],'utf8');
     const requested=[...glue.matchAll(/loadAfterPaint\(['"]\.\/([^'"]+)['"]/g)].map(match=>match[1]);
     assert(requested.length>0,'negative control: the loader inventory cannot be empty');
     const problems=[];
@@ -1116,6 +1118,8 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
+import { buildHostGlue } from './host/web-js/glue.mjs';
+await buildHostGlue(process.cwd());
 import { moduleBinding, moduleInterfaces } from './js/bake/src/typescript.mjs';
 import { rolldown } from 'rolldown';
 import { spawn } from 'node:child_process';

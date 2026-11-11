@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,7 +29,7 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     const run = spawnSync(cmd, [...pre, 'normalize-grants', scratch], { cwd: ROOT, encoding: 'utf8' });
     expect(run.status).toBe(0);
     writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'"));
-    for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
     // Data code's fetch over it, with the same grants
     cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
     writeFileSync(resolve(dir, 'admission-data.js'), `import { createGrantSet } from './admission.js'; export const tsGrantSet = createGrantSet(${run.stdout});\n`);

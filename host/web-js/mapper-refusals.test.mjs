@@ -9,6 +9,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { asyncContextHelper } from '../../js/bake/src/typescript.mjs';
 
 const root = resolve(import.meta.dir, '../..');
@@ -22,7 +23,7 @@ beforeAll(async () => {
   globalThis.fixture = fixture;
   dir = mkdtempSync(resolve(tmpdir(), 'exact-mapper-refusals-'));
   for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
-  for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js', 'storage-environment.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js', 'storage-environment.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(root, 'host/web', name)));
   writeFileSync(resolve(dir, 'admission-real.js'), readFileSync(resolve(root, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/", "'./"));
   // Every grant held; a request answers at once, counted.
   writeFileSync(resolve(dir, 'admission.js'), `export * from './admission-real.js';

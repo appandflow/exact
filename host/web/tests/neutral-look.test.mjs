@@ -1,8 +1,8 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // LLP 1115.000 D4 part B: one neutral web presentation in Chrome, Firefox and WebKit.
 // The role and metric censuses hold the sheet to the schema; the browser oracle
 // keeps the same geometry, colours and author precedence in all three engines.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './glue-fixture.mjs';
@@ -11,7 +11,7 @@ import { decodePng } from '../../../scripts/png.mjs';
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
 // How both runtimes draw a symbol: its mask in its tint, `--exact-tint`.
-const symbolStyle = read('../glue.js').match(/symbolStyle\.textContent = '([^']*)'/)[1];
+const symbolStyle = JSON.parse(read('../glue.js').match(/symbolStyle\.textContent = ("(?:[^"\\]|\\.)*")/)[1]);
 // The neutral look alone, its roles the neutral column's: the Apple colours a build lays over it, in every
 // browser, are apple-colors.test.mjs's
 const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1].replace(appleColors(), '');

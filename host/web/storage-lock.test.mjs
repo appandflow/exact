@@ -1,7 +1,8 @@
+import { hostFixtureFile as readFileSync } from './tests/glue-fixture.mjs';
 // Actual Web Locks: wait for a competing owner, cancel bounded waits, and
 // release ancestor locks after a partial acquisition fails.
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './tests/glue-fixture.mjs';

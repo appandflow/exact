@@ -10,7 +10,39 @@ import vm from 'node:vm';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
+const MODULES = {
+  'host/web/glue.js': [
+    'host/web/wasm/agent.js',
+    'host/web/wasm/boot.js',
+    'host/web/wasm/commit.js',
+    'host/web/wasm/context.js',
+    'host/web/wasm/flow.js',
+    'host/web/wasm/input.js',
+    'host/web/wasm/views.js',
+  ],
+  'host/web/navigation.js': [
+    'host/web/navigation/assets.js',
+    'host/web/navigation/controls.js',
+    'host/web/navigation/environment.js',
+    'host/web/navigation/focus.js',
+    'host/web/navigation/grant-origins.js',
+    'host/web/navigation/layers.js',
+    'host/web/navigation/lists.js',
+    'host/web/navigation/markup.js',
+    'host/web/navigation/motion.js',
+    'host/web/navigation/network.js',
+    'host/web/navigation/popover.js',
+    'host/web/navigation/requests.js',
+    'host/web/navigation/routes.js',
+    'host/web/navigation/scroll.js',
+    'host/web/navigation/selection.js',
+    'host/web/navigation/store.js',
+    'host/web/navigation/type.js',
+    'host/web/navigation/urls.js',
+    'host/web/grant-admission.js',
+  ],
+};
+const ALLOWED = new Set([...Object.keys(MODULES), ...Object.values(MODULES).flat()]);
 // A served document may run exactly one inline script before its glue: the
 // host's capture script (LLP 1048.000 D6, 1048.001 D5; Charlie, 2026-09-23),
 // which records taps, once the page has painted starts an idle page's wasm
@@ -212,13 +244,14 @@ function run() {
     path: rootPath(file), bytes: Buffer.byteLength(source),
     sha256: createHash('sha256').update(source).digest('hex'),
   }));
-  const report = { modules: seen.size, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
+  const shipped = Object.keys(MODULES).filter(file => seen.has(resolve(root, file)));
+  const report = { modules: shipped.length, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
     html_bytes: Buffer.byteLength(html), files: modules, wasm_references: wasm,
     document_entry: { modules: 1, javascript_bytes: documentBytes },
     capture_script: { inline: 1, bytes: capture.bytes, max_bytes: CAPTURE.maxBytes, sha256: capture.sha256, checked: capture.checked, found: capture.found, stale: capture.stale }, problems };
   if (process.argv.includes('--json')) console.log(JSON.stringify(report));
   else {
-    console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map(rootPath).join(', ') || 'none'}); wasm references: ${wasm}`);
+    console.log(`boot — modules reachable before first pixel: ${shipped.length} (${shipped.join(', ') || 'none'}); wasm references: ${wasm}`);
     console.log(`  reachable JavaScript: ${report.javascript_bytes} B; page: ${report.html_bytes} B (diagnostic sizes, no byte budget)`);
     console.log(`  interaction document: 1 host module (${documentBytes} B), no imports`);
     const built = !capture.checked ? '' : capture.found ? `; ${capture.checked} runs it and no other`

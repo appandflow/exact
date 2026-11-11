@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 // The web Rust adapter against a stand-in for its wasm module (LLP 1146 §2.3).
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -32,7 +33,7 @@ test("a Rust source's store read reaches rt.js whether its call answers or fails
     const source = readFileSync(resolve(ROOT, 'host/web-js', name), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'");
     writeFileSync(resolve(dir, name), source);
   }
-  for (const name of ['http-body.js', 'grant-admission.js', 'faults.js', 'navigation.js', 'address-space.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['http-body.js', 'grant-admission.js', 'faults.js', 'navigation.js', 'address-space.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const rustGrantSet=createGrantSet(${JSON.stringify(set)}),tsGrantSet=createGrantSet(${JSON.stringify(normalized(''))});\n`);
   const memory = new WebAssembly.Memory({ initial: 1 }), out = 32768;
   let output = new Uint8Array(), read = false, fails = false, unknown = false;

@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -124,7 +125,7 @@ test.each([false, true])('a wake after an idle spell has its full budget (agent:
     if (path === '/host/web-js/wakes.js') return new Response(Bun.file(resolve(ROOT, 'host/web-js/wakes.js')));
     const local = resolve(ROOT, '.' + path);
     const file = existsSync(local) ? local : resolve(ROOT, 'host/web', path.split('/').at(-1));
-    return existsSync(file) ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
+    return existsSync(file) ? new Response(hostFixtureFile(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
   } });
   let browser;
   try {

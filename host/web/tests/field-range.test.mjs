@@ -1,6 +1,7 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';

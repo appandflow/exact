@@ -1,5 +1,5 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './glue-fixture.mjs';
 import { standIns } from './stand-ins.mjs';
@@ -28,7 +28,7 @@ function serve() {
       '/canvas2d-glue.js': '../canvas2d-glue.js',
       '/navigation.js': '../navigation.js',
     };
-    if (files[path]) return new Response(Bun.file(new URL(files[path], import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
+    if (files[path]) return new Response(readFileSync(new URL(files[path], import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (runtime.includes(path.slice(1))) return new Response(Bun.file(new URL(`../../web-js${path}`, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (standins.has(path.slice(1))) return new Response(standins.get(path.slice(1)), { headers: { 'content-type': 'text/javascript' } });
     return new Response('<main id="exact-root"></main>', { headers: { 'content-type': 'text/html' } });
@@ -96,6 +96,7 @@ for (const target of ['js', 'wasm', 'wasm-reload']) for (const agent of [false, 
           toldOffset: null, followOffset: noop, now: () => 0, appRootFontSize: noop, inputReady: false,
           startClock: noop, afterPaint: noop, loadGpuIfNeeded: noop, agentMode: agent,
         };
+        services.host = services;
         const dispatch = new Function(...Object.keys(services), `${host}; return { apply, bootNow };`)(...Object.values(services));
         mount = id => dispatch.apply({ ops: [{ op: 'canvas2d', id, watch: true }] });
         remove = target === 'wasm-reload'

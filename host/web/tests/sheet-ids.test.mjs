@@ -7,6 +7,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { withLook } from '../look.mjs';
+import { symbolSheet, wasmSource } from './glue-fixture.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const WEB = resolve(import.meta.dir, '..'), WEB_JS = resolve(WEB, '../web-js');
@@ -15,8 +16,8 @@ const shell = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 const injected = [
   [resolve(WEB, 'input-glue.js'), /textContent: "(\[data-exact-snap\][^"]*)"/],
   [resolve(WEB_JS, 'modes.js'), /sheet\.textContent = "([^"]*)"/],
-  [resolve(WEB, 'glue.js'), /symbolStyle\.textContent = '([^']*)'/],
 ].map(([file, at]) => { const m = at.exec(readFileSync(file, 'utf8')); if (!m) throw new Error(`${file}: its sheet's text moved`); return m[1]; });
+injected.push(symbolSheet(wasmSource));
 
 test('no non-important shell rule holds two ids outside :where()', async () => {
   const suite = await suiteBrowser();

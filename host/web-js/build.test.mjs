@@ -40,7 +40,9 @@ test('the production starter stays within its 45 KiB budget and its header butto
     browser = await suiteBrowser();
     const page = await browser.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(server.url.href);
+    await page.goto(server.url.href + '?agent&epoch=1&seed=3');
+    await page.waitForFunction(() => globalThis.exact?.ready);
+    expect(await page.evaluate(() => exact.clock.agent)).toBe(false);
     await page.waitForFunction(() => document.querySelector('[data-testid=greeting]')?.textContent === 'Hello from Starter.');
     await page.getByTestId('like').click();
     expect(await page.getByTestId('like').getAttribute('aria-label')).toBe('Unlike');
@@ -299,14 +301,24 @@ test('a mount whose own tsconfig.json extends a file outside it builds for the w
   }
 }, 30000);
 
-test('production lazy host modules ignore agent storage and entropy parameters', async () => {
+test('production pages and lazy host modules ignore agent facts, storage and entropy parameters', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   mkdirSync(resolve(root, 'target'), { recursive: true });
   const dir = mkdtempSync(resolve(root, 'target/web-js-agent-'));
   try {
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Agent gate', id: 'test.agent-gate', app: { id: 'test.agent-gate', name: 'Agent gate' } }));
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    input type="file"\n');
+    writeFileSync(resolve(dir, 'app.contract'), `shape Time
+  epochAtZero: number
+  locale: string
+component App
+  resource time = exactTime() as shape Time
+  view
+    column
+      input type="file"
+      text time.epochAtZero.toString() testId="epoch"
+      text time.locale testId="locale"
+`);
     const build = (out, args = []) => {
       const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'agent-gate', '--out', out, '--render', 'none', ...args], {
         cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8',
@@ -318,6 +330,33 @@ test('production lazy host modules ignore agent storage and entropy parameters',
     build(dev);
     build(prod, ['--production', '--plan', resolve(dev, 'app.plan')]);
     build(webOnly, ['--production']);
+    const browser = await suiteBrowser();
+    try {
+      for (const dist of [dev, prod, webOnly]) {
+        const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+          const path = new URL(request.url).pathname;
+          return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+        } });
+        const page = await browser.newPage();
+        try {
+          await page.goto(server.url.href + '?agent&epoch=1&seed=3&locale=zz');
+          await page.waitForFunction(() => globalThis.exact?.ready);
+          const epoch = Number(await page.getByTestId('epoch').textContent());
+          const locale = await page.getByTestId('locale').textContent();
+          if (dist === dev) {
+            expect([epoch, locale]).toEqual([1, 'zz']);
+          } else {
+            expect(epoch).toBeGreaterThan(1e12);
+            expect(locale).toBe(await page.evaluate(() => navigator.language));
+          }
+        } finally {
+          await page.close();
+          server.stop(true);
+        }
+      }
+    } finally {
+      await browser.close();
+    }
     const development = await import(pathToFileURL(resolve(dev, 'storage-environment.js')).href);
     const appId = 'test.agent-gate', own = development.storageKey(appId, 'https://example.test/');
     expect(own).toMatch(/^test\.agent-gate@[a-f0-9]{12}$/);
@@ -335,7 +374,7 @@ test('production lazy host modules ignore agent storage and entropy parameters',
       const shipped = readdirSync(release, { recursive: true }).filter(name => /\.m?js$/.test(name));
       expect(shipped).toContain('picker-glue.js');
       expect(shipped).toContain('storage-environment.js');
-      expect(shipped).toContain('navigation.js');
+      expect(shipped).toContain('.gen/navigation.js');
       for (const name of shipped) {
         expect(readFileSync(resolve(release, name), 'utf8'), name).not.toContain('const AGENT_ADMITTED = true;');
       }

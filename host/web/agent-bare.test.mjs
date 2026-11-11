@@ -1,9 +1,10 @@
+import { glueDeclarations } from './tests/glue-fixture.mjs';
 // @ref LLP 1104 D2 — the driver's shared layout names why the default is bare.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { sourceMapReader, render, identifyLayoutNodes } from '../../scripts/agent-inspect.mjs';
-import { viewChildren } from './navigation.js';
+import { viewChildren } from './navigation/lists.js';
 
 test('the JS agent tree lists authored children but not a hatch part as a view', () => {
   const source = readFileSync(new URL('../web-js/agent.js', import.meta.url), 'utf8');
@@ -117,11 +118,11 @@ test('driver deadlines release their timer on success, rejection and timeout', a
 // Agent input/geometry stays outside the two-module first-paint graph. Its
 // first request waits once; readiness leaves subsequent reads synchronous.
 test('the wasm agent loads its input helpers once and keeps settled reads synchronous', async () => {
-  const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-  const declaration = name => source.match(new RegExp(`function ${name}\\([^]*?\\n\\}`))[0];
+  const source = readFileSync(new URL('./wasm/agent.js', import.meta.url), 'utf8');
+  const declaration = name => glueDeclarations(source, [name]);
   let finish, loads = 0;
   const context = vm.createContext({
-    stageLoaded: () => true, agentMode: false, agentNow: request => ({ op: request.op }),
+    host: {}, stageLoaded: () => true, agentMode: false, agentNow: request => ({ op: request.op }),
     loadAfterPaint: (file, exported) => {
       expect([file, exported]).toEqual(['./agent-input.js', 'agentInput']);
       loads++;

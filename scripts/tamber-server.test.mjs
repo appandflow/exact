@@ -496,6 +496,8 @@ test('frameOnlyByTool: every HTML head carries frame-ancestors, however it is wr
 // served by the dev loop alone.
 test('no web build ships inspect: it lives in dev.js, which no build copies', async () => {
   const { webHostFiles } = await import('./app.mjs');
+  const { buildHostGlue } = await import('../host/web-js/glue.mjs');
+  await buildHostGlue(ROOT);
   const shipped = webHostFiles();
   expect(Object.keys(shipped)).not.toContain('dev.js');
   for (const [name, source] of Object.entries(shipped)) if (name.endsWith('.js')) expect([name, readFileSync(resolve(ROOT, source), 'utf8').includes('exact-inspect')]).toEqual([name, false]);

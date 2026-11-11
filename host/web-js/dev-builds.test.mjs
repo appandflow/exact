@@ -6,7 +6,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -322,3 +322,31 @@ test('the JS loop: two loops on two apps under one target/ build at once, each i
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   }
 }, 1_200_000);
+
+
+test('the JS loop rebuilds when a navigation source or grant admission changes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-navigation-watch-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Navigation watch', app: { id: 'test.navigation-watch', name: 'Navigation watch' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Ready"\n');
+  const sources = ['host/web/navigation/routes.js', 'host/web/grant-admission.js'].map(file => resolve(ROOT, file));
+  const stamps = sources.map(path => statSync(path));
+  let loop;
+  try {
+    loop = await devLoop(dir);
+    for (const source of sources) {
+      const before = loop.said().length;
+      const now = new Date();
+      utimesSync(source, now, now);
+      const deadline = performance.now() + 30_000;
+      while (!loop.said().slice(before).includes('edit → plan ready')) {
+        if (performance.now() > deadline) throw new Error(`no rebuild after ${source}: ${loop.said().slice(before)}`);
+        await Bun.sleep(50);
+      }
+      expect(loop.said().slice(before)).toContain('edit → plan ready');
+    }
+  } finally {
+    await loop?.stop();
+    sources.forEach((path, i) => utimesSync(path, stamps[i].atime, stamps[i].mtime));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180_000);

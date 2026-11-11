@@ -1,3 +1,4 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back,
@@ -10,7 +11,6 @@
 // what is left of the stack it showed (LLP 1035.001 D1), so a closed sheet
 // never leaves the route beneath it inert.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';

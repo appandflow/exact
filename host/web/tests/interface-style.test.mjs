@@ -1,3 +1,4 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // The manifest's `userInterfaceStyle` on the web: a fixed style is the page's `color-scheme` from its first paint, in
 // the shell both web targets write (host/web/look.mjs `withInterfaceStyle`), so the canvas and the browser's own
 // controls are in it whatever the browser prefers; `automatic` leaves the shell's `light dark`. A real JS build of an
@@ -5,7 +6,7 @@
 // system's scheme is the fixed one (navigation.js `preferences`).
 import { test, expect, afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, resolve } from 'node:path';

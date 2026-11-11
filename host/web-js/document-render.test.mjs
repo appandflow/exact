@@ -354,7 +354,7 @@ test('the render context reports UTC independently of the machine zone', async (
     mkdirSync(resolve(dir, '.gen'));
     writeFileSync(resolve(dir, 'shell.html'), '<html><head><title>Place</title><meta name="viewport" content="width=device-width">\n</head><body><div id="exact-root"></div><script type="module" src="./app.js"></script></body></html>');
     const entry = resolve(dir, 'probe.js');
-    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation.js'))};
+    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation/environment.js'))};
 globalThis.__start = () => ({ activate: 'eager' });
 globalThis.__render = () => {
   const [language, zone] = placeReporter(new URLSearchParams())().split('\\0');

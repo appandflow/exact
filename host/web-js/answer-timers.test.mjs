@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -175,7 +176,7 @@ export const answer = resume(function* () {
     if (generated) return new Response(generated, { headers: { 'content-type': 'text/javascript' } });
     const local = resolve(ROOT, '.' + path);
     const file = existsSync(local) ? local : resolve(ROOT, 'host/web', path.split('/').at(-1));
-    return existsSync(file) ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
+    return existsSync(file) ? new Response(hostFixtureFile(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
   } });
   let browser;
   try {

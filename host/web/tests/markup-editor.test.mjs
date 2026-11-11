@@ -1,6 +1,7 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // @ref LLP 1045 D1/D5/D6 — native DOM edits, controlled source and shared undo.
 import { afterAll, test, expect } from 'bun:test';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
@@ -19,14 +20,14 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 async function editor(engine, source, drive, runtime = false, attrs = '') {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
-    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(readFileSync(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
       // The JS target's modules over the host's glue; a module that
       // re-exports the host's own reaches it through `../web/`.
       const js = path.startsWith('/web/') ? resolve(WEB, path.slice(5)) : resolve(WEB, '../web-js', path.slice(1));
-      return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      return new Response(readFileSync(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" ${attrs} style="width:500px;height:240px"></textarea><pre id="echo"></pre>
       <script type="module">

@@ -317,7 +317,6 @@ test('text selection scopes release removed nodes and the document listener has 
     if (path === 'names.js') return new Response('export const sourceTypes={};', { headers: { 'content-type': 'text/javascript' } });
     const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [resolve(root, 'host/web-js'), resolve(root, 'host/web')];
     const file = bases.map(base => resolve(base, path)).find(existsSync);
-    if (file === resolve(root, 'host/web/navigation.js')) return new Response(readFileSync(file, 'utf8') + '\nexport { selectedTexts };', { headers: { 'content-type': 'text/javascript' } });
     return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('', { status: 404 });
   } });
   let browser;
@@ -328,7 +327,7 @@ test('text selection scopes release removed nodes and the document listener has 
       const listeners = new Set(), add = document.addEventListener.bind(document), remove = document.removeEventListener.bind(document);
       document.addEventListener = (name, fn, ...rest) => { if (name === 'selectionchange') listeners.add(fn); add(name, fn, ...rest); };
       document.removeEventListener = (name, fn, ...rest) => { if (name === 'selectionchange') listeners.delete(fn); remove(name, fn, ...rest); };
-      const rt = await import('/rt.js'), nav = await import('/navigation.js');
+      const rt = await import('/rt.js'), nav = await import('/web/navigation/selection.js');
       const root = document.getElementById('exact-root');
       for (let i = 0; i < 100; i++) {
         const node = document.createElement('p'); node.textContent = 'row ' + i; root.append(node);

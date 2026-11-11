@@ -1,8 +1,8 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import {test,expect} from 'bun:test';
-import {focusController} from '../navigation.js';
+import { focusController } from '../navigation/focus.js';
 import {createInputHandlers} from '../input-glue.js';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
-import { readFileSync } from 'node:fs';
 import { glueDeclarations } from './glue-fixture.mjs';
 
 // The wasm host's key wire, and the early queue's copy of it (#140): the chord, its code, repeat and isComposing.
@@ -171,7 +171,6 @@ test('declared shortcuts support named keys and leave text input and composition
 // neutral sheet carries; LLP 1116 D1's look left it to the user agent), never
 // the page's own colour.
 test('bare fields restore keyboard focus and a disabled native field is the look\'s grey, not the page\'s ink', async () => {
-  const {readFileSync} = await import('node:fs');
   const {withLook} = await import('../look.mjs');
   const browser = await suiteBrowser();
   try {
@@ -219,7 +218,6 @@ test('bare fields restore keyboard focus and a disabled native field is the look
 }, 20000);
 
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native buttons keep the UA focus ring and bare buttons restore it`, async () => {
-  const {readFileSync} = await import('node:fs');
   const {withLook} = await import('../look.mjs');
   const browser = await suiteBrowser(engine);
   try {
@@ -272,7 +270,6 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
 
 // #282: the real HTML dialog path, reached through the JS target's commands.
 test('action dialog commands keep modal focus and preserve bare close as window close', async () => {
-  const {readFileSync} = await import('node:fs');
   const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
@@ -287,7 +284,8 @@ test('action dialog commands keep modal focus and preserve bare close as window 
       const el = document.querySelector('#form'), views = new Map([[1, el]]), retiredViews = new Set(), inputReady = true, page = null;
       window.wasmClosed = []; window.jsClosed = [];
       const now = () => 0, send = () => {}, wasm = {exact_dispatch: (id, kind) => wasmClosed.push([id, kind])};
-      ${glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('))}
+      const host = { inputReady, page, wasm };
+      ${glueDeclarations(glue, ['attach'])}
       attach(el, 1, ['close']);
       const clock = {agent: true, now: 0, timers: []}, start = 0, Mutations = [], OnHooks = {}, Owner = null;
       const onEnd = () => {}; let Propagating = null;
@@ -346,7 +344,7 @@ test('a queued dialog close cannot act after its conditional scope ends', async 
     if (!path.startsWith('/host/')) return new Response(null, {status: 404});
     const local = Bun.file(new URL(`../../..${path}`, import.meta.url));
     const file = await local.exists() ? local : Bun.file(new URL(`../../..${path.replace('/web-js/', '/web/')}`, import.meta.url));
-    return await file.exists() ? new Response(file) : new Response(null, {status: 404});
+    return await file.exists() ? new Response(readFileSync(file.name), { headers: { 'content-type': 'text/javascript' } }) : new Response(null, {status: 404});
   }});
   const browser = await suiteBrowser();
   try {
@@ -382,7 +380,7 @@ test('a queued dialog close cannot act after its conditional scope ends', async 
 test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
-  const source = readFileSync(new URL('../navigation.js', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../navigation/focus.js', import.meta.url), 'utf8');
   const start = source.indexOf('export function focusController');
   const fn = source.slice(start, source.indexOf('\n}\n', start) + 2).replace('export ', '');
   const element = () => ({exactAutofocus:true, getClientRects:()=>[{}], matches:()=>false,
@@ -418,10 +416,10 @@ test('autofocus is deferred and consumed per mounted control, preserving other U
 test('applying autofocus props cannot trigger browser focus during a batch', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
-  const source = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
-  const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('function ensureMessageListener('));
+  const source = readFileSync(new URL('../wasm/views.js', import.meta.url), 'utf8');
+  const fn = glueDeclarations(source, ['applyProps']);
   class Element {}
-  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, syncMarkup:()=>{}, settleValue:()=>{}, inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
+  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, syncMarkup:()=>{}, settleValue:()=>{}, host:{inputReady:true}, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
   const attrs = new Map();
   const el = {setAttribute:(k,v)=>attrs.set(k,v), removeAttribute:k=>attrs.delete(k)};
   apply(el, {autofocus:'true'}, []);

@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -166,7 +167,7 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
   writeFileSync(resolve(dir, 'names.js'), 'export const sourceTypes={};\n');
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(root, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'").replaceAll("'../web/address-space.js'", "'./address-space.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(null);\n");
-  for (const name of ['grant-admission.js', 'address-space.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'address-space.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(root, 'host/web', name)));
   for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
@@ -245,7 +246,7 @@ export const tools = { async probe() { const before = await ask(); await Promise
   writeFileSync(resolve(dir, 'grant-admission.js'), `export {isCloudMetadata, isLocalNetwork} from ${JSON.stringify(pathToFileURL(resolve(root, 'host/web/grant-admission.js')).href)};
 export const admitsNetwork=()=>true, admitsSecret=()=>false, coversPath=()=>false, createGrantSet=x=>x, grantError=()=>null, hasGrant=()=>false, rawGrantText=()=>'', scopedGrantSet=x=>x, unionGrantSets=x=>x, sameGrantDeclaration=()=>true;`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet={};');
-  for (const name of ['address-space.js', 'faults.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
+  for (const name of ['address-space.js', 'faults.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(root, 'host/web', name)));
   for (const name of ['ts-fetch.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
   cpSync(resolve(dir, 'admission.js'), resolve(dir, 'landing.js'));
   try {

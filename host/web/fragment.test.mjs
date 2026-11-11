@@ -3,6 +3,7 @@
 // newer navigation, or an entry that no longer shows the fragment; a fragment is all after the first `#`; and Back
 // puts back the scrollers above the route as well as those in it, again after the browser's own scroll to the id.
 import { test, expect, afterAll } from 'bun:test';
+import { hostFixtureFile } from './tests/glue-fixture.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 class El {
@@ -96,7 +97,7 @@ async function inBrowser(run) {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/fragment.js' || path === '/navigation.js') {
-      return new Response(Bun.file(new URL(`.${path}`, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
+      return new Response(hostFixtureFile(new URL(`.${path}`, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response('<!doctype html><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   } });
