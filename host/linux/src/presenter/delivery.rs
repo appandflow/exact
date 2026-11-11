@@ -357,6 +357,12 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
+        // The old executor lets go of everything, then says which uploads had
+        // begun to go out; the rest never left (LLP 1016.000 D10).
+        self.executor.forget(|_| false);
+        let started = self.executor.let_go_started(|_| false);
+        self.executor = self.host.executor();
+        self.host.runner_mut().uploads_started(&started);
         self.replaced();
         if self.display.new_session() {
             self.painted = false;
@@ -369,12 +375,6 @@ impl<D: DataSource> Presenter<D> {
         images.enable_decode();
         images.fit(self.viewport, self.brush.scale);
         self.images = images;
-        // The old executor lets go of everything, then says which uploads had
-        // begun to go out; the rest never left (LLP 1016.000 D10).
-        self.executor.forget(|_| false);
-        let started = self.executor.let_go_started(|_| false);
-        self.executor = self.host.executor();
-        self.host.runner_mut().uploads_started(&started);
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -414,7 +414,7 @@ impl<D: DataSource> Presenter<D> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::delivery::{Selection, Store};
     use exact_runner::{DataError, Value};
@@ -535,7 +535,8 @@ component App
         assert_first_facts(&facts);
     }
 
-    struct StagedPlan(Arc<[u8]>);
+    /// A store whose staged bundle is this plan.
+    pub(in crate::presenter) struct StagedPlan(pub(in crate::presenter) Arc<[u8]>);
 
     impl Store for StagedPlan {
         fn prepare_selected(&mut self) -> Option<Selection> {

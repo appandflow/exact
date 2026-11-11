@@ -236,6 +236,10 @@ pub(super) struct State {
     packages: packages::Packages,
     /// Whether the native slot's handler is installed.
     handling: bool,
+    /// The target this host said and the extensions it bound (as in
+    /// production, under the agent): what a replacement runner is told.
+    target: Option<&'static str>,
+    bound: Option<(Vec<String>, Vec<String>)>,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -337,13 +341,50 @@ impl<D: DataSource> Presenter<D> {
         } else {
             "linux"
         };
-        self.host.runner_mut().set_module_target(target);
+        self.say_target(target);
         if self.requests.packages.is_empty() {
             return;
         }
         self.handle_modules();
+        let native = self.host.runner().native_slot();
+        self.requests.packages.slot(native);
         let (real, under) = self.requests.packages.bound();
-        self.host.runner_mut().bind_extensions(&real, &under);
+        let owned = |names: Vec<&str>| names.into_iter().map(str::to_owned).collect();
+        self.bind_modules(owned(real), owned(under));
+    }
+
+    /// The host's target, which a module's per-target words are read by.
+    pub(crate) fn say_target(&mut self, target: &'static str) {
+        self.requests.target = Some(target);
+        self.host.runner_mut().set_module_target(target);
+    }
+
+    /// The extensions this host's implementations answer: `real` as in
+    /// production, `under` told they run under the agent.
+    pub(crate) fn bind_modules(&mut self, real: Vec<String>, under: Vec<String>) {
+        fn names(v: &[String]) -> Vec<&str> {
+            v.iter().map(String::as_str).collect()
+        }
+        (self.host.runner_mut()).bind_extensions(&names(&real), &names(&under));
+        self.requests.bound = Some((real, under));
+    }
+
+    /// A replacement runner (a reload, an activated update) is given what
+    /// the last one had: the native slot's handler, which wakes the new
+    /// executor, the target and the bound extensions. The package instances
+    /// already made announce into its slot.
+    pub(super) fn modules_replaced(&mut self) {
+        if std::mem::take(&mut self.requests.handling) {
+            self.handle_modules();
+        }
+        let native = self.host.runner().native_slot();
+        self.requests.packages.slot(native);
+        if let Some(target) = self.requests.target {
+            self.host.runner_mut().set_module_target(target);
+        }
+        if let Some((real, under)) = self.requests.bound.take() {
+            self.bind_modules(real, under);
+        }
     }
 
     /// The session ends: each package instance's `destroy`.
@@ -384,13 +425,13 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let mut queued = false;
-        let (native, wake) = (self.host.runner().native_slot(), self.executor.waker());
+        let wake = self.executor.waker();
         for (body, reply) in calls {
             let extension = packages::extension_of(&body).unwrap_or_default();
             if self.requests.packages.serves(&extension) {
                 let now = self.host.now();
                 let inbox = self.requests.inbox.clone();
-                (self.requests.packages).dispatch(&body, reply, now, &native, &inbox, &wake);
+                (self.requests.packages).dispatch(&body, reply, now, &inbox, &wake);
             } else if self.requests.shell {
                 let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
                 self.requests.modules.insert(id, reply);

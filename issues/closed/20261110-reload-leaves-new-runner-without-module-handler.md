@@ -1,6 +1,7 @@
 # A reload or an activated update leaves the new runner with no module handler and no bound extensions
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Linux presenter's `replaced()` installs the module handler in the new runner's slot (waking the new executor), says the target and binds the extensions again, and points the package instances' notifiers at the new slot; Apple's `commit_plan` binds again the extensions the app's module bound.
 **Systems:** host/linux/src/presenter/requests.rs, host/linux/src/presenter.rs, host/linux/src/presenter/delivery.rs, host/linux/src/canvas/requests.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

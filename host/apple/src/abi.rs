@@ -61,6 +61,8 @@ pub struct Bridge<D: DataSource> {
     /// activated source's native slot, so it outlives activations.
     app_module: Option<exact_runner::NativeHandler>,
     app_call: Option<exact_runner::NativeCall>,
+    /// The extensions the app's module binds (`bind_extensions`), as given.
+    bound: Option<String>,
     /// The pan contact's velocity samples (LLP 1057 §10.6; `crate::pan_velocity`).
     pub(crate) pan: crate::pan_velocity::PanVelocity,
     /// Canvas draws in a turn of their own (LLP 1072 §8.5), in each host booted.
@@ -118,6 +120,7 @@ impl<D: DataSource> Bridge<D> {
             start_on_frame: false,
             app_module: None,
             app_call: None,
+            bound: None,
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
@@ -940,6 +943,7 @@ impl<D: DataSource> Bridge<D> {
         self.executor = executor;
         let batch = Host::ending(self.host.replace(candidate.host), candidate.batch);
         self.adopt_app_module();
+        self.rebind();
         self.parked.clear();
         self.emit(batch)
     }

@@ -669,6 +669,12 @@ impl<D: DataSource> Presenter<D> {
             .commit_shaders(shaders)
             .map_err(HostError::Asset)?;
         self.host = host;
+        // The old executor lets go of everything, then says which uploads had
+        // begun to go out; the rest never left (LLP 1016.000 D10).
+        self.executor.forget(|_| false);
+        let started = self.executor.let_go_started(|_| false);
+        self.executor = self.host.executor();
+        self.host.runner_mut().uploads_started(&started);
         self.replaced();
         if self.display.new_session() {
             self.painted = false;
@@ -677,12 +683,6 @@ impl<D: DataSource> Presenter<D> {
         self.module = module;
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
-        // The old executor lets go of everything, then says which uploads had
-        // begun to go out; the rest never left (LLP 1016.000 D10).
-        self.executor.forget(|_| false);
-        let started = self.executor.let_go_started(|_| false);
-        self.executor = self.host.executor();
-        self.host.runner_mut().uploads_started(&started);
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -1378,11 +1378,13 @@ impl<D: DataSource> Presenter<D> {
         self.host.runner().has_pending()
     }
 
-    /// Another host took over: it is measured as the last was, and counted.
+    /// Another host took over, with its executor: it is measured as the
+    /// last was, given what the last was given, and counted.
     pub(crate) fn replaced(&mut self) {
         self.read_ranges();
         self.scroll_end = Default::default();
         self.give_clock();
+        self.modules_replaced();
         // A new kernel may have the same epoch.
         self.brush.paint_epoch = None;
         // A new runner reuses view ids and node keys: an unbound control's
