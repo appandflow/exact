@@ -1,6 +1,7 @@
 # Bold, italic, code or strike wraps a line's list, quote or heading marker when the selection takes the line from its start
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Inline formatting wraps each selected line's content after its block prefix.
 **Systems:** markdown/src/edit.rs, markdown/editor, host/web/markup-editor.js, host/apple/src/markup.rs
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

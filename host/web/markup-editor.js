@@ -333,16 +333,23 @@ function installMarkupEditor(textarea, host) {
     const line = lines[lo];
     if (!line) return { node: el, offset: 0 };
     const local = p - starts[lo], found = [], edges = [];
+    let before, after;
     let acc = 0;
     for (const [i, kid] of [...line.childNodes].entries()) {
       if (isIsland(kid)) { if (acc === local) edges.push({ node: line, offset: i }); continue; }
       const t = kid.nodeType === 3 ? kid : kid.firstChild?.nodeType === 3 ? kid.firstChild : null, len = kid.nodeName === 'BR' ? 0 : kid.textContent.length;
       if (kid.exactIsland && acc + len === local) edges.push({ node: line, offset: i + 1 });
-      else if (t && !kid.classList?.contains('md-hide') && acc <= local && local <= acc + len) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + len });
+      else if (t && !kid.classList?.contains('md-hide')) {
+        if (acc <= local && local <= acc + len) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + len });
+        else if (acc + len < local) before = { node: t, offset: len };
+        else if (!after) after = { node: t, offset: 0 };
+      }
       acc += len;
     }
     if (found.length) return right ? found.find(c => !c.end) ?? found.at(-1) : found.find(c => !c.start) ?? found[0];
     if (edges.length) return edges[0];
+    // Several adjacent markers can put a source caret inside one hidden span.
+    if (before || after) return right ? after ?? before : before ?? after;
     const br = line.querySelector(':scope > br');
     return { node: line, offset: br ? [...line.childNodes].indexOf(br) : line.childNodes.length };
   }

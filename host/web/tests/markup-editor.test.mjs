@@ -99,6 +99,69 @@ function browser(engine) {
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
 
 for (const engine of engines) {
+  engineTest[engine](`${engine}: formatting whole Markdown lines keeps their block markers`, async () => {
+    const source = '# Title\n\n- one\n- [ ] task\n> quote';
+    await editor(engine, source, async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => getSelection().selectAllChildren(el));
+      await page.keyboard.press('ControlOrMeta+B');
+      expect(await field.evaluate(el => el.value)).toBe('# **Title**\n\n- **one**\n- [ ] **task**\n> **quote**');
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe(source);
+    });
+  }, 60000);
+
+  engineTest[engine](`${engine}: Return in formatted Markdown keeps links and a Unicode caret`, async () => {
+    for (const [source, start, end, expected, position] of [
+      ['- [docs](https://example.com) here', 3, 3, '- \n- [docs](https://example.com) here', 5],
+      ['- **Note:** details', 4, 4, '- \n- **Note:** details', 5],
+      ['- **bold**', 6, 6, '- **bo**\n- **ld**', 13],
+      ['- **a😀b**', 5, 5, '- **a**\n- **😀b**', 12],
+      ['# [link](https://example.com) title', 5, 5, '# [li](https://example.com)\n[nk](https://example.com) title', 29],
+      ['- [docs](https://example.com)', 5, 7, '- [do](https://example.com)\n- ', 30],
+      ['- <https://example.com>', 14, 14, '- [https\\://exa](https://example.com)\n- [mple.com](https://example.com)', 41],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate((el, range) => el.setSelectionRange(...range), [start, end]);
+        await page.keyboard.press('Enter');
+        expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual([expected, position, position]);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+        await page.keyboard.press('ControlOrMeta+Shift+Z');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+        await page.keyboard.type('X');
+        expect(await field.evaluate(el => el.value)).toBe(expected.slice(0, position) + 'X' + expected.slice(position));
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+      });
+    }
+  }, 60000);
+
+  engineTest[engine](`${engine}: Return and Backspace preserve nested Markdown and link targets`, async () => {
+    for (const [source, position, split, backspaced] of [
+      ['- **bold**', 6, '- **bo**\n- **ld**', '- **bo**\n**ld**'],
+      ['- [docs](u)', 5, '- [do](u)\n- [cs](u)', '- [do](u)\n[cs](u)'],
+      ['- **`a b`**', 6, '- **`a`**\n- **` b`**', '- **`a`**\n**` b`**'],
+      ['- **`a b`**', 7, '- **`a `**\n- **`b`**', '- **`a `**\n**`b`**'],
+      ['- **a😀b**', 5, '- **a**\n- **😀b**', '- **a**\n**😀b**'],
+      ['> - [x] **bold**', 12, '> - [x] **bo**\n> - [ ] **ld**', '> - [x] **bo**\n**ld**'],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate((el, p) => el.setSelectionRange(p, p), position);
+        await page.keyboard.press('Enter');
+        expect(await field.evaluate(el => el.value)).toBe(split);
+        await page.keyboard.press('Backspace');
+        expect(await field.evaluate(el => el.value)).toBe(backspaced);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(split);
+        await page.keyboard.press('ControlOrMeta+Shift+Z');
+        expect(await field.evaluate(el => el.value)).toBe(backspaced);
+      });
+    }
+  }, 60000);
+
   engineTest[engine](`${engine}: JS runtime forwards Markdown key cancellation in both directions`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       await field.focus();

@@ -146,6 +146,150 @@ fn backspace_deletes_letters_never_markers() {
 }
 
 #[test]
+fn return_in_formatted_items_preserves_text_formats_and_caret() {
+    for (source, caret, after, visible, expected_caret) in [
+        (
+            "- [docs](https://example.com) here",
+            3,
+            "- \n- [docs](https://example.com) here",
+            "\ndocs here",
+            5,
+        ),
+        (
+            "- **Note:** details",
+            4,
+            "- \n- **Note:** details",
+            "\nNote: details",
+            5,
+        ),
+        ("- **bold**", 6, "- **bo**\n- **ld**", "bo\nld", 13),
+        ("- **a😀b**", 5, "- **a**\n- **😀b**", "a\n😀b", 12),
+        (
+            "# [link](https://example.com) title",
+            5,
+            "# [li](https://example.com)\n[nk](https://example.com) title",
+            "li\nnk title",
+            29,
+        ),
+    ] {
+        let mut p = Page::open(source);
+        p.caret(caret);
+        let before_sel = p.e.selection();
+        p.input(Input::Paragraph, "");
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        assert_eq!(
+            p.e.selection(),
+            (expected_caret, expected_caret),
+            "{source}"
+        );
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+        assert_eq!(p.e.selection(), before_sel);
+        p.tool("redo");
+        assert_eq!(p.source(), after);
+        assert_eq!(p.e.selection(), (expected_caret, expected_caret));
+        p.type_("X");
+        let mut typed = u(after);
+        typed.insert(expected_caret as usize, b'X' as u16);
+        assert_eq!(p.e.source(), typed, "{source}");
+        p.tool("undo");
+        assert_eq!(p.source(), after);
+    }
+}
+
+#[test]
+fn a_return_caret_survives_orphan_cleanup() {
+    let mut p = Page::open("**ab** cd");
+    p.e.select(3, 8, None);
+    p.input(Input::Paragraph, "");
+    assert_eq!(p.source(), "a\nd");
+    assert_eq!(p.e.selection(), (2, 2));
+}
+
+#[test]
+fn backspace_after_return_removes_only_the_block_prefix() {
+    for (source, caret, after, visible) in [
+        ("- **bold**", 6, "- **bo**\n**ld**", "bo\nld"),
+        ("- [docs](u)", 5, "- [do](u)\n[cs](u)", "do\ncs"),
+        ("- **`a b`**", 7, "- **`a `**\n**`b`**", "a \nb"),
+        ("- **a😀b**", 5, "- **a**\n**😀b**", "a\n😀b"),
+        ("> - [x] **bold**", 12, "> - [x] **bo**\n**ld**", "bo\nld"),
+    ] {
+        let mut p = Page::open(source);
+        p.caret(caret);
+        p.input(Input::Paragraph, "");
+        let split = p.source();
+        p.backspace();
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        p.tool("undo");
+        assert_eq!(p.source(), split);
+        p.tool("redo");
+        assert_eq!(p.source(), after);
+    }
+}
+
+#[test]
+fn backspace_at_formatted_block_starts_keeps_inline_syntax() {
+    for prefix in ["# ", "- ", "1. ", "> ", "> - [x] ", "  - "] {
+        for content in ["**text**", "`code`", "[label](target)", "\\*literal"] {
+            let source = format!("{prefix}{content}");
+            let mut p = Page::open(&source);
+            p.caret(prefix.len() as u32);
+            p.backspace();
+            assert_eq!(p.source(), content, "{source}");
+        }
+    }
+}
+
+#[test]
+fn return_in_link_labels_keeps_destinations_and_selected_edges() {
+    for (source, start, end, after, visible, caret) in [
+        ("- [docs](u)", 5, 7, "- [do](u)\n- ", "do\n", 12),
+        ("- [docs](u)", 3, 5, "- \n- [cs](u)", "\ncs", 6),
+        ("- [docs](u)", 3, 7, "- \n- ", "\n", 5),
+        ("- [**bold**](u)", 7, 9, "- [**bo**](u)\n- ", "bo\n", 16),
+        (
+            "- <https://example.com>",
+            14,
+            14,
+            "- [https\\://exa](https://example.com)\n- [mple.com](https://example.com)",
+            "https://exa\nmple.com",
+            41,
+        ),
+    ] {
+        let mut p = Page::open(source);
+        p.e.set_selection(start, end);
+        p.input(Input::Paragraph, "");
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        assert_eq!(p.e.selection(), (caret, caret), "{source}");
+        p.type_("X");
+        let mut typed = u(after);
+        typed.insert(caret as usize, b'X' as u16);
+        assert_eq!(p.e.source(), typed, "{source}");
+        p.tool("undo");
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+    }
+}
+
+#[test]
+fn formatting_selected_lines_preserves_their_blocks() {
+    for command in ["bold", "italic", "code", "strike"] {
+        let mut p = Page::open("# Title\n\n- one\n- two");
+        p.e.select_all();
+        p.tool(command);
+        assert_eq!(p.e.visible_text(), "Title\n\none\ntwo");
+        assert_eq!(p.e.lines()[2].deco, Some(Deco::Bullet));
+        assert_eq!(p.e.lines()[3].deco, Some(Deco::Bullet));
+        p.tool("undo");
+        assert_eq!(p.source(), "# Title\n\n- one\n- two");
+    }
+}
+
+#[test]
 fn emptying_a_bold_word_removes_its_markers() {
     let mut p = Page::open("a **b** c");
     for _ in 0..3 {

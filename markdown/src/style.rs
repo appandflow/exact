@@ -43,6 +43,9 @@ pub enum ParagraphKind {
 pub struct Paragraph {
     /// The block's lines, without the final newline.
     pub range: Range,
+    /// Start of the first line's content after block markers, or `range.end`
+    /// for a block with no inline content.
+    pub content: u32,
     /// Its style.
     pub kind: ParagraphKind,
     /// List nesting, from zero.
@@ -430,6 +433,7 @@ pub fn style_with(source: &str, reveal: Option<Range>, atoms: &Atoms) -> Styled 
             .iter()
             .map(|b| Paragraph {
                 range: offsets.range16(&b.range),
+                content: offsets.to16(b.content.first().map_or(b.range.end, |r| r.start)),
                 kind: match b.kind {
                     BlockKind::Body => ParagraphKind::Body,
                     BlockKind::Heading(level) => ParagraphKind::Heading(level),

@@ -882,10 +882,12 @@ impl Editor {
         self.source = to.source;
         self.words = to.words;
         self.words_back = true;
-        self.sticky = None;
         self.pending = [None; 4];
         self.restyle();
         self.sel = self.clamp(to.sel);
+        // Undo keeps the edit's chosen side of hidden markers.
+        self.sticky =
+            (self.sel.0 == self.sel.1 && self.snap(self.sel.0) != self.sel.0).then_some(self.sel.0);
         Change {
             source: true,
             place: true,
@@ -1131,8 +1133,9 @@ impl Editor {
         let proj = &self.proj;
         if from == to {
             // At a line's text, Backspace drops its prefix: heading, bullet, quote.
-            if let Some(prefix) = proj.prefix_run(from.saturating_sub(1), from) {
-                if backward && prefix.end == from {
+            let at = proj.canonical(from);
+            if let Some(prefix) = proj.prefix_run(at.saturating_sub(1), at) {
+                if backward && prefix.end == at {
                     return self.commit_reps(
                         vec![(prefix.start, prefix.end, Vec::new())],
                         prefix.start,
@@ -1223,14 +1226,11 @@ impl Editor {
             };
             let sim = self.simulate(&edit.reps, true);
             if sim.orphans == 0 || i == last {
-                let sel = if sim.orphans == 0 {
-                    edit.sel
-                } else {
-                    (sim.caret(a + 1), sim.caret(a + 1))
-                };
-                let change = self.commit(sim.result, sel, false, Kind::Edit);
-                self.sel = (self.snap(self.sel.0), self.snap(self.sel.1));
-                return change;
+                // The shared edit already mapped its selection through the first splice.
+                let mapped = |p| sim.maps[1..].iter().fold(p, |p, m| m.caret(p));
+                let sel = (mapped(edit.sel.0), mapped(edit.sel.1));
+                // Keep the shared edit's side of an opener through DOM selection echoes.
+                return self.commit(sim.result, sel, true, Kind::Edit);
             }
         }
         Change::default()
