@@ -139,3 +139,39 @@ fn a_held_escape_waits_its_time_whatever_wakes_the_loop() {
         "Escape after {waited:?}"
     );
 }
+
+/// Ctrl-\ leaves whatever the app does with keys (LLP 1101 D6): a focused
+/// field's handler or the root's that prevents the default, or a button
+/// that names it as its shortcut.
+#[test]
+fn control_backslash_always_leaves() {
+    use exact_terminal::host::{After, Host, Key, Mode};
+    use exact_terminal::vt::Vt;
+    for (case, view) in [
+        (
+            "a focused field's handler",
+            "    column\n      text `keys ${n}`\n      input value=\"\" key=onKey autofocus=true\n",
+        ),
+        ("the root's handler", "    column key=onKey\n      text `keys ${n}`\n"),
+        (
+            "a shortcut",
+            "    column\n      text `keys ${n}`\n      button press=hit aria-keyshortcuts=\"Control+\\\\\"\n        text \"hit\"\n",
+        ),
+    ] {
+        let source = format!(
+            "component App\n  state n = 0\n  action onKey(key: string)\n    n = n + 1\n    preventDefault()\n  action hit\n    n = n + 1\n  view\n{view}"
+        );
+        let plan = contract::compile_terminal(&source).expect("compiles");
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 4).expect("boots");
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        host.read_at = host.frames;
+        assert_eq!(host.key(Key::Ctrl('\\')), After::Quit, "{case}");
+        vt.render(&mut host);
+        assert!(
+            vt.text(false).contains("keys 0"),
+            "{case}: {}",
+            vt.text(false)
+        );
+    }
+}

@@ -1,6 +1,7 @@
 # Ctrl-\ does not quit an app whose key handler prevents the default
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Host::key` returns `After::Quit` for Ctrl-\ before it dispatches the key to any handler or shortcut, as LLP 1101 D6 says.
 **Systems:** host/terminal (keys.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
