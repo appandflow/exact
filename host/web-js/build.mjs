@@ -858,7 +858,7 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <html lang="${attr(webManifest.lang)}">
 <meta charset="utf-8">
 <base href="/">
-<title>${manifest.name}</title>
+<title>${attr(manifest.name)}</title>
 <meta name="viewport" content="${viewport}">
 ${colorSchemeMeta(interfaceStyle(manifest))}${icon}
 ${preloads}<style>${base}${css}</style>
@@ -1007,14 +1007,15 @@ cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
 }
 // Compile known reader text even when the development build emits only a shell.
 if (markdownReaders) {
-  const { renderer } = await import('./render.mjs');
+  const { markdownAt, renderer } = await import('./render.mjs');
   const prepared = await renderer(out, { closed: true }).markdown();
   if (prepared.length) {
     const data = JSON.stringify(prepared).replace(/</g, '\\u003c');
     const tag = `<script type="application/vnd.exact.markdown">${data}</script>`;
+    // Before the shell's own entry, not the first module script: a head entry may be one, or a script's text spell one.
     for (const file of ['index.html', 'shell.html']) {
-      const path = resolve(out, file);
-      writeFileSync(path, readFileSync(path, 'utf8').replace('<script type="module"', () => tag + '<script type="module"'));
+      const path = resolve(out, file), html = readFileSync(path, 'utf8'), at = markdownAt(html);
+      if (at >= 0) writeFileSync(path, html.slice(0, at) + tag + html.slice(at));
     }
     console.log(`${app}: ${prepared.length} Markdown sources compiled`);
   }

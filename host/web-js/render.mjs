@@ -20,6 +20,58 @@ import { canonical, matchPattern } from './route-pattern.js';
 import { select, tokens } from './page-style.mjs';
 
 const DEADLINE = 3000;
+// `html` with each script element's text blanked, the same length, so the shell's places (its root, entry and
+// preloads) are found only in its own markup: a script's text, an `--inline` bundle's or a `host.web.head` entry's, may
+// spell any of them. A script element starts where HTML's tokenizer starts one (HTML, 13.2.5 "Tokenization"): a
+// `<script` start tag in markup, not inside a comment, a quoted attribute value, or the text of an element HTML reads
+// as raw text or RCDATA (`style`, `title`, `textarea`, …), which may hold that spelling. Its text runs from the start
+// tag's `>` to the first `</script` followed by whitespace, `/` or `>` ("Script data state" and the end tag states
+// after it): an entry's text holds no `<!--` (scripts/web-head.mjs), so the escaped states that could pass over that end
+// tag are never entered. As page.rs `blanked`.
+const RAW_TEXT = new Set(['style', 'title', 'textarea', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript']);
+const blanked = (html) => {
+  // ASCII case only, so every offset is the shell's.
+  const lower = html.replace(/[A-Z]+/g, (s) => s.toLowerCase()), endsName = (c) => c !== undefined && '\t\n\f\r />'.includes(c);
+  let out = '', kept = 0, at = 0;
+  while ((at = lower.indexOf('<', at)) >= 0) {
+    if (lower.startsWith('<!--', at)) { const end = lower.indexOf('-->', at + 4); at = end < 0 ? lower.length : end + 3; continue; }
+    const name = /^<([a-z][^\t\n\f\r />]*)/.exec(lower.slice(at, at + 32))?.[1];
+    if (!name) { at++; continue; }
+    // The start tag's `>`, past its quoted attribute values.
+    let end = at + 1 + name.length, quote = null;
+    for (; end < lower.length; end++) {
+      const c = lower[end];
+      if (quote) { if (c === quote) quote = null; } else if (c === '"' || c === "'") quote = c; else if (c === '>') break;
+    }
+    at = end + 1;
+    if (name !== 'script' && !RAW_TEXT.has(name)) continue;
+    // Its text, to the first end tag of its name followed by whitespace, `/` or `>`.
+    let close = at;
+    while ((close = lower.indexOf('</' + name, close)) >= 0 && !endsName(lower[close + 2 + name.length])) close += 2 + name.length;
+    if (close < 0) break;
+    if (name === 'script') { out += html.slice(kept, at) + ' '.repeat(close - at); kept = close; }
+    at = close;
+  }
+  return out + html.slice(kept);
+};
+/** The shell's root, found in `seen` (`blanked`), and its entry: the first module script after the root, `./app.js`'s
+ * or the one an `--inline` shell holds the bundle in, where a page puts its checkpoint and its capture script loads
+ * `./app.js` (page.rs `js_entry`); `entry` is -1 where there is none. The root carries what the build wrote on it:
+ * `data-audio-session` (LLP 1096 D7). */
+export function shellPlaces(seen) {
+  const ROOT = /<div id="exact-root"( data-audio-session="[a-z-]+")?><\/div>/.exec(seen);
+  const ENTRY = ROOT && /<script type="module"(?: src="\.\/app\.js")?>\s*<\/script>/.exec(seen.slice(ROOT.index + ROOT[0].length));
+  const entry = ENTRY ? ROOT.index + ROOT[0].length + ENTRY.index : -1;
+  return { ROOT, entry, entryEnd: ENTRY ? entry + ENTRY[0].length : -1 };
+}
+/** Where the build puts the Markdown it compiled: before the shell's entry, whatever a head entry's text spells. */
+export const markdownAt = (shell) => shellPlaces(blanked(shell)).entry;
+// The shell's compiled Markdown (`markdownAt`): its own script element's text, not one a script's text spells.
+const MARKDOWN = '<script type="application/vnd.exact.markdown">';
+const builtMarkdown = (shell, seen) => {
+  const at = seen.indexOf(MARKDOWN);
+  return at < 0 ? '[]' : shell.slice(at + MARKDOWN.length, shell.indexOf('</script>', at + MARKDOWN.length));
+};
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const unesc = s => s.replace(/&(amp|lt|gt|quot);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' })[e]);
 
@@ -104,23 +156,27 @@ export function renderer(dist, { closed = false } = {}) {
   // comes before anything the render decides (the head a server flushes as
   // a request arrives), then the head's fields, the document and its
   // checkpoint.
-  // The root carries what the build wrote on it: `data-audio-session` (LLP 1096 D7).
-  const ROOT = /<div id="exact-root"( data-audio-session="[a-z-]+")?><\/div>/.exec(shell), ENTRY = '<script type="module" src="./app.js"></script>';
+  // The root carries what the build wrote on it: `data-audio-session` (LLP 1096 D7). The root, the entry and the
+  // sheet are found in `seen`, outside every script element.
+  const seen = blanked(shell), { ROOT, entry, entryEnd } = shellPlaces(seen);
   const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
-  const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
+  const root = ROOT?.index ?? -1, rootAttrs = ROOT?.[1] ?? '';
+  // The build's preloads are before its sheet; after it, `host.web.head`'s entries are the app's, left as written.
+  const sheetAt = seen.indexOf('<style>', stop), early = sheetAt < 0 || sheetAt > root ? root : sheetAt;
   const viewportMeta = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
   const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
   // A fixed `userInterfaceStyle` (the shell's `<meta name="color-scheme">`, look.mjs) is the system scheme a page renders in.
-  const fixedScheme = /<meta name="color-scheme" content="(light|dark)">/.exec(shell)?.[1];
+  const fixedScheme = /<meta name="color-scheme" content="(light|dark)">/.exec(seen)?.[1];
   // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
   // its render, and the head sent before the render carries none (page-style.mjs, LLP 1048.007 D4).
   const rules = existsSync(resolve(dist, '.gen/page-style.json')) ? JSON.parse(readFileSync(resolve(dist, '.gen/page-style.json'), 'utf8')) : null;
   const sheet = rules ? /<style>[\s\S]*?<\/style>\n?/ : /(?!)/;
   // A rendered page paints without the runtime, which only adopts it, so its preloads are low priority (page.rs `push_low`).
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
-    + shell.slice(stop, root).replace(sheet, '').replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
-  const preloads = (shell.slice(stop, root).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
+    + shell.slice(stop, early).replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '')
+    + shell.slice(early, root).replace(sheet, '');
+  const preloads = (shell.slice(stop, early).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
   // A realm for one render: a document, a context with the server bundle run in it, and its location, which `begin`
   // fills in. Nothing has run in it but the bundle's own loading, so making it ahead takes that off a request's path
   // and every render still has a realm of its own (LLP 1048.000 D10, as the render host's `make_realm`).
@@ -168,7 +224,7 @@ export function renderer(dist, { closed = false } = {}) {
       crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
       ...(closed ? { __exactMarkdown: new Map() } : {}),
-      __exactMarkdownBuilt: JSON.parse(/<script type="application\/vnd.exact.markdown">([\s\S]*?)<\/script>/.exec(shell)?.[1] ?? '[]'),
+      __exactMarkdownBuilt: JSON.parse(builtMarkdown(shell, seen)),
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
@@ -217,7 +273,7 @@ export function renderer(dist, { closed = false } = {}) {
         const deferred = activate === 'interaction' && (info.policy === 'request' || info.policy === 'cached') && checkpoint.length > 1024;
         const src = deferred ? ` data-src="/.exact/checkpoint/${deferAnswers(checkpoint)}.json"` : '';
         const body = late => `${fields}\n${late}${style}${hero}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
-          + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
+          + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entryEnd)}`;
         // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
         // marks it before the body and names them after the head's fields, as page.rs does.
         const whole = late ? headOf(true) : head;

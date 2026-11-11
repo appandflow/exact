@@ -531,13 +531,16 @@ test('host.web.head is in the head of the shell, a page built ahead, one rendere
       { script: { async: true, src: 'https://analytics.example/tag.js?id=1&x=2' } },
       { script: { text: "for (let i = 0; i<scripts.length; i++); window.seen = '</SCRIPT><!--';" } },
       { script: { type: 'application/ld+json', text: { '@type': 'Person', name: '</script>' } } },
+      // Text that spells the shell's root and a preload line: the renderers find the shell's own places, not these.
+      { script: { text: 'const root = \'<div id="exact-root"></div>\', preload = `<link rel="modulepreload" href="./x.js">\n`;' } },
     ] } } }));
     const head = '<link rel="preconnect" href="https://analytics.example">\n<script async src="https://analytics.example/tag.js?id=1&amp;x=2"></script>\n'
-      + "<script>for (let i = 0; i<scripts.length; i++); window.seen = '\\u003C/SCRIPT>\\u003C!--';</script>\n<script type=\"application/ld+json\">{\"@type\":\"Person\",\"name\":\"\\u003C/script>\"}</script>\n";
+      + "<script>for (let i = 0; i<scripts.length; i++); window.seen = '\\u003C/SCRIPT>\\u003C!--';</script>\n<script type=\"application/ld+json\">{\"@type\":\"Person\",\"name\":\"\\u003C/script>\"}</script>\n"
+      + '<script>const root = \'<div id="exact-root"></div>\', preload = `<link rel="modulepreload" href="./x.js">\n`;</script>\n';
     const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
     // Once, and before the root: only head elements come before it.
-    const placed = (html) => [html.split(head).length - 1, html.indexOf(head) < html.indexOf('<div id="exact-root"')];
+    const placed = (html) => [html.split(head).length - 1, html.indexOf(head) + head.length <= html.lastIndexOf('<div id="exact-root"')];
     for (const name of ['shell.html', 'index.html', '404.html']) expect([name, ...placed(readFileSync(resolve(out, name), 'utf8'))]).toEqual([name, 1, true]);
     serve = await serving(root, out);
     const live = await serve.get('/live');
@@ -547,6 +550,63 @@ test('host.web.head is in the head of the shell, a page built ahead, one rendere
     rmSync(dir, { recursive: true, force: true });
   }
 }, 300_000);
+
+// An `--inline` shell holds the bundle in its entry's place, after the root, and the bundle carries the app's text: a
+// text and a head script that spell the root are both outside the shell's own places (render.mjs `blanked`).
+test('a page built from an --inline shell is composed in the shell\'s own root and entry, whatever its scripts spell', () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-inline-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  try {
+    site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n\n'
+      + 'component App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text note.text\n      text "<div id=\\"exact-root\\"></div>"\n');
+    const entry = '<script>const r = \'<div id="exact-root"></div>\';</script>\n';
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' },
+      host: { web: { head: [{ script: { text: "const r = '<div id=\"exact-root\"></div>';" } }] } } }));
+    const built = spawnSync(process.execPath, ['host/web-js/build.mjs', app, '--out', out, '--inline'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    const shell = readFileSync(resolve(out, 'shell.html'), 'utf8'), page = readFileSync(resolve(out, 'index.html'), 'utf8');
+    expect(shell.includes('<script type="module">') && shell.indexOf('<script type="module">') > shell.lastIndexOf(entry)).toBe(true);
+    // The head entry once and before the document; the document in the root; the checkpoint in the entry's place,
+    // which the capture script loads `./app.js` for, so the bundle is not in the page, once or twice.
+    const document = page.indexOf('The note, rendered.'), checkpoint = page.indexOf('<script type="application/vnd.exact.checkpoint"');
+    expect([page.split(entry).length - 1, page.indexOf(entry) < document, document < checkpoint, page.includes('<script type="module">'),
+      page.split('<script type="application/vnd.exact.checkpoint"').length - 1]).toEqual([1, true, true, false, 1]);
+    expect(page.slice(0, document).lastIndexOf('<div id="exact-root">')).toBeGreaterThan(page.indexOf(entry) + entry.length - 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 300_000);
+
+// A title holds text, not tags: an app named "Learn <script> tags" is written `&lt;script>` in the shell's title, and a
+// head entry's attribute value holding `<script>` is escaped too; the renderers find the shell's own root and entry.
+test('an app whose name or head entry spells a script tag renders its pages in the shell\'s own root', () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-title-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  try {
+    site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n\ncomponent App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text note.text\n');
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Learn <script> tags', app: { id: 'test.site', name: 'Site' },
+      host: { web: { head: [{ meta: { name: 'keywords', content: '<script>, </script>' } }] } } }));
+    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    const shell = readFileSync(resolve(out, 'shell.html'), 'utf8'), page = readFileSync(resolve(out, 'index.html'), 'utf8');
+    expect(shell).toContain('<title>Learn &lt;script> tags</title>');
+    expect(shell).toContain('<meta name="keywords" content="&lt;script>, &lt;/script>">');
+    const document = page.indexOf('The note, rendered.');
+    expect([document > page.lastIndexOf('<div id="exact-root">'), page.split('<div id="exact-root">').length - 1, page.includes('<title>Learn &lt;script&gt; tags</title>')]).toEqual([true, 1, true]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 300_000);
+
+// The build puts its compiled Markdown before the shell's own entry: not before a head entry that is a module script,
+// nor inside a head script's text that spells one (render.mjs `markdownAt`).
+test("compiled Markdown goes before the shell's own entry, whatever the head's scripts are or spell", async () => {
+  const { markdownAt } = await import('./render.mjs');
+  const entry = '<script type="module" src="./app.js"></script>', inline = '<script type="module">const a = "<script type=\\"module\\">";</script>';
+  const head = '<script type="module" src="https://cdn.example/x.js"></script>\n<script>const s = \'<script type="module" src="./app.js">\';</script>\n';
+  for (const tail of [entry, inline]) {
+    const shell = `<!doctype html>\n<html lang="en">\n<title>T</title>\n<meta name="viewport" content="x">\n<style>p{}</style>\n${head}<div id="exact-root"></div>\n${tail}\n`;
+    expect(markdownAt(shell)).toBe(shell.lastIndexOf(tail));
+  }
+});
 
 function site(app, source) {
   mkdirSync(app, { recursive: true });
