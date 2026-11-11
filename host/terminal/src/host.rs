@@ -103,6 +103,8 @@ impl Key {
 pub enum After {
     /// Repaint if anything changed.
     Continue,
+    /// Restore the terminal and stop until continued.
+    Suspend,
     /// Leave.
     Quit,
 }

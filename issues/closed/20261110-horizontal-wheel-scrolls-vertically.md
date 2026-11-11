@@ -1,6 +1,7 @@
 # A horizontal wheel report scrolls a terminal app vertically
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The terminal decoder drops horizontal wheel reports and preserves vertical wheel scrolling.
 **Systems:** host/terminal (term.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

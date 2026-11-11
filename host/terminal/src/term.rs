@@ -240,8 +240,11 @@ impl Perform for Decoder {
                     p.get(2).copied().unwrap_or(1) as i32 - 1,
                 );
                 if b & 64 != 0 {
-                    self.out
-                        .push(Input::Wheel(x, y, if b & 1 == 0 { -3 } else { 3 }));
+                    // Buttons 6 and 7 are horizontal; this host scrolls only rows.
+                    if b & 2 == 0 {
+                        self.out
+                            .push(Input::Wheel(x, y, if b & 1 == 0 { -3 } else { 3 }));
+                    }
                 } else if action == 'M' && b & 32 == 0 && b & 3 == 0 {
                     self.out.push(Input::Click(x, y));
                 }
@@ -627,6 +630,18 @@ impl Inline {
         }
     }
 
+    /// The shell may have moved the cursor. Repaint the live region below it,
+    /// retaining the transcript already printed into scrollback.
+    #[cfg(unix)]
+    fn resume(&mut self) {
+        self.live = 0;
+        self.cursor_row = 0;
+        self.shown = None;
+        self.last = None;
+        self.mouse = false;
+        self.queries.clear();
+    }
+
     /// Leave the screen with the last frame in place and the cursor below it.
     #[cfg(unix)]
     fn finish(&self, out: &mut String) {
@@ -808,6 +823,20 @@ mod tests {
             keys(b"\x1b[200~x\ny\x1b[201~"),
             vec![Input::Paste("x\ny".into())]
         );
+    }
+
+    #[test]
+    fn horizontal_wheel_reports_do_not_become_vertical_input() {
+        for modifiers in [0, 4, 8, 16, 28] {
+            for (button, rows) in [(64, Some(-3)), (65, Some(3)), (66, None), (67, None)] {
+                let report = format!("\x1b[<{};3;2M", button + modifiers);
+                let expected = rows.map(|rows| Input::Wheel(2, 1, rows));
+                assert_eq!(
+                    keys(report.as_bytes()),
+                    expected.into_iter().collect::<Vec<_>>()
+                );
+            }
+        }
     }
 
     #[test]

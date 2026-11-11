@@ -1,6 +1,7 @@
 # Ctrl-Z does nothing in a terminal app: the host has no suspend or resume
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Unclaimed Ctrl-Z and SIGTSTP finish pending frame output and restore the terminal before stopping; resume restores raw input and repaints without losing or repeating inline history.
 **Systems:** host/terminal (term/unix.rs, keys.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
