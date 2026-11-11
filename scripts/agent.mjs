@@ -14,7 +14,7 @@ import {refusalMessage} from './agent-keys.mjs';
 // only); `fling` and `hold` are a trackpad's through the window server, which
 // AppKit runs with its momentum and rubber band, and `wheel 0 0 release` lifts a
 // hold (LLP 1142 D3, macOS only, the terminal's Accessibility grant). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, agentPage, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, builtSettingLines, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
+import { Cdp, agentPage, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, quitBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, builtSettingLines, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
 import { sourceMapReaders, identifyResources, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, pidTrace, writeTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -177,10 +177,8 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     try {
       if (process.platform === 'win32') await closeWindowsBrowser(child, cdp, exited, profile);
       else {
-        // A named store's Chrome quits as a person's does: it writes `localStorage`, the web's secret store, only at
-        // shutdown or a few seconds after a write, and a kill loses it while SQLite survives (app farm, set-variants-0771).
-        if (kept) await cdp.send('Browser.close', {}, undefined, 2000).then(() => waitAtMost(exited, 3000), () => {});
-        try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+        // A kill loses a named store's `localStorage`, which Chrome writes only at shutdown (app farm, set-variants-0771).
+        await quitBrowser(child, cdp, exited);
         await waitAtMost(exited, 2000);
       }
     } finally { server.close(); }

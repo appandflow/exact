@@ -70,6 +70,18 @@ export async function removeBrowserProfile(profile) {
   }
 }
 
+/** A drive's Chrome quits as a person's does, and its process group is killed after: at once once it has exited, or
+ * after `ms` when it has not (a hung one). A named store's Chrome writes `localStorage` only at shutdown, and a branded
+ * Chrome on macOS removes the copy of its bundle it made at launch (`…/X/com.google.Chrome.code_sign_clone/`) only on
+ * a clean exit. Its exit, not its reply, is waited for: Chrome often closes the pipe before it answers. */
+export async function quitBrowser(child, cdp, exited, { ms = 3000, kill = () => process.kill(-child.pid, 'SIGKILL') } = {}) {
+  let timer;
+  cdp.send('Browser.close', {}, undefined, ms).catch(() => {});
+  try { await Promise.race([exited, new Promise((resolve) => { timer = setTimeout(resolve, ms); })]); }
+  finally { clearTimeout(timer); }
+  try { kill(); } catch {}
+}
+
 /** The helper never establishes browser exit; both recorded children must exit.
  * `terminate` is the owned helper-spawn boundary used by the refusal fixtures. */
 export async function closeWindowsBrowser(child, cdp, exited, profile, terminate = pid =>
