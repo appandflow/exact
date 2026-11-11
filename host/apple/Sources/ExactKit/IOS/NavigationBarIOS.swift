@@ -1212,6 +1212,7 @@ extension NavigationHost {
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.accessibilityIdentifier = i.testId
         item.isEnabled = !i.disabled
+        if i.menu { item.preferredMenuElementOrder = MenuHost.order(i.menuOrder) }
         if i.disabled || i.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
         else { item.accessibilityTraits.remove(.notEnabled) }
         // The authored `color` of a plain item's face; a prominent item's

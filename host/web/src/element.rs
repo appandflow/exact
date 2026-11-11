@@ -945,6 +945,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::BackgroundMaterial => "backgroundMaterial",
             // LLP 1053.000.000 D1: written, read by no rule, drawn nowhere.
             PropId::GlassGroup => "glassGroup",
+            // A menu's order is UIKit's; a page shows its rows as written.
+            PropId::MenuOrder => continue,
             PropId::RetainFocus => "retainFocus",
             // tvOS's focus guide; a browser's Tab order is sequential.
             PropId::FocusGuide => continue,

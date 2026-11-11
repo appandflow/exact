@@ -29,5 +29,13 @@ final class MaterialTableIOSTests: XCTestCase {
         XCTAssertNil(node.materialRequest)
         XCTAssertNil(node.materialView)
     }
+
+    /// `menuOrder` is UIKit's `preferredMenuElementOrder`; unsaid, `.automatic`.
+    func testAMenuOrderIsUIKitsElementOrder() {
+        XCTAssertEqual(MenuHost.order(nil), .automatic)
+        for (word, order) in [("fixed", UIContextMenuConfiguration.ElementOrder.fixed), ("priority", .priority), ("automatic", .automatic)] {
+            XCTAssertEqual(MenuHost.order(word), order, word)
+        }
+    }
 }
 #endif

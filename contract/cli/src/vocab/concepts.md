@@ -905,7 +905,7 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 hatch on separate rows does not establish one pattern across the list.
 
 ## menu: a pull-down menu of actions, and a long-press one
-names: menus, popover, dropdown, pulldown, pull-down, popupmenu, menu at the click, popup at point, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark
+names: menus, popover, dropdown, pulldown, pull-down, popupmenu, menu at the click, popup at point, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark, menuOrder, preferredMenuElementOrder, menu order, reversed menu
 
 A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
 `popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
@@ -945,6 +945,9 @@ component App
 - A row's second `text`, under the first (a block `button`, or `flex-direction="column"`), is
   its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
 - An `hr` between rows starts a section; `destructive=true` paints a row red.
+- iOS puts the first row nearest the finger, so a menu opening upward from near the bottom
+  of the screen shows its rows last first. `menuOrder="fixed"` on the trigger keeps them as
+  written; `"priority"` always puts the first row nearest the finger.
 - At the click, as Electron's `Menu.popup({x, y})`: the button's `press` action takes
   `e: MouseEvent`, keeps `e.clientX`, `e.clientY` (both 0 from a key; then leave the insets
   `auto`), and calls `showPopover("menu", source="button")`; the popover writes them as `left`

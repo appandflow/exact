@@ -3194,6 +3194,16 @@ serve every row of a list. A node inside an open popover opens its menu over
 that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
 (LLP 1021 §5.1).
 
+The order of a menu's rows is the platform's unless the menu's trigger says otherwise.
+UIKit's own order puts the first row nearest the finger, so a menu that opens upward
+from a button near the bottom of the screen shows its rows last first. `menuOrder` on
+the trigger (the `popovertarget` button, a `header` button that opens a menu, or the
+node with `contextPopover`) says it: `"fixed"` keeps the rows as written wherever the
+menu opens (a list of presets), `"priority"` always puts the first row nearest the
+finger, and `"automatic"`, the default, is the platform's. iOS and tvOS set it as
+`preferredMenuElementOrder`; the web, the Mac and the other hosts always show the rows
+as written, so they have nothing to apply.
+
 #### Swipe to reply
 
 `swiperight` moves its node with the finger: it follows up to 64 points, then a fifth of
