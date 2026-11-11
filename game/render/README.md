@@ -170,6 +170,18 @@ fog, cascade, filter and fade changes use that fallback while a worker builds th
 specialization; unchanged frames reuse it. Web builds keep using the fallback
 until the material family is recreated, without compiling a live setting change.
 Shadow and camera-depth families prepare both coverage modes, with no lighting cross-product, so changing opacity does not compile depth pipelines.
+`Game::PREPARE` lists models with how many of each may draw at once
+(`&[("die.model", 16)]`), for what a game spawns later: the dice of a throw, an
+inventory. Before the first frame with a listed model resident, the instance and
+skin buffers are sized for every listed instance at once (unmerged, each record with
+a look), so that spawn grows none. After each frame from the first, the renderer
+builds the pipelines for two more of the keys the listed models' materials draw with
+under that frame's settings (forward, shadow caster when anything casts, camera
+depth under the prepass), for instances that are not fading, until none is left.
+Readiness waits for none of it and no entity is added. A key is prepared once per
+renderer, so a renderer made again (a quality rung, a sample count) prepares again,
+and a changed setting (fog, a light, a cascade count) prepares that frame's keys
+(`surface_tests::prepare::a_prepared_throw_grows_no_buffer_and_builds_no_pipeline`).
 Materials with no authored texture use a texture-free variant: no material
 sampling, UV transforms or cotangent-frame derivatives. Both textured and
 untextured materials use the geometric normal when no normal map is authored;
@@ -803,7 +815,15 @@ N·L shape it (three.js `decay`). Decays 2 and 0 take no `pow` in the shader.
 Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
-feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
+feed, encode (frame input through submit), pipeline and ticks/frame distributions.
+`pipelineMs` is the time a live frame spent creating render and compute pipelines
+on its thread (`perf::pipeline`): in the host's asset preparation before it, its feed
+and encode, frames before it that stopped short of drawing, and the `Game::PREPARE`
+warm-up after the previous submit. A worker compiling a live-settings variant stalls
+no frame and is not counted. The log's `game renderer first frame encoded` line
+gives the same time from the renderer's making to that frame as `pipeline_ms=`
+(`untimed` when the renderer was made, or a frame drawn, on the agent's clock).
+Driver work a pipeline defers to its first use is GPU or encode time, not this. CPU sample
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
 no CPU frame perf clock calls unless tick spans are armed; samples do not enter hashes.
 `perf world:<surface>` arms exclusive tick spans, exposed in
@@ -1099,7 +1119,7 @@ and browser hashes. [Game README](../README.md) covers clock, save and dev carry
 `RenderError::Capacity { arena, slot, limit }` or `RenderError::Scene(reason)`.
 Mesh centers support transparent sorting; there is no unused sphere-radius API.
 World surfaces retain small work counters by default. A world-state request with
-`perf: true` or `perf_reset: true` arms the five 16,384-sample diagnostic rings;
+`perf: true` or `perf_reset: true` arms the six 16,384-sample diagnostic rings;
 `perf.armed` distinguishes recorded percentiles from the unarmed zero values.
 Arming preserves accumulated counts, means, maxima and cadence; only `perf_reset`
 clears them. The feel probe requests `perf: true`.

@@ -89,7 +89,9 @@ impl Uploaded {
 mod looks;
 mod merge;
 mod poses;
+mod prepare;
 pub(crate) use poses::Moved;
+pub(crate) use prepare::{caster, depth, ModelFrame};
 mod textures;
 mod variants;
 use textures::upload_texture;
@@ -136,6 +138,9 @@ pub(crate) struct Models {
     pub(crate) pending_looks: (Vec<u32>, Vec<PartLook>),
     /// Materials drawn with an instance's textures (`MaterialOverride::textures`).
     pub(crate) variants: variants::Variants,
+    /// Bytes the instance, skin palette, local pose and skin job buffers grow
+    /// to at least (`Game::PREPARE`, prepare.rs).
+    pub(crate) reserve: [u64; 4],
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -229,6 +234,7 @@ impl Models {
     ) -> Result<(), RenderError> {
         // Four u32 header words + affine matrix + inverse-transpose normal matrix.
         let skinning = self.skinning.as_mut().unwrap();
+        skinning.reserve = [self.reserve[1], self.reserve[2], self.reserve[3]];
         skinning.set(device, queue, uniform, records)?;
         let words = &mut self.words;
         words.clear();
@@ -285,7 +291,8 @@ impl Models {
             ));
         }
         let instances = self.instances.as_mut().expect("prepared model instances");
-        self.reallocations += u64::from(instances.grow(device, queue, (words.len() * 4) as u64));
+        let needed = (words.len() as u64 * 4).max(self.reserve[0]);
+        self.reallocations += u64::from(instances.grow(device, queue, needed));
         let buffers = (
             layout.clone(),
             [

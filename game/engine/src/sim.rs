@@ -45,6 +45,17 @@ pub trait Game: 'static {
     /// undeclared asset, simulation cannot read them (`World::model` is None), so
     /// load order never reaches the hash; once loaded they stay resident.
     const STREAMED: &'static [&'static str] = &[];
+    /// Models the renderer prepares for after its first frame, each with how
+    /// many instances of it may draw at once: the dice of a throw, an
+    /// inventory's items. Once a listed model is resident, the model instance
+    /// and skin buffers grow to hold all of them drawing together (each
+    /// instance unmerged and with a look), and the frames after the first
+    /// build, a few a frame, the pipelines their materials draw with under the
+    /// current settings: the first spawn grows and compiles nothing.
+    /// Readiness waits for none of it, and nothing listed is fetched: declare
+    /// each in `ASSETS` or `STREAMED`, or supply it as a cosmetic model.
+    /// Renderer-only: never saved or hashed.
+    const PREPARE: &'static [(&'static str, u32)] = &[];
     /// One typed JSON value required before setup; declares its own asset name.
     const LEVEL: Option<crate::asset::Level> = None;
     /// Complete tuning records, delivered before setup and mutable at tick boundaries.

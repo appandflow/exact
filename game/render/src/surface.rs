@@ -428,103 +428,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) {
-        if !self.storage_fits(device) {
-            return;
+        // A host prepares before it renders: the renderer this makes is timed
+        // under the host's clock, and its time counts in the next drawn frame.
+        if self.perf.rendering {
+            return self.prepare_now(device, queue, format);
         }
-        if !ASSETS {
-            return;
-        }
-        let models = self.sim.as_ref().map(|s| s.world().model_revision());
-        if models.is_some_and(|m| m != self.models_seen) {
-            self.models_seen = models.unwrap();
-            self.assets_dirty = true;
-        }
-        if !self.assets_dirty && self.format == Some(format) {
-            return;
-        }
-        let Some(sim) = &mut self.sim else { return };
-        let textures = sim.take_textures();
-        if self.render.is_none()
-            && sim.presentation_models().next().is_none()
-            && textures.is_empty()
-        {
-            self.assets_dirty = false;
-            return;
-        }
-        if self.format != Some(format) {
-            self.gpu_timing = None;
-            self.hook_clock.reset();
-            self.hooks.device_lost();
-            self.ready_work = None;
-            self.render = Some((
-                crate::renderer::RendererWithAssets::<ASSETS>::configured(
-                    device,
-                    queue,
-                    format,
-                    crate::quality::samples(self.rung, G::SAMPLES),
-                    G::DEPTH_PREPASS,
-                )
-                .with_matte_models(G::MATTE_MODELS),
-                {
-                    let mut feed = Feed::default();
-                    feed.share_attachment_diagnostics(self.placed.attachments.diagnostics.clone());
-                    feed
-                },
-            ));
-            self.format = Some(format);
-        }
-        let (renderer, _feed) = self.render.as_mut().unwrap();
-        let live = sim.presentation_assets().map(str::to_owned).collect();
-        // Accept deliveries before the sole compaction: live identical residents
-        // may still be marked retired until preparation reactivates them.
-        let prepared: Vec<_> = sim
-            .presentation_models()
-            .map(|(name, model)| {
-                let digest = *self
-                    .placed
-                    .attachments
-                    .model_digests
-                    .entry(name.to_owned())
-                    .or_insert_with(|| crate::models::model_digest(model));
-                (
-                    name.to_owned(),
-                    renderer
-                        .prepare_model_digest(name, model, digest)
-                        .map_err(|e| e.to_string()),
-                )
-            })
-            .collect();
-        // Resident geometry is independent of draw readiness: a texture still in
-        // flight hides the model but must not evict this pass's accepted bytes.
-        let touched = prepared
-            .iter()
-            .filter(|(_, result)| result.is_ok())
-            .map(|(name, _)| name.clone())
-            .collect();
-        for (name, result) in prepared {
-            sim.asset_prepared(&name, result);
-        }
-        for (name, texture) in textures {
-            let result = renderer
-                .add_texture(&name, &texture)
-                .map_err(|e| e.to_string());
-            sim.asset_prepared(&name, result);
-        }
-        // Closure acceptance can reactivate an identical resident model without
-        // uploading it. Publish that activity before compaction considers it.
-        for (name, model) in &mut renderer.models.loaded {
-            let active = sim.model_prepared(name);
-            if model.active != active {
-                model.active = active;
-                renderer.models.revision += 1;
-            }
-        }
-        if renderer.retired_bytes(&live) > RETIRED_BUDGET {
-            renderer.compact_assets(&live, &touched);
-        }
-        self.finish_restore();
-        self.assets_dirty = false;
-        self.dirty = true;
+        let timing = crate::perf::PipelineTiming::start(!self.seekable);
+        self.prepare_now(device, queue, format);
+        drop(timing);
+        self.perf.pipeline_pending += crate::perf::pipeline_ms();
     }
     fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
         self.sim
@@ -602,7 +514,16 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        self.render_frame(frame, device, queue, encoder, target, format)
+        // Pipeline time a frame leaves unread (it stopped before encoding)
+        // counts in this canvas's next drawn frame.
+        let timing = crate::perf::PipelineTiming::start(!frame.seekable);
+        self.perf.live = !frame.seekable;
+        self.perf.rendering = true;
+        let wants = self.render_frame(frame, device, queue, encoder, target, format);
+        self.perf.rendering = false;
+        drop(timing);
+        self.perf.pipeline_pending += crate::perf::pipeline_ms();
+        wants
     }
     fn frame_ready(&self) -> bool {
         self.frame_ready

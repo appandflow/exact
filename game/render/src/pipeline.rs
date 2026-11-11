@@ -506,34 +506,40 @@ impl Pipelines {
                 bind_group_layouts: &[Some(&scene_layout), Some(&camera_layout)],
                 immediate_size: 0,
             });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("game shadow"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shaders[1],
-                    entry_point: Some("vs_shadow"),
-                    buffers: &vertex_layout,
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shaders[1],
-                    entry_point: Some("fs_shadow"),
-                    targets: &[],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    front_face: if i != 0 {
-                        wgpu::FrontFace::Cw
-                    } else {
-                        wgpu::FrontFace::Ccw
+            crate::perf::pipeline(|| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("game shadow"),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &shaders[1],
+                        entry_point: Some("vs_shadow"),
+                        buffers: &vertex_layout,
+                        compilation_options: Default::default(),
                     },
-                    cull_mode: Some(wgpu::Face::Back),
-                    ..Default::default()
-                },
-                depth_stencil: scene_depth(true, wgpu::CompareFunction::Less, Default::default()),
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: cache.handle.as_ref(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shaders[1],
+                        entry_point: Some("fs_shadow"),
+                        targets: &[],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        front_face: if i != 0 {
+                            wgpu::FrontFace::Cw
+                        } else {
+                            wgpu::FrontFace::Ccw
+                        },
+                        cull_mode: Some(wgpu::Face::Back),
+                        ..Default::default()
+                    },
+                    depth_stencil: scene_depth(
+                        true,
+                        wgpu::CompareFunction::Less,
+                        Default::default(),
+                    ),
+                    multisample: Default::default(),
+                    multiview_mask: None,
+                    cache: cache.handle.as_ref(),
+                })
             })
         });
         let sky = sky_pipeline(
@@ -613,32 +619,34 @@ impl Pipelines {
             blend: None,
             write_mask: wgpu::ColorWrites::ALL,
         });
-        let bright_split = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("game bloom bright split"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("game bloom bright split"),
-                    bind_group_layouts: &[Some(&bloom_layout)],
-                    immediate_size: 0,
+        let bright_split = crate::perf::pipeline(|| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("game bloom bright split"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("game bloom bright split"),
+                        bind_group_layouts: &[Some(&bloom_layout)],
+                        immediate_size: 0,
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &shaders[4],
+                    entry_point: Some("vs"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shaders[4],
+                    entry_point: Some("bright_split"),
+                    targets: &[split_target.clone(), split_target],
+                    compilation_options: Default::default(),
                 }),
-            ),
-            vertex: wgpu::VertexState {
-                module: &shaders[4],
-                entry_point: Some("vs"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shaders[4],
-                entry_point: Some("bright_split"),
-                targets: &[split_target.clone(), split_target],
-                compilation_options: Default::default(),
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: cache.handle.as_ref(),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: cache.handle.as_ref(),
+            })
         });
         let bright_join = make_pipeline(
             device,
@@ -1210,48 +1218,50 @@ pub(crate) fn make_pipeline(
             wgpu::ColorWrites::empty()
         },
     })];
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(label),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: shader,
-            entry_point: Some(vs),
-            buffers,
-            compilation_options: Default::default(),
-        },
-        fragment: fs.map(|entry| wgpu::FragmentState {
-            module: shader,
-            entry_point: Some(entry),
-            targets: if format == wgpu::TextureFormat::Depth32Float {
-                &[]
-            } else {
-                &targets
+    crate::perf::pipeline(|| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some(vs),
+                buffers,
+                compilation_options: Default::default(),
             },
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants,
+            fragment: fs.map(|entry| wgpu::FragmentState {
+                module: shader,
+                entry_point: Some(entry),
+                targets: if format == wgpu::TextureFormat::Depth32Float {
+                    &[]
+                } else {
+                    &targets
+                },
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants,
+                    ..Default::default()
+                },
+            }),
+            primitive: wgpu::PrimitiveState {
+                front_face: if mirrored {
+                    wgpu::FrontFace::Cw
+                } else {
+                    wgpu::FrontFace::Ccw
+                },
+                cull_mode: if buffers.is_empty() {
+                    None
+                } else {
+                    Some(wgpu::Face::Back)
+                },
                 ..Default::default()
             },
-        }),
-        primitive: wgpu::PrimitiveState {
-            front_face: if mirrored {
-                wgpu::FrontFace::Cw
-            } else {
-                wgpu::FrontFace::Ccw
+            depth_stencil,
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                ..Default::default()
             },
-            cull_mode: if buffers.is_empty() {
-                None
-            } else {
-                Some(wgpu::Face::Back)
-            },
-            ..Default::default()
-        },
-        depth_stencil,
-        multisample: wgpu::MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        multiview_mask: None,
-        cache,
+            multiview_mask: None,
+            cache,
+        })
     })
 }
 
