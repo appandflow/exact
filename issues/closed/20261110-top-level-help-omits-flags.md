@@ -1,6 +1,7 @@
 # `contract --help` lists `build` without `--entry` and `verify` without six of its flags
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Top-level and wrapper help list every build and verify flag; the CLI reuses their command usage text.
 **Systems:** contract/cli/src/main.rs, contract/cli/src/build.rs, contract/cli/src/verify.rs, scripts/help.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

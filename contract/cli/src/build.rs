@@ -2,7 +2,7 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str = "usage: contract build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map or --stdin)]";
+pub(crate) const USAGE: &str = "usage: contract build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map or --stdin)]";
 
 struct Options<'a> {
     input: &'a str,

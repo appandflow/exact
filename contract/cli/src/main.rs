@@ -1,12 +1,12 @@
-//! `contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map]` — compile, print a
-//! one-line summary, write the bytes. Baking needs the app's data crate and
-//! happens in the app's own build (see `apps/caltrain`), not here.
+//! `contract build` compiles a source, prints a summary and writes the plan.
+//! Baking needs the app's data crate and happens in the app's own build
+//! (see `apps/caltrain`).
 //! `contract types <file.contract> [-o <app.d.ts>] [--check]` — generate TypeScript's
 //! data-source signatures from the same plan tables the executor reads.
 //! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
 //! structs with their `Value` conversions, for a data crate's `build.rs`.
-//! `contract verify <file.contract>` — the app against the Lean semantics
-//! (`verify.rs`; it needs Lean, and nothing else here does).
+//! `contract verify` searches the app on the runner and checks it against
+//! the Lean semantics when available (`verify.rs`).
 //! `contract gallery <app> -o <dir>` — the design tool's variant gallery of the
 //! app's library components, written into `<dir>` (`contract::gallery`).
 
@@ -61,8 +61,15 @@ mod tamber_serve;
 mod verify;
 mod vocab;
 
-const USAGE: &str = "usage:
-  contract build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)]
+fn usage() -> String {
+    let build = build::USAGE.trim_start_matches("usage: ");
+    let verify = verify::USAGE
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("usage: ");
+    format!("usage:
+  {build}
   contract migrate <file.contract>
   contract symbols <file.contract> [--stdin] [--name <exact-name>]
   contract sources <file.contract>
@@ -72,10 +79,11 @@ const USAGE: &str = "usage:
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
-  contract verify <file.contract> [--types] [--prove <Module>]
+  {verify}
   contract vocab [--json] [--all] [<name> …]
   contract gallery <app> -o <dir>  (<app>: a directory or app.contract; <dir>: a build cache, never the app's tree)
-  contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)";
+  contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)")
+}
 
 #[cfg(windows)]
 fn main() -> ExitCode {
@@ -99,7 +107,7 @@ fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--help" | "-h") if args.len() == 1 => {
-            println!("{USAGE}");
+            println!("{}", usage());
             ExitCode::SUCCESS
         }
         Some("build") => build::run(&args[1..]),
@@ -121,7 +129,7 @@ fn run() -> ExitCode {
             contract::rust(plan)
         }),
         _ => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             ExitCode::from(2)
         }
     }

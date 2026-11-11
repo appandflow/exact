@@ -110,6 +110,18 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
   }
 });
 
+test('contract help names the build and verify flags with their arguments and restrictions', () => {
+  const text = helpText('contract');
+  for (const [command, flags] of [
+    ['build', ['[--stdin]', '[-o <file.plan>]', '[--json]', '[--errors-only]', '[--map (requires -o)]', '[--entry <kind> (requires -o; no --map or --stdin)]']],
+    ['verify', ['[--runner-only]', '[--js]', '[--walks N]', '[--steps M]', '[--walk-seed N]', '[--confirm N]', '[--types]', '[--prove <Module>]']],
+  ]) {
+    const line = text.split('\n').find(line => line.startsWith(`  ${command} <file.contract>`));
+    assert.ok(line, `contract help names ${command}`);
+    for (const flag of flags) assert.ok(line.includes(flag), `${command} help omits ${flag}: ${line}`);
+  }
+});
+
 // LLP 1116.003 D5: the helps a small web app reads first (web, test, agent) say what a first build
 // needs; `--help all` names every flag the short text leaves out, and the ports.
 test('a first build\'s helps are short, and --help all has every flag', () => {

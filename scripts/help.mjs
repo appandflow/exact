@@ -347,7 +347,9 @@ artifacts under game/target only. Ports none. Runs to completion.`,
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
     common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property, colour role or recipe (no name: the card)'],
     flags: [],
-    body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range;
+    body: `  build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map or --stdin)]
+                                          --json: [] or each diagnostic with its range; --errors-only: omit warnings
+                                          --entry: the named widget's plan, from app.json beside the input
                                           app.contract: app.ts type-checked too, as every host's build does
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
   vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
@@ -358,7 +360,8 @@ artifacts under game/target only. Ports none. Runs to completion.`,
   build … --stdin · symbols … --stdin     the file's text is stdin's (an editor's unsaved buffer), read as
                                           if saved at <file.contract>; app.ts is not type-checked against it
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)
-  verify <file.contract> [--types] [--prove <Module>] · rust <file.contract> [-o <shapes.rs>]
+  verify <file.contract> [--runner-only] [--js] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
+  rust <file.contract> [-o <shapes.rs>]
   lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]   (a flag before or after <app>)
                                           the app's design (LLP 1121): checked, its tokens in one mode, its IR
