@@ -1,6 +1,7 @@
 # Five bench apps cannot be built: their patch list lacks accesskit_windows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The five bench workspaces patch `accesskit_windows` as the root does, so `outsideWorkspaceProblems` admits them.
 **Systems:** bench/list, bench/crypto-list, bench/extra-heavy, bench/dioxus, Cargo.toml, scripts/app.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
