@@ -1058,3 +1058,31 @@ fn with_nothing_focused_the_root_hears_keys() {
         vt.text(false)
     );
 }
+
+/// An image's alternate text is app text under the painter's one policy
+/// (LLP 1101 D7): a control character in it is drawn as a replacement, never
+/// written to the terminal, so the screen matches the grid.
+#[test]
+fn an_images_alternate_text_draws_no_control_character() {
+    for label in ["a\\tb", "a\\nb", "a\\u{1b}b"] {
+        let source = format!(
+            "component App\n  state label = \"{label}\"\n  view\n    column\n      text \"first row\"\n      row width=\"20ch\"\n        image \"/nonexistent/none.png\" width=\"8ch\" height=\"1lh\" aria-label=label\n        text \"|after\"\n      text \"last row\"\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        let screen = vt.text(false);
+        let row = screen
+            .lines()
+            .find(|l| l.contains("|after"))
+            .unwrap_or_default()
+            .to_string();
+        assert!(row.starts_with("[a"), "{label}: {screen:?}");
+        assert!(screen.contains("last row"), "{label}: {screen:?}");
+        assert!(
+            !row.contains('\t') && !row.contains('\u{1b}'),
+            "{label}: {row:?}"
+        );
+    }
+}

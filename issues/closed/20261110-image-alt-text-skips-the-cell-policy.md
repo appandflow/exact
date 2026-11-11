@@ -1,6 +1,7 @@
 # An image's alternate text is put in cells without the cluster policy: a control character is written as itself and a wide cluster takes one cell
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An image's alternate text goes through the painter's one policy: a control character is a replacement glyph, whitespace a space and a wide cluster two cells.
 **Systems:** host/terminal (paint.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

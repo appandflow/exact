@@ -767,8 +767,20 @@ fn image(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, content: CellRec
                 faint: true,
                 ..Style::default()
             };
-            for (x, g) in (content.x..).zip(format!("[{alt}]").graphemes(true)) {
-                out.grid.put(x, content.y, g, 1, style, inner);
+            // App text under the painter's one policy (LLP 1101 D7): a
+            // control is a visible replacement, never written as itself, and a
+            // wide cluster takes two cells. On one line, a break is a space.
+            let mut x = content.x;
+            for g in format!("[{alt}]").graphemes(true) {
+                let (text, cols) = if g.chars().all(char::is_whitespace) {
+                    (" ", 1)
+                } else if g.chars().any(char::is_control) {
+                    ("\u{fffd}", 1)
+                } else {
+                    (g, g.width().max(1))
+                };
+                out.grid.put(x, content.y, text, cols, style, inner);
+                x += cols as i32;
             }
         }
     }
