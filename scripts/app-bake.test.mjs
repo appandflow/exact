@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, resolve } from 'node:path';
+import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { pinned } from './test-workspace.mjs';
 import { fileURLToPath } from 'node:url';
@@ -879,6 +879,164 @@ test('rewriting an input with its own bytes does not make a web build stale', as
     assert.deepEqual(webChanges(dist, app).app, [source]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
+
+for (const assets of ['none', 'create', 'update', 'prune', 'create level', 'update level', 'prune level', 'release level']) test(`a wasm build keeps authored inputs (${assets === 'none' ? 'ordinary app' : assets + ' game assets'})`, async () => {
+  const { resolveApp } = await import('./app.mjs');
+  const { refuseStale, webChanges } = await import('./agent-launch.mjs');
+  const target = resolve(import.meta.dir, '../target');
+  mkdirSync(target, { recursive: true });
+  const dir = realpathSync(mkdtempSync(resolve(target, 'web-build-inputs-')));
+  const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'target/web-dist');
+  const operation = assets.split(' ')[0], level = assets.endsWith(' level');
+  const game = assets !== 'none', edit = operation !== 'create';
+  const asset = level ? 'levels/start.level.json' : 'strip.tex';
+  const baked = level ? '{"seed":2}' : 'completed bake';
+  const before = 'component App\n  view\n    text "MarketsFirst"\n';
+  const after = edit ? before.replace('MarketsFirst', 'MarketsSecond') : before;
+  const ceiling = process.env.GIT_CEILING_DIRECTORIES;
+  // Keep the fixture in this worktree while giving its app walk the no-Git case.
+  process.env.GIT_CEILING_DIRECTORIES = target;
+  try {
+    if (game) assert.notEqual(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir }).status, 0);
+    writeFileSync(source, before);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Build inputs', app: { id: 'com.exact.build-inputs', name: 'Build inputs' }, rust: false,
+      ...(game ? { game: { crate: 'build-inputs-logic', type: 'BuildInputs' } } : {}) }));
+    if (game) {
+      mkdirSync(resolve(dir, 'assets'), { recursive: true });
+      writeFileSync(resolve(dir, 'assets/authored.txt'), 'authored before');
+      writeFileSync(resolve(dir, 'config.level.json'), '{"seed":1}');
+      writeFileSync(resolve(dir, 'assets/config.level.json'), '{"seed":1}');
+      if (level) {
+        mkdirSync(resolve(dir, 'levels'), { recursive: true });
+        writeFileSync(resolve(dir, asset), baked);
+        mkdirSync(resolve(dir, 'logic/src'), { recursive: true });
+        writeFileSync(resolve(dir, 'logic/src/lib.rs'), `use exact_game::*;
+#[derive(Default, Data)] pub struct Settings { pub seed: u64 }
+pub struct BuildInputs;
+impl Game for BuildInputs {
+    const ID: &'static str = "build-inputs";
+    ${operation === 'release' ? '' : `const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Settings>("${asset}"));`}
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+`);
+      } else if (operation !== 'prune') {
+        mkdirSync(resolve(dir, 'art'), { recursive: true });
+        writeFileSync(resolve(dir, 'art/strip.png'), 'art to bake');
+      }
+      if (['update', 'prune', 'release'].includes(operation)) {
+        mkdirSync(dirname(resolve(dir, 'assets', asset)), { recursive: true });
+        writeFileSync(resolve(dir, 'assets', asset), level ? '{"seed":1}' : 'previous bake');
+        if (!level) writeFileSync(resolve(dir, '.baked-assets.json'), JSON.stringify({ 'strip.tex': createHash('sha256').update('previous bake').digest('hex') }));
+        else {
+          mkdirSync(resolve(dir, '.shells'), { recursive: true });
+          writeFileSync(resolve(dir, '.shells/level.json'), JSON.stringify(asset));
+        }
+      }
+    }
+    // The child stubs compilation; --bake packages the receipt and writes the real marker.
+    // Authored inputs change during baking or packaging; generated assets change after copying.
+    const script = `
+      import { mock } from 'bun:test';
+      import { createHash } from 'node:crypto';
+      import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+      import { resolve } from 'node:path';
+      const appPath = ${JSON.stringify(resolve(import.meta.dir, 'app.mjs'))};
+      const actual = await import(appPath);
+      const servePath = ${JSON.stringify(resolve(import.meta.dir, '../host/web/serve.mjs'))};
+      const serve = await import(servePath), cards = serve.publicFileCards;
+      mock.module(servePath, () => ({ ...serve, publicFileCards(stage) {
+        if (${game && edit}) writeFileSync(${JSON.stringify(resolve(dir, 'assets/authored.txt'))}, 'authored after');
+        if (${operation === 'update'}) writeFileSync(${JSON.stringify(resolve(dir, 'assets', asset))}, 'edited during packaging');
+        return cards(stage);
+      } }));
+      mock.module(appPath, () => ({ ...actual, buildBake(app, platform, target, { env }) {
+        const started = Date.now();
+        const source = resolve(app.dir, 'app.contract');
+        const header = Buffer.alloc(36);
+        header.write('EXPL'); header.writeUInt32LE(Buffer.byteLength(app.id), 32);
+        const plan = Buffer.concat([header, Buffer.from(app.id), readFileSync(source)]);
+        const inputs = { app: app.id, platform };
+        const id = createHash('sha256').update('exact2 compatibility id v1\\n').update(JSON.stringify(inputs)).digest('hex').slice(0, 32);
+        const receipt = { id, inputs, target, embedded: { assets: [], plan: {
+          sha256: createHash('sha256').update(plan).digest('hex'), bytes: plan.length,
+        } } };
+        mkdirSync(env.EXACT_BAKE_OUTPUT, { recursive: true });
+        writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, platform + '-' + target + '.plan'), plan);
+        writeFileSync(source, ${JSON.stringify(after)});
+        if (${game}) {
+          if (${edit}) writeFileSync(resolve(app.dir, 'assets/config.level.json'), '{"seed":2}');
+          const asset = resolve(app.dir, 'assets', ${JSON.stringify(asset)});
+          if (${operation === 'prune' || operation === 'release'}) {
+            if (${operation === 'prune'}) rmSync(asset);
+            else writeFileSync(asset, '{"seed":3}');
+            if (!${level}) rmSync(resolve(app.dir, '.baked-assets.json'));
+            else rmSync(resolve(app.dir, '.shells/level.json'));
+          } else {
+            mkdirSync(resolve(asset, '..'), { recursive: true });
+            writeFileSync(asset, ${level ? `readFileSync(resolve(app.dir, ${JSON.stringify(asset)}))` : JSON.stringify(baked)});
+            if (!${level}) writeFileSync(resolve(app.dir, '.baked-assets.json'), JSON.stringify({ 'strip.tex': createHash('sha256').update('completed bake').digest('hex') }));
+            else {
+              mkdirSync(resolve(app.dir, '.shells'), { recursive: true });
+              writeFileSync(resolve(app.dir, '.shells/level.json'), ${JSON.stringify(JSON.stringify(asset))});
+            }
+          }
+          if (${level && edit}) writeFileSync(resolve(app.dir, ${JSON.stringify(asset)}), '{"seed":3}');
+          writeFileSync(resolve(app.dir, 'assets/exact-tables.json'), '{}');
+        }
+        receipt.embedded.assets = serve.listAssets(app.dir);
+        writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, platform + '-' + target + '.json'), JSON.stringify(receipt));
+        return { started, binary: { sha256: 'fixture', inputs: [] } };
+      } }));
+      process.argv = [process.execPath, ${JSON.stringify(resolve(import.meta.dir, '../host/web/build.mjs'))}, ${JSON.stringify(dir)}, '--bake'];
+      await import(${JSON.stringify(resolve(import.meta.dir, '../host/web/build.mjs'))});
+    `;
+    const built = spawnSync(process.execPath, ['-e', script], {
+      env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: dist, CARGO_TARGET_DIR: resolve(dir, 'target') },
+      encoding: 'utf8', timeout: 30_000,
+    });
+    assert.equal(built.status, 0, built.stderr);
+    assert.ok(readFileSync(resolve(dist, 'app.plan')).includes(Buffer.from('MarketsFirst')));
+    assert.equal(readFileSync(source, 'utf8'), after);
+    const app = resolveApp(dir), markerPath = resolve(dist, '.exact-build.json');
+    // A long packaging step makes the marker newer than the edit; no elapsed-time wait is needed.
+    const finished = new Date(Date.now() + 10_000);
+    utimesSync(markerPath, finished, finished);
+    const shown = game ? source : relative(resolve(import.meta.dir, '..'), source);
+    const changed = !edit ? [] : game ? [
+      source, resolve(dir, 'assets/authored.txt'), resolve(dir, 'assets/config.level.json'),
+      ...(['update', 'release'].includes(operation) ? [resolve(dir, 'assets', asset)] : []),
+      ...(level ? [resolve(dir, asset)] : []),
+    ] : [shown];
+    assert.deepEqual(webChanges(dist, app).app, changed);
+    if (edit) assert.throws(() => refuseStale('web', markerPath, webChanges(dist, app).all, 'bun host/web/build.mjs --wasm'), /web build is stale/);
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+    assert.equal(marker.inputs[shown], createHash('sha1').update(before).digest('hex'));
+    if (game) assert.equal(marker.inputs[resolve(dir, 'assets/config.level.json')], createHash('sha1').update('{"seed":1}').digest('hex'));
+    if (level) assert.equal(marker.inputs[resolve(dir, asset)], createHash('sha1').update(baked).digest('hex'));
+    if (operation === 'prune') assert.equal(marker.inputs[resolve(dir, 'assets', asset)], null);
+    if (operation === 'release') assert.equal(marker.inputs[resolve(dir, 'assets', asset)], createHash('sha1').update('{"seed":1}').digest('hex'));
+    assert.ok(marker.inputsAt <= JSON.parse(readFileSync(resolve(dist, 'bake.json'), 'utf8')).started);
+    writeFileSync(source, before);
+    if (game) writeFileSync(resolve(dir, 'assets/authored.txt'), 'authored before');
+    if (game) writeFileSync(resolve(dir, 'assets/config.level.json'), '{"seed":1}');
+    if (level) writeFileSync(resolve(dir, asset), baked);
+    if (operation === 'update') writeFileSync(resolve(dir, 'assets', asset), baked);
+    if (operation === 'release') writeFileSync(resolve(dir, 'assets', asset), '{"seed":1}');
+    assert.deepEqual(webChanges(dist, app).all, []);
+    if (game && operation !== 'prune') {
+      assert.equal(readFileSync(resolve(dist, 'assets', asset), 'utf8'), operation === 'release' ? '{"seed":3}' : baked);
+      writeFileSync(resolve(dir, 'assets', asset), 'edited after build');
+      assert.deepEqual(webChanges(dist, app).app, [resolve(dir, 'assets', asset)]);
+    }
+  } finally {
+    delete process.env.EXACT_APP_DIR;
+    if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+    else process.env.GIT_CEILING_DIRECTORIES = ceiling;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
 
 // LLP 1012.001.000 D1: a drive's check compares every receipt input's bytes with its digest, so a file replaced with
 // other bytes of the same length, its mtime put back (`cp -p`, `rsync -a`), is still found.

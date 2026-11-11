@@ -103,11 +103,13 @@ command runs it before logic tests whenever `art/` or `.baked-assets.json` exist
 The app-directory mode bakes art only; typed levels still require the generated build
 script's concrete `Game` type.
 
-With `game.assets: true`, generated GPU build scripts also call
-`bake_game_level::<MyGame>`. `Game::LEVEL` names one `.level.json` file beside
-`app.json`, typed by the author's existing `Data` derive and listed in `ASSETS`.
-The bake refuses malformed fields by path and writes validated bytes to `assets/`;
-the executable contains the decoder, not the level value. No level schema is duplicated
+Generated GPU build scripts call `bake_game_level::<MyGame>`. `Game::LEVEL` names
+one `.level.json` file relative to the game directory, typed by the author's
+existing `Data` derive.
+The bake refuses malformed fields by path and writes validated bytes to `assets/`.
+`.shells/level.json` records the output's name for build input inventories. Matching
+filenames beside `app.json` and under `assets/` do not establish bake ownership.
+The executable contains the decoder, not the level value. No level schema is duplicated
 in the manifest. JSON remains readable through agent asset state after delivery.
 
 The geometry allowlist accepts glTF `COLOR_0` (RGB becomes RGBA with alpha one).

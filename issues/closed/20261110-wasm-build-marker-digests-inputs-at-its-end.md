@@ -1,6 +1,7 @@
 # A wasm-target web build whose source is edited while it runs is taken as current
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Wasm web builds retain pre-bake authored digests and refresh only recorded bake outputs, including declared levels; paired handwritten assets remain checked.
 **Systems:** host/web/build.mjs (the wasm target), scripts/agent-launch.mjs (`webChanges`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

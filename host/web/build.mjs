@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/module.mjs';
+import { generatedInputFiles } from '../../game/inputs.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
@@ -181,8 +182,20 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // whole, as does a machine whose binaryen isn't the pinned one.
 const unsplit = keepNames || buildEnv.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
+// Capture before the bake so edits made during compilation or packaging stay detectable.
+const inputsAt = Date.now(), inputs = webInputDigests(app, false);
+const generated = game ? generatedInputFiles(app.dir) : [];
 const warmInputs = !bakeOnly ? warmGameInputs(app, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile}) : null;
 const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
+// Game bakes create, replace and prune assets. Capture those outputs before packaging;
+// authored files keep their initial digests, including handwritten assets beside generated ones.
+if (game) {
+  const outputs = new Set(generatedInputFiles(app.dir));
+  for (const path of new Set([...generated, ...outputs])) {
+    if (!existsSync(path)) inputs[path] = null;
+    else if (outputs.has(path)) inputs[path] = createHash('sha1').update(readFileSync(path)).digest('hex');
+  }
+}
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
 // dist, so a server sees the previous app or the next one, never a mixture;
@@ -570,7 +583,7 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
   files: await publicFileCards(stage).finally(closeFilesystemReader),
   // Content digests of what this build read: a staleness check compares bytes, not times.
-  inputs: webInputDigests(app, false),
+  inputs, inputsAt,
   // Each setting its module inlined (LLP 1153 D4), from the paired module's receipt, as a JS build's marker says them.
   ...builtSettings(stage),
 }) + '\n');
