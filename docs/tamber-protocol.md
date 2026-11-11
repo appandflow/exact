@@ -268,15 +268,15 @@ statuses:
 
 | Status | When |
 |---|---|
-| 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
+| 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused; `canvas` with the local token |
 | 401 | a paired token revoked or expired, also a request whose client ended while it sent its body (*1.13*) |
 | 403 | above the client's scope (*1.13*): `{message, scope, needs}` in `error`, on a request or a change stream path alike |
-| 404 | an unknown proposal or commit |
+| 404 | an unknown proposal or commit; `canvas` without a gateway or canvas port |
 | 409 | a conflict (`conflict: true`); a revert refused; a hold from a client below `write` with 64 held and none its own (*1.13*); a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
-| 429 | too many pairing attempts from one peer (`retry-after`, *1.13*) |
+| 429 | too many pairing attempts from one peer (`retry-after`, *1.13*); too many canvas grants for one client (*1.13*, no `retry-after`) |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
-| 503 | the design server is down |
+| 503 | the design server is down; the canvas gateway is closed |
 | 504 | the design server didn't answer within 120 s |
 
 - **A 504 doesn't cancel a write.** A `transaction`, `undo` or `accept` the server answers later is
@@ -466,7 +466,7 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 
 | Scope | Requests |
 |---|---|
-| `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
+| `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `canvas` (paired clients only), `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
 | `propose` | `propose` (held or not), `import`, `revert`, and `drop`, `edit-held` and `choose` (*1.18*) of the client's own held proposal |
 | `write` | `transaction`, `undo`, `commit`, `accept`, `drop`, `edit-held` and `choose` (*1.18*) of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
@@ -782,6 +782,37 @@ The app's build failing is an error (`the app does not build: …`).
 
 **A design that doesn't check** answers `{"message": "the design is refused", "diagnostics":
 [{file, line, col, id, message}]}`.
+
+### `canvas` (*1.13*, LLP 1121 stage 10 C, LLP 1122 D12)
+
+A paired client sends this request with its token in `x-exact-tamber-token`:
+
+```json
+{"method": "canvas"}
+```
+
+It needs `read` (`propose` and `write` may also ask) and answers `{url, grant, expires}`
+inside `ok`:
+
+- `url` is the entry URL, `<canvas origin>/canvas/<encoded client>/`. Through the TLS door
+  it names that door's canvas gateway; through the relay it names the relay session's canvas.
+- `grant` is a single-use secret, 32 random bytes encoded as base64url, bound to the paired
+  client and valid for 30 s. A grant from one gateway cannot enter another.
+- `expires` is the grant's expiry as a numeric Unix timestamp in milliseconds.
+
+The tool frames `url + "#g=" + grant`. The entry page removes the fragment from its address
+and history entry before posting `{"grant": "…"}` as JSON to its own URL. Only the canvas's
+own Origin may make that POST. Success sets a Secure, HttpOnly session cookie, answers 204,
+and the page tells the tool `{type: "exact-canvas-entered"}` before navigating to `/`.
+The tool drops its copy of the grant when it receives that message. Revocation or expiry of
+the paired token ends the canvas session and its open streams too.
+
+Minting allows a burst of 6 grants per client, refilled at 6 a minute, shared across the TLS
+and relay gateways. When exhausted, `canvas` answers 429 with no `retry-after` header.
+The local token gets 400: the local tool frames the dev loop itself. A server with no
+gateway for the request's door, or whose canvas port is not open, answers 404. A revoked or
+expired paired token gets 401; a closed gateway gets 503. The wire's usual authentication
+and scope refusals apply.
 
 ### Operations
 
@@ -1898,5 +1929,3 @@ The tool drives no input into an app; a command changes only what `prefer` would
   candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
-- **Later stages:** stage 10's canvas gateway (C) and the design tool's remote mode (D, LLP 1122
-  T6); a hosted relay (stage 10c).

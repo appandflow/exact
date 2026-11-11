@@ -1,6 +1,7 @@
 # The protocol reference has no entry for the `canvas` request and still lists the canvas gateway and the relay as later stages
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The protocol reference documents canvas requests, grants, scopes and refusals, and no longer lists the gateway, remote mode or relay as future work.
 **Systems:** docs/tamber-protocol.md, scripts/tamber-server.mjs, scripts/tamber-canvas.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
