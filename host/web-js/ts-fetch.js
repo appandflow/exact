@@ -136,7 +136,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal and `drive`, set by ts-data.js
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -166,7 +166,9 @@ function arm(api, run, ms, args) {
   if (overlaying.on) throw inOverlay(api);
   const call = answering.call;
   if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow`);
-  const { clock, drive } = answering.page, id = NextTimer++;
+  const { clock, drive, time } = answering.page, id = NextTimer++;
+  // An async continuation may run long after the page's last commit or timer.
+  time();
   // The action answers true, as every clock entry's does (rt.js `advance`: anything else stops the advance).
   // `live`: its answer has not answered nor been let go (the agent's `clock settle` goes only to those).
   const live = () => answers(call);
@@ -220,6 +222,7 @@ export function ownSignal(signal) {
 // `Request`'s own signal gives none: it is the browser's, following the one the Request was given.
 signalDeadline.arm = (signal, before) => {
   const t = signal && !signal.aborted ? Deadlines.get(signal) : undefined;
+  if (t) answering.page.time();
   const left = t && Math.max(1, t.due - answering.page.clock.now);
   if (left === undefined || before < left) return undefined;
   // The signal aborts in the turn of the answer that fetched, as natively, while that answer still answers

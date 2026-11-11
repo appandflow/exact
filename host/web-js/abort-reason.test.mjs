@@ -91,7 +91,7 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     // Data code's fetch, ts-fetch.js over this admission.js: beside an `exactTimeout` as long, the signal's deadline is
     // the request's, and beside an earlier one it is not, as natively (js/tests/it/timers.rs, "equal").
     const tsf = await import(resolve(dir, 'ts-fetch.js'));
-    tsf.answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    tsf.answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {}, time() {} };
     tsf.answering.call = {};
     const tied = tsf.AbortSignal.timeout(30), longer = tsf.AbortSignal.timeout(60_000);
     tsf.answering.call = null;

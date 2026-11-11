@@ -1,6 +1,7 @@
 # On a live page a data source's `setTimeout` or `AbortSignal.timeout` made after an await fires early
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Data timers and carried timeout deadlines sample the current page clock after an await.
 **Systems:** host/web-js/ts-fetch.js, host/web-js/ts-data.js
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

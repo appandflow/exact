@@ -14,7 +14,7 @@ import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 import { sourceTypes } from './names.js';
-import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources, time } from './rt.js';
 import { Shaped } from './shape.js';
 import { ledger, requestKey } from './uploads.js';
 useFetch(sourceFetch);
@@ -23,7 +23,7 @@ const appId = source.appId;
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
 // What an answer's timers run on (ts-fetch.js `arm`).
-answering.page = { clock, journal, drive };
+answering.page = { clock, journal, drive, time };
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
