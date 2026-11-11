@@ -666,7 +666,11 @@ fn artifact_graph(
     });
     // The linked tier the plan uses (LLP 1047 D2), by name: a native build
     // whose plan is fixed links these and no other (LLP 1047.001 D2).
-    let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
+    let uses: Vec<&str> = exact_runner::uses(plan)
+        .with_grants(inputs["grantCeiling"].as_str().unwrap_or(""))
+        .iter()
+        .map(|c| c.name())
+        .collect();
     Ok(
         json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"launchBackground":launch_background(plan),"artifacts":artifacts}),
     )

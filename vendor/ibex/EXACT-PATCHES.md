@@ -725,3 +725,16 @@ The adapter's value conversions, integrity checks and bootstrap primitives live 
 separate internal headers to keep each source under 1,500 lines.
 Exact's `js/tests/it/pure.rs` covers shadowing and the frozen descriptors;
 its storage tests exercise the SQLite integrity check after hardening.
+
+## Local patch 30, SQLite provider registration by the app shell
+
+`stdlib::sqlite` holds an optional process provider. `ibex2_sqlite::link`
+installs it before any storage session is created. Exact's generated native
+entry calls it only when its composition names `sqlite`; the TypeScript and
+Rust storage executors read the same slot. File reservations still share the
+provider's registry. SQL grants and the manifest's link-ahead select it;
+development and unknown compositions keep it.
+
+An absent provider in `sqlite_abi` (JavaScript) or `host::Sqlite` (Rust)
+refuses an admitted open with `Unlinked("sqlite")`, matching Exact's portable
+storage executor and bake. Replay these refusals on a refresh.

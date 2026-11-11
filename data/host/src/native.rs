@@ -7,7 +7,7 @@ use ibex2::{
         app_fs::{self, AppDirectories},
         fs::{self, FsOp, FsResult},
         fs_image::{self, ImageJob, ImageRequest, ImageService, ImageWork},
-        sqlite::{self, Location, Provider},
+        sqlite::{self, Location},
     },
 };
 use serde_json::{json, Value};
@@ -130,7 +130,8 @@ fn execute(
         }
         let path = app_fs::resolve_sqlite(grants, directories, path).map_err(error)?;
         let db = sqlite::Database::new(
-            ibex2_sqlite::SqliteProvider
+            sqlite::linked()
+                .ok_or("Unlinked(\"sqlite\")")?
                 .open(Location { path })
                 .map_err(error)?,
         );

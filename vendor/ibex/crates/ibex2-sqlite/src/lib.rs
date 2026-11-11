@@ -27,6 +27,11 @@ const MAX_ROWS: usize = 100_000;
 const MAX_COMMANDS: usize = 10_000;
 #[derive(Default)]
 pub struct SqliteProvider;
+/// Register this provider from an app shell that links SQL storage.
+pub fn link() {
+    sqlite::link(Arc::new(SqliteProvider));
+}
+
 struct Session {
     connection: Mutex<Option<Connection>>,
     internal_transaction: Arc<AtomicBool>,

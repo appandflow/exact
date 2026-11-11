@@ -13,6 +13,7 @@ const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/da
 struct Paths(PathBuf);
 impl Paths {
     fn new() -> Self {
+        ibex2_sqlite::link();
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

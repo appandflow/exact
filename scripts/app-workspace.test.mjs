@@ -54,7 +54,9 @@ async function fixture(body) {
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','exact-windows','wasm-bindgen','wasm-bindgen-futures','web-sys'];
-    write('Cargo.toml', '[workspace]\nmembers=["stub","contract"]\nresolver="2"\n'); pkg('stub','root-stub');
+    write('Cargo.toml', '[workspace]\nmembers=["stub","contract","logic","vendor/ibex/crates/ibex2-sqlite"]\nresolver="2"\n'); pkg('stub','root-stub');
+    pkg('vendor/ibex/crates/ibex2-sqlite', 'ibex2-sqlite', 'pub fn link() {}');
+    pkg('logic', 'exact-logic');
     pkg('contract','contract'); // This fixture has no Contract package imports.
     write('contract/src/main.rs', 'fn main() { println!("{}", r#"{\"packages\":[],\"sources\":[],\"consulted\":[]}"#); }');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));

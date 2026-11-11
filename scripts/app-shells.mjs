@@ -152,7 +152,8 @@ exact_web::host!(
 `,
   };
   if (kind === 'apple') return {
-    'Cargo.toml': `${header('[lib]\ncrate-type = ["rlib"]')}exact-logic = ${dep('logic')}
+    'Cargo.toml': `${header('[lib]\ncrate-type = ["rlib"]')}ibex2-sqlite = ${dep('vendor/ibex/crates/ibex2-sqlite')}
+exact-logic = ${dep('logic')}
 exact-apple = ${dep('host/apple')}
 exact-apple-update = ${dep('host/apple-update')}
 exact-js = ${dep('js')}
@@ -169,7 +170,8 @@ include!(concat!(env!("OUT_DIR"), "/host.rs"));
 `,
   };
   if (kind === 'linux') return {
-    'Cargo.toml': `${header(`[[bin]]\nname = "${name}-linux"\npath = "src/main.rs"`)}exact-logic = ${dep('logic')}
+    'Cargo.toml': `${header(`[[bin]]\nname = "${name}-linux"\npath = "src/main.rs"`)}ibex2-sqlite = ${dep('vendor/ibex/crates/ibex2-sqlite')}
+exact-logic = ${dep('logic')}
 exact-linux = ${dep('host/linux')}
 exact-js = ${dep('js')}
 
@@ -191,6 +193,7 @@ fn main() {
   if (kind === 'android') return {
     'Cargo.toml': `${header('[lib]\ncrate-type = ["cdylib"]\ntest = false\nbench = false').replace(/\n\[dependencies\]\n$/, '')}
 [target.'cfg(target_os = "android")'.dependencies]
+ibex2-sqlite = ${dep('vendor/ibex/crates/ibex2-sqlite')}
 exact-logic = ${dep('logic')}
 exact-linux = ${dep('host/linux')}
 exact-js = ${dep('js')}
@@ -223,7 +226,8 @@ mod android {
 `,
   };
   if (kind === 'windows') return {
-    'Cargo.toml': `${header(`[[bin]]\nname = "${name}-windows"\npath = "src/main.rs"\ntest = false\nbench = false`)}exact-logic = ${dep('logic')}
+    'Cargo.toml': `${header(`[[bin]]\nname = "${name}-windows"\npath = "src/main.rs"\ntest = false\nbench = false`)}ibex2-sqlite = ${dep('vendor/ibex/crates/ibex2-sqlite')}
+exact-logic = ${dep('logic')}
 exact-windows = ${dep('host/windows')}
 # The packages' Windows implementations name \`exact_linux::package\` (LLP 1133.022 D10 item 5).
 exact-linux = ${dep('host/linux')}

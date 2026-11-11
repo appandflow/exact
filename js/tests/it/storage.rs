@@ -43,6 +43,7 @@ pub(crate) static NAMESPACES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) struct Root(pub(crate) PathBuf);
 impl Root {
     pub(crate) fn new() -> Self {
+        ibex2_sqlite::link();
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
             "exact-storage-{}-{}",

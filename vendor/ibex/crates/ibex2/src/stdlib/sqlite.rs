@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -56,6 +56,20 @@ pub enum ForeignKeys {
     /// any violation, and turns enforcement back on whatever happens.
     Check,
 }
+
+static PROVIDER: OnceLock<Arc<dyn Provider>> = OnceLock::new();
+
+/// Install the provider linked by the app shell before creating any sessions.
+/// Repeated registrations keep the process's first provider.
+pub fn link(provider: Arc<dyn Provider>) {
+    let _ = PROVIDER.set(provider);
+}
+
+/// The app shell's provider; none in an artifact built without SQL storage.
+pub fn linked() -> Option<Arc<dyn Provider>> {
+    PROVIDER.get().cloned()
+}
+
 pub trait Connection: Send + Sync {
     fn prepare(&self, sql: &str) -> Result<StatementInfo, HostError>;
     fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult, HostError>;

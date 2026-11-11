@@ -1293,6 +1293,13 @@ answers; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
+A native production build links SQLite only when the app grants `sqlite.open`
+or names `"sqlite"` in the manifest's `link` list. Naming it without the grant
+links unused code: adding `sqlite.open` changes the compatibility identity and
+requires a new binary, even when SQLite was linked. Development builds and
+builds with unknown grants keep it. The bake refuses SQL grants that exceed
+the linked composition with `Unlinked("sqlite")`.
+
 The host sets a database's options (foreign keys on, temporary data in memory),
 and app SQL may not change them or reach another file. `ATTACH`, virtual tables,
 `load_extension`, `BEGIN`, `COMMIT`, `ROLLBACK` and `SAVEPOINT` (use `transaction`)

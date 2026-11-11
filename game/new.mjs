@@ -6,6 +6,8 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
 import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
 import { PLATFORMS, authoredCrate, copiedBuildScripts, namePlatform, withoutPlatformKeys } from '../scripts/app-shells.mjs';
+import { updateManifests } from './update-manifests.mjs';
+export { exact2Placeholders } from './update-manifests.mjs';
 import { APP_CRATES, NO_WORKSPACE } from '../scripts/cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 // Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
@@ -195,7 +197,7 @@ export function createApp(destination, options = {}) {
 
 /** The crates an app's own depend on by path (`writeApp`, `linuxCrate`): a
  * folder named `exact` would write an `exact-apple` beside the SDK's. */
-const SDK_CRATES = new Set(['exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web']);
+const SDK_CRATES = new Set(['ibex2-sqlite', 'exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web']);
 
 const rosterRule = body => {
   const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);
@@ -1253,33 +1255,6 @@ function rootRefusal(path) {
   return lacks.length ? `${path} has no ${lacks.join(', ')} in [workspace.package], which the linux/ and android/ crates inherit` : null;
 }
 
-/** `text`, a Cargo.toml in `from`, with each string whose text begins `<exact2>/` (exact2's own token: the docs
- * write a path into this checkout that way) naming that place in this checkout, written with `/` in the string's
- * own quotes. TOML's four string forms and its comments (a `#` outside every string, to the end of the line) are
- * told apart; escapes are not decoded, so a string that holds a backslash or a newline is not rewritten. `unresolved`:
- * a string left with the token at its start, or with the token and a backslash or a newline. Text that only
- * mentions the token is not a path. */
-export function exact2Placeholders(text, from) {
-  let out = '', at = 0, unresolved = false;
-  for (let i = 0; i < text.length;) {
-    if (text[i] === '#') { const end = text.indexOf('\n', i); i = end < 0 ? text.length : end; continue; }
-    const quote = ['"""', "'''", '"', "'"].find(q => text.startsWith(q, i));
-    if (!quote) { i++; continue; }
-    // A basic string's backslash escapes the next character; a literal one's does not. A single-line string
-    // ends at its line; a multiline one only at its triple quote.
-    let end = i + quote.length;
-    while (end < text.length && !text.startsWith(quote, end) && (quote.length === 3 || text[end] !== '\n')) end += quote[0] === '"' && text[end] === '\\' ? 2 : 1;
-    const value = text.slice(i + quote.length, end).replace(quote.length === 3 ? /^\r?\n/ : /^$/, '');
-    if (value.startsWith('<exact2>/') && !/[\\\n]/.test(value)) {
-      const to = pathFrom(from, resolve(ROOT, value.slice('<exact2>/'.length)));
-      out += text.slice(at, i) + (to.includes(quote[0]) || to.includes('\\') ? JSON.stringify(to) : quote + to + quote);
-      at = end + quote.length;
-    } else if (value.startsWith('<exact2>') || value.includes('<exact2>') && /[\\\n]/.test(value)) unresolved = true;
-    i = end + quote.length;
-  }
-  return { text: out + text.slice(at), unresolved };
-}
-
 function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
@@ -1320,13 +1295,10 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
   // (authoring bench: `exact.mjs ios` asked Cargo for `todo-apple` in a `todo/` holding `todo-list-*`).
   name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
-    .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? name;
-  const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
-  const block = `[patch.crates-io]\n${patchLines(dir).join('\n')}\n`;
-  // The table runs from its header to the next header; its trailing blank line stays.
-  const section = /^\[patch\.crates-io\]\n(?:(?!\[)[^\n]*\n?)*/m, at = manifest.search(section);
-  writeFileSync(resolve(dir, 'Cargo.toml'), at < 0 ? `${manifest.trimEnd()}\n\n${block}`
-    : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
+    .map(path => {
+      try { return String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]; }
+      catch { return undefined; } // Cargo reports an invalid authored manifest below.
+    }).find(Boolean) ?? name;
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
   mkdirSync(resolve(dir, '.cargo'), { recursive: true });
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
@@ -1342,6 +1314,12 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
     if (p === 'linux') return named('android') ? withoutPlatformKeys(d, p) : dropPlatform(d, p);
     return withoutPlatformKeys(d, p);
   });
+  const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
+  const block = `[patch.crates-io]\n${patchLines(dir).join('\n')}\n`;
+  // The table runs from its header to the next header; its trailing blank line stays.
+  const section = /^\[patch\.crates-io\]\n(?:(?!\[)[^\n]*\n?)*/m, at = manifest.search(section);
+  let rootText = at < 0 ? `${manifest.trimEnd()}\n\n${block}`
+    : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : ''));
   // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own or ships
   // neither Linux nor Android (the crate serves both, LLP 1107): app.json's `host` keys, or the store key the
   // scaffold wrote for Linux, say which.
@@ -1354,9 +1332,8 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
       mkdirSync(dirname(resolve(dir, path)), { recursive: true });
       writeFileSync(resolve(dir, path), text);
     }
-    const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
-    writeFileSync(resolve(dir, 'Cargo.toml'), workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
-      /"linux"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"linux"'].sort().join(', ')}]`));
+    rootText = rootText.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
+      /"linux"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"linux"'].sort().join(', ')}]`);
   }
   // And one that names Android gains the library its APK loads (LLP 1107), as the generated workspace has it.
   const addedAndroid = named('android') && !existsSync(resolve(dir, 'android'));
@@ -1366,9 +1343,8 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
       mkdirSync(dirname(resolve(dir, path)), { recursive: true });
       writeFileSync(resolve(dir, path), text);
     }
-    const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
-    writeFileSync(resolve(dir, 'Cargo.toml'), workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
-      /"android"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"android"'].sort().join(', ')}]`));
+    rootText = rootText.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
+      /"android"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"android"'].sort().join(', ')}]`);
   }
   const notes = updateNotes(dir, name);
   if (editorTasks(dir)) notes.push('.vscode/tasks.json');
@@ -1394,14 +1370,8 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
   const crates = new Map(JSON.parse(metadata.stdout).packages.map(p => [p.name, dirname(p.manifest_path)]));
-  const changed = [], unresolved = [];
-  for (const file of readdirSync(dir, { recursive: true }).filter(f => basename(f) === 'Cargo.toml' && !/^(target|dist)\//.test(f))) {
-    const path = resolve(dir, file), text = readFileSync(path, 'utf8');
-    const resolved = exact2Placeholders(text.replace(/^(exact-[a-z0-9-]+)(\s*=\s*\{[^}\n]*\bpath\s*=\s*)"[^"]*"/gm, (line, crate, head) =>
-      crates.has(crate) ? `${crate}${head}${JSON.stringify(pathFrom(dirname(path), crates.get(crate)))}` : line), dirname(path)), next = resolved.text;
-    if (resolved.unresolved) unresolved.push(file);
-    if (next !== text) { writeFileSync(path, next); changed.push(file); }
-  }
+  crates.set('ibex2-sqlite', resolve(ROOT, 'vendor/ibex/crates/ibex2-sqlite'));
+  const { changed, unresolved } = updateManifests(dir, crates, rootText);
   const said = `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${addedAndroid ? ', an android/ crate (bun exact.mjs android builds the APK)' : ''}${edits.length ? `, ${edits.join(', ')}` : ''}${without && ['linux', 'android'].includes(without) ? ', Cargo.lock' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${unresolved.length ? `\n<exact2> left unresolved in ${unresolved.join(', ')}: a path into exact2 is written \`<exact2>/\` and then forward slashes` : ''}`;
   // Whether the workspace loads: every member's manifest read, nothing resolved or fetched, so only the app's files can
   // fail it. One that does not load builds nothing, so the update failed, though its files are written.

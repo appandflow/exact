@@ -945,8 +945,14 @@ test('SDK graph drift is repaired by the async lock refresh before locked consum
   const {sdkLock} = await import('./app/shells.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'sdk-drift-')), sdk = resolve(root, 'sdk'), dep = resolve(root, 'dep');
   mkdirSync(resolve(sdk, 'app'), {recursive:true}); mkdirSync(dep);
-  const manifest = version => `[package]\nname = "sdk-drift-dependency"\nversion = "${version}"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`;
+  const manifest = (version, name = 'sdk-drift-dependency') => `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`;
   try {
+    for (const [path, name] of [['logic', 'exact-logic'], ['vendor/ibex/crates/ibex2-sqlite', 'ibex2-sqlite']]) {
+      const dir = resolve(root, path);
+      mkdirSync(dir, {recursive:true});
+      writeFileSync(resolve(dir, 'Cargo.toml'), manifest('0.1.0', name));
+      writeFileSync(resolve(dir, 'lib.rs'), '');
+    }
     writeFileSync(resolve(dep, 'lib.rs'), ''); writeFileSync(resolve(dep, 'Cargo.toml'), manifest('0.1.0'));
     writeFileSync(resolve(sdk, 'Cargo.toml'), `[workspace]\nresolver = "2"\n[workspace.package]\nedition = "2021"\n[workspace.dependencies]\nsdk-drift-dependency = { path = "../dep" }\n`);
     sdkLock(sdk, {update:true}); sdkLock(sdk);

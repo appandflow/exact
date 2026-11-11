@@ -178,7 +178,7 @@ pub(crate) fn run(
         let provider = registry
             .provider
             .get()
-            .ok_or_else(|| HostError::Failed("SQLite provider is not installed".into()))?;
+            .ok_or_else(|| HostError::Failed("Unlinked(\"sqlite\")".into()))?;
         let database = Database::new(provider.open(Location { path })?);
         let mut databases = registry.databases.lock().unwrap();
         if registry.closed.load(Ordering::Acquire) {
