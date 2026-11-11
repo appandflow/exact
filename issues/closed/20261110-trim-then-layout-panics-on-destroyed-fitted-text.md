@@ -1,6 +1,7 @@
 # Layout panics after `Kernel::trim` when a destroyed `-exact-fit: shrink` text has not been laid out since
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Destroyed fitted text leaves the fitting set, and layout checks slot liveness before reading arena columns after trim.
 **Systems:** kernel/src/layout/fit.rs, kernel/src/layout.rs, kernel/src/arena.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

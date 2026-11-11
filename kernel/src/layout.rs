@@ -184,7 +184,7 @@ pub struct LayoutTree {
     // (its old containing block still counts the box that left).
     hoist_paths: IdSet<NodeId>,
     hoist_paths_prior: IdSet<NodeId>,
-    // The fitted paragraphs measured since they last stopped fitting (`fit`).
+    // The live fitted paragraphs measured since they last stopped fitting (`fit`).
     fitting: IdSet<u32>,
     // @ref LLP 1153 D7.3 — the tables laid out as grids.
     tables: table::Tables,
@@ -513,6 +513,7 @@ impl LayoutTree {
                 self.remove(anon);
             }
             self.flowing.remove(&slot);
+            self.fitting.remove(&slot);
             self.displacements.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
                 self.remove(prefix);

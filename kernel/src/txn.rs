@@ -1075,6 +1075,7 @@ fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: 
         };
         if arena.in_paragraph(slot) {
             if let Some(node) = arena.taffy(slot) {
+                arena.fit_scales.remove(&slot);
                 layout.remove(node);
                 arena.set_taffy(slot, None);
             }
