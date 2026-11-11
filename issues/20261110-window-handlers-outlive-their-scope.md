@@ -1,7 +1,7 @@
 # `message`, `beforeunload` and MIDI handlers are never removed when their element's scope ends, on the JS target
 
 **Status:** Open
-**Systems:** host/web-js/rt.js, host/web-js/midi.js
+**Systems:** host/web-js/rt.js, host/web-js/midi.js, host/web/glue.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
 **Date:** 2026-11-10
@@ -21,6 +21,9 @@ that ever had one of these handlers stays reachable for the life of the page, an
 `beforeunload` or MIDI message runs every closure ever registered. The handler itself is still guarded
 (`ev.source === e.contentWindow`, `e.isConnected`), so a removed element's action does not run; the cost is the
 growth.
+
+The wasm target's glue has the second of these too: `host/web/glue.js:572` (at `fe4632ed`) adds a window `beforeunload`
+listener for each element with that handler, and nothing removes it (read, not run).
 
 `on` already has the pattern for a listener that must not outlive its scope: its `l` helper removes `close` and
 `scrollend` listeners with `onEnd` (`rt.js:875`).
