@@ -1,6 +1,7 @@
 # A type error anywhere makes the lint refuse every `slot` of an activity's placements
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fallback lint leaves activity placement slots to activity compilation while checking their other attributes and children.
 **Systems:** contract/lower/src/lint.rs, contract/cli/src/lib.rs, contract/cli/src/snapshot/activities.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

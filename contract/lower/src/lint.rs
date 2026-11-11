@@ -551,10 +551,12 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
+                        // Activity compilation consumes `slot` before lowering (LLP 1126.001 WP8).
                         // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
                         for a in attrs.iter().filter(|a| {
                             a.name != "class"
                                 && a.name != "delete"
+                                && a.name != "slot"
                                 && a.name != crate::row_look::ROW_LOOK
                                 && !native::leftover(tag, a)
                                 && !names.imported.contains(&a.name.as_str())

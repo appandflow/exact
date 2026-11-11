@@ -25,6 +25,64 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
+#[test]
+fn activity_placements_do_not_add_lint_errors() {
+    let source = r#"component App
+  state n = 1
+  view
+    text "x"
+
+component Departure
+  props
+    train: number
+  view
+    view slot="lockScreen"
+      text `${train}`
+    view slot="minimal"
+      text `${train}`
+"#;
+    contract::compile(source).unwrap_or_else(|e| panic!("{e}"));
+    let errors = |src: &str| {
+        let Err(errors) =
+            contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+        else {
+            panic!("the unrelated error must refuse the app");
+        };
+        errors.into_iter().map(|e| e.id).collect::<Vec<_>>()
+    };
+    let broken = source.replace("state n = 1", "state n = 1 + \"a\"");
+    assert_eq!(errors(&broken), ["type-operand"]);
+    let analyzed = source.replace(
+        "  state n = 1",
+        "  mutation saved as shape string\n  action go\n    send saved = command(\"one\")\n    send saved = command(\"two\")",
+    );
+    assert_eq!(errors(&analyzed), ["analyze-send-twice"]);
+
+    // A placement's other attributes and its children still get checked.
+    let invalid = broken
+        .replace("slot=\"minimal\"", "slot=\"minimal\" width=true")
+        .replace("text `${train}`", "text `${train}` color=\"bleu\"");
+    assert_eq!(
+        errors(&invalid),
+        [
+            "type-operand",
+            "lower-attr-value",
+            "lower-attr-value",
+            "lower-attr-value"
+        ]
+    );
+
+    // Ordinary lowering still refuses a placement attribute in the app's view.
+    for src in [
+        "component App\n  view\n    view slot=\"lockScreen\"\n      text \"x\"\n".into(),
+        source.replace("text \"x\"", "view\n      Departure(train=1)"),
+    ] {
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-unknown-attr");
+        assert!(error.message.contains("`slot`"), "{error}");
+    }
+}
+
 /// A state part on an element (LLP 1121 D8, `:hover` then its rows) is linted
 /// as lowering folds it: a row its state takes passes, checked as the row it
 /// lowers to (`:active`'s colour as the press's, which inherits nothing); a
