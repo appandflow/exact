@@ -1,6 +1,7 @@
 # A time or datetime-local control's `min` and `max` are compared as strings, so a value at its bound written with other precision is refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Date and time bounds compare parsed milliseconds, accept equivalent precision, and honor time ranges that cross midnight.
 **Systems:** runner/src/runner/control.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

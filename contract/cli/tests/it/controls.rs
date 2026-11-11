@@ -782,6 +782,105 @@ fn a_date_carries_htmls_value_format_within_min_and_max() {
     assert!(r.dispatch(at, Event::Change(true.into())).is_err());
 }
 
+#[test]
+fn date_and_time_bounds_compare_values_across_precisions() {
+    let mut failures = Vec::new();
+    for (kind, min, max, accepted, refused) in [
+        (
+            "time",
+            "09:00:00",
+            "17:00",
+            vec!["09:00", "09:00:00.000", "17:00:00", "17:00:00.0", ""],
+            vec!["08:59", "08:59:59.999", "17:00:00.001", "17:01"],
+        ),
+        (
+            "datetime-local",
+            "2026-01-01T09:00:00",
+            "2026-12-31T17:00",
+            vec!["2026-01-01T09:00", "2026-12-31T17:00:00", ""],
+            vec!["2026-01-01T08:59", "2026-12-31T17:00:00.001"],
+        ),
+        (
+            "time",
+            "09:00:00.1",
+            "09:00:00.12",
+            vec!["09:00:00.10", "09:00:00.100", "09:00:00.120"],
+            vec!["09:00:00.099", "09:00:00.121"],
+        ),
+        (
+            "time",
+            "22:00",
+            "06:00:00",
+            vec!["23:00", "05:00", "22:00:00", "06:00", "00:00", ""],
+            vec!["12:00", "06:00:00.001", "21:59:59.999"],
+        ),
+        (
+            "time",
+            "09:00:00",
+            "09:00",
+            vec!["09:00", "09:00:00", "09:00:00.000", ""],
+            vec!["08:59:59.999", "09:00:00.001", "12:00"],
+        ),
+        (
+            "date",
+            "9999-12-31",
+            "10000-01-02",
+            vec!["9999-12-31", "10000-01-01", "10000-01-02"],
+            vec!["9999-12-30", "10000-01-03"],
+        ),
+        (
+            "datetime-local",
+            "2026-12-31T22:00",
+            "2026-01-01T06:00",
+            vec![""],
+            vec!["2026-12-31T23:00", "2026-01-01T05:00"],
+        ),
+        (
+            "time",
+            "invalid",
+            "17:00",
+            vec!["00:00", "17:00:00", ""],
+            vec!["17:00:00.001"],
+        ),
+        (
+            "time",
+            "09:00:00",
+            "",
+            vec!["09:00", "23:59", ""],
+            vec!["08:59:59.999"],
+        ),
+    ] {
+        let mut r = boot(&format!(
+            "component App\n  state chosen = \"\"\n  action set(value: string)\n    chosen = value\n  view\n    input type=\"{kind}\" value=chosen min=\"{min}\" max=\"{max}\" input=set change=set testId=\"control\"\n"
+        ));
+        let view = view_of(&r, "control");
+        for event in [Event::Input, Event::Change] {
+            for text in &accepted {
+                if let Err(error) = r.dispatch(view, event((*text).into())) {
+                    failures.push(format!("{kind} {min}..{max} refused {text:?}: {error:?}"));
+                    continue;
+                }
+                assert_eq!(
+                    r.kernel().node(view).unwrap().props.str(PropId::Value),
+                    Some(*text)
+                );
+            }
+            for text in &refused {
+                let previous = r.kernel().node(view).unwrap().props.clone();
+                let result = r.dispatch(view, event((*text).into()));
+                if !matches!(result, Err(RunnerError::InvalidValue { .. })) {
+                    failures.push(format!("{kind} {min}..{max} allowed {text:?}: {result:?}"));
+                }
+                assert_eq!(
+                    r.kernel().node(view).unwrap().props.str(PropId::Value),
+                    previous.str(PropId::Value)
+                );
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// `spellcheck` and `autocorrect` are HTML's enumerated attributes whose IDL
 /// attributes are bools: a bool is written as their words, a string as
 /// itself (shop diary F7: `spellcheck=false` was refused as no string).

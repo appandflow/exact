@@ -123,12 +123,26 @@ impl ControlKind {
             return true;
         }
         match self {
-            ControlKind::Date => valid_date(value),
-            ControlKind::Time => valid_time(value),
-            ControlKind::DateTimeLocal => value
-                .split_once('T')
-                .is_some_and(|(d, t)| valid_date(d) && valid_time(t)),
+            ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal => {
+                self.date_value(value).is_some()
+            }
             _ => true,
+        }
+    }
+
+    /// HTML's numeric date/time value: milliseconds since 1970-01-01,
+    /// or since midnight for `time`, without a time-zone conversion.
+    /// Empty or invalid strings and other control kinds have no number.
+    /// `i128` holds milliseconds for every year the date parser accepts.
+    pub fn date_value(self, value: &str) -> Option<i128> {
+        match self {
+            ControlKind::Date => date_value(value),
+            ControlKind::Time => time_value(value),
+            ControlKind::DateTimeLocal => {
+                let (date, time) = value.split_once('T')?;
+                Some(date_value(date)? + time_value(time)?)
+            }
+            _ => None,
         }
     }
 }
@@ -168,49 +182,61 @@ fn digits(s: &str, n: usize) -> Option<u32> {
 
 /// `yyyy-mm-dd`, the year four or more digits and never 0, the day one the
 /// month has (February's 29th in a leap year).
-fn valid_date(s: &str) -> bool {
+fn date_value(s: &str) -> Option<i128> {
     let mut parts = s.rsplitn(3, '-');
-    let (Some(d), Some(m), Some(y)) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    let (Some(d), Some(m)) = (digits(d, 2), digits(m, 2)) else {
-        return false;
-    };
-    let Some(y) = (y.len() >= 4)
+    let (d, m, y) = (parts.next()?, parts.next()?, parts.next()?);
+    let (d, m) = (digits(d, 2)?, digits(m, 2)?);
+    let y = (y.len() >= 4)
         .then(|| digits(y, y.len()))
         .flatten()
-        .filter(|y| *y > 0)
-    else {
-        return false;
-    };
+        .filter(|y| *y > 0)?;
     let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let days = match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return false,
-    };
-    (1..=days).contains(&d)
+    let months = [
+        31,
+        28 + u32::from(leap),
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&m) || !(1..=months[(m - 1) as usize]).contains(&d) {
+        return None;
+    }
+    let years = i128::from(y - 1);
+    let days = 365 * years + years / 4 - years / 100
+        + years / 400
+        + i128::from(months[..(m - 1) as usize].iter().sum::<u32>() + d - 1);
+    // 719162 days precede 1970-01-01 in the proleptic Gregorian calendar.
+    Some((days - 719_162) * 86_400_000)
 }
 
 /// `hh:mm`, `hh:mm:ss` or `hh:mm:ss.sss` (one to three fraction digits).
-fn valid_time(s: &str) -> bool {
+fn time_value(s: &str) -> Option<i128> {
     let mut parts = s.splitn(3, ':');
-    let (Some(h), Some(m)) = (parts.next(), parts.next()) else {
-        return false;
-    };
-    let hm = digits(h, 2).is_some_and(|h| h < 24) && digits(m, 2).is_some_and(|m| m < 60);
-    match parts.next() {
-        None => hm,
+    let h = digits(parts.next()?, 2).filter(|h| *h < 24)?;
+    let m = digits(parts.next()?, 2).filter(|m| *m < 60)?;
+    let seconds = match parts.next() {
+        None => 0,
         Some(sec) => {
             let (whole, fraction) = sec.split_once('.').unwrap_or((sec, ""));
-            hm && digits(whole, 2).is_some_and(|s| s < 60)
-                && (fraction.is_empty() && !sec.ends_with('.')
-                    || (1..=3).contains(&fraction.len())
-                        && fraction.bytes().all(|b| b.is_ascii_digit()))
+            let whole = digits(whole, 2).filter(|s| *s < 60)?;
+            let fraction = if fraction.is_empty() && !sec.ends_with('.') {
+                0
+            } else if (1..=3).contains(&fraction.len()) {
+                digits(fraction, fraction.len())? * 10_u32.pow(3 - fraction.len() as u32)
+            } else {
+                return None;
+            };
+            whole * 1000 + fraction
         }
-    }
+    };
+    Some(i128::from((h * 60 + m) * 60_000 + seconds))
 }
 
 /// A range's `min`, `max` and `step` by HTML's rules (the value
@@ -677,6 +703,37 @@ mod tests {
             (DateTimeLocal, "2026-09-27"),
         ] {
             assert!(!kind.valid_value(bad), "{kind:?} {bad}");
+        }
+    }
+
+    #[test]
+    fn date_numbers_are_milliseconds_without_a_time_zone() {
+        use ControlKind::*;
+        for (kind, text, number) in [
+            (Date, "0001-01-01", -62_135_596_800_000),
+            (Date, "1969-12-31", -86_400_000),
+            (Date, "1970-01-01", 0),
+            (Date, "10000-01-01", 253_402_300_800_000),
+            (Date, "010000-01-01", 253_402_300_800_000),
+            (Time, "09:00", 32_400_000),
+            (Time, "09:00:00", 32_400_000),
+            (Time, "09:00:00.1", 32_400_100),
+            (Time, "09:00:00.10", 32_400_100),
+            (Time, "09:00:00.100", 32_400_100),
+            (Time, "23:59:59.999", 86_399_999),
+            (DateTimeLocal, "1969-12-31T23:59:59.999", -1),
+            (DateTimeLocal, "1970-01-01T00:00:00.001", 1),
+        ] {
+            assert_eq!(kind.date_value(text), Some(number), "{kind:?} {text}");
+        }
+        for (year, days) in [(1900, 1), (2000, 2), (2024, 2), (2100, 1), (u32::MAX, 1)] {
+            let before = Date.date_value(&format!("{year}-02-28")).unwrap();
+            let after = Date.date_value(&format!("{year}-03-01")).unwrap();
+            assert_eq!(after - before, days * 86_400_000, "{year}");
+        }
+        for kind in [Date, Time, DateTimeLocal, Range] {
+            assert_eq!(kind.date_value(""), None);
+            assert_eq!(kind.date_value("invalid"), None);
         }
     }
 
