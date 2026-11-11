@@ -911,6 +911,12 @@ refused before anything builds), or `json_flags` (`--json` takes none of
 
 `--unsigned` requires `--device` and refuses `--run`: a stock device cannot
 launch an ad-hoc signed bundle. It builds a `.app`, or an `.ipa` with `--archive`.
+For a signed device `.app`, `DEVELOPMENT_TEAM=<team-id>` restricts the installed
+development profile and Apple Development identity to that team. `EXACT_PROFILE`
+and `EXACT_IDENTITY` override this selection. If none of that team's profiles covers
+the bundle id and phone, the build refuses: unset `DEVELOPMENT_TEAM` to take any
+team's, or run a project in Xcode with that bundle id and team on that phone with
+Automatically manage signing enabled, then retry.
 `EXACT_IDENTITY` and `EXACT_PROFILE` in place of `--unsigned` sign the `.ipa`
 on the runner. The runner needs Xcode 27.1 or later selected (`DEVELOPER_DIR`,
 or `xcode-select -s`), rustup and Bun 1.4.2; then `bun <exact2>/scripts/exact.mjs setup` installs the

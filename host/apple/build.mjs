@@ -646,7 +646,7 @@ async function main(args, lockHeld = false) {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
     // Refuse missing widget groups or browser approval before building; final signing checks again.
     const required = browserEntitlements({ ...app, widgetTV: tv }, distribution);
-    prof = widgets ? entryProfiles({ app, udid: ph?.udid, required }).app : profile(ph?.udid, app.id, required);
+    prof = widgets ? entryProfiles({ app, udid: ph?.udid, phoneName: ph?.name, required }).app : profile(ph?.udid, app.id, required, { phoneName: ph?.name });
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
   const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;

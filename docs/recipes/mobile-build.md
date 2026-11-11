@@ -1,14 +1,14 @@
 # Recipe: phone release builds
 
 Run in the app directory. `--json` prints `path`, `target`, `trust` and (on Apple)
-`signing` on stdout; failures print `code` and `error`. Build output goes to stderr.
+`signing` on stdout; failures print `code` and `error`. Logs go to stderr.
 It takes no `--run`, `--prebuild` or `--test`. Releases omit the agent.
 
 Production bakes with an update store need `deploy.signing.keys` and either
 `EXACT_UPDATE_RECEIPT` (an authenticated publisher receipt) or
 `EXACT_UPDATE_GENESIS=1` (a new stream), including simulator and Android builds.
-Store `"0"` embeds without updates, keys or receipts: set `deploy.store.ios: "0"`
-(a first iOS build sets it only when `host.ios` is absent).
+Store `"0"` needs no updates, keys or receipts: set `deploy.store.ios: "0"`
+(the first iOS build sets it when `host.ios` is absent).
 
 **iOS Simulator**, no installation or signing team:
 
@@ -16,21 +16,22 @@ Store `"0"` embeds without updates, keys or receipts: set `deploy.store.ios: "0"
 bun exact.mjs ios --release --no-install --json
 ```
 
-Omit `--no-install` to install; `--sim <udid|name>` selects a simulator.
+`--sim <udid|name>` selects a simulator; omit `--no-install` to install.
 
 **Signed iPhone:** needs a phone this Mac knows, an Apple Development identity
 with its private key, and a profile covering its UDID, bundle id and entitlements:
 
 ```sh
-bun exact.mjs ios --device --phone <udid> --release --no-install --json
+DEVELOPMENT_TEAM=<team-id> bun exact.mjs ios --device --phone <udid> --release --no-install --json
 ```
 
-Exact chooses this Mac's profile and identity. To select them, prefix with
-`EXACT_PROFILE=<file.mobileprovision> EXACT_IDENTITY=<certificate-sha1>`
-(`security find-identity -v -p codesigning` lists identities).
-`DEVELOPMENT_TEAM` alone does not select them. Installing needs it connected.
+`DEVELOPMENT_TEAM=<team-id>` selects that team's installed profile and Apple
+Development identity. `EXACT_PROFILE=<file.mobileprovision>` and
+`EXACT_IDENTITY=<certificate-sha1>` override it. If none of its profiles covers this
+bundle id and phone, unset it, or run an Xcode project with that bundle id and
+team on that phone with Automatically manage signing, then retry. Connect to install.
 
-**No team or phone:** build an ad-hoc signed device `.app`, without installing:
+**No team or phone:** an ad-hoc signed device `.app`, without installation:
 
 ```sh
 bun exact.mjs ios --device --release --unsigned --json
@@ -58,8 +59,7 @@ the generated lock/verification files; subsequent builds verify them.
 |Unsigned `.ipa`|the `--archive` path, relative to the working directory|
 |Android APK|`target/android/app/outputs/apk/release/app-release.apk`|
 
-Apple destinations: `ios-simulator` or `ios`; composition: `embedded` for store
-`"0"`, otherwise `updating`. Read JSON's absolute `path`.
+Read JSON's absolute `path`.
 
 Check setup: `bun <exact2>/scripts/exact.mjs setup --check`.
 Apple: Mac, Xcode/iOS SDK 27.1+, target Rust std/Hermes; simulator runtime to run.

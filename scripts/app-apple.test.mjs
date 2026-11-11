@@ -12,6 +12,9 @@ import { iosAssets, iosTarget, entitlements, infoPlist, macInfoPlist, documentTy
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
+// Profile selection reads DEVELOPMENT_TEAM; a test that means a team names it.
+delete process.env.DEVELOPMENT_TEAM;
+
 test('unsigned device builds and archives refuse incompatible options before building', async () => {
   const { appleBuildRefusal } = await import('./help.mjs');
   for (const signed of [false, true]) for (let mask = 0; mask < 32; mask++) {
@@ -23,11 +26,54 @@ test('unsigned device builds and archives refuse incompatible options before bui
     assert.equal(refusal == null, !(unsigned && (!device || run) || archive && (!device || run || host || !unsigned && !signed)), JSON.stringify({ args, signed, refusal }));
   }
   assert.match(appleBuildRefusal(['--device', '--unsigned', '--run'], {}), /ad-hoc signed device bundle cannot launch on a stock device/);
+  for (const args of [['--watchos', '--unsigned'], ['--watchos', '--device', '--unsigned']]) assert.match(appleBuildRefusal(args, {}), /--unsigned takes no --watchos/);
   const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--device', '--unsigned', '--run', 'no-such-app'], { encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /--unsigned takes no --run/);
-  for (const args of [['--watchos', '--unsigned'], ['--watchos', '--device', '--unsigned']]) assert.match(appleBuildRefusal(args, {}), /--unsigned takes no --watchos/);
   assert.doesNotMatch(result.stderr, /no app at/);
+});
+
+test('DEVELOPMENT_TEAM selects only covering development profiles, with explicit overrides', async () => {
+  const { coveringProfiles, profile, identity } = await import('../host/apple/devices.mjs');
+  const bundle = 'com.exact.test', day = 86400000, now = Date.now();
+  const base = { name: 'Selected team', team: 'SELECTED', prefix: 'OLDPREFIX', appId: `OLDPREFIX.${bundle}`, devices: ['PHONE'], dev: true,
+    method: 'development', expires: new Date(now + day), platforms: ['iOS'], entitlements: [] };
+  const other = { ...base, name: 'Other team', team: 'OTHER', expires: new Date(now + 20 * day) };
+  const longer = { ...base, name: 'Selected wildcard', appId: 'OLDPREFIX.*', expires: new Date(now + 2 * day) };
+  const misfits = [
+    { ...base, name: 'Expired', expires: new Date(now - day) },
+    { ...base, name: 'Other phone', devices: ['OTHER_PHONE'] },
+    { ...base, name: 'Other bundle', appId: 'OLDPREFIX.com.other.app' },
+    { ...base, name: 'Distribution', dev: false, method: 'adhoc' },
+    { ...base, name: 'Mac', platforms: ['OSX'] },
+  ];
+  const installed = [other, ...misfits, base, longer];
+  assert.deepEqual(coveringProfiles('PHONE', bundle, installed, 'SELECTED'), [longer, base]);
+  assert.equal(profile('PHONE', bundle, [], { installed, named: null, team: 'SELECTED' }), longer);
+  assert.equal(profile('PHONE', bundle, [], { installed, named: null, team: null }), other);
+  assert.equal(profile('PHONE', bundle, [], { installed, named: other, team: 'SELECTED' }), other, 'EXACT_PROFILE wins over the team');
+  for (const installed of [[other, ...misfits], []]) {
+    assert.throws(() => profile('PHONE', bundle, [], { installed, named: null, team: 'SELECTED', phoneName: 'Fixture iPhone' }),
+      /no development provisioning profile on this Mac for team SELECTED \(DEVELOPMENT_TEAM\) covers com.exact.test on this phone \(Fixture iPhone, PHONE\); in Xcode, run a project with bundle ID com.exact.test and team SELECTED on that phone with Automatically manage signing enabled, then retry \(or unset DEVELOPMENT_TEAM to take any team's profile, or name a profile with EXACT_PROFILE\)/);
+  }
+  const saved = process.env.DEVELOPMENT_TEAM;
+  try {
+    process.env.DEVELOPMENT_TEAM = 'SELECTED';
+    assert.equal(profile('PHONE', bundle, [], { installed, named: null }), longer, 'the environment supplies the default team');
+  } finally { if (saved === undefined) delete process.env.DEVELOPMENT_TEAM; else process.env.DEVELOPMENT_TEAM = saved; }
+
+  const a = 'A'.repeat(40), b = 'B'.repeat(40), c = 'C'.repeat(40);
+  const read = (command, args, options) => {
+    if (command === 'security' && args[0] === 'find-identity') return { stdout: `1) ${a} "Apple Development: Other"\n2) ${b} "Apple Development: Selected"\n3) ${c} "Apple Distribution: Selected"\n` };
+    if (command === 'security') return { stdout: ['other', 'selected', 'distribution'].map(name => `-----BEGIN CERTIFICATE-----\n${name}\n-----END CERTIFICATE-----`).join('\n') };
+    assert.equal(command, 'openssl');
+    const selected = options.input.includes('selected'), distribution = options.input.includes('distribution');
+    return { stdout: `subject=OU = ${selected || distribution ? 'SELECTED' : 'OTHER'}\nSHA1 Fingerprint=${selected ? b : distribution ? c : a}\n` };
+  };
+  assert.equal(identity(longer.team, { env: {}, read }), b);
+  assert.equal(identity(other.team, { env: {}, read }), a);
+  assert.throws(() => identity('MISSING', { env: {}, read }), /no valid "Apple Development" identity for team MISSING/);
+  assert.equal(identity('SELECTED', { env: { EXACT_IDENTITY: 'explicit' }, read: () => assert.fail('an explicit identity queries no keychain') }), 'explicit');
 });
 
 test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
@@ -636,6 +682,10 @@ test('a device build with entries takes the app\'s and the extension\'s profiles
   const extension = make('Extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test']});
   const pair = entryProfiles({app, udid:'PHONE', installed:[wildcard, appOnly, extension], named:null});
   assert.equal(pair.app.name, 'App'); assert.equal(pair.extension.name, 'Extension');
+  const otherTeam = [appOnly, extension].map(p => ({ ...p, team:'OTHER', expires:new Date(Date.now()+2*day) }));
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[...otherTeam, appOnly, extension], named:null, team:'TEAM'}).app, appOnly);
+  assert.equal(entryProfiles({app, udid:'PHONE', installed:[...otherTeam, appOnly, extension], named:otherTeam[0], team:'TEAM'}).app, otherTeam[0]);
+  assert.throws(() => entryProfiles({app, udid:'PHONE', phoneName:'Fixture iPhone', installed:otherTeam, named:null, team:'TEAM'}), /team TEAM \(DEVELOPMENT_TEAM\) covers com.exact.test on this phone \(Fixture iPhone, PHONE\).*Automatically manage signing.*unset DEVELOPMENT_TEAM/);
   const refusal = (installed, options = {}) => { try { entryProfiles({app, udid:'PHONE', installed, named:null, ...options}); } catch (e) { return e.message; } assert.fail('refused'); };
   const wildcardOnly = refusal([wildcard]);
   assert.match(wildcardOnly, /com.exact.test: "Team wildcard" covers it but none grants the App Group group.com.exact.test, aps-environment \(development on a development profile/);

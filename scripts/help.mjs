@@ -244,7 +244,7 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       PREBUILD,
       RELEASE,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
-      ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
+      ['--device', 'an iPhone, signed with an installed development profile and identity; DEVELOPMENT_TEAM restricts their team; EXACT_PROFILE/EXACT_IDENTITY override'],
       ['--phone <udid|name>', 'which phone, with --device'],
       ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone; production trust, so with an update store EXACT_UPDATE_RECEIPT or EXACT_UPDATE_GENESIS=1'],
       ['--unsigned', 'with --device: ad-hoc signed .app, no phone, profile, identity or install; no --run; --archive writes an .ipa for re-signing'],
