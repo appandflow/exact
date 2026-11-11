@@ -935,6 +935,9 @@ Export compliance is the developer's answer, so a production iOS or tvOS build
 into Info.plist only when `EXACT_NON_EXEMPT_ENCRYPTION` is `true` or `false` in its
 environment (`false` when the app's only encryption is HTTPS and the system's);
 without it App Store Connect asks at each upload. A development build never writes it.
+The same builds write the bundle's version and build number from `EXACT_VERSION`
+and `EXACT_BUILD_NUMBER` (`0.1.0` and `1` when unset). App Store Connect takes a
+build number once for a version, so each upload needs a higher one.
 
 ## Open the same development URL on Apple hosts
 
