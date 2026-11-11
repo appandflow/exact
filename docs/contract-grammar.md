@@ -453,8 +453,9 @@ frequent pushes are false. A first demand enumerates existing activities,
 including after a relaunch without a send; later token, state and content
 updates re-answer the source. A token is absent until ActivityKit supplies
 it, and exists only for an entry declaring `push: true`. The data module
-sends it to its own backend. Push-to-start, remote notification registration
-and the `remote-notification` background mode stay refused.
+sends it to its own backend. Push-to-start and the `remote-notification`
+background mode stay refused; an app with activities registers for remote
+notifications only when it grants `device.push`.
 
 ### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
 

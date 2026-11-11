@@ -281,7 +281,7 @@ export function assembleIOS({intents, shared, library, serviceDylibs, triple, ap
     }
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => !gpuArtifacts.some(m => f === (ipa ? `${m.framework}.framework` : m.load)))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     if (ipa) assertArchiveFrameworks(resolve(assembled, 'Frameworks'));
-    if (ipa) assertActivityRefusals(assembled, runApple, app);
+    if (ipa) assertActivityRefusals(assembled, runApple, app, bakedCompat.inputs?.grantCeiling);
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
   return { bundles, frameworkSymbols: { dir: symbols, count: frameworkSaved.size, saved: [...frameworkSaved.values()].reduce((sum, saved) => sum + saved, 0) } };

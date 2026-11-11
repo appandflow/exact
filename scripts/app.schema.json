@@ -748,7 +748,7 @@
               "items": {
                 "type": "string",
                 "pattern": "^(?!(remote-notification|fetch|processing)$).*$",
-                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9). fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync (LLP 1133.017 D14)."
+                "description": "remote-notification is refused: a visible push and ActivityKit update tokens need no background mode, and a data-only push is refused (LLP 1133.004 §9 P8). fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync (LLP 1133.017 D14)."
               }
             },
             "associatedDomains": {
