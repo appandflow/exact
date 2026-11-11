@@ -894,7 +894,10 @@ export function hatch(args, say = console.log) {
     writeFileSync(path, text.slice(0, start) + line + '\n' + text.slice(start));
   };
   const platforms = [];
-  if (existsSync(resolve(dir, 'apple'))) {
+  // A platform is the app's when it has the crate (an app before LLP 1153 D1) or names the host in app.json, whose
+  // crates are generated (scripts/app-shells.mjs) and read the stubs from modules/ as an authored crate does.
+  const has = (crate, ...hosts) => existsSync(resolve(dir, crate)) || hosts.some(h => manifest.host?.[h]);
+  if (has('apple', 'ios', 'macos')) {
     platforms.push(...['ios', 'macos'].filter(p => !manifest.host || manifest.host[p]));
     const mod = resolve(dir, 'modules/apple'), has = existsSync(mod) && readdirSync(mod).some(f => f.endsWith('.swift'));
     const main = has ? readdirSync(mod).map(f => resolve(mod, f)).find(f => readFileSync(f, 'utf8').includes('// exact:element')) ?? resolve(mod, readdirSync(mod).find(f => f.endsWith('.swift'))) : resolve(mod, 'Hatches.swift');
@@ -986,7 +989,7 @@ func ${scope}HatchEnded(_ ${scope}: ${type}) {
       mark(main, `// exact:${scope}\n`, `        ${scope}Hatch(${scope})`, `call it from your module's ${scope}(_:)`);
     }
   }
-  if (existsSync(resolve(dir, 'web'))) {
+  if (has('web', 'web')) {
     platforms.push('web');
     const mod = resolve(dir, 'modules/web'), main = resolve(mod, 'index.js');
     write(main, `// ${title}'s page module: its access hatches on the web. Written by \`exact hatch\`; yours from here.
@@ -1033,6 +1036,8 @@ export function ended(${scope[0]}) {
       mark(main, '// exact:hatches', `import * as ${scope}Hatch from './${file}';\nexport function ${scope}(x) { ${scope}Hatch.built(x); }\nexport function ${scope}Ended(x) { ${scope}Hatch.ended(x); }`, `import it and export ${scope} and ${scope}Ended from yours`);
     }
   }
+  // The generated Linux crate does not run Rust hatches yet; only an authored one includes them (its build.rs).
+  if (!existsSync(resolve(dir, 'linux')) && manifest.host?.linux) todo.push('Linux: the generated Linux crate runs no Rust hatches, so none is written for it; the app runs there without this one');
   if (existsSync(resolve(dir, 'linux'))) {
     // Linux, and Windows and Android over the same presenter: one file the app's Linux crate includes (its
     // build.rs, as apps/native-fixture/linux/build.rs: contract::native::rust_hatch_entry).
@@ -1111,7 +1116,7 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
       mark(main, '// exact:element ', `            ${JSON.stringify(word)} => ${snake}_hatch(element, context),`, 'call it from your element');
     }
   }
-  if (existsSync(resolve(dir, 'android'))) {
+  if (has('android', 'android')) {
     // Android's reader runs the app's Kotlin beside its Rust (LLP 1115.001.000 D4): one class, exact.app.Hatches,
     // compiled into the APK from modules/android. The app's Android crate writes its install (android_entry).
     platforms.push('android');
@@ -1159,12 +1164,13 @@ class Hatches : ExactHatches() {
       mark(main, '// exact:elementEnded', `            ${JSON.stringify(word)} -> ${camel}Ended(element)`, 'call it from your elementEnded');
       mark(main, '// exact:element ', `            ${JSON.stringify(word)} -> ${camel}(element)`, 'call it from your element');
     }
+    // The generated Android crate writes the install itself (js/bake/src/android.rs); an authored one must.
     const build = resolve(dir, 'android/build.rs');
-    if (!/\bandroid_entry\b/.test(existsSync(build) ? readFileSync(build, 'utf8') : '')) {
+    if (existsSync(resolve(dir, 'android')) && !/\bandroid_entry\b/.test(existsSync(build) ? readFileSync(build, 'utf8') : '')) {
       todo.push(`${build}: write the hatches' install, as apps/caltrain/android/build.rs does\n    contract::native::android_entry(&app_dir, &manifest, &plan, &out_dir), then canvas_jni!(Data, hatches = crate::exact_hatches())`);
     }
   }
-  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/, linux/ or android/)`);
+  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for: name a host in app.json (web, ios, macos, android)`);
   if (scope === 'element') {
     // The declaration (§5): the word, with the platforms a stub was written for. A list means every platform.
     const had = manifest.hatches;

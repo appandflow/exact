@@ -1,6 +1,7 @@
 # `exact hatch` refuses every app `exact new` makes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `hatch` takes a platform from its crate or from `app.json` `host`, and writes the stubs a generated crate reads from `modules/`; the generated Linux crate runs no Rust hatches, which `issues/20261111-generated-linux-crate-runs-no-rust-hatches.md` holds.
 **Systems:** scripts/exact.mjs (hatch), scripts/app-shells.mjs, docs/reference.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

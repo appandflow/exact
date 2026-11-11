@@ -1104,3 +1104,27 @@ test("without CHROME, the setup report's Chrome row wants both of Playwright's p
   assert.equal(shellOnly.ok, false, 'the full build a GPU drive or perf run launches is missing');
   assert.match(shellOnly.fix, /: Chromium is missing at [^;]*$/);
 }), 60_000);
+
+// LLP 1153 D1: an app `exact new` makes has no crate directories; its platforms are app.json's `host` keys and its
+// crates are generated, reading the stubs from modules/. `hatch` writes for those platforms.
+test('exact hatch writes the stubs of an app whose crates are generated', async () => {
+  const { hatch } = await import('./exact.mjs');
+  const { existsSync, readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-hatch-new-'));
+  const was = process.env.EXACT_APP_DIR;
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column hatch="avatar"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Fresh', app: { id: 'com.example.fresh', name: 'Fresh' }, host: { web: {}, ios: {}, macos: {}, linux: {}, android: {} } }));
+    process.env.EXACT_APP_DIR = dir;
+    const made = hatch(['avatar'], () => {});
+    assert.deepEqual(made.platforms, ['ios', 'macos', 'web', 'android']);
+    for (const file of ['modules/apple/Hatches.swift', 'modules/web/index.js', 'modules/android/Hatches.kt']) assert.ok(existsSync(resolve(dir, file)), file);
+    assert.ok(!existsSync(resolve(dir, 'modules/linux')));
+    assert.ok(made.todo.some(line => line.startsWith('Linux:')), made.todo.join('\n'));
+    assert.ok(!made.todo.some(line => line.includes('build.rs')), made.todo.join('\n'));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'macos', 'web', 'android'] });
+  } finally {
+    if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
