@@ -1,6 +1,7 @@
 # A conditional navigation to a `cached` route the origin does not hold is flushed as a 200 with no validator
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Conditional navigations to cached routes wait for the render on a cache miss and retain validators and the route's cache policy.
 **Systems:** host/render/src/serve.rs, host/render/src/stream.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

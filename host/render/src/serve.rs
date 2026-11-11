@@ -963,7 +963,7 @@ fn render_kept<D: DataSource + 'static>(
         accepts: request.accepts,
         cdn: request.cdn,
         dictionary: None,
-        navigate: request.navigate,
+        navigate: request.navigate && request.if_none_match.is_none(),
         keep: request.keep,
         hints: request.hints,
     };

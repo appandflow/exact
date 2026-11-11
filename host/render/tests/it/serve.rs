@@ -1445,6 +1445,32 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     assert!(header(&headers, "age").is_some(), "{headers:?}");
     assert!(header(&headers, "etag").is_some());
     assert_eq!(kept, flushed);
+    // A conditional navigation waits for its validator on both a cold miss
+    // and a forced refresh, then revalidates the kept page without a body.
+    let conditional = |tag: &str, cache: &str| {
+        format!(
+            "GET /post/8 HTTP/1.1\r\nSec-Fetch-Dest: document\r\nIf-None-Match: {tag}\r\n{cache}\r\n"
+        )
+    };
+    for cache in ["", "Cache-Control: no-cache\r\n"] {
+        let (status, headers, body) = fetch(addr, &conditional("\"not-kept\"", cache));
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "transfer-encoding"), None);
+        assert_eq!(
+            header(&headers, "content-length"),
+            Some(body.len().to_string().as_str())
+        );
+        assert_eq!(
+            header(&headers, "cache-control"),
+            Some("public, max-age=0, s-maxage=120, stale-while-revalidate=120")
+        );
+        assert!(body.contains(">Post 8<"), "{body}");
+        let etag = header(&headers, "etag").unwrap();
+        let (status, fresh, body) = fetch(addr, &conditional(etag, ""));
+        assert_eq!(status, 304);
+        assert_eq!(header(&fresh, "etag"), Some(etag));
+        assert!(body.is_empty());
+    }
     // Compressed as the browser accepts, the head flushed through brotli.
     let (status, headers, body) = fetch_bytes(
         addr,
