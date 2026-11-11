@@ -480,6 +480,11 @@ impl<D: DataSource> Presenter<D> {
                         if let Some((key, point, field)) = focus {
                             self.focus_on_down(key, point, now_ms, field);
                         }
+                        if let Some(key) = self.contact.as_ref().and_then(|c| {
+                            (c.canvas.is_none() && c.retained.is_none()).then_some(c.hit)
+                        }) {
+                            self.begin_range_drag(key, (x, y));
+                        }
                         Ok(taken)
                     }
                 }
@@ -763,7 +768,7 @@ impl<D: DataSource> Presenter<D> {
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
         contact.event_ms = event_ms;
-        if self.drag_field(x, y) {
+        if self.drag_field(x, y) || self.drag_range((x, y)) {
             contact.position = (x, y);
             self.contact = Some(contact);
             return Ok(true);
@@ -1004,6 +1009,7 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
         let result = self.pointer_lift(x, y, now_ms, event_ms);
         self.field_drag = None;
+        self.forget_range_drag();
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
@@ -1029,6 +1035,8 @@ impl<D: DataSource> Presenter<D> {
                 return Err(error);
             }
         };
+        // A range's `change` precedes the click, as HTML's does.
+        self.end_range_drag();
         let Some(contact) = self.contact.take() else {
             return Ok(false);
         };
@@ -1241,6 +1249,8 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
         self.overlay_pointer_cancel();
         self.field_drag = None;
+        self.end_range_drag();
+        self.forget_range_drag();
         self.brush.scrollbars.drag = None;
         self.brush.scrollbars.pressed = false;
         let at = self.contact_position().or(self.pointer).unwrap_or((0., 0.));

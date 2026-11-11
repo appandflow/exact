@@ -71,6 +71,7 @@ mod picker;
 mod pointer;
 mod pump;
 mod radio;
+mod range;
 mod range_frame;
 #[cfg(test)]
 mod save_tests;
@@ -213,6 +214,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) fields: BTreeMap<ViewId, field::FieldMark>,
     field_history: history::Histories,
     field_drag: Option<field_pointer::Drag>,
+    /// A contact that went down on a range (`range.rs`).
+    range_drag: Option<range::Drag>,
     ime: Option<ime::Composition>,
     ime_epoch: u64,
     field_reveal: bool,
@@ -515,6 +518,7 @@ impl<D: DataSource> Presenter<D> {
             fields: BTreeMap::new(),
             field_history: Default::default(),
             field_drag: None,
+            range_drag: None,
             ime: None,
             ime_epoch: 0,
             field_reveal: false,
@@ -1400,6 +1404,7 @@ impl<D: DataSource> Presenter<D> {
         self.edited = None;
         self.fields.clear();
         self.field_drag = None;
+        self.range_drag = None;
         self.field_history = Default::default();
         self.ime = None;
         self.window_focus = None;

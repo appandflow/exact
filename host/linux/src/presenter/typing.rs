@@ -763,7 +763,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         // A radio's arrows and Space (x2apps survey #2).
-        if self.radio_key(id, name, now_ms) {
+        if self.radio_key(id, name, now_ms) || self.range_key(id, name) {
             return;
         }
         if self.tab_key(id, name, now_ms) {

@@ -319,15 +319,28 @@ impl<D: DataSource> Presenter<D> {
                 ));
             }
         }
-        let value = value.as_str();
+        self.commit_control_value(id, &value, &[EventKind::Input, EventKind::Change])
+    }
+
+    /// `value` chosen at control `id`: each of `kinds`, HTML's `input` and
+    /// `change` in that order, where the node hears it; then the choice
+    /// kept until the bound value changes. The agent's answer, or the
+    /// dispatch's error.
+    pub(crate) fn commit_control_value(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        kinds: &[EventKind],
+    ) -> Result<String, String> {
         self.menu = None;
         let now = self.host.now();
         let mut error = None;
         let mut dispatched = false;
-        for (event, kind) in [
-            (Event::Input(value.into()), EventKind::Input),
-            (Event::Change(value.into()), EventKind::Change),
-        ] {
+        for &kind in kinds {
+            let event = match kind {
+                EventKind::Input => Event::Input(value.into()),
+                _ => Event::Change(value.into()),
+            };
             // A control its input disabled loses the focus before its change.
             if dispatched {
                 error = error.or(self.blur_disabled_now());
@@ -367,38 +380,6 @@ impl<D: DataSource> Presenter<D> {
                 s
             }
         ))
-    }
-
-    /// A press on a range moves its thumb to the pointer (D7): the value
-    /// there, `input` then `change`. False when `id` is not a range.
-    pub(crate) fn press_range(&mut self, id: ViewId, x: f32) -> bool {
-        let Some(node) = self.host.kernel().node(id) else {
-            return false;
-        };
-        if node.node_type != NodeType::Control || node.props.str(PropId::Type) != Some("range") {
-            return false;
-        }
-        let range = exact_kernel::Range::of(node.props);
-        let Some(b) = self.boxes.iter().find(|b| b.id == id).copied() else {
-            return true;
-        };
-        // The point under the thumb's centre, as the painter places it.
-        let (bx, _, bw, bh) = b.rect;
-        let d = crate::paint::control::range_thumb(&node, bw, bh);
-        let t = if bw > d {
-            ((x - bx - d / 2.0) / (bw - d)).clamp(0.0, 1.0) as f64
-        } else {
-            0.5
-        };
-        let t = match crate::paint::control::range_mirrored(&node) {
-            true => 1.0 - t,
-            false => t,
-        };
-        let value = range.min + t * (range.max - range.min);
-        if let Err(e) = self.set_control_value(id, &value.to_string()) {
-            self.host.log(format!("range: {e}"));
-        }
-        true
     }
 
     /// The open menu's rows and panel, under its select's painted box (above

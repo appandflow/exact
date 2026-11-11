@@ -1,6 +1,7 @@
 # A range on the painted hosts cannot be dragged and takes no key
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A contact on an enabled range holds it until the lift, moving the thumb with an `input` for each change and a `change` on the lift (a finger once it moves along the track), and a focused range steps on the arrows, Home, End, PageUp and PageDown as Chromium's does (`presenter/range.rs`); whether Tab reaches a range stays with `issues/20261110-painted-host-tab-skips-select-range-date-file.md`.
 **Systems:** host/linux/src/presenter/contact.rs, host/linux/src/presenter/control.rs, host/linux/src/presenter/typing.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
