@@ -1,6 +1,7 @@
 # A document in `ja-JP`, `ko-KR` or `zh-Hant` gets the Simplified Chinese face for its Han characters
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Han fallback selects Japanese, Korean and Chinese regional faces from language, script and region subtags on every painting host.
 **Systems:** host/linux/src/text/fallback.rs (the painting host: Linux, Windows, Android)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
