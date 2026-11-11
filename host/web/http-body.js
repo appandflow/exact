@@ -15,19 +15,22 @@ export async function boundedHttpBody(response, limit) {
 // rules as the native executor's: lines end at CR, LF or CRLF even across
 // chunks; `data` lines join with LF; `id` persists as the cursor; comments
 // and `retry` are dropped (the host never reconnects, LLP 1069.004). One
-// event or line over `limit` bytes is refused, never truncated.
+// event over `limit` bytes, or line over `limit + 64`, is refused, never
+// truncated: received bytes for lines, decoded UTF-8 bytes for event data.
+const utf8Length = (s) => { let n = 0; for (const c of s) n += charBytes(c); return n; };
+const charBytes = (c) => { const p = c.codePointAt(0); return p < 0x80 ? 1 : p < 0x800 ? 2 : p < 0x10000 ? 3 : 4; };
 export function eventStream(limit) {
-  const decoder = new TextDecoder();
-  let line = '', afterCr = false, started = false, event = '', data = '', hasData = false, id = '';
+  const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+  let line = '', lineBytes = 0, afterCr = false, started = false, event = '', data = '', dataBytes = 0, hasData = false, id = '';
   const done = (out) => {
     if (!started) { started = true; if (line.startsWith('\ufeff')) line = line.slice(1); }
     const text = line; line = '';
     if (text === '') {
       const type = event; event = '';
-      if (!hasData) { data = ''; return; }
+      if (!hasData) { data = ''; dataBytes = 0; return; }
       hasData = false;
       out.push({ event: type, id, data: data.endsWith('\n') ? data.slice(0, -1) : data });
-      data = '';
+      data = ''; dataBytes = 0;
       return;
     }
     if (text.startsWith(':')) return;
@@ -36,17 +39,24 @@ export function eventStream(limit) {
     let value = colon < 0 ? '' : text.slice(colon + 1);
     if (value.startsWith(' ')) value = value.slice(1);
     if (field === 'data') {
-      if (data.length + value.length + 1 > limit) throw Error('an event exceeds the response ceiling');
-      data += value + '\n'; hasData = true;
+      const bytes = utf8Length(value);
+      if (dataBytes + bytes + 1 > limit) throw Error('an event exceeds the response ceiling');
+      data += value + '\n'; dataBytes += bytes + 1; hasData = true;
     } else if (field === 'event') event = value;
     else if (field === 'id' && !value.includes('\0')) id = value;
   };
   return (bytes, end = false) => {
+    // Count before decoding: a BOM occupies three received bytes, and an
+    // invalid byte may decode to a three-byte replacement character.
+    for (const byte of bytes ?? []) {
+      if (byte === 13 || byte === 10) lineBytes = 0;
+      else if (++lineBytes > limit + 64) throw Error('an event exceeds the response ceiling');
+    }
     const text = decoder.decode(bytes, { stream: !end }), out = [];
     for (const c of text) {
       if (afterCr) { afterCr = false; if (c === '\n') continue; }
       if (c === '\r' || c === '\n') { afterCr = c === '\r'; done(out); }
-      else { if (line.length >= limit + 64) throw Error('an event exceeds the response ceiling'); line += c; }
+      else line += c;
     }
     return out;
   };
