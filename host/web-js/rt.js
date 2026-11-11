@@ -392,7 +392,7 @@ export const Store = {
   persist() { const p = Kept("secret"), jobs = []; for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) { const live = () => this.pending.get(k) === entry, failed = e => { if (!live()) return; if (!Object.hasOwn(entry, "before")) this.pending.delete(k); if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } }, write = () => { try { const before = localStorage.getItem(p + k); if (Object.hasOwn(entry, "before") && entry.before !== before) { this.pending.delete(k); return; } entry.before = before; entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { failed(e); } }; if (Object.hasOwn(entry, "before") && !this.leased?.has(k)) { entry.retry ??= import("./storage-environment.js").then(m => m.retrySecretWrite(p + k, live, write)).catch(failed).finally(() => { delete entry.retry; }); jobs.push(entry.retry); } else write(); } return Promise.all(jobs); },
   load() { const p = Kept("secret"); try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(p)) this.map.set(k.slice(p.length), localStorage.getItem(k)); } } catch {} },
 };
-/** Every resource, in plan order: the checkpoint a render writes reads them. */
+/** Resource instances, including list members; list aggregates have no entry. */
 export const Resources = [];
 const Inspections = resourceInspection(!!DEVELOPMENT_STORE, () => clock.now);
 let Ticket = 0;
@@ -457,11 +457,11 @@ function reply(t, name, source, held, f, next, gone) {
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page, and is asked again when its stream was open (LLP 1048.000 D6). */
-export function res(name, source, args, initial, initialArgs, type, ph, carried = false) { // `carried`: settled, not a bake to ask again — a dev reload's (checkpoint.js), an `else` row's (emit.rs)
+export function res(name, source, args, initial, initialArgs, type, ph, carried = false, member = false) { // `carried`: settled, not a bake to ask again — a dev reload's (checkpoint.js), an `else` row's (emit.rs)
   const ver = sig(0), pend = sig(false), fail = sig(null);
-  const kept = checkpoint().kept?.get(name);
+  const kept = !member && checkpoint().kept?.get(name); // a list's checkpoint holds its aggregate; each member asks again
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, pending: pend, baked: kept ? READER.has(source) || checkpoint().revalidate || checkpoint().open.has(name) : !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
+  const r = { name, source, type, member, value: initial, settled: initialArgs, pending: pend, baked: kept ? READER.has(source) || checkpoint().revalidate || checkpoint().open.has(name) : !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
   Inspections.track(r, !kept && !carried, () => pend.n.v);
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code, reason) => { r.failed = args; r.error = error; r.code = code; r.reason = reason; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); Inspections.fail(r); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed", r.reason ?? ""] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   const hold = () => {

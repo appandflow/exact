@@ -457,6 +457,7 @@ export function install(data, mixed = false, modules = null) {
     seeded = true;
     const page = checkpoint().kept;
     for (const r of page ? Resources : []) {
+      if (r.member) continue; // The checkpoint holds the list's aggregate; the source answers one member.
       const k = page.get(r.name), types = sourceTypes[r.source];
       if (k && types) try { source.kept(r.source, k[0].map((a, i) => named(a, types[0][i])), named(k[1], types[1])); } catch {}
     }

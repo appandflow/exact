@@ -8,6 +8,85 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler, fresh, freshCompiler } from './module.mjs';
 import { spawnOwned } from '../../scripts/test-children.mjs';
+import { open } from '../../scripts/agent.mjs';
+
+test.each([
+  ['empty list first', [], false],
+  ['two elements first', [1, 2], false],
+  ['title before one element', [1], true],
+  ['title before two elements', [1, 2], true],
+  ['two open elements', [1, 2], false, true],
+  ['kept answers with no arguments', [1, 2], false, false, true],
+  ['title alone', null, true],
+])('rendered checkpoints keep the declared resource types: %s', async (_label, ids, titleFirst, streaming = false, keeps = false) => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/resource-render-'));
+  const previousApp = process.env.EXACT_APP_DIR, itemText = id => keeps ? 'item' : `item ${id}`;
+  let server, browser;
+  try {
+    const title = '  resource title = title() as shape string\n';
+    const each = ids === null ? '' : `  resource each = item(${keeps ? '' : 'id'}) for id in ids as shape R\n`;
+    const dist = resolve(dir, 'dist');
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      const url = new URL(req.url), path = url.pathname;
+      if (path === '/events') return new Response(new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: item ${url.searchParams.get('id')}\n\n`));
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      const file = Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1)));
+      return await file.exists() ? new Response(file) : new Response(null, { status: 404 });
+    } });
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Resource Render', app: { id: 'test.resource-render', name: 'Resource Render' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  home "/" render=build
+shape R
+  text: string
+component Probe
+  state ids: number[] = ${JSON.stringify(ids ?? [])}
+${titleFirst ? title + each : each + title}  view
+    column
+      text title testId="title"
+${ids === null ? '' : '      for r in each key=r.text\n        text r.text\n'}`);
+    writeFileSync(resolve(dir, 'app.ts'), streaming ? `export const grants = 'net.fetch ${server.url.origin}';
+export const answer = (source: string, [id]: number[]): any => source === 'item' ? fetch('${server.url.origin}/events?id=' + id, {
+  exactStream: (event: any) => ({ text: event.data }),
+} as RequestInit) : 'Hello';
+` : keeps ? `export const grants = '';
+const saved = new Map<string, any>();
+export const kept = (source: string, args: any[], value: any) => saved.set(source + JSON.stringify(args), value);
+export const answer = (source: string, args: any[]): any => saved.get(source + JSON.stringify(args)) ?? (source === 'item' ? { text: 'item' } : 'Hello');
+` : `export const grants = '';
+export const answer = ${ids === null ? "() => 'Hello'" : "(source: string, [id]: number[]) => source === 'item' ? { text: 'item ' + id } : 'Hello'"};
+`);
+    const result = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'resource-render', '--out', dist], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([result.exited, new Response(result.stdout).text(), new Response(result.stderr).text()]);
+    expect(status, stdout + stderr).toBe(0);
+    const html = readFileSync(resolve(dist, 'index.html'), 'utf8');
+    const checkpoint = JSON.parse(html.match(/<script type="application\/vnd\.exact\.checkpoint"[^>]*>(.*?)<\/script>/s)[1]);
+    expect(checkpoint.open ?? []).toEqual(streaming ? ['each'] : []);
+    const titleAnswer = ['title', 'title', [], 'Hello'];
+    const listAnswers = ids === null ? [] : [['each', 'item', [], ids.map(id => ({ r: [itemText(id)] }))]];
+    expect(checkpoint.answers).toEqual(titleFirst ? [titleAnswer, ...listAnswers] : [...listAnswers, titleAnswer]);
+    for (const id of ids ?? []) expect(html).toContain(itemText(id));
+    browser = await open({ host: 'web', app: dir, webDist: dist, url: server.url.href });
+    await browser.clock('settle');
+    const state = await browser.state();
+    expect(state.resources).toEqual({ title: 'Hello', ...(ids === null ? {} : { each: ids.map(id => ({ text: itemText(id) })) }) });
+    expect(state.resourceStatus.title.resource).toBe(titleFirst ? 0 : 1);
+    if (ids?.length) expect(state.resourceStatus.each.resource).toBe(titleFirst ? 1 : 0);
+    expect(await browser.carrier.evaluate('document.querySelector("[data-testid=title]").textContent')).toBe('Hello');
+    for (const id of ids ?? []) expect(await browser.carrier.evaluate('document.getElementById("exact-root").textContent')).toContain(itemText(id));
+  } finally {
+    try {
+      await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+    } finally {
+      if (previousApp === undefined) delete process.env.EXACT_APP_DIR;
+      else process.env.EXACT_APP_DIR = previousApp;
+    }
+  }
+  expect(process.env.EXACT_APP_DIR).toBe(previousApp);
+}, 60000);
 
 test.each([
   ['empty', ''],

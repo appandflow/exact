@@ -14,6 +14,48 @@ function runtimeServer(development = false) {
   } });
 }
 
+test.each([false, true])('list members ask independently of the aggregate checkpoint (arguments: %s)', async withArgs => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    const boot = await page.evaluate(async withArgs => {
+      globalThis.__exactRender = true;
+      const cp = document.createElement('script');
+      cp.type = 'application/vnd.exact.checkpoint';
+      cp.textContent = JSON.stringify({ answers: [
+        ['items', 'item', [], [{ r: ['rendered 1'] }, { r: ['rendered 2'] }]],
+        ['title', 'title', [], 'Hello'],
+      ], pending: [] });
+      document.head.append(cp);
+      const rt = await import('/host/web-js/rt.js'), { resEach } = await import('/host/web-js/each.js');
+      const { answers } = await import('/host/web-js/checkpoint.js');
+      const requests = [], completions = [];
+      rt.data.answer = (source, args) => {
+        requests.push([source, args]);
+        return { promise: new Promise(resolve => completions.push(resolve)) };
+      };
+      let items, title;
+      rt.mount(root => {
+        items = resEach('items', 'item', () => [1, 2], x => x, x => withArgs ? [x] : [], '[{s}', '{s}', ['']);
+        title = rt.res('title', 'title', () => [], undefined, undefined, 's', '');
+        rt.hd(root, { headTitle: () => title() + items().map(row => row[0]).join(',') });
+      });
+      const snapshot = () => JSON.parse(answers([items, title], [['[', { text: 's' }], 's'], {}));
+      window.fixture = { rt, items, title, completions, snapshot };
+      return { requests, items: items(), pending: items.p(), title: title(), answers: snapshot() };
+    }, withArgs);
+    expect(boot).toEqual({ requests: [['item', withArgs ? [1] : []], ['item', withArgs ? [2] : []]],
+      items: [[''], ['']], pending: true, title: 'Hello', answers: [['title', 'title', [], 'Hello']] });
+    await page.evaluate(() => fixture.completions.forEach((resolve, i) => resolve([`fresh ${i + 1}`])));
+    await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    expect(await page.evaluate(() => [fixture.items(), fixture.items.p(), fixture.title()]))
+      .toEqual([[['fresh 1'], ['fresh 2']], false, 'Hello']);
+    expect(await page.evaluate(() => fixture.snapshot())).toEqual([
+      ['items', 'item', [], [{ r: ['fresh 1'] }, { r: ['fresh 2'] }]], ['title', 'title', [], 'Hello'],
+    ]);
+  } finally { await browser.close(); server.stop(true); }
+}, 30000);
+
 test('resource observations keep request provenance through switching, failure, rollback and recovery', async () => {
   for (const development of [true, false]) {
     const server = runtimeServer(development);

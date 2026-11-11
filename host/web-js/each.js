@@ -26,7 +26,7 @@ export function resEach(name, source, list, key, args, type, elem, zero) {
       let e = members.get(k);
       if (!e && restoring()) continue; // a refused commit's settle asks nothing
       if (!e) {
-        e = untracked(() => { const item = sig(x), e = { item }; e.s = scope(() => { e.g = res(name, source, () => e.left ? r.ticket?.args ?? r.settled : args(item()), undefined, undefined, elem, zero); }, parent); const r = e.g.r; return e; }); // a leaving element asks nothing more
+        e = untracked(() => { const item = sig(x), e = { item }; e.s = scope(() => { e.g = res(name, source, () => e.left ? r.ticket?.args ?? r.settled : args(item()), undefined, undefined, elem, zero, false, true); }, parent); const r = e.g.r; return e; }); // a leaving element asks nothing more
         members.set(k, e);
         // A refused join has no checkpoint to restore and no request to keep.
         const joined = () => {};
@@ -51,7 +51,7 @@ export function resEach(name, source, list, key, args, type, elem, zero) {
   g.f = () => (g(), order.some(e => e.g.f()));
   g.e = () => { g(); for (const e of order) { const f = e.g.e(); if (f) return f; } return null; };
   // What a mutation's `refreshes` and the overlay ask of a resource, asked of each element's.
-  g.r = { name, source, force: undo => each(r => r.force(undo)), touch: undo => each(r => r.touch(undo)), reconcile: undo => each(r => r.reconcile(undo)), revise: undo => each(r => r.revise(undo)) };
+  g.r = { name, source, each: true, force: undo => each(r => r.force(undo)), touch: undo => each(r => r.touch(undo)), reconcile: undo => each(r => r.reconcile(undo)), revise: undo => each(r => r.revise(undo)) };
   g.n.resource = g.r;
   return g;
 }

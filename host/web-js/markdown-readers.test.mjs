@@ -20,9 +20,11 @@ test('known Markdown is compiled before a hidden reader opens; new content alone
 shape Document
   chapter: Chapter
 component MarkdownLoad
+  state ids: number[] = [1, 2]
   state shown = false
   state changed = false
   state body = ${JSON.stringify(body)}
+  resource items = item(id) for id in ids as shape string
   resource doc = document(changed) as shape Document
   resource remote = remoteDocument() as shape Document
   action show
@@ -48,6 +50,7 @@ component MarkdownLoad
 export const appId = 'test.markdown-load';
 export const grants = 'net.fetch ${api.url.origin}';
 export const answer: Answer = (source, args) => {
+  if (source === 'item') { return 'item ' + args[0]; }
   if (source === 'remoteDocument') { return fetch('${api.url.href}').then(() => ({ chapter: { body: 'Remote **answer**.' } })); }
   return { chapter: { body: (args[0] ? '## Changed' : '# Ready') + '\\n\\n' + 'A long **document** with paragraphs and lists.\\n\\n- First\\n- Second\\n\\n'.repeat(100) + '</script><script>globalThis.__injected=true</script>' } };
 };

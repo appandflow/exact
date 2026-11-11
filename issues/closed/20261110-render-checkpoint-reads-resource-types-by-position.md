@@ -1,6 +1,7 @@
 # The Bun renderer reads each resource's type by position, so a page with a list resource fails to build or boots blank
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Bun renderer checkpoints declared resources in plan order, including settled list aggregates; members ask independently without seeding aggregates into sources, open resource names appear once, and Markdown and agent reads use declared indices.
 **Systems:** host/web-js/checkpoint.js, host/web-js/build.mjs, host/web-js/each.js, host/web-js/markdown.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
@@ -63,10 +64,9 @@ reported `the page never booted` with the exception above. `--render rust` was n
 Give `answers` each resource's own type (a resource can carry its `type_json`), and leave a list resource's
 elements out of the kept answers. Read by name, or from the resource, in `compileReaders` and the agent.
 
-## Related
+## Checkpoint boot
 
-`QUEUE.md`, "The JS runtime starts every element of a list resource from one kept answer" (found by reading, not
-reproduced), is the reader's half: `checkpoint()` keys kept answers by name. It reproduces over the real `rt.js` and
-`each.js` in Bun: with the whole list kept under the list's name the boot commit is refused (`value does not
-conform to its type`), and with one entry for each element, element 1 shows element 2's answer. This issue is the
-writer's half, which fails first.
+A list's checkpoint holds its aggregate with empty arguments. Each member asks independently at boot and cannot
+consume that aggregate as its own answer or pass it to a data module's `kept` hook. The regression tests cover
+pending members with and without source arguments, settled aggregates, browser boot with two open element streams,
+and a module that caches kept answers for a source with no arguments.

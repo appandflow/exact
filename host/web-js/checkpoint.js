@@ -18,10 +18,12 @@ function encode(v, t) {
 }
 export function answers(resources, types, sourceTypes) {
   const out = [];
-  resources.forEach((r, i) => {
-    if (r.settled === undefined) return;
+  resources.forEach((g, i) => {
+    // A declared list keeps its settled aggregate with no arguments; its members have no checkpoint rows.
+    const r = g.r, args = r.each ? (g.p() ? undefined : []) : r.settled;
+    if (args === undefined) return;
     const params = sourceTypes[r.source]?.[0] ?? [];
-    out.push(`[${JSON.stringify(r.name)},${JSON.stringify(r.source)},[${r.settled.map((a, k) => encode(a, params[k] ?? 's')).join(',')}],${encode(r.value, types[i])}]`);
+    out.push(`[${JSON.stringify(r.name)},${JSON.stringify(r.source)},[${args.map((a, k) => encode(a, params[k] ?? 's')).join(',')}],${encode(r.each ? g() : r.value, types[i])}]`);
   });
   return `[${out.join(',')}]`;
 }

@@ -659,7 +659,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   "import { data, clock, inflight, Resources, Mutations, routeAt, Head, canSetStatus, unfinishedAnswers } from './rt.js';",
   "import { types, sourceTypes, pages, viewportMedia, activation, markdownPaths } from './names.js';",
-  ...(existsSync(resolve(gen, 'markdown.flag')) ? ["import { compileReaders } from './markdown.js';", 'globalThis.__markdown = () => compileReaders(markdownPaths, Resources);'] : []),
+  ...(existsSync(resolve(gen, 'markdown.flag')) ? ["import { compileReaders } from './markdown.js';", 'globalThis.__markdown = () => compileReaders(markdownPaths, planResources.map(g => g.r));'] : []),
   "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
@@ -668,12 +668,13 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
   // (render.mjs): the app starts and names its route, then settles.
-  'let t0, route;',
+  'let t0, route, planResources;',
   'globalThis.__start = async () => {',
   '  t0 = performance.now();',
   ...(ts ? [`  ts(data, ${mixed});`] : []),
   ...(rust ? ['  await install(data, sources, async p => __files(p));'] : []),
-  '  app();',
+  // Types and Markdown paths index the declared resources. Resources holds list members instead of their aggregate.
+  '  planResources = app()[2];',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
   '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2], readsViewport: activation.viewport, canSetStatus: canSetStatus() };',
@@ -687,12 +688,12 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  markRoutes(document.getElementById("exact-root")); markDocument(); // a hidden route\'s page scroller is off the page',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, image: Head.headImage, canonical: Head.headCanonical, robots: Head.headRobots,',
   // The manifest's origin, against which a crawler's URLs are made absolute (page.rs `page_head`).
-  `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),`,
+  `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(planResources, types[2], sourceTypes),`,
   // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
   '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
   // `open`: each resource that answered and keeps its ticket, an open stream (rt.js `land`), which the client asks again;
   // `continuing`: other work still going, for which the client asks every answer again (render.mjs `revalidate`).
-  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: Resources.filter(r => r.ticket && !r.pending()).map(r => r.name), outstanding: outstanding(), continuing: unfinished() || Resources.some(r => r.ticket && r.pending()), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
+  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: [...new Set(Resources.filter(r => r.ticket && !r.pending()).map(r => r.name))], outstanding: outstanding(), continuing: unfinished() || Resources.some(r => r.ticket && r.pending()), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
   // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
   '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
   // Only a TypeScript source is held to no clock and no Math.random (ts-fetch.js): a Rust module's page is never kept.

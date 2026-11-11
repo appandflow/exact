@@ -647,7 +647,7 @@ export function install(exact) {
         const background = exact.data?.background?.();
         const faults = faultsJson();
         // Why each failed resource failed, as the runner's `state.failed` (app farm round 1).
-        const observed = exact.resources.map((r, i) => [r.name, r.observation?.(i)]).filter(([, v]) => v), resourceStatus = Object.fromEntries(observed), failures = Object.fromEntries(exact.resources.filter(r => r.failures).map(r => [r.name, { ...r.failures }]));
+        const observed = exact.resources.map(r => [r.name, r.observation?.(names[2].indexOf(r.name))]).filter(([, v]) => v), resourceStatus = Object.fromEntries(observed), failures = Object.fromEntries(exact.resources.filter(r => r.failures).map(r => [r.name, { ...r.failures }]));
         const failed = Object.fromEntries(exact.resources.filter(r => r.failed).map(r => [r.name, r.error ?? 'it failed']));
         const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
