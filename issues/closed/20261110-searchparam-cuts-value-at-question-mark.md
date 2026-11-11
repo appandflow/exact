@@ -1,6 +1,7 @@
 # `searchParam` on the JS target cuts the query at its second `?`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The JS searchParam reader preserves literal question marks and subsequent query parameters, matching the shared route corpus.
 **Systems:** host/web-js/router.js, route/src/location.rs, route/tests/corpus.json
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
