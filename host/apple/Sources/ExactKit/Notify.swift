@@ -141,6 +141,7 @@ extension ExactApp {
     /// Install at launch, before the system can deliver a launching tap.
     public func installNotificationClicks(activate: ((ExactSession) -> Void)? = nil) {
         NotificationPresenter.shared.install(on: self, activate: activate)
+        PushRegistration.listen()
     }
 
     /// A scene's launch response may also reach the delegate; one request is

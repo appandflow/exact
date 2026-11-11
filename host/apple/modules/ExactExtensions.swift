@@ -429,6 +429,11 @@ extension ExactExtensions {
                 NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
                 return box["reply"]
             },
+            push: ExactPushRegistration {
+                let box = NSMutableDictionary(dictionary: ["op": "read"])
+                NotificationCenter.default.post(name: Notification.Name("exact.push"), object: box)
+                return box["reply"] as? [String: Any]
+            },
             expireWake: { [weak module] id in module?.expireWake(name, id: id) },
             state: { [weak module] fields in
                 guard let module, module.agent else { return }
