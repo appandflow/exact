@@ -293,15 +293,41 @@ pub struct Touch {
     pub began: bool,
 }
 
-/// World-owned Rapier state, lazily serialized by the engine's Data writer.
-#[derive(Clone, Debug, Data)]
+/// World-owned Rapier state, lazily serialized by the engine's Data writer. The
+/// solver settings are Rapier's integration parameters, applied at every step and
+/// saved, hashed and serialized only when they differ from their defaults.
+#[derive(Clone, Debug)]
 pub struct Physics {
     /// World-space acceleration; defaults to (0, -9.81, 0) m/s².
     pub gravity: Vec3,
     /// This tick's sorted begin/end transitions, including sensors.
     pub events: Vec<Touch>,
     pub(crate) executor: crate::state::Executor,
+    /// Solver substeps per tick, at least one; defaults to Rapier's four.
+    pub solver_iterations: u32,
+    /// Natural frequency in hertz of the spring that corrects a contact between
+    /// two moving bodies; defaults to Rapier's 30.
+    pub contact_frequency: f32,
+    /// The same for a contact with a fixed body (a static collider, a Static
+    /// body); defaults to Rapier's 60.
+    pub static_contact_frequency: f32,
+    /// Damping ratio of both contact springs; defaults to Rapier's 10.
+    pub contact_damping_ratio: f32,
+    /// One friction constraint per contact point (Rapier's Coulomb model) instead
+    /// of one per group of four plus a twist constraint (its default, faster).
+    pub coulomb_friction: bool,
 }
+crate::types::record!(Physics {
+    gravity,
+    events,
+    executor,
+} unnamed {} named {
+    solver_iterations,
+    contact_frequency,
+    static_contact_frequency,
+    contact_damping_ratio,
+    coulomb_friction,
+});
 impl exact_game::Resource for Physics {
     const NAME: &'static str = "Physics";
     const AMBIENT: bool = true;
@@ -312,6 +338,11 @@ impl Default for Physics {
             gravity: Vec3::new(0.0, -9.81, 0.0),
             events: Vec::new(),
             executor: Default::default(),
+            solver_iterations: 4,
+            contact_frequency: 30.0,
+            static_contact_frequency: 60.0,
+            contact_damping_ratio: 10.0,
+            coulomb_friction: false,
         }
     }
 }

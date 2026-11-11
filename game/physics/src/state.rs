@@ -700,6 +700,62 @@ mod tests {
         }
     }
 
+    // The solver settings are written only when set, reach Rapier's integration
+    // parameters at the next step, and survive a save; a world loaded from a save
+    // that omits them takes the defaults.
+    #[test]
+    fn solver_settings_are_saved_only_when_set_and_reach_rapier() {
+        use crate::Physics;
+        use exact_game::{json, World};
+        use rapier3d::dynamics::FrictionModel;
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        w.spawn((Transform::default(), Body::default(), Collider::default()));
+        crate::step(&mut w);
+        let plain = w.save();
+        let text = json::to_string(&*w.resource::<Physics>()).unwrap();
+        for name in ["solver_iterations", "contact_frequency", "coulomb_friction"] {
+            assert!(!text.contains(name), "{text}");
+        }
+        {
+            let mut p = w.resource_mut::<Physics>();
+            p.solver_iterations = 8;
+            p.contact_frequency = 20.0;
+            p.static_contact_frequency = 40.0;
+            p.contact_damping_ratio = 5.0;
+            p.coulomb_friction = true;
+        }
+        crate::step(&mut w);
+        let check = |w: &World| {
+            let p = w.resource::<Physics>();
+            let mut saved = p.executor.0.borrow_mut();
+            let ip = saved.live().rapier.integration_parameters;
+            assert_eq!(ip.num_solver_iterations, 8);
+            assert_eq!(ip.contact_softness.natural_frequency, 20.0);
+            assert_eq!(ip.static_contact_softness.natural_frequency, 40.0);
+            assert_eq!(ip.static_contact_softness.damping_ratio, 5.0);
+            assert_eq!(ip.friction_model, FrictionModel::Coulomb);
+        };
+        check(&w);
+        let text = json::to_string(&*w.resource::<Physics>()).unwrap();
+        assert!(
+            text.contains("\"solver_iterations\":8") && text.contains("\"coulomb_friction\":true"),
+            "{text}"
+        );
+        let mut restored = World::new(60, 0);
+        crate::register(&mut restored);
+        restored.load(&w.save()).unwrap();
+        assert_eq!(restored.hash(), w.hash());
+        assert_eq!(restored.resource::<Physics>().solver_iterations, 8);
+        crate::step(&mut w);
+        crate::step(&mut restored);
+        assert_eq!(restored.hash(), w.hash());
+        check(&restored);
+        restored.load(&plain).unwrap();
+        let p = restored.resource::<Physics>();
+        assert_eq!((p.solver_iterations, p.coulomb_friction), (4, false));
+    }
+
     #[test]
     fn stale_physics_is_refused_during_read() {
         for bytes in [

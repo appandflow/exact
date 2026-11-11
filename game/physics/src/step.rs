@@ -491,6 +491,29 @@ fn unchanged_asleep(world: &World, live: &Live, pending: &Pending) -> bool {
                 && (b.velocity != exact_game::Vec3::ZERO || b.spin != exact_game::Vec3::ZERO)))
     })
 }
+// The Physics resource's solver settings, as Rapier's integration parameters.
+// At their defaults they write the values Rapier already holds.
+fn configure(p: &Physics, ip: &mut IntegrationParameters, dt: f32) {
+    assert!(
+        p.solver_iterations >= 1
+            && [p.contact_frequency, p.static_contact_frequency]
+                .iter()
+                .all(|f| f.is_finite() && *f > 0.0)
+            && p.contact_damping_ratio.is_finite()
+            && p.contact_damping_ratio >= 0.0,
+        "physics: invalid solver settings"
+    );
+    ip.dt = dt;
+    ip.num_solver_iterations = p.solver_iterations as usize;
+    ip.contact_softness = SpringCoefficients::new(p.contact_frequency, p.contact_damping_ratio);
+    ip.static_contact_softness =
+        SpringCoefficients::new(p.static_contact_frequency, p.contact_damping_ratio);
+    ip.friction_model = if p.coulomb_friction {
+        FrictionModel::Coulomb
+    } else {
+        FrictionModel::Simplified
+    };
+}
 // The entity pairs touching through any collider of the given entities, as their
 // collision events last reported it: a contact pair whose last event was a start,
 // or an intersecting sensor pair.
@@ -553,7 +576,11 @@ pub fn step(world: &mut World) {
     let pending = pending(world, live);
     if live.rapier.gravity == gravity && unchanged_asleep(world, live, &pending) {
         live.synced = Some(pending.synced);
-        live.rapier.integration_parameters.dt = world.dt();
+        configure(
+            &physics,
+            &mut live.rapier.integration_parameters,
+            world.dt(),
+        );
         live.rapier.step();
         drop(saved);
         drop(physics);
@@ -584,7 +611,11 @@ pub fn step(world: &mut World) {
         live.rapier.wake_up_all(true);
     }
     live.rapier.gravity = gravity;
-    live.rapier.integration_parameters.dt = world.dt();
+    configure(
+        &physics,
+        &mut live.rapier.integration_parameters,
+        world.dt(),
+    );
     let collector = Events::default();
     live.rapier.step_with_events(&(), &collector);
     // Rapier detects contacts before integrating next kinematic poses. Refresh

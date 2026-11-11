@@ -29,15 +29,21 @@ the actual `displacement` and `grounded` state.
   in the Rapier snapshot and replays exactly after a restore. Friction combines
   geometrically, restitution by maximum, or by average when both colliders set
   `Collider::bounce_average`. `ccd`, `force`, `inertia` and `bounce_average` are
-  saved and hashed only when set.
+  saved and hashed only when set. Contact slop is 0.1 mm; other integration defaults
+  are Rapier's. The Physics resource sets the solver: `solver_iterations` (substeps,
+  4), `contact_frequency` and `static_contact_frequency` (the contact springs
+  between moving bodies and against a fixed one, 30 and 60 Hz),
+  `contact_damping_ratio` (both springs, 10) and `coulomb_friction` (one friction
+  constraint per contact point instead of Rapier's grouped friction with a twist
+  constraint). They are applied each step, live in the saved snapshot, and enter
+  the resource's encoding only when they differ from those defaults.
 - `Collider::extra` adds shapes to the collider's Body, each with its own material,
   layer and mask and no mass; they are Rapier colliders on that body, rebuilt with
   the primary and saved with the world (`Entry::extra_handles`, written only when
   present). An entity with extras reports one begin and one end per entity pair,
   derived from Rapier's per-collider touch state before and after the step, so a
   touch with two of its shapes is one touch. Queries and capsules see the primary
-  shape only. Extras need a Body and cannot be sensors, meshes or heightfields. Contact slop is 0.1 mm; other integration defaults
-  are Rapier's.
+  shape only. Extras need a Body and cannot be sensors, meshes or heightfields.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
   (row-major, rows Z/columns X), and a convex hull of 4 to 255 points that any body
   may use, optionally rounded (its mass and inertia are the rounded solid's). Curved shapes and
