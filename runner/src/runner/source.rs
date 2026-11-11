@@ -353,6 +353,15 @@ pub trait DataSource {
         Ok(())
     }
 
+    /// Sources a replaced Rust module leaves to the binary's own copy of
+    /// this source: answers that need the host itself (its platform, its
+    /// files), which a module has no way to reach. A replacement keeps
+    /// answering them natively while the rest is interpreted
+    /// (`exact_logic::Swappable`).
+    fn linked_sources(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// The host's shared, durable secret namespace. Configure before activation.
     fn configure_secrets(
         &mut self,
