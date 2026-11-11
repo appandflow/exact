@@ -1,6 +1,7 @@
 # In a painted menu Left and Right step through the rows, and Right does not open a submenu
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Painted menus open a focused row's submenu on Right and focus its first enabled row; Left is inert, and alerts retain horizontal navigation.
 **Systems:** host/linux/src/presenter/top.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
