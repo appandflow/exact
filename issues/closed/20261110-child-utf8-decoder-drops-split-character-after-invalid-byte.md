@@ -1,6 +1,7 @@
 # A child's UTF-8 output loses a character split across reads when an invalid byte precedes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Child UTF-8 output retains incomplete characters across reads even after invalid bytes.
 **Systems:** host/apple/src/executor_process_supervise.rs, desktop processes (LLP 1133.007 D2)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
