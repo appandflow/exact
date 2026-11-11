@@ -1,6 +1,7 @@
 # On the web, a serial read larger than about 125,000 bytes is dropped and reported as `RangeError`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web read loop appends a chunk byte by byte instead of spreading it as arguments, so a read as large as `bufferSize` allows arrives whole.
 **Systems:** packages/serial/web/index.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
