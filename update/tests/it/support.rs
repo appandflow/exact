@@ -239,7 +239,7 @@ pub(crate) fn open(temp: &Temp) -> Store {
 
 /// A spawned process holds a copy of every open descriptor, a store's
 /// `owner.lock` too, until its exec closes them; a store dropped in that
-/// window keeps its lock, and reopening it finds an "exclusive owner".
+/// window keeps its lock, and reopening it opens a reader that writes nothing.
 /// Under load that window is long enough to fail a parallel run. A spawn
 /// holds this for writing ([`finished`]) and an open for reading
 /// ([`open_store`]), so no reopen meets a child's copy.

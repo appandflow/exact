@@ -1,6 +1,7 @@
 # A second instance of an app boots the embedded bundle while the first runs the update
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A process that finds the store owned opens it as a reader that boots the record's selection, holds that entry with a shared lock the owner's collection respects, and writes nothing.
 **Systems:** update/src/store.rs, host/linux-update/src/lib.rs, host/apple-update/src/store.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

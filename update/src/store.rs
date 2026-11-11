@@ -19,8 +19,9 @@
 //! ```
 //! A Current head keeps only `exact.json` as its durable signed floor witness.
 //!
-//! Only the selected, pending, last-good and running entries and the head
-//! accepted at the floor are kept, and only the blobs they name.
+//! Only the selected, pending, last-good and running entries, the head
+//! accepted at the floor, and an entry another process runs are kept, and
+//! only the blobs they name.
 //!
 //! Three rules hold the whole thing up:
 //!
@@ -37,12 +38,14 @@
 //!    next (LLP 1026 D11; LLP 0421 invariant 11).
 
 mod disk;
+mod record;
 
 use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
 use disk::{
-    read_bounded, read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic,
-    write_file, Blobs,
+    hold_entry, read_bounded, read_card, regular_file, remove_entry, sweep, sync_dir,
+    temporary_name, write_atomic, write_file, Blobs,
 };
+use record::{read_record, Record, RecordFile};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -295,8 +298,14 @@ pub struct Status {
 /// The store: bundles on disk, the record that selects one, and the check.
 #[derive(Debug)]
 pub struct Store {
-    // Held for the owner's lifetime; dropping or process exit releases the OS lock.
+    // Locked for the owner's lifetime; dropping or process exit releases the
+    // OS lock. A reader's is open and unlocked.
     _owner: std::sync::Arc<std::fs::File>,
+    /// Another process owns the store: this one boots the selection it read
+    /// at open and writes nothing (LLP 1026 D9: selection is a stat and a read).
+    reader: bool,
+    // A reader's shared lock on the entry it runs, so the owner keeps it.
+    _running_lock: Option<std::sync::Arc<std::fs::File>>,
     dir: PathBuf,
     embedded: Embedded,
     record: Record,
@@ -329,149 +338,12 @@ struct EntryView {
     assets: Vec<FileCard>,
 }
 
-/// The record, in memory. Its JSON is `{ "codec", "selected", "pending",
-/// "lastGood", "failures", "stream": { "channel", "compatibilityId",
-/// "seq" }, "bad" }`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Record {
-    selected: Option<String>,
-    /// An entry on disk whole that no launch boots until the app activates
-    /// it — the `app-decides` policy (LLP 1030.000 D4): `check` puts it
-    /// here instead of `selected`, and `activate` promotes it.
-    pending: Option<String>,
-    last_good: Option<String>,
-    failures: u64,
-    compatibility_id: String,
-    channel: String,
-    /// The highest stream sequence this client has admitted, including an
-    /// embedded generation or a head found current while entry zero ran.
-    seq: u64,
-    digest: Option<String>,
-    /// Entries that failed to reach first pixel twice. A head that names one is
-    /// refused rather than staged again, so a bad bundle cannot loop a client
-    /// through the same download every launch.
-    bad: Vec<String>,
-}
-
 /// How many bad entries to remember. Older ones fall off: the list exists to
 /// break a loop, not to keep history.
 const BAD_REMEMBERED: usize = 8;
 
 /// Two failed boots in a row demote a bundle (LLP 1026 D11).
 const FAILURES_ALLOWED: u64 = 2;
-
-impl Record {
-    fn fresh(embedded: &Embedded) -> Record {
-        Record {
-            selected: None,
-            pending: None,
-            last_good: None,
-            failures: 0,
-            compatibility_id: embedded.compatibility_id.clone(),
-            channel: embedded.channel.clone(),
-            seq: embedded.seq,
-            digest: embedded.entry_digest.clone(),
-            bad: Vec::new(),
-        }
-    }
-
-    fn to_json(&self) -> String {
-        let quoted = |v: &Option<String>| match v {
-            Some(s) => serde_json::Value::String(s.clone()),
-            None => serde_json::Value::Null,
-        };
-        let value = serde_json::json!({
-            "codec": crate::STORE_CODEC,
-            "selected": quoted(&self.selected),
-            "pending": quoted(&self.pending),
-            "lastGood": quoted(&self.last_good),
-            "failures": self.failures,
-            "stream": { "channel": self.channel, "compatibilityId": self.compatibility_id, "seq": self.seq, "digest": self.digest },
-            "bad": self.bad,
-        });
-        format!("{value}\n")
-    }
-}
-
-/// What was on disk where the record lives.
-enum RecordFile {
-    /// No record, or one that is not a record of any codec (unreadable, not
-    /// JSON, or with no integer codec): start fresh.
-    Fresh,
-    /// An older codec from this pre-1.0 crate. Its selections are not read;
-    /// open replaces it with this binary's clean entry-zero record.
-    Obsolete,
-    /// A record written by a binary with another store codec (LLP 1030 D9).
-    Foreign,
-    /// This codec's record.
-    Ours(Record),
-}
-
-const MAX_RECORD_BYTES: u64 = 1024 * 1024;
-
-fn read_record(path: &Path) -> RecordFile {
-    let Ok(raw) = read_bounded(path, MAX_RECORD_BYTES) else {
-        return RecordFile::Fresh;
-    };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&raw) else {
-        return RecordFile::Fresh;
-    };
-    let Some(object) = value.as_object() else {
-        return RecordFile::Fresh;
-    };
-    // Only an integer codec above ours is another binary's (LLP 1030 D9). A
-    // record with no such codec is damaged, not foreign: freezing on it would
-    // stop this updater for good.
-    match object.get("codec").and_then(|v| v.as_u64()) {
-        Some(codec) if codec == crate::STORE_CODEC => {}
-        Some(codec) if codec < crate::STORE_CODEC => return RecordFile::Obsolete,
-        Some(_) => return RecordFile::Foreign,
-        None => return RecordFile::Fresh,
-    }
-    let stream = object.get("stream").and_then(|v| v.as_object());
-    RecordFile::Ours(Record {
-        selected: object
-            .get("selected")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        pending: object
-            .get("pending")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        last_good: object
-            .get("lastGood")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        failures: object.get("failures").and_then(|v| v.as_u64()).unwrap_or(0),
-        compatibility_id: stream
-            .and_then(|s| s.get("compatibilityId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        channel: stream
-            .and_then(|s| s.get("channel"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        seq: stream
-            .and_then(|s| s.get("seq"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
-        digest: stream
-            .and_then(|s| s.get("digest"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        bad: object
-            .get("bad")
-            .and_then(|v| v.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    })
-}
 
 impl Store {
     /// Open the store at `dir`, creating it, and settle what this launch boots.
@@ -483,6 +355,10 @@ impl Store {
     /// a record from another cohort is reset to this one's;
     /// a record from another store codec freezes the store (LLP 1030 D9) and
     /// nothing here writes.
+    /// When another process owns the store, this one opens as a reader: it
+    /// settles the same selection in memory, holds the entry it selects so
+    /// the owner's collection keeps it, and writes nothing — no sweep,
+    /// collection, boot mark, check or activation.
     /// Windows durable storage is not qualified: opening refuses before any
     /// filesystem access or mutation (LLP 1026 D11a).
     pub fn open(dir: &Path, embedded: Embedded) -> Result<Store, String> {
@@ -497,18 +373,21 @@ impl Store {
             .write(true)
             .open(dir.join("owner.lock"))
             .map_err(|e| format!("cannot open update store lock {}: {e}", dir.display()))?;
-        owner.try_lock().map_err(|e| {
-            format!(
-                "update store {} is unavailable (exclusive owner): {e}",
-                dir.display()
-            )
-        })?;
+        let reader = match owner.try_lock() {
+            Ok(()) => false,
+            Err(std::fs::TryLockError::WouldBlock) => true,
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(format!("cannot lock update store {}: {e}", dir.display()))
+            }
+        };
         let entries = dir.join("entries");
         std::fs::create_dir_all(&entries)
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;
         let record = Record::fresh(&embedded);
         let mut store = Store {
             _owner: std::sync::Arc::new(owner),
+            reader,
+            _running_lock: None,
             dir: dir.to_path_buf(),
             running_seq: embedded.seq,
             embedded,
@@ -536,11 +415,14 @@ impl Store {
             }
             RecordFile::Ours(record) => store.record = record,
         }
-        // A launch has no other client of this store: a stage or a record write
-        // that died left a temporary behind, and nothing points at it.
-        sweep(dir);
-        sweep(&entries);
-        sweep(store.blobs().dir());
+        // An owner's launch has no other writer of this store: a stage or a
+        // record write that died left a temporary behind, and nothing points at
+        // it. A reader's may be the owner's download in flight.
+        if !store.reader {
+            sweep(dir);
+            sweep(&entries);
+            sweep(store.blobs().dir());
+        }
         let before = store.record.clone();
         if store.record.compatibility_id != store.embedded.compatibility_id
             || store.record.channel != store.embedded.channel
@@ -613,6 +495,26 @@ impl Store {
             || store.validate(store.record.pending.clone()).is_none()
         {
             store.record.pending = None;
+        }
+        if store.reader {
+            // The owner activates what it holds; a reader runs what it read.
+            store.record.pending = None;
+            if let Some(entry) = store.record.selected.clone() {
+                // Lock, then read again: the owner may have removed the entry
+                // since the record named it.
+                match hold_entry(&store.entry_dir(&entry))
+                    .and_then(|lock| Ok((lock, store.read_view(&entry)?)))
+                {
+                    Ok((lock, view)) => {
+                        store._running_lock = Some(Arc::new(lock));
+                        store.view = Some(view);
+                    }
+                    Err(_) => {
+                        store.record.selected = None;
+                        store.view = None;
+                    }
+                }
+            }
         }
         store.running = store.record.selected.clone();
         store.running_seq = store.select().seq;
@@ -730,7 +632,7 @@ impl Store {
     /// zero booted — the embedded bundle is the thing being recovered *to*, so
     /// counting its failures would have nothing to fall back on.
     pub fn boot_started(&mut self) -> Result<(), String> {
-        if self.frozen || self.running.is_none() {
+        if self.read_only().is_some() || self.running.is_none() {
             return Ok(());
         }
         self.record.failures += 1;
@@ -741,7 +643,7 @@ impl Store {
     /// counter and makes what is **running** — not what a check has since
     /// staged — the fallback for the next bad update.
     pub fn boot_succeeded(&mut self, generation: &Generation) -> Result<(), String> {
-        if self.frozen || *generation != self.generation() {
+        if self.read_only().is_some() || *generation != self.generation() {
             return Ok(());
         }
         self.record.failures = 0;
@@ -800,6 +702,8 @@ impl Store {
     pub(crate) fn check_snapshot(&self) -> Store {
         Store {
             _owner: self._owner.clone(),
+            reader: self.reader,
+            _running_lock: self._running_lock.clone(),
             dir: self.dir.clone(),
             embedded: self.embedded.clone(),
             record: self.record.clone(),
@@ -819,10 +723,8 @@ impl Store {
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
         embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Envelope, String> {
-        if self.frozen {
-            return Err(
-                "the update record was written by a newer binary; this one changes nothing".into(),
-            );
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
         }
         let envelope = Envelope::parse(&fetch(head_url)?)?;
         if !self.admit_check(&envelope, head_url, embedded_asset)? {
@@ -897,10 +799,8 @@ impl Store {
         head_url: &str,
         embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<bool, String> {
-        if self.frozen {
-            return Err(
-                "the update record was written by a newer binary; this one changes nothing".into(),
-            );
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
         }
         if envelope.app_id != self.embedded.app_id {
             return Err(format!(
@@ -1059,6 +959,9 @@ impl Store {
     /// fails without overwriting that newer record. A write failure likewise
     /// changes neither the in-memory selection nor the running generation.
     pub fn commit_activation(&mut self, generation: &Generation) -> Result<(), String> {
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
+        }
         let staged = self.staged().ok_or("nothing is staged")?;
         if generation.entry.as_deref() != Some(&staged.entry) || generation.seq != staged.seq {
             return Err("the staged generation changed during preparation".into());
@@ -1124,6 +1027,17 @@ impl Store {
     /// client boots entry zero and writes nothing.
     pub fn frozen(&self) -> bool {
         self.frozen
+    }
+
+    /// Why this store writes nothing, or `None` for an owner that may.
+    fn read_only(&self) -> Option<&'static str> {
+        if self.frozen {
+            Some("the update record was written by a newer binary; this one changes nothing")
+        } else if self.reader {
+            Some("another process owns the update store; this one changes nothing")
+        } else {
+            None
+        }
     }
 
     fn record_path(&self) -> PathBuf {
@@ -1259,7 +1173,7 @@ impl Store {
 
     /// Write the record durably: whatever moves the floor or the selection.
     fn write_record(&self) -> Result<(), String> {
-        if self.frozen {
+        if self.read_only().is_some() {
             return Ok(());
         }
         write_atomic(&self.record_path(), self.record.to_json().as_bytes(), true)
@@ -1272,7 +1186,7 @@ impl Store {
     /// the record loses only the mark, since `open` recovers the floor from
     /// the signed entries and the accepted head stages again.
     fn write_boot_mark(&self) -> Result<(), String> {
-        if self.frozen {
+        if self.read_only().is_some() {
             return Ok(());
         }
         write_atomic(&self.record_path(), self.record.to_json().as_bytes(), false)
@@ -1422,12 +1336,13 @@ impl Store {
     }
 
     /// Remove what no role keeps: every entry but the selected, pending,
-    /// last-good and running ones and the head accepted at the floor (its
-    /// signed witness), then every blob none of them names. Best effort.
-    /// It runs where no download of this store can be in flight — at open,
-    /// and as a check finishes — and never touches a temporary.
+    /// last-good and running ones, the head accepted at the floor (its
+    /// signed witness) and one a reader runs, then every blob none of them
+    /// names. Best effort. It runs where no download of this store can be in
+    /// flight — at open, and as a check finishes — and never touches a
+    /// temporary.
     fn collect(&self) {
-        if self.frozen {
+        if self.read_only().is_some() {
             return;
         }
         let keep: std::collections::BTreeSet<&String> = [
@@ -1449,8 +1364,7 @@ impl Store {
             if name.starts_with(".tmp-") {
                 continue;
             }
-            if !keep.contains(&name) {
-                let _ = std::fs::remove_dir_all(item.path());
+            if !keep.contains(&name) && remove_entry(&item.path()) {
                 continue;
             }
             if let Ok(envelope) = read_bounded(
