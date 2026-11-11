@@ -1134,7 +1134,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // wherever they happen: a release outside this node ends it here too.
       const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancelled(e); } };
       const watch = on => { for (const t in watched) (on ? addEventListener : removeEventListener)(t, watched[t], true); };
-      const drop = () => { if (contact?.watching) watch(false); contact = null; };
+      // A swipe defers capture, so its waiting ancestor must hear an outside end too.
+      const endDeferred = e => { if (contact?.deferred && contact.pointer === e.pointerId) cancel(); };
+      const watchEnd = enabled => {
+        for (const type of ['pointerup', 'pointercancel'])
+          el.ownerDocument[enabled ? 'addEventListener' : 'removeEventListener'](type, endDeferred, true);
+      };
+      const drop = () => { if (contact?.watching) watch(false); watchEnd(false); contact = null; };
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;
         if (!contact || !live()) { drop(); return; }
@@ -1152,7 +1158,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         const state = contacts().get(e.pointerId);
         if (state === "pending") return true;
         if (state === "claimed") { drop(); return true; }
-        contact.deferred = false; el.setPointerCapture(e.pointerId); return false;
+        contact.deferred = false; watchEnd(false); el.setPointerCapture(e.pointerId); return false;
       };
       // @ref LLP 1057 §10.6 — a pan that began ends with one `panrelease`:
       // the engine's tracker over the contact's samples, at each event's own
@@ -1169,13 +1175,15 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       };
       // A watched contact is the window's alone (`watched`); this node's listeners take it once captured.
       const move = (e, outside = false) => {
-        if (contact?.pointer !== e.pointerId || !!contact.watching !== outside || waiting(e)) return;
+        if (contact?.pointer !== e.pointerId || !!contact.watching !== outside) return;
         if (e.buttons === 0 && e.pointerType !== "touch") return cancel(); // its button came up where no one heard it
+        if (waiting(e)) return;
         sample(e); contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush);
       };
       const up = (e, outside = false) => {
         if (contact?.pointer === e.pointerId && !!contact.watching !== outside) return;
-        if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) drop(); return; }
+        if (contact?.pointer !== e.pointerId) return;
+        if (contact.deferred) { cancel(); return; }
         sample(e); contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active;
         const began = contact?.active; drop();
         if (began) { const [vx, vy] = velocity.velocity?.(id, e.timeStamp) ?? [0, 0]; released(`${vx},${vy}`); }
@@ -1202,6 +1210,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.exactPan = true; // the innermost pan takes the contact (rule 3)
         if (!nested) { e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId); }
         contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred,nested,watching:nested};
+        if (deferred) watchEnd(true);
         if (nested) watch(true);
         velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, true);
       };

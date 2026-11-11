@@ -1,6 +1,7 @@
 # A mouse press that leaves a swipe node inside the slop and lifts outside it leaves the swipe armed and its contact pending
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Pending swipes and their deferred ancestors end on release or cancellation anywhere in the document; buttonless mouse moves cancel before capturing or beginning a hold.
 **Systems:** host/web/motion-glue.js, host/web/input-glue.js (both web targets load them)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
