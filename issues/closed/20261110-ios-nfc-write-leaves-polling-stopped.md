@@ -1,6 +1,7 @@
 # On iOS a write that finishes while a scan is live leaves the reader session no longer polling
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A write or lock that settles while other claims live now restarts polling once its tag leaves the field, as a read does.
 **Systems:** packages/nfc/apple/NfcRegistry.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
