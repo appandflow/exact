@@ -1,0 +1,74 @@
+import XCTest
+@testable import ExactKit
+
+/// An `app:/` file is read as the data module's `readFile` reads it: a
+/// symbolic link the app's own code planted in its directories, to a file or
+/// a directory outside them, gives an `image`, a video, picture in picture,
+/// an iframe's document and an extension's `file` nothing.
+final class AppFilesLinkTests: XCTestCase {
+    private var base: URL!
+
+    override func setUpWithError() throws {
+        base = FileManager.default.temporaryDirectory.appendingPathComponent("exact-app-links-\(UUID().uuidString)")
+        let data = base.appendingPathComponent("data")
+        try FileManager.default.createDirectory(at: data.appendingPathComponent("photos"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("private"), withIntermediateDirectories: true)
+        try PNG.write(to: base.appendingPathComponent("private/secret.png"))
+        try PNG.write(to: data.appendingPathComponent("photos/a.png"))
+        try FileManager.default.createSymbolicLink(at: data.appendingPathComponent("x.png"), withDestinationURL: base.appendingPathComponent("private/secret.png"))
+        try FileManager.default.createSymbolicLink(at: data.appendingPathComponent("linked"), withDestinationURL: base.appendingPathComponent("private"))
+        AppFiles.learn(["roots": ["data": data.path]])
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    func testAFileOpensAndALinkOpensNothing() throws {
+        XCTAssertEqual(try XCTUnwrap(AppFiles.open("app:/data/photos/a.png")).readToEnd(), PNG.bytes)
+        XCTAssertEqual(AppFiles.file("app:/data/photos/a.png")?.lastPathComponent, "a.png")
+        for path in ["app:/data/x.png", "app:/data/linked/secret.png", "app:/data/photos", "app:/data/../private/secret.png", "app:/data/absent.png"] {
+            XCTAssertNil(AppFiles.open(path), path)
+            XCTAssertNil(AppFiles.file(path), path)
+        }
+        // Where a host writes is the joined place, a link or not.
+        XCTAssertNotNil(AppFiles.url("app:/data/x.png"))
+    }
+
+    func testAnImageThroughALinkFailsToOpen() throws {
+        let resolver = AssetResolver(root: base)
+        let input = try RasterInput.open("app:/data/photos/a.png", resolver: resolver)
+        XCTAssertEqual(try input.bytes(), PNG.bytes)
+        XCTAssertEqual(try input.metadata().naturalSize, CGSize(width: 1, height: 1))
+        XCTAssertThrowsError(try RasterInput.open("app:/data/x.png", resolver: resolver))
+        XCTAssertThrowsError(try RasterInput.open("app:/data/linked/secret.png", resolver: resolver))
+    }
+
+    /// A file swapped for a link after its source opened is not read through it.
+    func testAnImageSwappedForALinkReadsNothing() throws {
+        let input = try RasterInput.open("app:/data/photos/a.png", resolver: AssetResolver(root: base))
+        let file = base.appendingPathComponent("data/photos/a.png")
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createSymbolicLink(at: file, withDestinationURL: base.appendingPathComponent("private/secret.png"))
+        XCTAssertThrowsError(try input.bytes())
+        XCTAssertThrowsError(try input.metadata())
+    }
+
+    /// The walk an extension's `file` takes (`ExactExtensions.file`
+    /// compiles the same source into the app's module).
+    func testTheWalkRefusesALinkAtAnyPart() throws {
+        let data = base.appendingPathComponent("data")
+        XCTAssertNotNil(AppFileWalk.open(data, ["photos", "a.png"]))
+        XCTAssertNil(AppFileWalk.open(data, ["x.png"]))
+        XCTAssertNil(AppFileWalk.open(data, ["linked", "secret.png"]))
+        XCTAssertNil(AppFileWalk.open(data, []))
+        XCTAssertNil(AppFileWalk.open(data, ["..", "private", "secret.png"]))
+        XCTAssertNil(AppFileWalk.open(data.appendingPathComponent("linked"), ["secret.png"]), "a root that is a link")
+    }
+
+    private enum PNG {
+        /// A 1 × 1 opaque PNG.
+        static let bytes = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")!
+        static func write(to url: URL) throws { try bytes.write(to: url) }
+    }
+}

@@ -122,7 +122,8 @@ macro_rules! canvas_jni_extensions {
         }
 
         /// The file an `app:/` path names (`ExtensionContext.file`, LLP
-        /// 1133.009 D10 item 4), or null.
+        /// 1133.009 D10 item 4), or null: a regular file reached through no
+        /// symbolic link (`picker::file`), as `readFile` reads it.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_appFile(
             env: *mut JNIEnv,
@@ -130,7 +131,7 @@ macro_rules! canvas_jni_extensions {
             path: jstring,
         ) -> jstring {
             let path = $crate::canvas::field::text(env, path);
-            match $crate::picker::resolve(&path) {
+            match $crate::picker::file(&path) {
                 Some(file) => $crate::canvas::field::java(env, &file.to_string_lossy()),
                 None => std::ptr::null_mut(),
             }

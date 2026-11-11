@@ -280,11 +280,12 @@ extension NavigationHost {
         syncItems(tabs)
     }
 
-    /// The file a tab's raster source names: the app's own under `app:/`,
-    /// else a bundled asset of the session's resolver.
-    private func rasterURL(_ source: String) -> URL? {
-        if source.hasPrefix("app:/") { return AppFiles.url(source) }
-        return presenter.session?.app.resolver?.url(source, maximumBytes: 4 << 20)
+    /// The picture a tab's raster source names: the app's own file under
+    /// `app:/`, read through no link (`AppFiles.open`), else a bundled asset
+    /// of the session's resolver.
+    private func raster(_ source: String) -> UIImage? {
+        if source.hasPrefix("app:/") { return AppFiles.open(source).flatMap { try? $0.readToEnd() }.flatMap { UIImage(data: $0) } }
+        return presenter.session?.app.resolver?.url(source, maximumBytes: 4 << 20).flatMap { UIImage(contentsOfFile: $0.path) }
     }
 
     /// The items, from the authored tabs: each tab's own item, written in
@@ -314,7 +315,7 @@ extension NavigationHost {
             // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states;
             // a bundled raster the same way, as a hand-built bar takes a custom image.
             let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints(traits)) }
-                ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
+                ?? face.raster.flatMap { raster($0) }.flatMap { TabFace.rasterImage($0, points: FaceSymbol.tabBarPoints(traits)) }
             // Title the tab's controller, which titles its item and its navigation item (`UIViewController.title`):
             // More's bar shows a plain tab's when More pushes the tab.
             nav.title = face.title

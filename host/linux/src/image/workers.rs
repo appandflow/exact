@@ -47,6 +47,7 @@ impl SourceOwner {
         }
         match self.assets.upgrade()?.image_input(&self.name)? {
             ImageInput::Path(path) => Some(path),
+            ImageInput::File(_) => crate::picker::file(&self.name),
             ImageInput::Bytes(_) => None,
         }
     }
@@ -561,17 +562,22 @@ fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
             Ok((Box::new(Cursor::new(bytes)), len))
         }
         ImageInput::Path(path) => {
-            let file = crate::file::open_regular(&path).map_err(|_| Refusal::DecodeFailed)?;
-            let metadata = file.metadata().map_err(|_| Refusal::DecodeFailed)?;
-            if !metadata.is_file() {
-                return Err(Refusal::DecodeFailed);
-            }
-            if metadata.len() > exact_raster::MAX_ENCODED_BYTES {
-                return Err(Refusal::EncodedLimit);
-            }
-            Ok((Box::new(file), metadata.len()))
+            bounded(crate::file::open_regular(&path).map_err(|_| Refusal::DecodeFailed)?)
         }
+        ImageInput::File(file) => bounded(file),
     }
+}
+
+/// A source's regular file, refused past the encoded bound.
+fn bounded(file: std::fs::File) -> Result<(Box<dyn Input>, u64), Refusal> {
+    let metadata = file.metadata().map_err(|_| Refusal::DecodeFailed)?;
+    if !metadata.is_file() {
+        return Err(Refusal::DecodeFailed);
+    }
+    if metadata.len() > exact_raster::MAX_ENCODED_BYTES {
+        return Err(Refusal::EncodedLimit);
+    }
+    Ok((Box::new(file), metadata.len()))
 }
 
 struct Workers {

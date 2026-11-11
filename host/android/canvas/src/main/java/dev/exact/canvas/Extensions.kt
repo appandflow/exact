@@ -180,7 +180,8 @@ class ExtensionContext internal constructor(val application: Context, private va
     val audioFocus: AudioFocus get() = AudioFocus
 
     /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
-     * scratch tree under the agent. Admission checked the path against the calling source's grants. */
+     * scratch tree under the agent. Admission checked the path against the calling source's grants; null unless it is a
+     * regular file reached through no symbolic link. */
     fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
 
     /** A content URI for the file an admitted `app:/` path names, which an intent may carry with a read grant

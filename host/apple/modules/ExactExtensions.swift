@@ -162,13 +162,16 @@ enum ExactExtensions {
         return a
     }
 
-    /// An `app:/` path's file in the session's directories.
+    /// An `app:/` path's regular file in the session's directories, given
+    /// only when it is reached through no symbolic link (`AppFileWalk`), as
+    /// `readFile` reads it: a link the app's code made there gives an
+    /// extension admitted under a grant nothing outside it.
     static func file(_ path: String, _ module: ExactModuleContext) -> URL? {
         guard path.hasPrefix("app:/") else { return nil }
         let parts = path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
         let roots = ["data": module.data, "cache": module.cache, "tmp": module.temporary]
-        guard let root = roots[parts[0]] else { return nil }
+        guard let root = roots[parts[0]], let handle = AppFileWalk.open(root, Array(parts.dropFirst())) else { return nil }
+        try? handle.close()
         return parts.dropFirst().reduce(root) { $0.appendingPathComponent($1) }
     }
 

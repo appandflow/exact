@@ -1,6 +1,7 @@
 # An `app:/` image, video or extension file follows a symbolic link that `readFile` and a share refuse
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Every reader of an `app:/` file the app names (an `image`, a video, picture in picture, a tab icon, an iframe's document, Linux's saved copy and an extension's `file`) now opens it below its root with no symbolic link at any part, through one resolver per language (`picker::open` over ibex2's `AppDirectories`; Swift's `AppFileWalk`), as `readFile` does.
 **Systems:** host/linux/src/picker.rs (Linux, Windows, Android's native half), host/apple/Sources/ExactKit (`Picker.swift` `AppFiles`, `RasterInput.swift`, `VideoModule.swift`, `PictureInPicture.swift`, `IOS/NavigationTabsIOS.swift`), host/apple/modules/ExactExtensions.swift
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
