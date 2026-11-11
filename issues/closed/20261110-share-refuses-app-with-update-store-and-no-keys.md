@@ -1,6 +1,7 @@
 # `exact share` refuses an app that has an update store but no signing keys
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `share` checks for verification keys before it builds and, without them, refuses at once naming the two ways on: `deploy.store.ios: "0"`, or a key in `deploy.signing.keys`.
 **Systems:** scripts/share.mjs, host/apple/build.mjs, bake/src/compat.rs
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from sharing the Softwear template
