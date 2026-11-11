@@ -1,6 +1,7 @@
 # A rolling number on iOS keeps its old colour and font until its digits change
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rolling numerals apply changed text attributes immediately and roll only when their characters change.
 **Systems:** host/apple/Sources/ExactNumerals/Numerals.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

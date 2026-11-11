@@ -38,7 +38,7 @@ final class NumeralHost: NumeralCapability {
 
 /// One paragraph's rolling text: what SwiftUI shows, and the last number it
 /// showed, which says which way the next one rolls.
-private final class NumeralModel: ObservableObject {
+final class NumeralModel: ObservableObject {
     @Published var text = AttributedString()
     @Published var down = false
     @Published var version = 0
@@ -63,10 +63,11 @@ private struct NumeralBody: View {
     }
 }
 
-private final class NumeralRoll {
+final class NumeralRoll {
     let model = NumeralModel()
     let view: UIView
     private let host: UIHostingController<NumeralBody>
+    private var lastAttributed: NSAttributedString?
 
     init() {
         host = UIHostingController(rootView: NumeralBody(model: model))
@@ -78,13 +79,16 @@ private final class NumeralRoll {
 
     func show(_ attributed: NSAttributedString, align: Int, mode: String) {
         model.alignment = align == 1 ? .center : align == 2 ? .trailing : .leading
+        guard lastAttributed?.isEqual(to: attributed) != true else { return }
+        lastAttributed = NSAttributedString(attributedString: attributed)
         let plain = attributed.string
+        model.text = (try? AttributedString(attributed, including: \.uiKit)) ?? AttributedString(plain)
+        // A style change repaints without starting another numeric transition.
         guard plain != model.plain || model.version == 0 else { return }
         // `numeric-countdown` always rolls down; `numeric` rolls the way the
         // number moved, as SwiftUI's own callers say.
         model.down = mode == "numeric-countdown" || leadingNumber(plain) < leadingNumber(model.plain)
         model.plain = plain
-        model.text = (try? AttributedString(attributed, including: \.uiKit)) ?? AttributedString(plain)
         model.version += 1
     }
 }
