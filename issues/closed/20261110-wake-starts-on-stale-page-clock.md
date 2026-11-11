@@ -1,6 +1,7 @@
 # On a live page a wake delivered after an idle spell starts in the past and expires at the next timer or `then`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Wake delivery refreshes the page clock before starting its budget, preserving the full budget after an idle spell.
 **Systems:** host/web-js/wakes.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
