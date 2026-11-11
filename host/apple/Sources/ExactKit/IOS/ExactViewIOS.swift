@@ -395,7 +395,7 @@ public final class ExactView: UIView {
         // The raster budget follows this view's own bounds — the panel it
         // covers — never the frame a keyboard clips the viewport to: a
         // keyboard rising is not a smaller display, and a shrink trims
-        // the cold cache and halves queued decodes in place.
+        // the cold cache and reduces queued decodes to fit.
         let scale = max(1, traitCollection.displayScale)
         session.rasters.fit(size: bounds.size, scale: scale)
         if scale != lastDisplayScale {

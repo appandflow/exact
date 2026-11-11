@@ -8,7 +8,7 @@ import UIKit
 #endif
 
 enum RasterFailure: Error, CustomStringConvertible, Equatable {
-    case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
+    case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, decode, reservation
     /// Bytes no decoder here reads (text served as `image/png`).
     case format
     /// An SVG the parser refused, with its reason and line (LLP 1011.001 D2).
@@ -23,7 +23,6 @@ enum RasterFailure: Error, CustomStringConvertible, Equatable {
         case .dimensions: return "invalid dimensions"
         case .sourcePixels: return "over \(RasterMetadata.pixelLimit) source pixels"
         case .overflow: return "overflow"
-        case .tooLarge: return "too large"
         case .decode: return "decode failed"
         case .reservation: return "actual exceeds reservation"
         case .svg(let why): return "not an SVG this host reads: \(why)"
@@ -408,8 +407,8 @@ struct RasterDecodePlan: Sendable {
         let (scratch, overflow) = staging.addingReportingOverflow(64 * 1024)
         guard !overflow else { throw RasterFailure.overflow }
         scratchBytes = scratch
-        let (peak, peakOverflow) = outputBytes.addingReportingOverflow(scratchBytes)
-        guard !peakOverflow, peak <= 32 * 1024 * 1024 else { throw RasterFailure.tooLarge }
+        let (_, peakOverflow) = outputBytes.addingReportingOverflow(scratchBytes)
+        guard !peakOverflow else { throw RasterFailure.overflow }
     }
     private static func product(_ a: Int, _ b: Int) throws -> Int {
         let (n, overflow) = a.multipliedReportingOverflow(by: b)

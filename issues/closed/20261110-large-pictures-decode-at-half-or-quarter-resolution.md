@@ -1,6 +1,7 @@
 # On Apple a picture whose box is over about 1.5 million device pixels decodes at half or a quarter of the box's resolution
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple decodes use the session budget and reduce resolution only to the largest size it holds, with an observable budget reason.
 **Systems:** host/apple/Sources/ExactKit/RasterImage.swift, host/apple/Sources/ExactKit/RasterLoader.swift, host/raster/src/policy.rs
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
