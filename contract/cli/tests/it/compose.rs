@@ -332,16 +332,43 @@ fn a_view_when_and_a_state_as_name_the_contract_form() {
 }
 
 #[test]
-fn position_fixed_says_how_to_pin_a_box() {
-    let src =
-        "component App\n  view\n    column\n      text \"toast\" position=\"fixed\" bottom=0\n";
-    let error = contract::compile(src).unwrap_err();
-    assert!(
-        error
-            .message
-            .ends_with("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute`, directly inside a viewport-sized root that does not scroll (its content scrolls in a `scroll` beside it)"),
-        "{error}"
-    );
+fn invalid_position_literals_name_the_value_and_the_fix() {
+    for position in ["fixed", "fixd"] {
+        let mut expected = format!(
+            "`position=\"{position}\"` is not a valid `position`: expected one of \"relative\", \"absolute\", \"static\", \"sticky\""
+        );
+        if position == "fixed" {
+            expected.push_str("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute`, directly inside a viewport-sized root that does not scroll (its content scrolls in a `scroll` beside it)");
+        }
+        for (tag, attrs) in [
+            ("text \"toast\"", "bottom=0"),
+            ("column", "top=0"),
+            ("column", "top=0 opacity=0.5"),
+            ("column", "top=0 transition=\"opacity 200ms\""),
+            ("column", "top=0 overflow=\"hidden\""),
+            ("column", "top=0 translate=\"1px 0\""),
+            ("scroll", "top=0 height=100"),
+        ] {
+            let src = format!(
+                "component App\n  view\n    column\n      {tag} position=\"{position}\" {attrs}\n"
+            );
+            let error = contract::compile(&src).unwrap_err();
+            assert_eq!(error.id, "lower-attr-value", "{src}: {error}");
+            assert_eq!(error.message, expected, "{src}: {error}");
+        }
+    }
+}
+
+#[test]
+fn clearing_position_on_a_clipping_box_is_refused() {
+    for position in ["", "unset", " UNSET "] {
+        let src =
+            format!("component App\n  view\n    box position=\"{position}\" overflow=\"hidden\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{src}: {error}");
+        assert!(error.message.contains("containing block"), "{src}: {error}");
+        contract::compile(&src.replace(" overflow=\"hidden\"", "")).unwrap();
+    }
 }
 
 #[test]

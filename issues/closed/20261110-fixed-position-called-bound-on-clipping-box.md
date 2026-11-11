@@ -1,6 +1,7 @@
 # A literal `position="fixed"` on a box that clips or animates is refused as "a bound `position`"
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Invalid position literals reach the row's diagnostic on boxes that clip, scroll, transform or animate, including the viewport-pinning guidance for fixed.
 **Systems:** contract/lower/src/contain.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
