@@ -280,17 +280,27 @@ engine's saved types.
   at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
   Shadow-disabled lighting is unfaded. Ambient, emission and the fill light are unaffected.
 - Local light shadows are opt-in: add the `LightShadows` marker to a `SpotLight` or
-  `PointLight`. A spot takes one 1024² Depth32Float layer (a perspective view of
+  `PointLight`. A spot takes one Depth32Float layer (a perspective view of
   its cone, up to 170°), a point light six (a cube's faces, picked per pixel by the
-  major axis from the light to the offset receiver). Lights are served nearest
-  first while the frame has layers left, at most eight (`local_shadows::MAX_VIEWS`).
-  One shadowed point light takes
+  major axis from the light to the offset receiver). Every layer is
+  `Shadows::local_resolution` square (default 1024, clamped to 128–4096; the Low rung
+  takes at most 1024 and Mid 2048, even from an inserted `Shadows`). Lights are served
+  nearest first while the frame has layers left, at most eight
+  (`local_shadows::MAX_VIEWS`) and only as many as fit in 128 MiB: all eight up to
+  2048² (16 MiB each), two at 4096², too few for a point light. One shadowed point
+  light takes
   six of the eight, leaving two spots; eight spots fit otherwise; the rest light
-  unshadowed. The layer array grows to the most layers a frame has used (4 MiB
-  each, at most 32 MiB) and is kept, so toggling a light reallocates nothing. Each layer's casters are culled
+  unshadowed. The layer array grows to the most layers a frame has used and is
+  kept, so toggling a light reallocates nothing; a new resolution reallocates it. Each layer's casters are culled
   on the GPU (four views per cull pass) and drawn depth-only with the sun's caster
-  pipelines. Receivers offset 1.5 texels along the normal (less towards the light)
-  and take 3×3 PCF. Forward passes always bind group 1 (cascades, the comparison
+  pipelines. `Shadows::local_filter` filters receivers. The default,
+  `ReceiverPlane`, offsets them 1.5 texels along the normal (less towards the light)
+  and takes 3×3 PCF `local_softness` texels apart (default 1); a perspective map
+  has no single receiver plane, so the taps are not corrected along one.
+  `PcfSoft` and `Bilinear` are the sun's kernels, offset `normal_bias` metres along
+  the normal and compared `depth_bias` nearer in the light's normalized depth.
+  The filter rides in each light's record (words 17–19), so it needs no
+  pipeline of its own. Forward passes always bind group 1 (cascades, the comparison
   sampler, local maps), with a one-texel placeholder for an absent map.
 - Screen-space ambient occlusion is off by default; inserting the engine's
   `AmbientOcclusion { radius, intensity }` resource (or setting

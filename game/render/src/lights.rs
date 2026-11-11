@@ -186,6 +186,7 @@ impl Lights {
             self.words[matrices + i * 16..matrices + (i + 1) * 16]
                 .copy_from_slice(&view.to_cols_array().map(f32::to_bits));
         }
+        let filter = filter_words(&frame.local_shadows);
         for (i, light) in lights.iter().enumerate() {
             let [inner, outer] = light.cone.unwrap_or([-2., -2.]);
             let shadow = shadows.layers.get(i).copied().flatten();
@@ -212,9 +213,9 @@ impl Lights {
                 } else {
                     light.decay.max(0.)
                 },
-                0.,
-                0.,
-                0.,
+                filter[0],
+                filter[1],
+                filter[2],
             ];
             self.words[i * RECORD_WORDS..(i + 1) * RECORD_WORDS]
                 .copy_from_slice(&record.map(f32::to_bits));
@@ -243,6 +244,35 @@ impl Lights {
             .grow(device, queue, (self.words.len() * 4) as u64);
         self.buffer.write(queue, 0, bytes(&self.words));
         grew
+    }
+}
+
+/// Record words 17-19, the local shadow filter (shadow_sample.wgsl
+/// `light_visibility`): 0, the tap spacing in texels; or 1 (PCF-soft) or 2
+/// (bilinear), the normalized depth bias and the normal bias in metres.
+fn filter_words(settings: &crate::LocalShadows) -> [f32; 3] {
+    let finite = |n: f32| if n.is_finite() { n } else { 0. };
+    match settings.filter {
+        crate::ShadowFilter::ReceiverPlane => {
+            let softness = settings.softness;
+            [
+                0.,
+                if softness.is_finite() {
+                    softness.max(0.)
+                } else {
+                    1.
+                },
+                0.,
+            ]
+        }
+        crate::ShadowFilter::PcfSoft {
+            depth_bias,
+            normal_bias,
+        } => [1., finite(depth_bias), finite(normal_bias)],
+        crate::ShadowFilter::Bilinear {
+            depth_bias,
+            normal_bias,
+        } => [2., finite(depth_bias), finite(normal_bias)],
     }
 }
 

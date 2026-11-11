@@ -744,3 +744,217 @@ fn a_spot_without_decay_lights_the_floor_by_angle_alone() {
         "{steep} {squared}"
     );
 }
+
+// The shadowed spot of SPOT_SHADOW, seen 0.5 m tall around the shadow's edge
+// at x = 0.6 m, under `Shadows` with these local settings. `filter`: 0 the
+// default, 1 PCF-soft, 2 bilinear; `insert` 0 leaves `Shadows` out.
+#[derive(Default, Args)]
+struct Local {
+    resolution: u32,
+    filter: u32,
+    softness: f32,
+    insert: u32,
+}
+struct LocalScene;
+impl Game for LocalScene {
+    const ID: &'static str = "render-local-shadow-settings";
+    type Args = Local;
+    fn setup(w: &mut World, args: &Local) {
+        w.insert_resource(Environment {
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            background: Some([0.; 3].into()),
+            ..Default::default()
+        });
+        if args.insert != 0 {
+            let bias = |depth_bias, normal_bias| match args.filter {
+                1 => ShadowFilter::PcfSoft {
+                    depth_bias,
+                    normal_bias,
+                },
+                2 => ShadowFilter::Bilinear {
+                    depth_bias,
+                    normal_bias,
+                },
+                _ => ShadowFilter::ReceiverPlane,
+            };
+            w.insert_resource(Shadows {
+                local_resolution: args.resolution,
+                local_filter: bias(0.00002, 0.005),
+                local_softness: args.softness,
+                ..Default::default()
+            });
+        }
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(40., 40.),
+            Material::rgb(0.6, 0.6, 0.6),
+        ));
+        w.spawn((
+            Transform::at(0.6, 10., 0.).looking_at(Vec3::new(0.6, 0., 0.), -Vec3::Z),
+            Camera::orthographic(0.5),
+        ));
+        w.spawn((
+            Transform::at(0., 4., 0.).looking_at(Vec3::ZERO, Vec3::Z),
+            SpotLight {
+                intensity: 20_000.,
+                range: 12.,
+                // Full intensity across the view: the cone's edge is at 1.15 m.
+                inner: 0.28,
+                outer: 0.3,
+                ..Default::default()
+            },
+            LightShadows,
+        ));
+        w.spawn((
+            Transform {
+                position: Vec3::new(0., 2., 0.),
+                scale: Vec3::new(0.6, 0.1, 0.6),
+                ..Default::default()
+            },
+            Mesh::cube(1.),
+            Material::rgb(0.6, 0.6, 0.6),
+        ));
+    }
+    // A lower rung would cap the 2048² layers this compares.
+    fn quality(_: &Local) -> Quality {
+        Quality::High
+    }
+    fn tick(_: &mut World, _: &Input, _: &Local) {}
+}
+
+// The middle row's red channel across the edge, and its penumbra: the pixels
+// between a tenth and nine tenths of the lit floor. The caster's own top fills
+// x < 0.3 m, the first 104 pixels.
+fn local_edge(
+    gpu: &Gpu,
+    resolution: u32,
+    filter: u32,
+    softness: f32,
+    insert: bool,
+) -> (Vec<u8>, usize) {
+    let mut surface = WorldSurface::<LocalScene>::default();
+    surface
+        .bind(
+            &[
+                Value::Number(f64::from(resolution)),
+                Value::Number(f64::from(filter)),
+                Value::Number(f64::from(softness)),
+                Value::Number(f64::from(u32::from(insert))),
+            ],
+            None,
+        )
+        .unwrap();
+    let frame = Frame {
+        width: 640.,
+        height: 360.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.0,
+    };
+    let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
+    assert!(surface.error().is_none(), "{:?}", surface.error());
+    pixels.save(&format!(
+        "lights-local-{resolution}-{filter}-{softness}-{insert}"
+    ));
+    let row: Vec<u8> = (0..640).map(|x| pixels.at(x, 180)[0]).collect();
+    let lit = f32::from(row[450]);
+    let penumbra = row[150..]
+        .iter()
+        .filter(|&&v| f32::from(v) > lit * 0.1 && f32::from(v) < lit * 0.9)
+        .count();
+    (row, penumbra)
+}
+
+#[test]
+fn local_shadow_settings_size_and_filter_a_spot_lights_shadow() {
+    let Some(gpu) = gpu() else { return };
+    let (unsaid, default) = local_edge(&gpu, 0, 0, 0., false);
+    let (inserted, _) = local_edge(&gpu, 1024, 0, 1., true);
+    assert_eq!(unsaid, inserted, "the defaults are today's map and filter");
+    // Shadow inside, lit floor outside, in every filter.
+    assert!(
+        unsaid[200] < 5 && unsaid[450] > 60,
+        "{} {}",
+        unsaid[200],
+        unsaid[450]
+    );
+    let (_, sharp) = local_edge(&gpu, 2048, 0, 1., true);
+    let (_, soft) = local_edge(&gpu, 1024, 0, 3., true);
+    let (pcf_row, pcf_soft) = local_edge(&gpu, 2048, 1, 1., true);
+    let (bilinear_row, bilinear) = local_edge(&gpu, 2048, 2, 1., true);
+    eprintln!(
+        "penumbra px: default {default}, 2048 {sharp}, softness 3 {soft}, \
+         PCF-soft {pcf_soft}, bilinear {bilinear}"
+    );
+    assert!(sharp < default, "2048² is sharper: {sharp} {default}");
+    assert!(soft > default * 2, "softness 3 is softer: {soft} {default}");
+    assert!(bilinear < pcf_soft, "{bilinear} {pcf_soft}");
+    for row in [pcf_row, bilinear_row] {
+        assert!(row[200] < 5 && row[450] > 60, "{} {}", row[200], row[450]);
+    }
+}
+
+// Counts allocations only: that the forward passes then sample the new array
+// (`shadow_sample_stale`) is not read back here.
+#[test]
+fn a_new_local_resolution_replaces_the_layers() {
+    use exact_game_render::{shapes, Batch, FrameInput, LightInput, LocalShadows, Renderer};
+    let Some(gpu) = gpu() else { return };
+    let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
+    let (v, i) = shapes::cube();
+    let cube = r.add_mesh(&v, &i);
+    r.write_transforms_both(0, &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.])
+        .unwrap();
+    r.write_materials(0, &[0.5, 0.5, 0.5, 1., 0., 1., 0., 0., 0., 1., 1., 1.])
+        .unwrap();
+    r.set_batches(&[Batch::new(cube, 0..1)], &[0]).unwrap();
+    let texture = gpu
+        .device
+        .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+            label: None,
+            size: exact_gpu::wgpu::Extent3d {
+                width: 32,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: exact_gpu::wgpu::TextureDimension::D2,
+            format,
+            usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+    let view = texture.create_view(&Default::default());
+    // A point light's six layers: at 4096² they do not fit, and it draws unshadowed.
+    let lights = [LightInput {
+        position: Vec3::new(0., 3., 0.),
+        color: Vec3::ONE,
+        intensity: 3.,
+        range: 10.,
+        shadows: true,
+        ..Default::default()
+    }];
+    let mut creations = Vec::new();
+    for resolution in [1024, 1024, 2048, 2048, 4096, 2048, 1024] {
+        let frame = FrameInput {
+            view: glam::camera::rh::view::look_at_mat4(Vec3::new(0., 2., 4.), Vec3::ZERO, Vec3::Y),
+            lights: &lights,
+            local_shadows: LocalShadows {
+                resolution,
+                ..Default::default()
+            },
+            sun: None,
+            ..Default::default()
+        };
+        creations.push(r.draw(&view, (32, 32), &frame).texture_creations);
+    }
+    let made: Vec<_> = creations.windows(2).map(|w| w[1] - w[0]).collect();
+    assert_eq!(made, [0, 1, 0, 0, 0, 1], "{creations:?}");
+}

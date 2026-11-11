@@ -624,6 +624,11 @@ impl Scene {
             sun,
             fill,
             lights: &self.output,
+            local_shadows: w
+                .try_resource::<Shadows>()
+                .as_deref()
+                .map(crate::LocalShadows::from)
+                .unwrap_or_default(),
             lights_dropped: self.dropped,
             environment: e,
             environment_map: self.map.as_ref().map(|m| crate::EnvironmentMapInput {

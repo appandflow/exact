@@ -2,7 +2,7 @@
 // 16 x 9 x 24 grid of (first index word, count), then the clusters' light lists.
 // A record: position, range; colour, intensity; direction, the cone's outer and
 // inner cosines; shadow layer, matrix word, texel per metre (shadow_sample.wgsl);
-// decay; three words unused.
+// decay; the local shadow filter's three words (lights.rs `filter_words`).
 @group(0) @binding(8) var<storage, read> light_words: array<u32>;
 const PI = 3.141592653589793;
 // Directions and the lobes' scalars in f32; colour in `shading` (frame.wgsl).

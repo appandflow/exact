@@ -11,17 +11,23 @@ pub(crate) struct LocalCull {
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Plan this frame's local shadow layers and keep their maps and culls.
     pub(super) fn prepare_local(&mut self, frame: &FrameInput<'_>) {
-        self.local_plan.of(frame.lights);
+        self.local_plan.of(frame.lights, &frame.local_shadows);
         let views = self.local_plan.views.len() as u32;
         if views == 0 {
             return;
         }
-        // Grow only: a flashlight toggled off and on keeps its layers.
-        if self.local.as_ref().is_none_or(|l| l.count < views) {
+        let resolution = self.local_plan.resolution;
+        // Grow only at one size: a flashlight toggled off and on keeps its layers.
+        if self
+            .local
+            .as_ref()
+            .is_none_or(|l| l.count < views || l.resolution != resolution)
+        {
             self.texture_creations += 1;
             self.local = Some(crate::local_shadows::LocalMaps::new(
                 &self.device,
                 views,
+                resolution,
                 &self.pipelines.camera_layout,
             ));
             self.shadow_sample_stale = true;

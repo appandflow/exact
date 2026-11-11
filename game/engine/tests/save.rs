@@ -221,3 +221,55 @@ fn a_light_at_the_default_decay_keeps_the_encoding_it_had_without_one() {
     assert!(!json::to_string(&spot).unwrap().contains("decay"));
     assert!(json::to_string(&flat).unwrap().contains("\"decay\""));
 }
+
+#[test]
+fn shadows_at_the_default_local_settings_keep_their_encoding() {
+    use exact_game::data::{bin, hash};
+    use exact_game::{ShadowBox, ShadowFilter, Shadows};
+    // The record as it was before the local settings.
+    #[derive(Data, Default)]
+    struct Old {
+        fixed_box: Option<ShadowBox>,
+        cache_static: bool,
+        resolution: u32,
+        distance: f32,
+        cascades: u32,
+        softness: f32,
+        filter: ShadowFilter,
+        strength: f32,
+    }
+    let shadows = Shadows {
+        resolution: 4096,
+        ..Default::default()
+    };
+    let old = Old {
+        fixed_box: shadows.fixed_box,
+        cache_static: shadows.cache_static,
+        resolution: shadows.resolution,
+        distance: shadows.distance,
+        cascades: shadows.cascades,
+        softness: shadows.softness,
+        filter: shadows.filter,
+        strength: shadows.strength,
+    };
+    assert_eq!(bin::to_vec(&shadows), bin::to_vec(&old));
+    assert_eq!(hash::of(&shadows), hash::of(&old));
+    let local = Shadows {
+        local_resolution: 2048,
+        local_filter: ShadowFilter::PcfSoft {
+            depth_bias: 0.0001,
+            normal_bias: 0.01,
+        },
+        ..shadows
+    };
+    assert_ne!(hash::of(&local), hash::of(&shadows));
+    assert_eq!(
+        bin::from_slice::<Shadows>(&bin::to_vec(&local)).unwrap(),
+        local
+    );
+    let mut w = World::new(60, 0);
+    w.insert_resource(local);
+    let mut fresh = World::new(60, 0);
+    fresh.load(&w.save()).unwrap();
+    assert_eq!(*fresh.resource::<Shadows>(), local);
+}

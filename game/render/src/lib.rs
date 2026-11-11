@@ -221,6 +221,31 @@ impl Default for Sun {
 
 pub use exact_game::{Bloom, Environment, Fog, ShadowBox, ShadowFilter, Shadows};
 
+/// Shadow settings shared by every shadowed local light: `Shadows::local_*`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LocalShadows {
+    /// Requested width and height of each depth layer.
+    pub resolution: u32,
+    /// The filter; `ReceiverPlane` is 3×3 PCF `softness` texels apart.
+    pub filter: ShadowFilter,
+    /// The default filter's tap spacing in texels.
+    pub softness: f32,
+}
+impl Default for LocalShadows {
+    fn default() -> Self {
+        Self::from(&Shadows::default())
+    }
+}
+impl From<&Shadows> for LocalShadows {
+    fn from(shadows: &Shadows) -> Self {
+        Self {
+            resolution: shadows.local_resolution,
+            filter: shadows.local_filter,
+            softness: shadows.local_softness,
+        }
+    }
+}
+
 /// An equirectangular environment texture ([`FrameInput::environment_map`]).
 #[derive(Debug, Clone, Copy)]
 pub struct EnvironmentMapInput<'a> {
@@ -328,6 +353,8 @@ pub struct FrameInput<'a> {
     pub fill: Option<Sun>,
     /// Point and spot lights, nearest first; at most [`MAX_LIGHTS`] are used.
     pub lights: &'a [LightInput],
+    /// The shadow map size and filter every shadowed local light shares.
+    pub local_shadows: LocalShadows,
     /// Eligible lights left out beyond [`MAX_LIGHTS`].
     pub lights_dropped: usize,
     /// Displayed socket attachments, evaluated from the interpolated local chain.
@@ -368,6 +395,7 @@ impl Default for FrameInput<'_> {
             sun: Some(Sun::default()),
             fill: None,
             lights: &[],
+            local_shadows: LocalShadows::default(),
             lights_dropped: 0,
             attachments: &[],
             environment: Environment::default(),

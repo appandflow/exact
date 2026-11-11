@@ -328,7 +328,8 @@ module loads (`high` until then). A rung clamps only what the game left unsaid:
 | `Mid` (a recent phone or tablet) | `Game::SAMPLES` | 1 cascade | 0.75 | as `Water` says |
 | `High` (a computer; the agent's) | `Game::SAMPLES` | as `Shadows` says | 1 | as `Water` says |
 
-What the game says stands on every rung: an inserted `Shadows` resource, an
+What the game says stands on every rung: an inserted `Shadows` resource (but for
+its local lights' layer size, which `Low` caps at 1024² and `Mid` at 2048²), an
 inserted `AmbientOcclusion`, and any `render_scale` the game returns (the default,
 `AUTO_RENDER_SCALE`, leaves the scale to the rung). `Low` leaves out a `Water`'s
 caustics and shafts at present time (`Renderer::set_water_effects`): the saved
@@ -501,7 +502,7 @@ nothing yet.
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | A lamp without distance falloff | `SpotLight { decay: 0., .. }` or a `PointLight`'s: only the range, cone and angle shape it (three.js `decay`; default 2, inverse-square) |
-| Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
+| Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few. `Shadows { local_resolution: 2048, local_filter, local_softness, .. }` sizes and filters every lamp's map |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
 | Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` ([team colour from a saved `Team`](render/tests/instances.rs): `p.insert(e, MaterialOverrides(vec![MaterialOverride { material: 0, color: Some(team_rgba), ..Default::default() }]))`) |
 | A skin or theme picked while playing | One model per shape, its textures per instance: `MaterialOverride { material: 0, textures: TextureSlots { base_color: Some("walnut.tex".into()), ..Default::default() }, ..Default::default() }` from `Game::present`; each instance keeps its old look until the new textures arrive ([surface test](render/src/surface_tests/cosmetics.rs)) |
