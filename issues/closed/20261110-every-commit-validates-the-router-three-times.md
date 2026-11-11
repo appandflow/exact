@@ -1,6 +1,7 @@
 # Every commit decodes and validates the whole router value three times, whether or not it navigated
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Commits that retain the committed router object without fragment navigation skip decoding and validation, preserving pending changes and Forward history.
 **Systems:** runner/src/runner/router.rs, runner/src/runner/apply.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
