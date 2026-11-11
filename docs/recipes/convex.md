@@ -33,17 +33,14 @@ component Chat
   resource live = live() as shape ConvexLive else empty(status="connecting")
   resource messages = messages(channel, live.rev) as shape Message[] else empty()
   mutation sent as shape Reply then afterSend
-  // A closed socket is opened again after 1, 2, 4, 8, then every 16 seconds;
-  // one with no frame for a minute too (Convex pings every 15 s).
+  // A closed socket is opened again after 1, 2, 4, 8, then every 16 seconds.
+  // The host closes one that carries nothing for a minute.
   state waited = 0
   state wait = 1
-  state heard = 0
   task reconnect when live.status == "closed"
     every(1000, retry)
   task recovered when live.status == "ready" and wait > 1
     after(1000, calm)
-  task watch when live.status != "closed" and live.status != "failed"
-    every(60000, listen)
   action retry
     if waited + 1 >= wait
       waited = 0
@@ -54,10 +51,6 @@ component Chat
   action calm
     wait = 1
     waited = 0
-  action listen
-    if live.beat == heard
-      refresh live
-    heard = live.beat
 ```
 
 - **One `live` resource, at the root:** the socket. Show `live.status`:

@@ -16,8 +16,6 @@ export interface ConvexLive {
   status: string;
   /** Rises when a query's answer may have changed. Every query resource takes it as an argument. */
   rev: number;
-  /** Rises with every frame Convex sends, its 15-second `Ping` included. */
-  beat: number;
   /** Why the socket ended; "" otherwise. */
   error: string;
   /** Convex's words when it refused the token; "" otherwise. */
@@ -39,6 +37,9 @@ export interface ConvexOptions {
    *  query's result, so it is the sum of them. A larger one ends the socket as `failed`. Natively an open stream
    *  counts twice its ceiling against the 68 MiB that independent reads share. */
   maxMessageBytes?: number;
+  /** How long the socket may carry nothing before the host ends it, in milliseconds of real time: 60000 when absent,
+   *  four of the frames Convex sends every 15 s. The socket then ends as `closed`, to be opened again. */
+  idleTimeoutMs?: number;
 }
 
 export interface ConvexClient {
