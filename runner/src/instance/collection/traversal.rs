@@ -309,6 +309,7 @@ impl Tree {
                 rows,
                 correction: c.correction,
                 pending: c.asks_report(),
+                extents: c.extents(),
             });
             Ok(())
         })?;

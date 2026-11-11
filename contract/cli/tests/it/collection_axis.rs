@@ -367,3 +367,27 @@ fn a_row_lists_computed_estimate_moves_every_card() {
     // The strip keeps its offset, as a browser does on x.
     assert_eq!(c.correction.map_or(offset, |c| c.offset), 30.0 * 114.0);
 }
+
+#[test]
+fn a_snapping_row_lists_snapshot_places_rows_past_its_window() {
+    let mut r = boot(&format!("{STRIP} gap=14 scroll-snap-type=\"x mandatory\""));
+    report(&mut r, 50_000.0, |_| 100.0);
+    let c = r.collections().pop().unwrap();
+    let (first, last) = (c.rows[0].index, c.rows.last().unwrap().index);
+    assert_eq!(c.extents.first().unwrap().index, first - 128);
+    assert_eq!(c.extents.last().unwrap().index, last + 128);
+    for e in &c.extents {
+        assert_eq!(
+            (e.start, e.size),
+            (e.index as f64 * 114.0, 100.0),
+            "row {}",
+            e.index
+        );
+    }
+    let mut r = boot(STRIP);
+    report(&mut r, 50_000.0, |_| 100.0);
+    assert!(
+        r.collections().pop().unwrap().extents.is_empty(),
+        "a list that does not snap places none"
+    );
+}

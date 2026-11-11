@@ -167,6 +167,9 @@ pub(crate) struct Collection {
     /// The list's `gap` along its axis, fixed at creation: each row's extent
     /// in the index counts it after the row.
     gap: f64,
+    /// The list's `scroll-snap-type` is mandatory, fixed at creation: its
+    /// snapshot places rows past its window ([`CollectionSnapshot::extents`]).
+    snaps: bool,
     bootstrap_rows: usize,
     /// The list's literal size along its axis, when it declares one.
     declared_port: Option<f64>,
@@ -383,6 +386,7 @@ impl Collection {
         let mut enabled = false;
         let mut follow_end = false;
         let mut smooth = false;
+        let mut snaps = false;
         let mut at_end = false;
         let mut reach = reach::Margin::default();
         let mut keep = Vec::new();
@@ -434,6 +438,14 @@ impl Collection {
                 && u.eval(binding.expr, frames)?.as_str() == Some("flex")
             {
                 axis = ListAxis::Horizontal;
+            }
+            if binding.kind == BindingKind::Style
+                && binding.id == exact_kernel::StyleId::ScrollSnapType as u16
+            {
+                snaps = matches!(
+                    u.eval(binding.expr, frames)?.as_str(),
+                    Some("x mandatory" | "y mandatory")
+                );
             }
             if binding.kind == BindingKind::Style
                 && binding.id == exact_kernel::StyleId::ScrollBehavior as u16
@@ -550,6 +562,7 @@ impl Collection {
             },
             estimated_height,
             gap,
+            snaps,
             // The provisional extent ([`set_bootstrap_extent`]), capped at
             // sixteen rows, unless the list says how many (`initial-item-count`).
             // Actual nested-scrollport feedback determines the real window.
