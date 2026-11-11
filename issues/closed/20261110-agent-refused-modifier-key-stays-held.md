@@ -1,6 +1,7 @@
 # A refused `type <id> key Shift` leaves the modifier held for every later tap and key
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused key-downs preserve prior physical modifier holds and release only newly accepted chord modifiers.
 **Systems:** host/linux/src/agent.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
@@ -67,8 +68,9 @@ Not run: the Windows and Android carriers.
 
 ## Direction
 
-Clear the key's own bit when its down is refused: after `type_key` returns an error
-for a down, call `p.hold_modifier(code, false)`.
+Restore the key's previous held state when its down is refused. A refused chord
+releases only modifiers newly pressed and accepted during that request; it leaves
+earlier holds intact and sends no key-up for a refused down.
 
 ## Related
 
