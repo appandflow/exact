@@ -1,6 +1,7 @@
 # On Android, Snooze posts the new countdown's notification and the ringing service then removes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Snooze and Repeat assign the new countdown a fresh notification code, so queued ring teardown cannot remove it.
 **Systems:** packages/alarms/android/AlarmRing.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
