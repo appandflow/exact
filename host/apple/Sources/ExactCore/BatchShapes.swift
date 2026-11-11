@@ -216,12 +216,8 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric", "font_variant_ligatures", "font_feature_settings",
-                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility", "user_select", "outline_style",
-                 "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
-                try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
-            default: try r.skip()
+            default: try style.set(key, r.value(), colorChannels: r.colorChannels)
             }
         }
         try style.height(height)

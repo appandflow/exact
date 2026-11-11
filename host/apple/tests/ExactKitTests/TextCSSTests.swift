@@ -299,6 +299,60 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
+    func testInlineOpticalSizingSurvivesEitherKeyOrder() throws {
+        let settings = #""font_variation_settings":[["opsz",20]]"#
+        let axis = FontAxis(tag: 0x6f70737a, value: 20)
+        let cases: [(String, [FontAxis])] = [
+            ("", []),
+            (#""font_optical_sizing":"auto""#, []),
+            (#""font_optical_sizing":"none""#, [.ownOpticalSize]),
+            (#""font_optical_sizing":"auto","# + settings, [axis]),
+            (#""font_optical_sizing":"none","# + settings, [.ownOpticalSize, axis]),
+            (settings + #", "font_optical_sizing":"none""#, [.ownOpticalSize, axis]),
+        ]
+        for fields in [#""op":"paragraph","id":1"#, #""id":1,"op":"paragraph""#] {
+            for (style, expected) in cases {
+                let wire = """
+                {"ops":[{\(fields),"runs":[{"id":2,"parent":1,"props":{"text":"text"},"style":{\(style)}}]}]}
+                """
+                let batch = Batch.decode(Data(wire.utf8))
+                XCTAssertNil(batch.error)
+                let inline = try XCTUnwrap(batch.ops.first?.runs.first)
+                XCTAssertEqual(inline.run(dark: false).variations, expected, wire)
+            }
+        }
+    }
+
+    func testInlineOpticalSizingPaintsAtTheMeasuredWidth() throws {
+        let parts = ["The quick ", "brown fox", " jumps over the lazy dog"]
+        let bytes = Array(parts.joined().utf8)
+        let measured = bytes.withUnsafeBufferPointer { text in
+            var run = ExactTextRun()
+            run.text = text.baseAddress; run.len = text.count
+            run.font_size = 12; run.font_weight = 400; run.font_stretch = 100
+            run.optical_sizing_none = 1
+            return withUnsafePointer(to: &run) { runs in
+                var request = ExactMeasureRequest()
+                request.runs = runs; request.count = 1; request.strut = runs.pointee; request.width = -1
+                return engine.measure(request).width
+            }
+        }
+        let runs = parts.enumerated().map { index, text in
+            """
+            {"id":\(index + 2),"parent":1,"paint":true,"props":{"text":"\(text)"},
+             "style":{"font_size":12,"font_optical_sizing":"none","text_color":\(index == 1 ? "[255,0,0,255]" : "[0,0,0,255]")}}
+            """
+        }.joined(separator: ",")
+        for fields in [#""op":"paragraph","id":1"#, #""id":1,"op":"paragraph""#] {
+            let batch = Batch.decode(Data("{\"ops\":[{\(fields),\"runs\":[\(runs)]}]}".utf8))
+            XCTAssertNil(batch.error)
+            let painted = try XCTUnwrap(batch.ops.first).runs.map { $0.run(dark: false) }
+            XCTAssertEqual(painted.count, parts.count)
+            let paragraph = engine.paragraph(spec(painted), width: .infinity)
+            XCTAssertEqual(Float(paragraph.width), measured, accuracy: 0.01, fields)
+        }
+    }
+
     /// LLP 1019 D9: `font-variation-settings` draws after the weight, the
     /// width and the size, each axis it names winning; `font-stretch` on a
     /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's;

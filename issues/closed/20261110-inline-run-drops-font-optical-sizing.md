@@ -1,6 +1,7 @@
 # An inline run drops `font-optical-sizing: none` on Apple, so its text is painted at a width it was not measured at
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple inline runs preserve font-optical-sizing in either JSON key order, so painted text uses the measured font axes.
 **Systems:** host/apple/Sources/ExactCore/BatchShapes.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
