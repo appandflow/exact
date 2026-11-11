@@ -1,6 +1,7 @@
 # Update store calls from different threads share one input and one output buffer, so a call can take another call's answer
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Updates` holds one lock from each C call's payload to its copied answer, so a call on one thread can no longer replace another's input or output.
 **Systems:** host/apple/Sources/ExactUpdates/Updates.swift, host/apple-update/src/store.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
