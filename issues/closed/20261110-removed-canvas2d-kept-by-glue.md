@@ -1,6 +1,7 @@
 # A Canvas 2D node that leaves the tree, and its bitmap, stay reachable for the life of the page
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both web targets release removed Canvas 2D views' observers, replayers, reported sizes and geometry waits, including on wasm plan reload.
 **Systems:** host/web/canvas2d-glue.js, host/web-js/canvas2d.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

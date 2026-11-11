@@ -537,14 +537,14 @@ export function afterPaintPieces(load, o) {
   let c2d = null, c2dLoading = null; const c2dQueue = [];
   const canvas2d = (op) => {
     if (c2d) return c2d.op(op);
+    if (op.forget && !c2dLoading) return;
     c2dQueue.push(op);
     c2dLoading ??= new Promise(r => afterPaint(r, o.agent())).then(() => load('./canvas2d-glue.js', 'canvas2dGlue'))
       .then(make => { c2d = make({ views: o.views, now: o.now, applyBatch: o.applyBatch, generation: o.generation }); for (const q of c2dQueue.splice(0)) c2d.op(q); })
       .catch(error => { c2dLoading = null; c2dQueue.length = 0; console.error('exact: canvas2d:', error); });
   };
   const c2dPending = () => (c2d ? c2d.settled() : c2dLoading?.then(() => c2d?.settled()));
-  // `preload`: a plan that uses motion (its wasm exports `exact_motion`) needs
-  // them before its first spring. `pending`: the load in flight, else null.
+  // Preload motion when the plan exports exact_motion, before its first spring.
   return { collections, motion, arrange, canvas2d, preload: start, pending: () => {
     const p = live || !loading ? null : loading, c = c2dPending();
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
@@ -649,8 +649,7 @@ export function animationClocks(root) {
         paused.set(a, is); clocked.set(a, c);
         // An ended play stays ended: a clock does not restart it.
         if (a.playState === 'finished' || a.playState === 'idle') continue;
-        // A pause keeps its membership: paused, it still holds the clock busy. A new one joins (paused, without a
-        // start, which would unpause it); a resume rejoins.
+        // A pause keeps its membership: paused, it still holds the clock busy. A new one joins (paused, without a start, which would unpause it); a resume rejoins.
         if (is && was !== undefined && c === had && member) continue;
         const s = start(a, now);
         if (s !== null && !is) a.startTime = s;
@@ -755,6 +754,7 @@ export function renderMarkup(el, json) {
     });
   }
 }
+export function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 // LLP 1007 §6: boot the dev generation when named; use the baked plan if none arrives within five seconds
 export function devFirst() {
   if (!document.querySelector('meta[name="exact-dev-generation"]')) return null;

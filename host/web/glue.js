@@ -1,5 +1,5 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
+import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, releaseAssets, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
 let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, frameModule, frameNavigation; const frameNav = () => frameNavigation ??= loadAfterPaint('./frame-navigation.js', 'frameNavigation'); // frameNavigation: an iframe's navigation records and commands (LLP 1020.002); the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
@@ -210,7 +210,6 @@ function assetNamespace(cards) {
   }
   return assets;
 }
-function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 const lists = new Map();
 let listSelection, listSelectionLoading;
 // A virtualized list has logical rows; its (`collection`) feedback is navigation.js's.
@@ -820,6 +819,7 @@ function apply(batch) {
         break;
       }
       case "destroy": {
+        pieces.canvas2d({ id: op.id, forget: true });
         arrange.destroy(op.id);
         motion.destroy(op.id);
         const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
@@ -1346,6 +1346,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   pendingScrolls.clear();
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
+  for (const id of views.keys()) pieces.canvas2d({ id, forget: true });
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
   for (const el of views.values()) { el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
   messageFrames.clear(); messageViews.clear();
@@ -1380,9 +1381,8 @@ globalThis.exact = { ...globalThis.exact, discardSecretWrite: name => pendingSto
     const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
     applyBatch(batch); return batch;
   },
-  // A dev-plan event can arrive while the wasm is still fetching. Queue it
-  // behind the initial boot instead of acknowledging a reload that did not
-  // happen.
+  // Queue a dev-plan event behind initial boot when it arrives while wasm is fetching,
+  // so a reload is never acknowledged before it happens.
   reload: async (bytes, fresh = false) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes, devAssets, () => true, null, fresh); },
   reloadGeneration: async (bytes, cards, current, module = null, rust = null, letGo = false) => { // letGo: the dev loop's, which swaps with requests in flight
     await ready;
