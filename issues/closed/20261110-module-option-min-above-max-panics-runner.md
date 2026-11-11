@@ -1,6 +1,7 @@
 # A module option declared with its `min` above its `max` compiles, and a computed value for it panics the runner
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Module declarations reject an option whose min exceeds its max, naming the option before a plan reaches the runner.
 **Systems:** `contract/cli/src/declaration.rs`, `runner/src/runner/modules/samples.rs`
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

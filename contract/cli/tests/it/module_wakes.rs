@@ -193,6 +193,56 @@ fn a_wake_event_carries_its_budget_and_the_bake_holds_its_bounds() {
     assert!(refused.contains("only an event a wake raises"), "{refused}");
 }
 
+#[test]
+fn a_module_option_refuses_reversed_bounds() {
+    let app = App::new("reversed-bounds");
+    app.edit_interface(r#""min": 60000"#, r#""min": 60000, "max": 1000"#);
+    let source = r#"use tideEvery from "@fixture/tide"
+
+component App
+  state gap = 5000
+  action periodic
+    tideEvery(tag="e1", every=gap)
+  view
+    text "Tide"
+"#;
+    for value in ["gap", "5000"] {
+        app.write(
+            "app.contract",
+            &source.replace("every=gap", &format!("every={value}")),
+        );
+        let refused = app.compile().unwrap_err();
+        assert!(
+            refused.iter().any(|e| e.id == "contract-use-declaration"
+                && e.message.ends_with(
+                    "`tideEvery`'s option `every`'s `min` (60000) must not exceed its `max` (1000)"
+                )),
+            "{value}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn a_module_option_accepts_ordered_and_one_sided_bounds() {
+    for (bounds, expected) in [
+        (r#""min": 1000, "max": 60000"#, 5000.0),
+        (r#""min": 60000, "max": 60000"#, 60000.0),
+        (r#""min": 60000"#, 60000.0),
+        (r#""max": 1000"#, 1000.0),
+    ] {
+        let app = App::new("valid-bounds");
+        app.edit_interface(r#""min": 60000, "default": 60000"#, bounds);
+        let source = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+        app.write(
+            "app.contract",
+            &source.replace("every=60000", "every=ticks + 5000"),
+        );
+        let mut r = boot(&app);
+        r.act("periodic", Vec::new()).unwrap();
+        assert_eq!(entry(&r, "every")["every"], expected, "{bounds}");
+    }
+}
+
 /// §10's warm wake on a periodic registration: refused until due; then the
 /// handler runs as the wake's, its request owned until it lands, the
 /// session's page hidden and timers stopped meanwhile and its `copyText`
