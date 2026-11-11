@@ -839,7 +839,7 @@ impl<D: DataSource> Presenter<D> {
         }
         contact.position = (x, y);
         if contact.group {
-            let moved = self.move_group((x, y), now_ms);
+            let moved = self.move_group((x, y));
             if self.group_live() {
                 self.contact = Some(contact);
             } else {
@@ -863,7 +863,7 @@ impl<D: DataSource> Presenter<D> {
                 return match self.begin_group(binding, contact.origin, now_ms) {
                     Ok(true) => {
                         contact.group = true;
-                        let moved = self.move_group((x, y), now_ms);
+                        let moved = self.move_group((x, y));
                         self.contact = Some(contact);
                         moved
                     }

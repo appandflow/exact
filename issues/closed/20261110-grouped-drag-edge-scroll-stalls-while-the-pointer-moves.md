@@ -1,6 +1,7 @@
 # A grouped drag's edge autoscroll nearly stops whenever the pointer is moving
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Grouped edge scrolling keeps its frame clock across pointer moves and restarts it after leaving the scrollable bands.
 **Systems:** host/linux/src/presenter/group.rs (the painting host: Linux, Windows, Android)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
