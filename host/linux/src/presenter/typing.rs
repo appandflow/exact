@@ -113,6 +113,24 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(target)
             .and_then(|n| exact_kernel::control::text_maxlength(n.props));
+        // A number field keeps what its editor takes (`number.rs`); text
+        // with nothing it takes leaves the field as it was.
+        let typed = text;
+        let numeric;
+        let text = match (self.host.kernel().node(target))
+            .is_some_and(|n| number::Number::of(n.props).is_some())
+        {
+            true => {
+                let (start, end) = (
+                    field::byte_at(&value, selection.start),
+                    field::byte_at(&value, selection.end),
+                );
+                numeric = number::insertion(text, &value, start, end);
+                numeric.as_str()
+            }
+            false => text,
+        };
+        let refused = text.is_empty() && !typed.is_empty();
         // `beforeinput` carries the whole text; what is inserted, and what
         // `input` carries, is cut to the room left. An empty insertion still
         // deletes a selected range (Chrome's insertText).
@@ -123,7 +141,7 @@ impl<D: DataSource> Presenter<D> {
             cancelable: true,
             is_composing: false,
         };
-        if self.before_input(target, &edit, now)? {
+        if !refused && self.before_input(target, &edit, now)? {
             // Chromium advances an endpoint inside a surrogate pair past
             // the character before fitting or replacing the selection.
             let boundary = |offset| {

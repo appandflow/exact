@@ -65,6 +65,7 @@ mod group;
 mod hatch;
 mod history;
 pub mod ime;
+mod number;
 mod painter;
 mod pan_release;
 mod picker;

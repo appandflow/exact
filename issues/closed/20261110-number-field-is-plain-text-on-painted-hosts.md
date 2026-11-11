@@ -1,6 +1,7 @@
 # On Linux and Windows `input type="number"` is a plain text field: the arrows do not step and letters are accepted
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A painted number field steps on ArrowUp and ArrowDown by HTML's `stepUp()` rule within `min` and `max`, with `input` then `change` for each step, and keeps only what a number's editor takes from typed, pasted and driven text (`presenter/number.rs`, the rules of `NumberStepping.swift`); it draws no stepper and its accessibility node is still a plain edit field.
 **Systems:** host/linux/src/presenter/field.rs, docs/recipes/number-field.md, docs/recipes/grouped-form.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
