@@ -1041,7 +1041,8 @@ impl World {
             return;
         }
         let value = value.into_stored();
-        let mut line = crate::json::to_string(&value).unwrap_or_else(|e| e.to_string());
+        let mut line = String::new();
+        value.append_json(&mut line, false);
         // A large value (a whole inventory) journals its head and its size:
         // 4,096 lines of a 16 MiB record would hold 64 GiB.
         if line.len() > PUBLISH_LINE_BYTES {

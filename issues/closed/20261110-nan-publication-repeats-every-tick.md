@@ -1,6 +1,7 @@
 # A published NaN is journaled and delivered again on every tick
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Unchanged NaNs publish once, including nested values, and publication journals use delivered JSON.
 **Systems:** game/engine/src/world.rs, game/engine/src/values.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

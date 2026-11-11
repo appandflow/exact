@@ -169,7 +169,9 @@ and validates it against its shape: missing fields default, extra names are
 ignored, and wrong kinds refuse by field name. Rust field names are not checked
 against the Contract shape at bake time.
 
-Publication delivers and journals only changed values. In records, unit and `None`
+Publication delivers and journals only changed values. Numbers compare by bits,
+with all NaNs equal and signed zeros distinct, as in saves and hashes. Non-finite
+numbers deliver and journal as `null`. In records, unit and `None`
 publish as `null`; `Some(())` refuses because it is indistinguishable from `None` in
 Contract JSON. Record publication rejects enum variants and integers outside
 ±9,007,199,254,740,991 before publishing any field. Ordinary scalar integer
