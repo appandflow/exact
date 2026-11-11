@@ -1,6 +1,7 @@
 # The hosts that admit a local-network fetch still admit the cloud metadata addresses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `exact_grants`, ibex2 and the web refuse 169.254.169.254, its IPv4-mapped spellings and fd00:ec2::254 under a `local-network` grant, and the shared grant fixture holds all three to it.
 **Systems:** grants/src/local.rs (`local_v6`), vendor/ibex ibex2 grant (`is_local_network`), host/web/navigation.js (`localV4`), the JS target's lifted admission, grants/tests/parity.rs, host/web/tests/fixtures/grants.json
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)

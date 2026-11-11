@@ -377,8 +377,11 @@ unpublished removes it. The stub for other platforms refuses. Replay on a refres
 `net.websocket local-network`, with the word `development` for loopback too. It
 admits a host the URL writes as an RFC 1918, link-local or unique-local
 address (an IPv4-mapped IPv6 address by its IPv4), a link-local IPv6 address,
-or a `.local` name; never a name that merely resolves to one. exact2's
-`grants` crate holds the same test. Replay on a refresh.
+or a `.local` name; never a name that merely resolves to one, and never the
+cloud metadata service, 169.254.169.254 (its IPv4-mapped spelling included)
+or `fd00:ec2::254`. exact2's `grants` crate holds the same rule, and its
+`tests/parity.rs` holds the two to `host/web/tests/fixtures/grants.json`.
+Replay on a refresh.
 
 ## Local patch 21, a host's check at every fetch hop and WebSocket open
 

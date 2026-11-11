@@ -8,6 +8,7 @@ export {
   createGrantSet,
   grantError,
   hasGrant,
+  isCloudMetadata,
   isLocalNetwork,
   rawGrantText,
   sameGrantDeclaration,

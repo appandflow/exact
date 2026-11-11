@@ -1223,17 +1223,17 @@ export function grantOrigins(memory) {
   } };
 }
 // local network: begin — a host on the local network as a URL writes it (LLP 1133.036 D5); with `loopback`, loopback too.
-const localV4 = (a, b, loopback) => a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 169 && b === 254 || loopback && a === 127;
 const hextets = text => { const [head, tail] = text.split('::'), h = head?.match(/[^:]+/g) ?? [], t = tail?.match(/[^:]+/g) ?? []; return [...h, ...Array(tail === undefined ? 0 : 8 - h.length - t.length).fill('0'), ...t].map(x => parseInt(x, 16)); };
+// The address a host writes: four octets (an IPv4-mapped IPv6 address by the ones it carries), eight hextets, or null for a name.
+const address = host => { if (!host.startsWith('[')) return host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number) ?? null; const s = hextets(host.slice(1, -1)); return s.slice(0, 5).every(x => x === 0) && s[5] === 0xffff ? [s[6] >> 8, s[6] & 255, s[7] >> 8, s[7] & 255] : s; };
+// The cloud instance metadata service, which no grant admits as local: 169.254.169.254 and EC2's fd00:ec2::254 (exact_grants::is_cloud_metadata).
+export const isCloudMetadata = host => { const a = address(String(host).toLowerCase()); return a?.length === 4 ? a.join('.') === '169.254.169.254' : a?.map(x => x.toString(16)).join(':') === 'fd00:ec2:0:0:0:0:0:254'; };
 export const isLocalNetwork = (host, loopback) => {
-  host = String(host).toLowerCase();
-  if (host.startsWith('[')) {
-    const s = hextets(host.slice(1, -1)), zeros = n => s.slice(0, n).every(x => x === 0);
-    if (zeros(5) && s[5] === 0xffff) return localV4(s[6] >> 8, s[6] & 255, loopback);
-    return (s[0] & 0xfe00) === 0xfc00 || (s[0] & 0xffc0) === 0xfe80 || loopback && zeros(7) && s[7] === 1;
-  }
-  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/), name = host.replace(/\.$/, '');
-  return v4 ? localV4(+v4[1], +v4[2], loopback) : /.\.local$/.test(name) || loopback && name === 'localhost';
+  host = String(host).toLowerCase(); if (isCloudMetadata(host)) return false;
+  const a = address(host), name = host.replace(/\.$/, '');
+  if (a?.length === 4) return a[0] === 10 || a[0] === 172 && a[1] >= 16 && a[1] <= 31 || a[0] === 192 && a[1] === 168 || a[0] === 169 && a[1] === 254 || loopback && a[0] === 127;
+  if (a) return (a[0] & 0xfe00) === 0xfc00 || (a[0] & 0xffc0) === 0xfe80 || loopback && a.slice(0, 7).every(x => x === 0) && a[7] === 1;
+  return /.\.local$/.test(name) || loopback && name === 'localhost';
 };
 // local network: end
 // grant admission: begin — the JS target's build lifts this section and the classifier above into a module of their own

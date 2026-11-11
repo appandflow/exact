@@ -22,7 +22,7 @@ mod local;
 mod presence;
 pub mod process;
 mod windows_path;
-pub use local::{is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
+pub use local::{is_cloud_metadata, is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
 pub use presence::{
     line_presence, presence_words, Policy, Presence, PLATFORM_WORDS, PRESENCE_PREFIX,
 };
@@ -845,6 +845,7 @@ mod tests {
             "169.254.169.254",
             "[::ffff:169.254.169.254]",
             "[::ffff:a9fe:a9fe]",
+            "[fd00:ec2::254]",
         ] {
             assert!(!fetch(Origin::new("http", host, 80)));
             assert!(!socket(Origin::new("ws", host, 80)));
