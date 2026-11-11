@@ -395,3 +395,155 @@ fn a_headless_load_fetches_a_generated_models_textures_and_a_failed_one_names_it
     );
     assert!(!error.contains("`tile.model` is missing"), "{error}");
 }
+
+/// A die whose skin a tick picks after setup: `Game::present` supplies each
+/// skin's model when a `Mesh` shows it (issue #88).
+struct Dice;
+fn skin(name: &str) -> exact_game::asset::Model {
+    use exact_game::asset::{MaterialData, Model, Node};
+    let mut mesh = triangle();
+    mesh.positions[0] = name.len() as f32 * 0.01;
+    Model {
+        bounds: [0., 0., 0., 1., 0., 1.],
+        meshes: vec![mesh],
+        materials: vec![MaterialData {
+            base_color_texture: Some(0),
+            ..Default::default()
+        }],
+        textures: vec![name.replace(".model", ".tex")],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+impl exact_game::Game for Dice {
+    const ID: &'static str = "cosmetic-dice";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("die", (Transform::default(), Mesh::asset("classic.model")));
+    }
+    fn tick(w: &mut World, _: &exact_game::Input, _: &()) {
+        if w.tick() == 30 {
+            *w.require_mut::<Mesh>("die") = Mesh::asset("walnut.model");
+        }
+    }
+    fn present(p: &mut exact_game::Present<'_>, _: &()) {
+        let mut names = Vec::new();
+        p.for_each::<Mesh>(|_, m| {
+            if let Mesh::Asset(name) = m {
+                names.push(name.clone());
+            }
+        });
+        for name in names {
+            p.cosmetic_model(&name, || skin(&name)).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_cosmetic_model_registers_from_present_after_setup_and_retires_unshown() {
+    let mut sim = exact_game::Sim::<Dice>::new(()).unwrap();
+    // The model has no payload: only its texture is fetched.
+    assert_eq!(sim.take_assets(), ["classic.tex"]);
+    assert!(sim.world().model("classic.model").is_none());
+    // Its texture still in flight never gates a save: the save is the same.
+    let early = sim.save().unwrap();
+    sim.asset("classic.tex", Some(SOIL)).unwrap();
+    let hash = sim.world().hash();
+    let saved = sim.save().unwrap();
+    assert_eq!(early, saved);
+    assert!(!saved.windows(9).any(|s| s == b"positions"));
+    assert!(!saved.windows(13).any(|s| s == b"assetIdentity"));
+
+    sim.run(31. * 1000. / 60.);
+    assert_eq!(sim.world().tick(), 31);
+    assert!(sim.world().model("walnut.model").is_none());
+    let models: Vec<_> = sim.presentation_models().map(|(n, _)| n).collect();
+    assert_eq!(models, ["classic.model", "walnut.model"]);
+    // No Mesh shows classic any more: it and its texture retire, and walnut's
+    // texture is fetched.
+    assert_eq!(sim.take_assets(), ["walnut.tex"]);
+    let mut retired = sim.take_retired_assets();
+    retired.sort();
+    assert_eq!(retired, ["classic.model", "classic.tex"]);
+    let models: Vec<_> = sim.presentation_models().map(|(n, _)| n).collect();
+    assert_eq!(models, ["walnut.model"]);
+
+    // Load order never reaches the simulation: a run whose texture never
+    // arrives hashes the same.
+    let mut other = exact_game::Sim::<Dice>::new(()).unwrap();
+    other.run(31. * 1000. / 60.);
+    assert_eq!(other.world().hash(), sim.world().hash());
+    assert_ne!(hash, sim.world().hash());
+
+    // A restore keeps presentation residency; present registers what it shows.
+    sim.restore(&saved).unwrap();
+    assert!(sim.presentation_models().any(|(n, _)| n == "classic.model"));
+    assert!(sim.world().model("classic.model").is_none());
+    assert_eq!(sim.world().hash(), hash);
+}
+
+#[test]
+fn a_cosmetic_name_is_immutable_while_registered_and_never_takes_a_declared_name() {
+    // The die shows the skin, then a cube, the skin, a cube and the skin
+    // again. From tick 7 present builds other content under the same name.
+    struct Renamed;
+    impl exact_game::Game for Renamed {
+        const ID: &'static str = "cosmetic-names";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.generated("rock.model", triangle()).unwrap();
+            w.spawn_named("die", (Transform::default(), Mesh::asset("skin.model")));
+        }
+        fn tick(w: &mut World, _: &exact_game::Input, _: &()) {
+            match w.tick() {
+                2 | 6 => *w.require_mut::<Mesh>("die") = Mesh::cube(1.),
+                4 | 8 => *w.require_mut::<Mesh>("die") = Mesh::asset("skin.model"),
+                _ => {}
+            }
+        }
+        fn present(p: &mut exact_game::Present<'_>, _: &()) {
+            let tick = p.tick();
+            if matches!(*p.require::<Mesh>("die"), Mesh::Asset(_)) {
+                let content = if tick < 7 { "a.model" } else { "bb.model" };
+                // Resident, the build does not run: its content cannot change.
+                p.cosmetic_model("skin.model", || skin(content)).unwrap();
+            }
+            let error = p
+                .cosmetic_model("rock.model", || skin("a.model"))
+                .unwrap_err();
+            assert!(error.contains("generated"), "{error}");
+            let error = p
+                .cosmetic_model("skin.tex", || skin("a.model"))
+                .unwrap_err();
+            assert!(error.contains(".model"), "{error}");
+        }
+    }
+    let mut sim = exact_game::Sim::<Renamed>::new(()).unwrap();
+    let first = |sim: &exact_game::Sim<Renamed>| {
+        sim.presentation_models()
+            .find(|(n, _)| *n == "skin.model")
+            .map(|(_, m)| m.meshes[0].positions[0])
+    };
+    let a = Some(skin("a.model").meshes[0].positions[0]);
+    let bb = Some(skin("bb.model").meshes[0].positions[0]);
+    let (mut shown_before, mut returns) = (true, 0);
+    for tick in 1..=11 {
+        sim.run(1000. / 60.);
+        assert_eq!(sim.world().tick(), tick);
+        sim.take_assets();
+        let shown = matches!(*sim.world().require::<Mesh>("die"), Mesh::Asset(_));
+        returns += u32::from(shown && !shown_before);
+        shown_before = shown;
+        // Retired while unshown; registered again with what present builds then.
+        let expected = match (shown, returns) {
+            (false, _) => None,
+            (true, 0 | 1) => a,
+            (true, _) => bb,
+        };
+        assert_eq!(first(&sim), expected, "tick {tick}");
+    }
+    assert_eq!(returns, 2);
+}

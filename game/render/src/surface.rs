@@ -75,6 +75,9 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     output_opaque: bool,
     frame_ready: bool,
     assets_dirty: bool,
+    // The world's model revision preparation last saw: a cosmetic model
+    // registered by `Game::present` arrives without a host delivery.
+    models_seen: u64,
     asset_check: Option<(exact_game::WorldId, u64, u64)>,
     reported: bool,
     generation: u64,
@@ -422,6 +425,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         }
         if !ASSETS {
             return;
+        }
+        let models = self.sim.as_ref().map(|s| s.world().model_revision());
+        if models.is_some_and(|m| m != self.models_seen) {
+            self.models_seen = models.unwrap();
+            self.assets_dirty = true;
         }
         if !self.assets_dirty && self.format == Some(format) {
             return;
@@ -1077,12 +1085,16 @@ mod residency_tests {
         s.asset(&model.textures[0], Ok(texture));
         let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         assert!(!s.render.as_ref().unwrap().0.models.records.is_empty());
+        // A model the renderer draws is held (`Sim::hold_assets`): it retires
+        // once a frame draws something else in its place.
         *s.sim
             .as_ref()
             .unwrap()
             .world()
             .get_mut::<exact_game::Mesh>("hero")
-            .unwrap() = exact_game::Mesh::asset("away.model");
+            .unwrap() = exact_game::Mesh::cube(1.);
+        s.dirty = true; // the write bypassed a tick, which would feed it
+        exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         s.assets();
         *s.sim
             .as_ref()
@@ -1138,13 +1150,22 @@ mod residency_tests {
         let handles = s.render.as_ref().unwrap().0.models.loaded["hero.model"]
             .nodes
             .clone();
-        for name in ["away.model", "hero.model"] {
+        // A model the renderer draws is held (`Sim::hold_assets`): it retires
+        // once a frame draws something else in its place.
+        for (mesh, draw) in [
+            (exact_game::Mesh::cube(1.), true),
+            (exact_game::Mesh::asset("hero.model"), false),
+        ] {
             *s.sim
                 .as_ref()
                 .unwrap()
                 .world()
                 .get_mut::<exact_game::Mesh>("hero")
-                .unwrap() = exact_game::Mesh::asset(name);
+                .unwrap() = mesh;
+            if draw {
+                s.dirty = true; // the write bypassed a tick, which would feed it
+                exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+            }
             s.assets();
         }
         let retired = exact_game::asset::TextureData {

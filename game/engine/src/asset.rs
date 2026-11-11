@@ -694,6 +694,9 @@ pub(crate) struct Assets {
     /// only the models it concerns. Write both through `set_dependencies`.
     pub dependents: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
+    /// Names `Present::cosmetic_model` registered, kept after they retire:
+    /// such a name is never fetched from the host.
+    pub cosmetic: BTreeSet<String>,
 }
 
 // The delivery owner is installed by the first asset mutation. Primitive worlds
@@ -729,6 +732,7 @@ impl std::ops::Deref for AssetStore {
             dependencies: map::AssetMap::EMPTY,
             dependents: map::AssetMap::EMPTY,
             retired: Vec::new(),
+            cosmetic: BTreeSet::new(),
         };
         self.owner.as_ref().map_or(&EMPTY, |owner| owner.as_ref())
     }

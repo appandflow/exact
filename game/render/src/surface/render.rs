@@ -45,6 +45,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             output_opaque: false,
             frame_ready: false,
             assets_dirty: false,
+            models_seen: 0,
             asset_check: None,
             reported: false,
             generation: 0,

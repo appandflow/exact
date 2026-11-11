@@ -415,6 +415,16 @@ level bytes or generated output refuse restore by name. Keep other generator inp
 in the level or saved setup arguments; identity checks cannot prove a generator is
 deterministic. See the [level example](../games/asset-fixture/logic/src/lib.rs).
 
+A look the player picks at any time (a table theme, a dice skin) is a cosmetic model:
+a tick writes `Mesh::asset("walnut-d6.model")`, and `Game::present` supplies its content
+with `p.cosmetic_model(name, || model)` for every name a `Mesh` shows, at every present.
+The closure runs only when the name is not resident. A cosmetic model is never declared,
+saved or hashed: `w.model(name)` stays `None`, its textures are requested as a generated
+model's are, and load order never reaches a tick. It retires, freeing its CPU and GPU
+memory, when no `Mesh` shows it. Rebuilds and restores keep it resident, and the present that follows registers what the new world
+shows. A name is immutable while registered and may take new content once it retired;
+a declared, generated or delivered model's name is refused.
+
 ## Settling and data formats
 
 `Sim::settle` advances world time and reports what remains busy. Components, RNG,

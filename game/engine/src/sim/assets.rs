@@ -65,9 +65,11 @@ impl<G: Game> Sim<G> {
             .filter(|(n, s)| {
                 (**s == crate::asset::AssetState::Pending || assets.redelivery.contains(*n))
                     && !assets.requested.contains(*n)
-                    // A generated model has no payload: it is Pending only
-                    // until its textures, requested by their own names, arrive.
-                    && !(n.ends_with(".model") && assets.identities.contains_key(n.as_str()))
+                    // A generated or cosmetic model has no payload: it is Pending
+                    // only until its textures, requested by their own names, arrive.
+                    && !(n.ends_with(".model")
+                        && (assets.identities.contains_key(n.as_str())
+                            || assets.cosmetic.contains(n.as_str())))
             })
             .map(|(n, _)| n.clone())
             .collect();
@@ -268,6 +270,11 @@ impl<G: Game> Sim<G> {
             self.finish_assets(name);
             return Ok(());
         }
+        if self.world.assets.cosmetic.contains(name) {
+            return Err(format!(
+                "asset `{name}`: a cosmetic model has no payload; `Game::present` supplies it"
+            ));
+        }
         self.world.assets.request(name);
         self.world.assets.requested.insert(name.into());
         self.world.assets.redelivery.remove(name);
@@ -309,3 +316,4 @@ impl<G: Game> Sim<G> {
         Ok(())
     }
 }
+
