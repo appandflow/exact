@@ -91,9 +91,10 @@ pub struct Item {
     /// The element's node (for an instance under a `use`, the target's
     /// node: events on it go to the `use`, LLP 1055.000 D8).
     pub id: ViewId,
-    /// A key unique in the scene: the node id, or for an instance the node
-    /// id mixed with the `use`s above it, so two instances of one node are
-    /// two layers.
+    /// A key unique in the scene: the node id, or for an instance a key
+    /// given to its whole instance path, so two instances of one node are
+    /// two layers. Below 2^50: a host keys a part of an item by setting a
+    /// bit above.
     pub uid: u64,
     /// Its generation-checked key (the motion engine's).
     pub key: NodeKey,
@@ -299,6 +300,7 @@ pub fn resolve(
         refused: None,
         budget: budget::Budget::new(),
         bboxes: Default::default(),
+        keys: Keys::default(),
     };
     r.present(node, &mut inherited);
     let items = match view {
@@ -332,6 +334,42 @@ struct Resolver<'k, 'p> {
     /// a group's box asks each child's twice (its own and its
     /// transform's), which nested groups would make exponential.
     bboxes: BoxMemo,
+    /// The keys given to instance paths.
+    keys: Keys,
+}
+
+/// Instance keys: each path's, by the key of the path above it and the step
+/// below that (a node id, or a salted one), so a path's key is exact
+/// whatever its length. A step's key is a hash of the two, moved past any
+/// key already given.
+#[derive(Default)]
+struct Keys {
+    given: std::collections::HashMap<(u64, u64), u64>,
+    taken: std::collections::HashSet<u64>,
+}
+
+impl Keys {
+    /// Instance keys are `INSTANCE` and above, past every node id, and below
+    /// 2^50 ([`Item::uid`]).
+    const INSTANCE: u64 = 1 << 49;
+
+    fn step(&mut self, above: u64, step: u64) -> u64 {
+        use std::hash::{Hash, Hasher};
+        if let Some(&key) = self.given.get(&(above, step)) {
+            return key;
+        }
+        let mut h = std::hash::DefaultHasher::new();
+        (above, step).hash(&mut h);
+        let mut k = h.finish();
+        loop {
+            let key = Self::INSTANCE | (k & (Self::INSTANCE - 1));
+            if self.taken.insert(key) {
+                self.given.insert((above, step), key);
+                return key;
+            }
+            k = k.wrapping_add(1);
+        }
+    }
 }
 
 /// [`Resolver::bboxes`]: the node's key in its instance (`uid`), and the
@@ -928,18 +966,17 @@ impl<'k> Resolver<'k, '_> {
         })
     }
 
-    /// A key unique in the scene for `id` under the current `use` path.
-    /// Kept within 53 bits, so a host reading it as a JSON number keeps it.
-    fn uid(&self, id: ViewId) -> u64 {
+    /// A key unique in the scene for `id` under the current `use` path
+    /// ([`Item::uid`]).
+    fn uid(&mut self, id: ViewId) -> u64 {
         if self.uses.is_empty() {
             return id as u64;
         }
-        self.uses.iter().fold(id as u64, |acc, u| {
-            (acc ^ (u << 32) ^ (u >> 32))
-                .rotate_left(13)
-                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-                & ((1 << 53) - 1)
-        })
+        let mut key = 0;
+        for &step in &self.uses {
+            key = self.keys.step(key, step);
+        }
+        self.keys.step(key, id as u64)
     }
 
     /// A `use`: an instance of its target, inheriting from the `use` (SVG 2

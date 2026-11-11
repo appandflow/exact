@@ -636,6 +636,29 @@ fn references_resolve_nearest_and_instances_inherit_from_their_use() {
 }
 
 #[test]
+fn every_instance_of_a_node_has_its_own_key() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let size = [(StyleId::Width, "1"), (StyleId::Height, "1")];
+    let rect = d.node(SvgRect, &size, &[(PropId::Id, "shape")]);
+    let defs = d.node(SvgDefs, &[], &[]);
+    d.children(defs, &[rect]);
+    // `use`s whose ids differ by 256, and every id between.
+    let uses: Vec<u32> = (0..300)
+        .map(|_| d.node(SvgUse, &[], &[(PropId::Href, "#shape")]))
+        .collect();
+    let svg = d.node(Svg, &[(StyleId::Width, "10")], &[]);
+    d.children(svg, &[&[defs][..], &uses].concat());
+    let k = d.kernel(&[svg], 100.0);
+    let mut keys = std::collections::HashSet::new();
+    resolve(&k, svg).walk(&mut |item| {
+        assert!(keys.insert(item.uid), "{} twice", item.uid);
+        assert!(item.uid < 1 << 50, "{} is not below 2^50", item.uid);
+    });
+    assert_eq!(keys.len(), 600, "each use and its instance");
+}
+
+#[test]
 fn a_clip_use_keeps_its_targets_transform() {
     use NodeType::*;
     use StyleId::*;

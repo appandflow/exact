@@ -1,6 +1,7 @@
 # SVG use instances whose ids differ by 256 receive the same scene UID
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An instance's scene key is given to its whole `use` path, step by step, from a hash moved past any key already given, so distinct paths never share one, and it stays below 2^50 so the bits Apple sets for a part's layer cannot collide with another key.
 **Systems:** kernel/src/svg/scene.rs, host/apple/Sources/ExactKit/SvgScene.swift
 **Severity:** P2
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
