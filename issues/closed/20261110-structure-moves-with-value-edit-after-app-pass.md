@@ -1,6 +1,7 @@
 # A value-only design edit changes `Plan::structure` when the app pass interned a string after the design's values
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Plan structure sorts retained strings and remaps table and bytecode references, so value-only edits remain live batches when the app pass adds or shares strings.
 **Systems:** plan/build.rs (`Plan::structure`), plan/src/builder.rs, plan/src/lib.rs (`Plan::intern`), contract/cli/src/reach.rs, host/web-js/dev.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -78,6 +78,28 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
 }
 
 #[test]
+fn structure_remaps_table_and_bytecode_strings_independently_of_interning_order() {
+    let plan = |words: [&str; 2], literal: &str| {
+        let mut b = PlanBuilder::new(0, 0);
+        for word in words {
+            b.str(word);
+        }
+        let string = b.primitive(TypeKind::String);
+        let mut body = Asm::new();
+        body.str(b.str(literal));
+        let body = b.code(body);
+        b.derive("first", string, body);
+        b.finish().unwrap()
+    };
+    let a = plan(["first", "second"], "second");
+    let b = plan(["second", "first"], "second");
+    assert_ne!(a.encode(), b.encode());
+    assert_eq!(a.structure(), b.structure());
+    let other = plan(["first", "second"], "first");
+    assert_ne!(a.structure(), other.structure());
+}
+
+#[test]
 fn resource_context_defaults_to_zero_and_decoding_refuses_an_oversized_tail() {
     let plan = sample();
     assert_eq!(plan.resources[0].context, 0);

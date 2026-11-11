@@ -36,9 +36,10 @@ pub struct PlanBuilder {
     /// shared body is indistinguishable from a copy to every reader.
     bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
     /// The design's values (`theme` rows' and slices'), interned at
-    /// [`finish`](Self::finish) after every other string: a value-only edit
-    /// then moves no other string's id, so the plan's structure
-    /// ([`Plan::structure`]) stays (LLP 1121 stage 4).
+    /// [`finish`](Self::finish) after bytecode strings, so a value-only edit
+    /// keeps bytecode string ids stable. [`Plan::structure`] sorts the retained
+    /// strings and remaps their references, including strings the app pass
+    /// adds later (LLP 1121 stage 4).
     values: Vec<(ValueAt, String)>,
 }
 
