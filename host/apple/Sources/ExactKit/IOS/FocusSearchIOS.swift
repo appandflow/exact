@@ -46,7 +46,12 @@ enum FocusSearch {
         return candidates.allObjects.filter { view in
             guard view.window === window, view.isDescendant(of: container) else { return false }
             var v: UIView? = view
-            while let current = v, current !== container { if current.isHidden || current.alpha < 0.01 { return false }; v = current.superview }
+            // Under a canvas child its surface places, a view is where the
+            // surface draws it, not at its own frame, where the search looks.
+            while let current = v, current !== container {
+                if current.isHidden || current.alpha < 0.01 || (current as? NodeView)?.drawnBySurface == true { return false }
+                v = current.superview
+            }
             return container.convert(view.bounds, from: view).intersects(rect)
         }
     }
@@ -95,6 +100,19 @@ final class Viewport: ScrollView {
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
+#if os(tvOS)
+extension NodeView {
+    /// A canvas child its surface places offers nothing of its subtree to
+    /// UIKit's focus search, which finds focus items through each focus
+    /// environment's `focusItemContainer` and its `focusItems(in:)` ("the
+    /// child focus items within the specified rectangle", UIFocusItemContainer):
+    /// it would find them at their own frames, not where the surface draws
+    /// them, a native control inside (a select's button, a field) included.
+    /// tvOS only: on iOS the viewport's search (`FocusSearch.items`) skips
+    /// them, and a node class answering this is logged at each init (above).
+    package override func focusItems(in rect: CGRect) -> [any UIFocusItem] { drawnBySurface ? [] : super.focusItems(in: rect) }
+}
+#endif
 /// Bound focus search to a native route or modal presentation, as the
 /// document viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {

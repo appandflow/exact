@@ -1227,10 +1227,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard superview != nil else { f.remove(); return }
         setPaintPosition(paintZPosition)
         let shown = window.map { convert(bounds, to: $0).intersects($0.bounds) } ?? true
-        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark,
-                 node: id, fresh: fresh, shown: shown) { [weak self] in
-            if let self { presenter?.boxFilters.landed(self) }
-        }
+        // A placed canvas child's picture is drawn from the box as asked, and shows only through its surface.
+        let render = { f.render(self.layer, clip: self.resolvedClipMask(), scale: self.window?.screen.scale ?? self.traitCollection.displayScale, dark: self.drawsDark,
+                                node: self.id, fresh: fresh, shown: shown) { [weak self] in if let self { self.presenter?.boxFilters.landed(self); self.filterPublished() } } }
+        let before = f.picture.sublayers?.first?.contents as AnyObject?
+        let draw = { if let box = self.layer as? NodeLayer, box.drawnElsewhere { box.asAsked(render); f.picture.isHidden = true } else { render() } }
+        // The filter's input raises the box's opacity and puts it back: no author's change (`passing`).
+        if let box = layer as? NodeLayer { box.passing(draw) } else { draw() }
+        if f.picture.sublayers?.first?.contents as AnyObject? !== before { filterPublished() }
     }
 
     /// Inside `GlassGroups.moving`: a container comes or goes under the

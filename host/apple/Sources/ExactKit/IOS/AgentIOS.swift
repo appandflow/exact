@@ -193,7 +193,7 @@ extension Agent {
         var moving = false
         Agent.pruneUnbegun(now: now)
         while let view = pending.popLast() {
-            guard !view.isHidden, view.alpha > 0 else { continue }
+            guard !view.isHidden, view.alpha > 0, (view as? NodeView)?.drawnBySurface != true else { continue }
             // Only one still running (`inFlight`): not one held at speed 0
             // for the agent's clock (a lowered `@keyframes`), repeating for
             // ever, or kept on the layer past its end. Every one is looked
@@ -1406,7 +1406,7 @@ extension Agent {
             #endif
         }
         func visit(_ layer: CALayer) {
-            guard !layer.isHidden, layer.opacity > 0 else { return }
+            guard !layer.isHidden, layer.opacity > 0, (layer as? NodeLayer)?.drawnElsewhere != true else { return }
             let kind = String(describing: Swift.type(of: layer))
             // A backdrop that only captures (a scroll edge effect's source) draws nothing.
             let backdrop = ["Backdrop", "Portal", "SDF", "Glass"].contains(where: kind.contains)

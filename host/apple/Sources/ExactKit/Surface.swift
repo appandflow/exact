@@ -17,6 +17,10 @@ import UIKit
 #else
 import AppKit
 #endif
+#if os(macOS)
+// AppKit hides a placed canvas child with alpha 0, so its layer's mask is its box's.
+private extension CALayer { var boxMask: CALayer? { mask } }
+#endif
 
 final class SurfaceLayer: CALayer {
     /// A box Core Animation cannot say, drawn at the layer's size.
@@ -75,7 +79,7 @@ extension NodeView {
         guard let s = surface else { return }
         surface = nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if s.clipped?.mask === s.clip { s.clipped?.mask = nil }
+        if s.clipped?.boxMask === s.clip { s.clipped?.mask = nil }
         if s.clippedSelf { clipsToBounds = true }
         s.removeFromSuperlayer()
         CATransaction.commit()
@@ -169,7 +173,7 @@ extension NodeView {
         let target: CALayer?
         if let box = clipBox?.layer { target = box }
         else if let scroller { target = scroller }
-        else if clipsToBounds, (clipPath == nil && boxFilter == nil && style["mask_image"] == nil) || hostLayer?.mask === s.clip {
+        else if clipsToBounds, (clipPath == nil && boxFilter == nil && style["mask_image"] == nil) || hostLayer?.boxMask === s.clip {
             clipsToBounds = false
             s.clippedSelf = true
             target = hostLayer
@@ -177,7 +181,7 @@ extension NodeView {
         guard let target else { return }
         // In the masked layer's own coordinates: a scroll view's are scrolled.
         s.clip.frame = CGRect(origin: target === hostLayer ? .zero : CGPoint(x: -target.frame.minX + target.bounds.minX, y: -target.frame.minY + target.bounds.minY), size: bounds.size)
-        if target.mask !== s.clip { target.mask = s.clip }
+        if target.boxMask !== s.clip { target.mask = s.clip }
         s.clipped = target
     }
 }

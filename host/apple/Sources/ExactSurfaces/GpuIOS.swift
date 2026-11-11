@@ -406,14 +406,17 @@ final class CanvasesHost {
             let outcome = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) }
             child.placement = outcome == 1 ? h.map { Double($0) } : nil
             child.placementHidden = outcome == 2
-            child.alpha = outcome == 0 ? 1 : 0
+            child.followPlacement()
         }
-        // Alpha 0 keeps UIKit from drawing what the surface composites, and
-        // UIKit's own walk skips a view at alpha 0, so the children are
-        // listed. UIKit takes a list as given: what its walk leaves out
+        // The children are listed in the order the surface was given them,
+        // and the list (and the layout change below) changes only when that
+        // set does. UIKit takes a list as given: what its walk leaves out
         // (`isHidden`; `accessibilityElementsHidden`, which `aria-hidden`,
-        // `inert` and a hidden placement set) is left out here.
-        let exposed = children.filter { !$0.accessibilityElementsHidden && !$0.isHidden }
+        // `inert` and a hidden placement set; a transparent view, below which
+        // UIKit stops applying its rules to what the list hands it) is left
+        // out here. A placed child is never transparent (`NodeLayer`); one
+        // the surface leaves in place is at its author's opacity.
+        let exposed = children.filter { !$0.accessibilityElementsHidden && !$0.isHidden && $0.alpha >= 0.01 }
         let listed = overlay.accessibilityElements ?? []
         guard listed.count != exposed.count || !zip(listed, exposed).allSatisfy({ ($0 as AnyObject) === $1 }) else { return }
         overlay.accessibilityElements = exposed
@@ -512,7 +515,7 @@ final class CanvasesHost {
             if !each { _ = m.childrenCount(e.id, 0) }
             if !each, let overlay = e.view.overlay {
                 for case let child as NodeView in overlay.subviews {
-                    child.placement = nil; child.placementHidden = false; child.alpha = 1
+                    child.placement = nil; child.placementHidden = false; child.followPlacement()
                 }
                 overlay.accessibilityElements = nil
                 composite(overlay, !e.through)

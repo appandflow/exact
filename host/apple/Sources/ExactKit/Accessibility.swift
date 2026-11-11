@@ -1031,6 +1031,7 @@ extension Presenter {
         // A leaving view (hidden from accessibility as its exit starts) covers nothing.
         func painted(_ view: UIView) -> Bool {
             !view.isHidden && view.alpha > 0 && !view.accessibilityElementsHidden && (view as? NodeView)?.style["display"]?.string != "none"
+                && (view as? NodeView)?.drawnBySurface != true
         }
         // A cover is content: a node, or a controller's view (a sheet's
         // stack), not the host's own helper layers.
