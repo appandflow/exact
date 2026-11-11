@@ -234,12 +234,15 @@ fn event(name: &str) -> Option<Event> {
 }
 
 fn entry(name: &str) -> Option<Entry> {
-    let tag = tags::tag(name).map(|t| tag_json(name, &t));
+    let tag = tags::tag(name)
+        .map(|t| tag_json(name, &t))
+        .or_else(|| heading_json(name));
     // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
     let attr = (name != contract_lower::PRESS_OPACITY_TO)
         .then(|| tags::attr(name))
         .flatten()
-        .map(|a| attr_json(name, &a));
+        .map(|a| attr_json(name, &a))
+        .or_else(|| vocab::compile_attr(name).map(compile_attr_json));
     let value_of: Vec<&'static str> = vocab::attrs()
         .into_iter()
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
@@ -382,15 +385,6 @@ fn one_json(name: &str) -> (Value, bool) {
 /// One name as text, printed (a refusal on stderr), and whether it was
 /// known; a concept or recipe already in `shown` is named, not printed again.
 fn one_text(name: &str, shown: &mut Shown) -> bool {
-    // LLP 1116.017 D1: the parser reads `h1`-`h6` as headings, so no table has them.
-    if let Some(level) = name
-        .strip_prefix('h')
-        .and_then(|n| n.parse::<u8>().ok())
-        .filter(|n| (1..=6).contains(n))
-    {
-        println!("{name}: a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way");
-        return true;
-    }
     if let Some(e) = event(name) {
         let fields: Vec<String> = e.fields.iter().map(|(f, t)| format!("{f}: {t}")).collect();
         println!("{name}: an event record, its fields {}", fields.join(", "));
@@ -441,6 +435,12 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if let Some(note) = vocab::tag_note(name) {
             println!("  {note}");
         }
+    } else if let Some(tag) = &tag {
+        println!("{name}: {}", tag["note"].as_str().unwrap());
+    }
+    if let Some(a) = vocab::compile_attr(name) {
+        println!("{name}: compile-time attribute");
+        println!("  {}\n  {}\n  only on {}", a.accepts, a.note, a.only);
     }
     // A symbol refused at compile time points here for the roles (LLP 1116.021 D3).
     if name == "symbol" {
@@ -979,6 +979,30 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
+// LLP 1116.017 D1: the parser consumes these before the tag lookup.
+const HEADINGS: &[&str] = &["h1", "h2", "h3", "h4", "h5", "h6"];
+
+fn heading_json(name: &str) -> Option<Value> {
+    let level = HEADINGS.iter().position(|n| *n == name)? + 1;
+    let mut doc = tag_json(name, &tags::tag("text").unwrap());
+    doc["fixedProps"] = json!([
+        { "prop": PropId::AccessibilityRole.name(), "value": "heading" },
+        { "prop": PropId::AccessibilityHeadingLevel.name(), "value": level.to_string() },
+    ]);
+    doc["note"] = format!("a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way").into();
+    Some(doc)
+}
+
+fn compile_attr_json(a: &vocab::CompileAttr) -> Value {
+    json!({
+        "name": a.name,
+        "kind": "compile-time",
+        "accepts": a.accepts,
+        "only": a.only,
+        "note": a.note,
+    })
+}
+
 const GRID_TRACKS: &str = "CSS track lists: none, px, rem, %, fr, auto, min-content, max-content, named lines, fit-content(px or %), minmax(), and repeat() with a count, auto-fill or auto-fit. Lengths accept calc(), min(), max() and clamp() over px, rem and %, including in minmax() and valid repetitions. Percentages use the grid's content box in that axis; negative calculated results clamp to zero. Example: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)). Calculated fit-content(), other length units (em among them), a design token (`var(--name)`) and env() are unsupported; grid-auto-columns/rows are not yet attributes.";
 
 const TEXT_PX_WIDTH: &str = "A fixed ceiling from width or max-width (a number, px, pt, absolute calc(), or em against an authored absolute font), after min-width wins any conflict, can constrain scalable text at accessibility sizes (lower-text-px-width). Express the width and its bounds in rem (width=\"3rem\" or max-width=\"3rem\"), or let content determine the width. A minimum alone supplies no ceiling. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width without a fixed maximum, and minimum bounds that may grow past the ceiling. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s parent layout, grouped-list typography and known styles. A computed width can still have a fixed maximum; computed fonts remain unknown.";
@@ -1082,8 +1106,10 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
 
 fn everything() -> Value {
     json!({
-        "tags": vocab::tags().iter().map(|(n, t)| tag_json(n, t)).collect::<Vec<_>>(),
-        "attributes": vocab::attrs().iter().map(|(n, a)| attr_json(n, a)).collect::<Vec<_>>(),
+        "tags": vocab::tags().iter().map(|(n, t)| tag_json(n, t))
+            .chain(HEADINGS.iter().filter_map(|n| heading_json(n))).collect::<Vec<_>>(),
+        "attributes": vocab::attrs().iter().map(|(n, a)| attr_json(n, a))
+            .chain(vocab::COMPILE_ATTRS.iter().map(compile_attr_json)).collect::<Vec<_>>(),
         "renamed": vocab::renamed().iter().map(|(n, r)| json!({"name": n, "use": r})).collect::<Vec<_>>(),
         "html": vocab::html_tags().iter().map(|(n, h)| json!({"name": n, "hint": h})).collect::<Vec<_>>(),
         "head": tags::HEAD_FIELDS,
@@ -1303,10 +1329,14 @@ fn listing() -> String {
     let tags = vocab::tags();
     out += &format!(
         "tags ({}): name  node (family); fixed rows and props\n",
-        tags.len()
+        tags.len() + HEADINGS.len()
     );
     for (name, t) in &tags {
         out += &format!("  {name:<20} {}\n", tag_text(t));
+    }
+    for name in HEADINGS {
+        let doc = heading_json(name).unwrap();
+        out += &format!("  {name:<20} {}\n", doc["note"].as_str().unwrap());
     }
     let attrs = vocab::attrs();
     let of = |k: &'static str| attrs.iter().filter(move |(_, a)| kind(a) == k);
@@ -1355,6 +1385,13 @@ fn listing() -> String {
     }
     out += &format!("\nhandlers ({}):\n", of("handler").count());
     wrapped(&mut out, of("handler").map(|(n, _)| n.to_string()));
+    out += "\ncompile-time attributes: name  accepted value; rule\n";
+    for a in vocab::COMPILE_ATTRS {
+        out += &format!(
+            "  {:<28} {}; {}; only on {}\n",
+            a.name, a.accepts, a.note, a.only
+        );
+    }
     out += "\nrenamed (refused, with the name to write):\n";
     wrapped(
         &mut out,

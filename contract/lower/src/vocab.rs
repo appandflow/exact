@@ -6,7 +6,7 @@
 //! admits, so the list cannot claim a name the compiler refuses. The style
 //! names are a table, `style_names::STYLE_NAMES` (LLP 1081 D8), read whole. The rules
 //! no lookup lists (the `head` fields, the attributes admitted only on some
-//! tags, the two open sets) are named here beside them.
+//! tags, compile-time attributes, the two open sets) are named here beside them.
 
 use crate::tags::{self, AttrTarget, Tag};
 use contract_syntax::{Attr, Expr, Span};
@@ -75,6 +75,45 @@ pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
 }
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
+
+/// An attribute consumed before the tag/attribute lookup, with no runtime row of its own.
+pub struct CompileAttr {
+    /// The spelling on an element.
+    pub name: &'static str,
+    /// The authored value grammar, with an example.
+    pub accepts: &'static str,
+    /// Where the attribute applies.
+    pub only: &'static str,
+    /// Its effect and restrictions beyond the value grammar.
+    pub note: &'static str,
+}
+
+/// `class` (LLP 1017 P6), anatomy and the grouped row's look (LLP 1139).
+pub const COMPILE_ATTRS: &[CompileAttr] = &[
+    CompileAttr {
+        name: "class",
+        accepts: "a style name: `class=Card`, or `class=(cond ? A : B)`",
+        only: "an element",
+        note: "Names a `style` in this file. Its rows apply before the node's own attributes; the node's own attributes win within each state layer.",
+    },
+    CompileAttr {
+        name: contract_syntax::anatomy::PART,
+        accepts: "a non-empty string literal: `part=\"surface\"`",
+        only: "an element of the component's own view",
+        note: "Names a part declared in the component's `parts` section, with one node per part. The part's groups constrain the rows its classes bring; native controls take the control group alone. No part attribute reaches the runtime plan.",
+    },
+    CompileAttr {
+        name: crate::row_look::ROW_LOOK,
+        accepts: "`-exact-row-look=\"platform\"`",
+        only: "an element; takes effect when it is a grouped list's row",
+        note: "Yields background, border, padding and box-shadow rows to the grouped list's platform row. Elsewhere the element keeps its own look.",
+    },
+];
+
+/// An attribute consumed before the ordinary lookup, if this name is one.
+pub fn compile_attr(name: &str) -> Option<&'static CompileAttr> {
+    COMPILE_ATTRS.iter().find(|a| a.name == name)
+}
 
 /// Attributes restricted by tag or collection shape; the `head` fields
 /// are [`tags::HEAD_FIELDS`].
@@ -216,7 +255,7 @@ fn sorted(names: &[&'static str]) -> Vec<&'static str> {
     names
 }
 
-/// Every built-in tag, by name.
+/// Tags handled by [`tags::tag`], by name; the parser expands headings before this lookup.
 pub fn tags() -> Vec<(&'static str, Tag)> {
     sorted(TAG_CANDIDATES)
         .into_iter()
@@ -224,8 +263,9 @@ pub fn tags() -> Vec<(&'static str, Tag)> {
         .collect()
 }
 
-/// Every attribute, by name: the scanned arms of `attr`, and the style
-/// names, which are a table (`style_names::STYLE_NAMES`, LLP 1081 D8).
+/// Attributes handled by [`tags::attr`]: its scanned arms and the style
+/// names (`style_names::STYLE_NAMES`, LLP 1081 D8). Attributes consumed
+/// earlier are [`COMPILE_ATTRS`].
 pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
     // A part's declaration (`::placeholder color`) is no attribute to write:
     // `contract vocab ::placeholder` describes the block. Nor is lowering's

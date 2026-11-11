@@ -4,6 +4,8 @@
 use serde_json::Value;
 use std::process::{Command, Output};
 
+mod entries;
+
 fn vocab(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_contract"))
         .arg("vocab")

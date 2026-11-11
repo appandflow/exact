@@ -1,6 +1,7 @@
 # `contract vocab --json h1` says `h1` is not a tag and exits 1, where `contract vocab h1` explains it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Vocab shares heading descriptions across text, JSON and full listings, and h1 through h6 lookups succeed in both formats.
 **Systems:** contract/cli/src/vocab.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

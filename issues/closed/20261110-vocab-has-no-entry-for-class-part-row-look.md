@@ -1,6 +1,7 @@
 # `contract vocab` says `class`, `part` and `-exact-row-look` are not attributes, and the compiler admits all three
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Vocab describes class, part and -exact-row-look in text, JSON and full listings, including their values and scope.
 **Systems:** contract/cli/src/vocab.rs, contract/lower/src/vocab.rs, docs/contract-grammar.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
