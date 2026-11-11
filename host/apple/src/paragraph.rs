@@ -243,7 +243,7 @@ impl<D: DataSource> Host<D> {
                             exact_kernel::StyleId::Visibility,
                         ))
                         .visibility
-                        == exact_kernel::Visibility::Hidden
+                        != exact_kernel::Visibility::Visible
                     {
                         props.insert("inlineBoxHidden", "true".into());
                     }

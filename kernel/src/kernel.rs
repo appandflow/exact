@@ -289,7 +289,7 @@ impl<'a> NodeRef<'a> {
             .map(|(run, leaf)| match run.inline {
                 Some(_)
                     if arena.computed_source(leaf, StyleId::Visibility).visibility
-                        == crate::Visibility::Hidden =>
+                        != crate::Visibility::Visible =>
                 {
                     "".into()
                 }

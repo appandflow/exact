@@ -1,6 +1,7 @@
 # The Apple hosts draw a `visibility="collapse"` box that Linux, the terminal and the web hide
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple hides collapse boxes and inline runs like hidden, including input, focus and accessibility.
 **Systems:** host/apple/Sources/ExactKit/CssVisibility.swift, host/apple/Sources/ExactKit/InlineText.swift, host/apple/Sources/ExactKit/NodeText.swift, host/apple/Sources/ExactCore/BatchShapes.swift, host/apple/src/paragraph.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

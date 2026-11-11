@@ -24,10 +24,10 @@ package struct InlineText {
     /// CSS `outline: none` on the run (LLP 1104 D6): a focused link or
     /// `tabindex` run draws no ring.
     package let outlineNone: Bool
-    /// An image's box (LLP 1011.002) not `visibility: hidden`: its label is
+    /// An image's box (LLP 1011.002) with `visibility: visible`: its label is
     /// read. The box itself draws no ink either way.
     package let boxShown: Bool
-    /// Its computed `visibility: hidden`: its text is no target
+    /// Its computed `visibility` is not `visible`: its text is no target
     /// (`inlineTarget`), though it hears a visible run's click inside it.
     package var hidden: Bool { lightRun.hidden }
     package var range: NSRange = NSRange(location: 0, length: 0)

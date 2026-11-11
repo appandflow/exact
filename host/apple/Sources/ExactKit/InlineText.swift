@@ -38,7 +38,7 @@ extension InlineText {
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                                color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
-        run.hidden = style["visibility"]?.string == "hidden"
+        run.hidden = (style["visibility"]?.string ?? "visible") != "visible"
         run.fixedInk = style["text_color"]?.fixesInk == true
         return run
     }

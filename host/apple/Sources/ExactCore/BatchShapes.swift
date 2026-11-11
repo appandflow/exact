@@ -322,7 +322,7 @@ extension InlineStyle {
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "font_variant_ligatures": run.ligatures = Int(try BatchFields.number(value)) & 0xff
         case "font_feature_settings": run.features = FontFeature.of(value)
-        case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
+        case "visibility": run.hidden = try BatchFields.string(value) != "visible"
         case "user_select": selectsAll = try BatchFields.string(value) == "all"
         case "outline_style": outlineNone = try BatchFields.string(value) == "none"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
