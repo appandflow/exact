@@ -1,6 +1,7 @@
 # `push` labels a plan with the installed binary's format digest, not its own
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `plan_graph` takes the plan's format version, format digest and kernel schema from the plan, so `classifyArtifacts` refuses a push to a cohort whose binary reads another format.
 **Systems:** scripts/push.mjs, bake/src/receipt.rs (`plan_graph`), scripts/deploy.mjs (`classifyArtifacts`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's review of LLP 1156.005 r3 (2026-11-10)
