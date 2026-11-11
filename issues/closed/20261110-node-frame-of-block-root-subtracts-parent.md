@@ -1,6 +1,7 @@
 # The agent's `node` reports a popover's, sheet's or pane's `frame` less its parent's, a difference between two spaces
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The node and frames replies share a calculation that keeps containing-block roots in their own block's space.
 **Systems:** runner/src/agent.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

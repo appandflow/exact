@@ -393,7 +393,7 @@ function rangeAndPort(scroller) {
  *
  *   node #{id} [{testId}] {Type} · site {n} · instance {keys} · epoch E · incarnation I
  *     {row} = {value} ({authored | inherited from #id | initial}[, applied {…}])
- *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent) · window X,Y W×H · screen X,Y W×H · scale S
+ *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent or containing block) · window X,Y W×H · screen X,Y W×H · scale S
  *     scroll [viewport | #id] sx,sy of rx,ry · … (outermost first)   clip #id overflow|clip-path · …
  *     visible hidden=… inert=… inViewport=… clipped=…       native key=value …
  *     browser {row}="{the browser's computed value}" …      (the web's oracle beside the kernel's answer)
@@ -426,7 +426,7 @@ function renderNode(n) {
   for (const c of n.columns ?? []) out.push(`  column ${c.x},${c.y} ${c.w}×${c.h}${c.holds ? '' : ' · holds nothing'}`);
   if (n.fragment_skipped) out.push(`  kept whole in its column: ${n.fragment_skipped}`);
   const sp = n.space ?? {};
-  out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
+  out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent or containing block)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
   if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}${rangeAndPort(c)}`).join(' · ')}`);
   if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
