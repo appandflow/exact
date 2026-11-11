@@ -1,6 +1,7 @@
 # On the JS target a stream's mapper can `fetch` and use storage, which the native runtime and LLP 1016.000 refuse
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The JS target marks every mapper call (`answering.mapperCall`), carries the mark across the call's awaits through the bundle's async context, and refuses `fetch`, timers and storage under it with Hermes's words.
 **Systems:** host/web-js/ts-stream.js, host/web-js/ts-fetch.js, host/web-js/ts-data.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

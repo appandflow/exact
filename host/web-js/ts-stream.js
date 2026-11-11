@@ -202,6 +202,9 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   const value = (event, frame) => {
     if (controller.active?.() === false) return { error: 'the stream was let go', code: 'error' };
     const turn = socket && frame ? answering.mapper = { owner: controller, socketOps: null, overload: null } : null;
+    // The call is the mapper's in every turn, and no answer's (ts-fetch.js `answering.mapperCall`).
+    const outer = { call: answering.call, mapperCall: answering.mapperCall };
+    answering.call = null; answering.mapperCall = controller;
     try {
       const v = map(event, socket);
       if (turn?.overload) throw turn.overload;
@@ -211,7 +214,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       if (!v || typeof v.then !== 'function') return effects ? { v: conv(v), effects } : { v: conv(v) };
       effects?.[0]();
       return Promise.resolve(v).then(v => controller.active?.() === false ? { error: 'the stream was let go', code: 'error' } : { v: conv(v) }).catch(e => failed(e));
-    } catch (e) { return failed(e, turn); } finally { if (turn) answering.mapper = null; }
+    } catch (e) { return failed(e, turn); } finally { if (turn) answering.mapper = null; Object.assign(answering, outer); }
   };
   // A later frame's mapper call waits for an earlier one's promise, and so
   // does the end: `behind` is the last call still settling.

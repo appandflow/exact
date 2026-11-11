@@ -308,8 +308,18 @@ function landed(op, ok, value) {
   journal.push(`t=${clock.now} ${line}`);
   op.reject(error);
 }
+// A stream's mapper has no storage in any turn of its call (LLP 1016.000 D7), refused in Hermes's words
+// (js/src/prelude.js `storageCall`); null elsewhere.
+function inMapper(method) {
+  if (!answering.mapperCall) return null;
+  const error = codedError(new Error(`storage.${method}() called in a stream's mapper: it was never run. Start storage inside an answer`));
+  journal.push(`t=${clock.now} storage refused: ${error.message}`);
+  return Promise.reject(error);
+}
 function queued(what, run) {
   if (overlaying.on) return Promise.reject(inOverlay(`storage.${what.split(' ')[0]}()`)); // `what` is the method, then its path
+  const mapper = inMapper(what.split(' ')[0]);
+  if (mapper) return mapper;
   if (head && queue.length >= MAX_QUEUED) {
     journal.push(`t=${clock.now} storage refused: full (${what})`);
     return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
@@ -368,7 +378,8 @@ function storageOf(grants) {
   const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
   // A document copied into an app file needs both (documents-glue.js `copyFile`).
   const copiesIn = (m, args) => m === 'copyFile' && typeof args[0] === 'string' && args[0].startsWith('doc:/') && typeof args[1] === 'string' && args[1].startsWith('app:/');
-  const denied = (op, document = false) => (document ? Promise.resolve() : key()).then(() => {
+  // `op` is `fs.<method>` or `sqlite.open <path>: …`: a mapper's call is refused before the grants, as natively.
+  const denied = (op, document = false) => inMapper(op.split(/[. ]/)[1]) ?? (document ? Promise.resolve() : key()).then(() => {
     throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
   });
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
@@ -476,12 +487,13 @@ export function install(data, mixed = false, modules = null) {
   // its steps by the bundle's async helper (js/bake/src/typescript.mjs
   // `asyncContextHelper`, LLP 1133.002 D14), as Hermes's prelude does with
   // its `currentCall`: a watch, a fetch or a storage step after an `await` is
-  // that answer's. The synchronous turn alone stays `call.turn`.
+  // that answer's, and one in a stream's mapper call is still refused. The
+  // synchronous turn alone stays `call.turn`.
   globalThis.__exact_async_context = Object.freeze({
-    current: () => ({ call: answering.call, watching, asking }),
+    current: () => ({ call: answering.call, watching, asking, mapperCall: answering.mapperCall }),
     swap(to) {
-      const before = { call: answering.call, watching, asking };
-      answering.call = to?.call ?? null; watching = to?.watching ?? null; asking = to?.asking ?? '';
+      const before = { call: answering.call, watching, asking, mapperCall: answering.mapperCall };
+      answering.call = to?.call ?? null; watching = to?.watching ?? null; asking = to?.asking ?? ''; answering.mapperCall = to?.mapperCall ?? null;
       return before;
     },
   });

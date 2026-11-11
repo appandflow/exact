@@ -54,8 +54,8 @@ function counting(kind, start) {
 }
 function fetchNow(input, options) {
   if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
-  // A socket's mapper answering a frame makes no fetch (D7).
-  if (answering.mapper) return Promise.reject(new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
+  // A mapper makes no fetch (D7), in any turn of its call.
+  if (answering.mapper || answering.mapperCall) return Promise.reject(new Error(answering.mapper ? "fetch() is unavailable in a socket's mapper: it answers each frame now" : "fetch() is unavailable in a stream's mapper: fetch in the answer that opens the stream"));
   const call = answering.call;
   if (call?.mutation) {
     if (call.socketConflict || call.socketOps?.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
@@ -143,7 +143,11 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null, entropy: null, later: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
+// `mapper`: a socket's mapper answering a frame, in its call's synchronous part, where it may send on that socket.
+// `mapperCall`: the stream whose mapper call is running, in every turn of that call: ts-stream.js sets it for the
+// synchronous part, and the bundle's async helper puts it back at each step of an async function the call made
+// (ts-data.js `__exact_async_context`), as Hermes's prelude carries a mapper's `currentCall`.
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, mapperCall: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null, entropy: null, later: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -172,7 +176,7 @@ let NextTimer = 1;
 function arm(api, run, ms, args) {
   if (overlaying.on) throw inOverlay(api);
   const call = answering.call;
-  if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow`);
+  if (answering.mapper || answering.mapperCall || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow`);
   const { clock, drive, time } = answering.page, id = NextTimer++;
   // An async continuation may run long after the page's last commit or timer.
   time();
