@@ -1,6 +1,7 @@
 # `bun exact.mjs test <file>` and `agent <op> …` take their first word as the host
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `test`, `agent` and `verify` take their first word as the host only when it names one (`hostOf`), so a test file or an op written first stays and the run is the web's.
 **Systems:** scripts/app-cli.mjs, scripts/help.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

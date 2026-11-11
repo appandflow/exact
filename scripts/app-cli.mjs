@@ -8,6 +8,12 @@ import { constants, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
 
+/** The hosts a `test`, `agent` or `verify` may name first. */
+const APP_HOSTS = ['web', 'ios', 'macos', 'mac', 'linux', 'windows', 'android'];
+/** The host `verb` runs on, taken off `rest` when its first word names one (help's optional `[web|ios|…]`): a test
+ *  file or an op written first stays where it is, and the run is the web's. */
+export const hostOf = (verb, rest) => ['test', 'agent', 'verify'].includes(verb) && APP_HOSTS.includes(rest[0]) ? rest.shift() : 'web';
+
 /** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
  * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, Cargo's for a build
  * script's (`warning: <crate>@<version>: …`) or a linked bake's (`warning: <app>: …`, linked-plan.mjs); its
@@ -189,7 +195,7 @@ async function verbRun({ dir, name, game = false, exact2, args }, reply) {
     if (staged) { dir = staged.dir; args = [args[0], ...staged.args]; }
   }
   const [verb, ...rest] = args;
-  const host = (verb === 'test' || verb === 'agent' || verb === 'verify') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
+  const host = hostOf(verb, rest);
   const verbs = appVerbs(name, dir, { host, game });
   // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added to it): app.json's
   // `commands`, each a command as argv (`"seed": ["bun", "seed.mjs"]`), run in the app's directory with the

@@ -1,6 +1,7 @@
 # The agent driver drives the web build for any host name it does not know
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The driver refuses a host it does not carry, naming the ones it does, instead of driving the web and recording the typed name.
 **Systems:** scripts/agent.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
