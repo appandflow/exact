@@ -1,6 +1,7 @@
 # A virtualized list stays empty when the text row that made its rows zero tall is cleared
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Clearing inherited typography invalidates virtualized row measurements and remounts rows measured at zero, with or without a kernel.
 **Systems:** runner/src/instance.rs, runner/src/instance/collection
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

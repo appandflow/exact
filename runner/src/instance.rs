@@ -1014,7 +1014,6 @@ impl NodeInst {
             if u.discard {
                 if binding.kind == BindingKind::Style
                     && !fresh
-                    && !matches!(value, Value::Option(None))
                     && exact_kernel::StyleId::from_bit(binding.id as u32)
                         .is_some_and(|style| exact_kernel::StyleMask::TEXT.has(style))
                 {
@@ -1333,7 +1332,17 @@ impl Tree {
             self.emit_roots(u);
         }
         self.open_tabs(u)?;
-        if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { id, patch } if *id <= last_existing_view && patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
+        if self.has_collections
+            && (u.text_styled
+                || u.ops.iter().any(|op| {
+                    let (id, mask) = match op {
+                        Op::SetStyle { id, patch } => (id, &patch.mask),
+                        Op::ClearStyle { id, mask, .. } => (id, mask),
+                        _ => return false,
+                    };
+                    *id <= last_existing_view && mask.intersects(exact_kernel::StyleMask::TEXT)
+                }))
+        {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;
             }
