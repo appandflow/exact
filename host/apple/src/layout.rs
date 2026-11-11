@@ -7,6 +7,8 @@ mod advance_tests;
 pub(super) mod closed;
 #[path = "separator.rs"]
 pub(super) mod separator;
+#[path = "view_scroll.rs"]
+pub(super) mod view_scroll;
 
 /// The props `emit_layout` derives from a node's layout, not its author's.
 pub(super) const DERIVED_PROPS: [&str; 3] = ["fitScale", "flexGrows", "textOffset"];

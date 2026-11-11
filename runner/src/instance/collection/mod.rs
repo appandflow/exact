@@ -6,6 +6,7 @@ mod inset;
 mod into_view;
 mod keep;
 mod nest;
+mod options;
 mod reach;
 mod rekey;
 mod reorder;
@@ -319,46 +320,6 @@ impl Collection {
         }
         self.index.invalidate_all().map_err(index_error)
     }
-    /// The list's estimate changed (a computed `estimated-item-width`): rows
-    /// take it until measured again, so the offsets past them follow. A
-    /// value that is not a positive number changes nothing.
-    fn reestimate(
-        &mut self,
-        u: &mut Update<'_>,
-        frames: &[Frame],
-        value: Option<&Value>,
-    ) -> Result<(), InstanceError> {
-        let Some(&Value::Number(n)) = value else {
-            return Ok(());
-        };
-        let estimate = n + self.gap;
-        if !n.is_finite() || n <= 0.0 || estimate == self.estimated_height {
-            return Ok(());
-        }
-        self.end_preview(u)?;
-        // A vertical list keeps what shows, as CSS anchors a block, and its
-        // mounted rows' heights with it. A row list keeps its offset, as a
-        // browser does on x, and every card takes the estimate until it is
-        // measured again: a card the window lets go first is not left at
-        // its old width.
-        let (anchor, kept): (_, Vec<usize>) = match self.axis {
-            ListAxis::Vertical => (
-                self.anchor()?,
-                self.mounted.iter().map(|m| m.position).collect(),
-            ),
-            ListAxis::Horizontal => (None, Vec::new()),
-        };
-        self.index
-            .reestimate(estimate, &kept)
-            .map_err(index_error)?;
-        self.estimated_height = estimate;
-        self.zero_heights
-            .retain(|key| self.index.position(key).is_some_and(|p| kept.contains(&p)));
-        self.restore_unless_unknown(anchor)?;
-        self.realize_window(u, frames, false, CollectionFill::default())?;
-        advance(&mut self.revision)?;
-        Ok(())
-    }
     fn invalidate_measurements(
         &mut self,
         u: &mut Update<'_>,
@@ -386,7 +347,6 @@ impl Collection {
         let mut enabled = false;
         let mut follow_end = false;
         let mut smooth = false;
-        let mut snaps = false;
         let mut at_end = false;
         let mut reach = reach::Margin::default();
         let mut keep = Vec::new();
@@ -396,8 +356,7 @@ impl Collection {
         // The list's own literal size on each axis (`height=399`), which
         // bounds the rows its first frame needs: [vertical, horizontal].
         let mut declared: [Option<f64>; 2] = [None, None];
-        // `row-gap` and `column-gap`: [vertical, horizontal].
-        let mut gaps = [0.0; 2];
+        let mut spacing = options::Spacing::default();
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
             if binding.kind == BindingKind::Style {
                 use exact_kernel::StyleId;
@@ -416,21 +375,7 @@ impl Collection {
                     }
                 }
             }
-            if binding.kind == BindingKind::Style {
-                use exact_kernel::StyleId;
-                let slot = match binding.id {
-                    id if id == StyleId::RowGap as u16 => Some(0),
-                    id if id == StyleId::ColumnGap as u16 => Some(1),
-                    _ => None,
-                };
-                if let Some(slot) = slot {
-                    if let Value::Number(n) = u.eval(binding.expr, frames)? {
-                        if n.is_finite() && n > 0.0 {
-                            gaps[slot] = n;
-                        }
-                    }
-                }
-            }
+            spacing.read(&binding, u, frames)?;
             // A flex list is CSS's row (the compiler refuses the other
             // directions); its main axis is horizontal.
             if binding.kind == BindingKind::Style
@@ -438,14 +383,6 @@ impl Collection {
                 && u.eval(binding.expr, frames)?.as_str() == Some("flex")
             {
                 axis = ListAxis::Horizontal;
-            }
-            if binding.kind == BindingKind::Style
-                && binding.id == exact_kernel::StyleId::ScrollSnapType as u16
-            {
-                snaps = matches!(
-                    u.eval(binding.expr, frames)?.as_str(),
-                    Some("x mandatory" | "y mandatory")
-                );
             }
             if binding.kind == BindingKind::Style
                 && binding.id == exact_kernel::StyleId::ScrollBehavior as u16
@@ -522,17 +459,11 @@ impl Collection {
         let inner = traversal::validate_nesting(plan, u.sites, region)?;
         let reuse = reuse::Reuse::new(plan, u.sites, region);
         let nested = inner.is_some();
-        let main = match axis {
+        let port = declared[match axis {
             ListAxis::Vertical => 0,
             ListAxis::Horizontal => 1,
-        };
-        let port = declared[main];
-        // A vertical list is a block, where CSS lays out no gap.
-        let gap = if axis == ListAxis::Horizontal {
-            gaps[main]
-        } else {
-            0.0
-        };
+        }];
+        let gap = spacing.gap(axis);
         let estimated_height = estimated_height + gap;
         // A list's reads of its own options are its structure, as a region's
         // subject is: a trap here still poisons (LLP 1017.003 D3).
@@ -562,7 +493,7 @@ impl Collection {
             },
             estimated_height,
             gap,
-            snaps,
+            snaps: spacing.snaps,
             // The provisional extent ([`set_bootstrap_extent`]), capped at
             // sixteen rows, unless the list says how many (`initial-item-count`).
             // Actual nested-scrollport feedback determines the real window.

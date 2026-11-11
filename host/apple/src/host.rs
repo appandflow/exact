@@ -120,11 +120,6 @@ mod svg_tests;
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
 mod transform_drag_wire;
-#[cfg(test)]
-#[path = "view_range_tests.rs"]
-mod view_range_tests;
-#[path = "view_scroll.rs"]
-mod view_scroll;
 use crate::store::Platform;
 use exact_kernel::id::{IdMap, IdSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -209,7 +204,7 @@ pub struct Host<D: DataSource> {
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
-    view_scrolls: view_scroll::ViewScrolls,
+    view_scrolls: layout::view_scroll::ViewScrolls,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
     fragments: IdMap<ViewId, String>,
     ranks: IdMap<ViewId, i64>,

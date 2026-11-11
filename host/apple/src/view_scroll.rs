@@ -6,10 +6,13 @@
 
 use super::*;
 use exact_kernel::timeline::ViewTimeline;
+#[cfg(test)]
+#[path = "view_range_tests.rs"]
+mod view_range_tests;
 
 /// What the last layout placed, and where each scroller stands.
 #[derive(Default)]
-pub(super) struct ViewScrolls {
+pub(in crate::host) struct ViewScrolls {
     timelines: Vec<ViewTimeline>,
     /// Each scroller a view timeline scrolls in, and its offset as the
     /// presenter last gave it (zero until it scrolls).
@@ -19,7 +22,7 @@ pub(super) struct ViewScrolls {
 impl<D: DataSource> Host<D> {
     /// Place every view timeline from the layout just run, give the engine
     /// each one's progress, and mark the scrollers whose scroll moves one.
-    pub(super) fn place_view_timelines(&mut self, batch: &mut Batch) {
+    pub(in crate::host) fn place_view_timelines(&mut self, batch: &mut Batch) {
         let kernel = self.runner.kernel();
         let timelines = kernel.view_timelines();
         if timelines.is_empty() && self.view_scrolls.scrollers.is_empty() {

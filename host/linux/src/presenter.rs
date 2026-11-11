@@ -1492,15 +1492,3 @@ impl<D: DataSource> Presenter<D> {
         self.host.kernel().live_count()
     }
 }
-
-/// Whether `id` is live and reachable from a root (in [`Kernel::rows`]).
-fn attached(kernel: &exact_kernel::Kernel, id: ViewId) -> bool {
-    let mut at = kernel.node(id);
-    while let Some(node) = at {
-        if node.is_root {
-            return true;
-        }
-        at = node.parent.and_then(|p| kernel.node(p));
-    }
-    false
-}

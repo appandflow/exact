@@ -180,6 +180,15 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// `exact_view_scrolled`: a scroller's view timelines, presented.
+    pub fn view_scrolled(&mut self, view: u32, left: f64, top: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(super::not_booted, |h| h.view_scrolled(view, left, top));
+        self.emit(out)
+    }
+
     /// `exact_top_layer`: the presenter's open top-layer boxes, and where
     /// the frontmost modal presentation begins among them.
     pub fn top_layer(
