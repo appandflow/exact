@@ -749,7 +749,9 @@ const scopedModule = (code, id, lower = false) => {
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
-  const result = transformSync(id, code, { ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
+  // The stage's normalized configuration, never one found beside the file: a
+  // mount's own `tsconfig.json` may extend a file outside the mount.
+  const result = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'), ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
     globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
@@ -781,7 +783,7 @@ if (how !== 'none' || markdownReaders) await bundle({ entrypoints: [resolve(gen,
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'false' } }, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: (code, id) => scopedModule(code, id, true) }, asyncContext()], logLevel: 'warn', onLog: (level, log) => {
+  const b = await rolldown({ input: resolve(gen, 'main.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'false' } }, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: (code, id) => scopedModule(code, id, true) }, asyncContext()], logLevel: 'warn', onLog: (level, log) => {
     if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
     console.error(log.message);
   } });

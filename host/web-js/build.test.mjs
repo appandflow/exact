@@ -83,6 +83,31 @@ export const answer = () => value as never;
   }
 }, 30000);
 
+test('a mount whose own tsconfig.json extends a file outside it builds for the web', () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/web-js-mount-tsconfig-')), app = resolve(dir, 'app');
+  try {
+    // A monorepo's package: its tsconfig.json extends the repository's.
+    mkdirSync(resolve(dir, 'lib')); mkdirSync(app);
+    writeFileSync(resolve(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true } }));
+    writeFileSync(resolve(dir, 'lib/tsconfig.json'), JSON.stringify({ extends: '../tsconfig.json' }));
+    writeFileSync(resolve(dir, 'lib/greet.ts'), 'export const greet = (name: string): string => `Hello from ${name}.`;\n');
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Mounted', app: { id: 'test.mounted', name: 'Mounted' }, typescript: { sources: { lib: '../lib' } } }));
+    writeFileSync(resolve(app, 'app.contract'), 'component App\n  resource greeting = greeting("Mounted") as shape string\n  view\n    text greeting\n');
+    writeFileSync(resolve(app, 'app.ts'), "import { greet } from './lib/greet';\nexport const grants = '';\nexport const answer = (_source: string, [name]: [string]) => greet(name) as never;\n");
+    const out = resolve(app, 'dist');
+    const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'mounted', '--out', out], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8',
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(readFileSync(resolve(out, '.gen/server.js'), 'utf8')).toContain('Hello from ');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
+
 test('production lazy host modules ignore agent storage and entropy parameters', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
