@@ -1424,6 +1424,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     s.justify_items = justify_items(arena.style(slot).justify_items, direction);
     if let Some(multicol) = crate::fragment::taffy_multicol(arena, slot) {
         s.rare.multicol = Some(multicol);
+        // The flow thread starts at the content top: `align-content` moves
+        // the columns, once they are cut (`fragment::cut`).
+        s.align_content = None;
     }
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.

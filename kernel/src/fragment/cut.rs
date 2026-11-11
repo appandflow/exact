@@ -11,7 +11,7 @@
 use super::build::{self, Flow, Para};
 use super::{Column, Columns, Fragment, FragmentRefusal, Placement};
 use crate::arena::NodeArena;
-use crate::generated::{ColumnFill, Direction, NodeType, StyleMask};
+use crate::generated::{AlignContent, ColumnFill, Direction, NodeType, StyleMask};
 use crate::id::AxisOffer;
 use crate::layout::LayoutTree;
 use crate::text::{TextMeasureRequest, TextMeasurer, TextRun};
@@ -69,7 +69,7 @@ pub(super) struct Cutter<'a> {
     pub flow: Flow,
     arena: &'a NodeArena,
     measurer: &'a mut dyn TextMeasurer,
-    /// The first column's top: the container's content top.
+    /// Where the flow thread starts: the container's content top.
     pub top: f32,
     /// Walks run, for the probe (LLP 1093 §3).
     #[cfg(test)]
@@ -428,8 +428,15 @@ pub(crate) fn container(
     let content = (l.size.height - inset_v - l.scrollbar_size.height).max(0.0);
     let (h, walk, used) = match (definite, max, s.column_fill) {
         (true, _, ColumnFill::Auto) => {
+            // As tall as the content while it fits one column, as Chrome
+            // sizes the columns `align-content` moves.
             let walk = cutter.walk(content);
-            (content, walk, None)
+            let h = if walk.starts.len() > 1 {
+                content
+            } else {
+                tallest_column(&cutter, &walk)
+            };
+            (h, walk, None)
         }
         (true, _, ColumnFill::Balance) => {
             let (h, walk) = cutter.balance(n, content);
@@ -472,14 +479,34 @@ pub(crate) fn container(
     } else {
         used
     };
+    let height = match used {
+        Some(columns) => {
+            let mut outer = columns + inset_v;
+            if let Some(v) = max_outer {
+                outer = outer.min(v);
+            }
+            if let Some(v) = min_outer {
+                outer = outer.max(v);
+            }
+            outer
+        }
+        None => l.size.height,
+    };
+    let free = height - inset_v - l.scrollbar_size.height - h;
+    let align = align(arena.effective_style(slot).align_content, free);
+    let pitch = match (definite, s.column_fill) {
+        (true, ColumnFill::Auto) => content,
+        _ => h,
+    };
     publish(
         &cutter,
         &walk,
         Geometry {
             x0,
-            y0,
+            y0: y0 + align,
             w,
             h,
+            pitch,
             n,
             gap,
             left: &left,
@@ -489,19 +516,7 @@ pub(crate) fn container(
         used,
         Outer {
             width: l.size.width,
-            height: match used {
-                Some(columns) => {
-                    let mut outer = columns + inset_v;
-                    if let Some(v) = max_outer {
-                        outer = outer.min(v);
-                    }
-                    if let Some(v) = min_outer {
-                        outer = outer.max(v);
-                    }
-                    outer
-                }
-                None => l.size.height,
-            },
+            height,
             border: b,
             padding: p,
             scrolls: s.overflow_x != crate::Overflow::Visible
@@ -529,11 +544,30 @@ fn tallest_column(cutter: &Cutter<'_>, walk: &Walk) -> f32 {
     tallest
 }
 
+/// How far `align-content` moves the columns down: they are one alignment
+/// subject (CSS Box Alignment 3 §5.1), so a distribution falls back as a
+/// block container's does (vendored Taffy's patch 53).
+fn align(v: AlignContent, free: f32) -> f32 {
+    match v {
+        AlignContent::End | AlignContent::FlexEnd => free,
+        AlignContent::Center => free / 2.0,
+        AlignContent::SpaceAround | AlignContent::SpaceEvenly => (free / 2.0).max(0.0),
+        AlignContent::Normal
+        | AlignContent::Start
+        | AlignContent::FlexStart
+        | AlignContent::Stretch
+        | AlignContent::SpaceBetween => 0.0,
+    }
+}
+
 struct Geometry<'a> {
     x0: f32,
     y0: f32,
     w: f32,
     h: f32,
+    /// The column height the walk broke at, which an absolutely positioned
+    /// box below the last column steps on by.
+    pitch: f32,
     n: usize,
     gap: f32,
     left: &'a dyn Fn(usize) -> f32,
@@ -695,10 +729,10 @@ fn publish(
         let (dx, dy) = if a.in_flow && cols > 0 {
             let mut k = walk.starts.partition_point(|(_, s)| *s <= a.top).max(1) - 1;
             let mut s = walk.starts[k].1;
-            if k + 1 == cols && g.h > 0.0 && a.top >= s + g.h {
-                let more = ((a.top - s) / g.h).floor();
+            if k + 1 == cols && g.pitch > 0.0 && a.top >= s + g.pitch {
+                let more = ((a.top - s) / g.pitch).floor();
                 k += more as usize;
-                s += more * g.h;
+                s += more * g.pitch;
             }
             ((g.left)(k), g.y0 - s)
         } else {
@@ -710,7 +744,7 @@ fn publish(
         }
         // Its column is part of the overflow too, as in Chrome.
         if a.in_flow && cols > 0 {
-            extend(g.x0 + dx, g.y0, g.w, g.h);
+            extend(g.x0 + dx, g.y0, g.w, g.pitch);
         }
         cut.placements
             .push((a.slot, Placement { dx, dy, size: None }));

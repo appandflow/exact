@@ -1,6 +1,7 @@
 # `align-content` on a multi-column container moves its boxes apart and out of the box
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The engine lays a multi-column container's flow thread out without its `align-content`, and the cut moves every column by the free space as Chrome aligns them, the columns of `column-fill: auto` as tall as their content while it fits one.
 **Systems:** kernel/src/fragment.rs, kernel/src/fragment/build.rs, kernel/src/style.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

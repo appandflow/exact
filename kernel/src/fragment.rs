@@ -31,7 +31,7 @@ use crate::{Dimension, FlexDirection, FlexWrap, Kernel, Overflow};
 pub struct Column {
     /// Left edge.
     pub x: f32,
-    /// Top edge: the container's content top.
+    /// Top edge: the container's content top, moved by `align-content`.
     pub y: f32,
     /// The used column width.
     pub width: f32,
