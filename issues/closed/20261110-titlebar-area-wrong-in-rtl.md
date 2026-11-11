@@ -1,6 +1,7 @@
 # `env(titlebar-area-*)` is outside the window and zero wide where the Mac's title bar is right-to-left
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The area follows `NSWindow.windowTitlebarLayoutDirection`, and LLP 1039 D8 states both directions.
 **Systems:** host/apple/Sources/ExactKit/Mac/TitleBarAreaMac.swift, viewport facts (LLP 1039 D8)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

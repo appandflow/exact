@@ -1250,7 +1250,8 @@ names: titlebar-area, titlebar-area-x, titlebar-area-y, titlebar-area-width, tit
 Window Controls Overlay's `env(titlebar-area-x|y|width|height)` is the part of the title
 bar the page may draw in, beside the window's controls. On the Mac, under
 `viewport-fit="cover"`, it is AppKit's title bar less the traffic lights: in a 900-point
-window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
+window `78 0 822×32` with a left-to-right title bar, `0 0 822×32` with a right-to-left one.
+It is all zero in full screen and while the window has a toolbar (an
 app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
 Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
 `"display_override": ["window-controls-overlay"]` in `app.json` gives a Mac window the

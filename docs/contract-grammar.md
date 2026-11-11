@@ -184,7 +184,8 @@ The title-bar area is
 [Window Controls Overlay](https://wicg.github.io/window-controls-overlay/)'s: the part
 of the title bar beside the window's controls. On the Mac, under `viewport-fit="cover"`,
 it is AppKit's title bar less the traffic lights and their margins (`78 0 822×32` in a
-900-point window); all zero in full screen and while a toolbar fills the title bar (an
+900-point window with a left-to-right title bar, `0 0 822×32` with a right-to-left one);
+all zero in full screen and while a toolbar fills the title bar (an
 app with routes has one, LLP 1115.002 D2). An app without routes whose manifest's
 `display_override` puts `window-controls-overlay` first gets the platform's tall title row,
 an empty unified toolbar over the page, whatever its `viewport-fit`, and the area is that
