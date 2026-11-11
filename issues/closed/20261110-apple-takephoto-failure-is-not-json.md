@@ -1,6 +1,7 @@
 # On Apple, a failed `takePhoto` capture replies with a Swift struct, so its error name never reaches the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A failed capture replies with the failure's name, `{"error": failure.code}`, and `packages/camera/test/photo-failure.swift` checks that reply is the JSON object `{"error":"InvalidStateError"}`.
 **Systems:** packages/camera/apple/Camera.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

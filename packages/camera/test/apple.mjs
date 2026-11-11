@@ -15,9 +15,10 @@
 //   fails `NotFoundError` before anything is asked. checklist.md is the
 //   iPhone's.
 //
-// First, on this Mac, the capture session's notifications as the track's mute
-// reason, posted by hand (`interruptions.swift`, compiled with media-capture's
-// Apple sources).
+// First, on this Mac, two Swift tests compiled with a package's Apple
+// sources: the capture session's notifications as the track's mute reason,
+// posted by hand (`interruptions.swift`, with media-capture's), and a failed
+// capture's answer to `takePhoto` (`photo-failure.swift`, with the camera's).
 //
 // usage: bun packages/camera/test/apple.mjs [macos] [ios] [--sim <name|udid>] [--ask]
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -31,18 +32,24 @@ const hosts = argv.filter((a, i) => ['macos', 'ios'].includes(a) && argv[i - 1] 
 const { check, failed } = checker();
 
 {
-  const out = mkdtempSync(join(tmpdir(), 'exact-camera-interruptions-')), apple = resolve(root, 'packages/media-capture/apple');
+  const out = mkdtempSync(join(tmpdir(), 'exact-camera-swift-')), packages = resolve(root, 'packages');
   run('xcrun', ['swiftc', '-parse-as-library', '-emit-library', '-static', '-module-name', 'ExactPackage', '-emit-module', '-emit-module-path', join(out, 'ExactPackage.swiftmodule'),
     resolve(root, 'host/apple/modules/ExactPackage.swift'), '-o', join(out, 'libExactPackage.a')], out);
-  run('xcrun', ['swiftc', '-parse-as-library', '-swift-version', '5', '-I', out, '-L', out, '-lExactPackage', join(apple, 'MediaCapture.swift'), join(apple, 'VideoCapture.swift'),
-    join(here, 'interruptions.swift'), '-o', join(out, 'interruptions')], out);
-  const r = spawnSync(join(out, 'interruptions'), [], { cwd: out, encoding: 'utf8' }), lines = r.stdout.trim().split('\n');
-  for (const line of lines) {
-    const [verdict, where, ...name] = line.split(' ');
-    if (verdict === 'PASS' || verdict === 'FAIL') check(where, name.join(' '), verdict === 'PASS', line);
+  const tests = {
+    interruptions: ['media-capture/apple/MediaCapture.swift', 'media-capture/apple/VideoCapture.swift'],
+    'photo-failure': ['camera/apple/Camera.swift', 'camera/apple/Viewfinder.swift'],
+  };
+  for (const [test, sources] of Object.entries(tests)) {
+    run('xcrun', ['swiftc', '-parse-as-library', '-swift-version', '5', '-I', out, '-L', out, '-lExactPackage', ...sources.map((f) => join(packages, f)),
+      join(here, `${test}.swift`), '-o', join(out, test)], out);
+    const r = spawnSync(join(out, test), [], { cwd: out, encoding: 'utf8' }), lines = r.stdout.trim().split('\n');
+    for (const line of lines) {
+      const [verdict, where, ...name] = line.split(' ');
+      if (verdict === 'PASS' || verdict === 'FAIL') check(where, name.join(' '), verdict === 'PASS', line);
+    }
+    // It exits 1 after a FAIL line; any other way it stopped short.
+    if (r.status !== 0 && !lines.some((l) => l.startsWith('FAIL '))) check(`apple-${test}`, 'runs to its end', false, `${r.status ?? r.signal}: ${r.stderr}`);
   }
-  // It exits 1 after a FAIL line; any other way it stopped short.
-  if (r.status !== 0 && !lines.some((l) => l.startsWith('FAIL '))) check('apple-interruptions', 'runs to its end', false, `${r.status ?? r.signal}: ${r.stderr}`);
   rmSync(out, { recursive: true, force: true });
 }
 
