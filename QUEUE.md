@@ -1,5 +1,6 @@
 # Queue
 
+- **Android status bar scope when native sheets land** (LLP 1105 D7, #209). The presenter resolves `modal` routes as covering pages today. When Android reports native presentations, use their coverage, detent/width and settled transition state; iOS leaves the bar behind a medium or iPad sheet and holds the committed style through transitions. Android still ignores `status-bar-animation` and `system-bars-hidden`. Qualify the independent bar flags on a phone in both schemes, across routes and a sheet; no device/emulator run was available for this change.
 - **Android drives sharing a reverse mapping across processes** (#202). A drive leaves mappings it found in `adb reverse --list` alone, but removes a mapping it added when it exits, even while a later drive that found it present is still running. Coordinate that lifetime across processes before claiming concurrent drives can safely share a fixture port.
 - **iOS launch after `didFinishLaunching` (LLP 1047.001.001 Q2).** Find what moved about 16 ms after the callback when SafariServices was linked, in the phone measurements of §2.2.
 - **SafariServices for other Apple entries (LLP 1047.001.001 Q3).** Measure an app extension and the watch companion before extending the device app executable’s launch link to them. An App Clip copies its parent’s executable and carries the link unmeasured.

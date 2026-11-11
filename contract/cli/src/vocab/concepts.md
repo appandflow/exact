@@ -1207,15 +1207,19 @@ component App
       text `${n}`
 ```
 
-## status-bar: the colour of the iPhone's status bar, and hiding it
+## status-bar: the phone's status bar icons, and hiding them on iOS
 names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar, system-bars-hidden, statusBarHidden, prefersStatusBarHidden, prefersHomeIndicatorAutoHidden, autoHideHomeIndicator, immersive
 
 `status-bar-style="light-content"` (light text, for a dark surface), `"dark-content"` or
-`"auto"` on any node, bound to state if it changes, sets an iPhone's status bar; of what the
-bar sits over, the declaration painted on top wins. `status-bar-animation="fade"` fades a
-change. Other hosts ignore both.
+`"auto"` on any node, bound to state if it changes, sets the status bar on iOS and Android;
+of what the bar sits over, the declaration painted on top wins. `auto` follows the winner's
+scheme; no valid declaration follows the page's scheme. Android's navigation bar icons
+follow the page's scheme independently (LLP 1105 D7). Android's modal routes are covering
+pages, with no native sheet detent or transition completion; see host/android/README.md,
+Edge to edge. `status-bar-animation="fade"` fades a change on iOS alone. Other hosts ignore
+both properties.
 
-`system-bars-hidden=true` (or `=toyOpen`) hides the status bar and auto-hides the home
+On iOS, `system-bars-hidden=true` (or `=toyOpen`) hides the status bar and auto-hides the home
 indicator while that node's screen is under them, resolved the same way: a `fullscreen`
 route's wins over the stack, a `medium` sheet's does not, and a descendant's `false` shows
 them again.

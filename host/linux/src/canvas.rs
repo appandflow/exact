@@ -162,7 +162,7 @@ mod codec;
 mod colors;
 #[cfg(target_os = "android")]
 pub use colors::colors;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 #[path = "canvas/device.rs"]
 mod device;
 #[cfg(target_os = "android")]

@@ -193,7 +193,12 @@ impl<D: DataSource> Presenter<D> {
 
     /// Report an individual view's appearance (LLP 1062 D4).
     pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {
+        let before = self.host.presented(view).dark;
         self.host.set_view_scheme(view, dark);
+        // View reports are paint state, outside the kernel's commit epoch.
+        if before != self.host.presented(view).dark {
+            self.window.status_bar.invalidate();
+        }
         self.dirty = true;
     }
 

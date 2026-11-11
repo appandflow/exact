@@ -1236,11 +1236,36 @@ The cut was the smallest one. Left in the reader:
     20 points the other hosts yield. With a button for Back there is no such edge, and nothing is yielded.
   - *Edge to edge* (D3.3, D3.4, D3.6). The reader tells exact2 the window's size, the display's density and the
     system's raw insets (bars, cutout, keyboard, gestures; `Native.window`) and pads nothing. exact2 says where the
-    page is, what colour is behind it and whether its scheme is dark (`Native.chrome`); the reader puts the view
-    there, makes that colour the window's background and sets the bars' icons by the scheme. The software keyboard
-    ends the page at its top, and the field being edited stays in view (once the page has been painted in the
+    page is, what colour is behind it and each bar's icon appearance (`Native.chrome`); the reader puts the view
+    there and makes that colour the window's background. `status-bar-style="light-content"` requests light status
+    bar icons, `"dark-content"` dark icons, and `"auto"` the scheme where the winning declaration sits (LLP 1105 D7).
+    An invalid bound value counts as unset; without a declaration the status bar follows the page's scheme.
+    Navigation bar icons always follow the page's scheme. The sixth chrome word packs the dark scheme in bit 0
+    and light status bar icons in bit 1, without changing the JNI array's size. Both API 30's appearance flags and
+    API 29's system UI flags apply the two independently.
+
+    Resolution follows iOS's rule: among declarations in the shown scope, a descendant beats its ancestor;
+    between branches, paint rank and then sibling order decide. Hidden routes, unselected tabs, `display: none`,
+    computed `visibility: hidden`, viewless inline text and projected dialogs/menus do not compete. A lifted
+    route header counts at its route's place. The selected `modal` or `fullscreen` page excludes declarations
+    painted behind it; declarations painted above it still compete. A `display: none` navigation subtree or one inside
+    a dialog/menu projection cannot capture the bar. Without a covering page, the shown route and the root's
+    own nodes compete. `layout.statusBar`
+    reports the resolved style (`light-content`, `dark-content` or `default`) and source node, as a request,
+    not an observation of the system's icons, through both Android agent carriers.
+
+    Differences from iOS: Android's `modal` routes are still pages, so both `modal` and `fullscreen` cover the
+    bar while selected. Selecting a later ordinary route hides the earlier presentation and restores the
+    root's declarations; iOS keeps that push inside the presentation's navigation view. A sibling overlay
+    painted above an Android modal can win; iOS excludes surrounding root nodes from its presented navigation
+    view's scope. There is no native sheet detent, compact-width trait or zoom presentation to consult:
+    iOS leaves the bar to the screen behind a medium sheet or an iPad sheet.
+    There is also no native navigation/presentation transition completion to wait for, so the request changes
+    with committed state. `status-bar-animation` and `system-bars-hidden` are not applied on Android.
+
+    The software keyboard ends the page at its top, and the field being edited stays in view (once the page has been painted in the
     viewport the keyboard left: the boxes a reveal goes by are the last paint's). The keyboard's own slide is not followed
-    frame by frame (`WindowInsetsAnimation`), and a `status-bar-style` (LLP 1105) is not read.
+    frame by frame (`WindowInsetsAnimation`).
   - *The device's settings* (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size
     is 16 times it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that
     the screen is a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change

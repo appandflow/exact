@@ -295,6 +295,29 @@ impl Navigation {
         logs
     }
 
+    /// Committed stacks through their selected routes, including an unmatched
+    /// selection's surviving stack. Hidden navigation roots contribute nothing.
+    pub(crate) fn shown_stacks(&self, kernel: &Kernel) -> Vec<Vec<ViewId>> {
+        self.shown
+            .iter()
+            .filter_map(|(root, keys)| {
+                if self.visibility_of(kernel, *root, false).0 {
+                    return None;
+                }
+                let (_, stacks) = stacks(kernel, *root);
+                stacks.into_iter().find_map(|stack| {
+                    let selected = keys.last()?;
+                    let last = stack.iter().position(|id| {
+                        kernel.node(*id).is_some_and(|n| {
+                            n.props.str(PropId::NavigationKey) == Some(selected.as_str())
+                        })
+                    })?;
+                    Some(stack[..=last].to_vec())
+                })
+            })
+            .collect()
+    }
+
     pub fn visibility(&self, kernel: &Kernel, id: ViewId) -> (bool, bool) {
         self.visibility_of(kernel, id, true)
     }

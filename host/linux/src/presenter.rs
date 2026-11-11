@@ -119,6 +119,7 @@ use scroll_end::Completion;
 #[cfg(all(test, not(windows)))]
 mod scroll_end_tests;
 mod shortcuts;
+mod status_bar;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
 mod swipe;
@@ -1195,6 +1196,7 @@ impl<D: DataSource> Presenter<D> {
             s.push('}');
         }
         s.push(']');
+        self.status_bar_layout(&mut s);
         if let Some(id) = node {
             let detail = self.host.agent(&format!(
                 "{{\"op\":\"node\",\"id\":{id},\"plan\":{include_plan}}}"

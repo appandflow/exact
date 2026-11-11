@@ -1517,7 +1517,7 @@
       "id": 254,
       "name": "statusBarStyle",
       "kind": "str",
-      "_comment": "@ref LLP 1105 D1: the status bar's text, `light-content`, `dark-content` or `auto`, bound to state. iOS resolves one from what covers the bar (D2, D3); other hosts ignore it."
+      "_comment": "@ref LLP 1105 D1: the status bar's text, `light-content`, `dark-content` or `auto`, bound to state. iOS and Android resolve one from what covers the bar (LLP 1105 D7); Android's navigation icons keep following the scheme. Other hosts ignore it."
     },
     {
       "id": 255,

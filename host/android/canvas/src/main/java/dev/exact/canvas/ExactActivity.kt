@@ -402,8 +402,7 @@ open class ExactActivity : Activity() {
 
     /** What the host says to draw around the page ([Native.chrome]): the page's place in the window (x, y, width and
      * height in pixels), where the view and the hosted views under it are put; the colour behind the page and in the
-     * edges it keeps out of, which is the window's background; and whether its scheme is dark, which the bars' icons
-     * follow (light icons over a dark page). */
+     * edges it keeps out of, which is the window's background; and the two bars' icon appearances (LLP 1105 D7). */
     private fun chrome(c: IntArray) {
         for (child in listOfNotNull<View>(view, natives ?: return, fields)) {
             child.layoutParams = FrameLayout.LayoutParams(c[2], c[3]).apply {
@@ -412,10 +411,12 @@ open class ExactActivity : Activity() {
             }
         }
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(c[4]))
-        if (Build.VERSION.SDK_INT < 30) { Legacy.lightBars(window, c[5] == 0); return }
-        val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-            android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        window.insetsController?.setSystemBarsAppearance(if (c[5] != 0) 0 else light, light)
+        val bars = barAppearance(c[5])
+        if (Build.VERSION.SDK_INT < 30) { Legacy.lightBars(window, bars.statusLight, bars.navigationLight); return }
+        val status = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+        val navigation = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(
+            (if (bars.statusLight) status else 0) or (if (bars.navigationLight) navigation else 0), status or navigation)
     }
 
     /** The device's settings as the host was last told them. */

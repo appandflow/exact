@@ -5238,10 +5238,15 @@ subtree. iOS and tvOS write `UIUserInterfaceStyle`; macOS sets the application's
 before its first window; the web page declares it in its `color-scheme` and `<meta
 name="color-scheme">` before the first paint. Android, Linux and Windows follow the device.
 `status-bar-style="light-content"` (light text, for a dark surface),
-`"dark-content"` or `"auto"` on any node, bound to state, sets an iOS phone's
-status bar: of what the bar sits over, the declaration painted on top wins, and
-a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
-(LLP 1105). Other hosts ignore both.
+`"dark-content"` or `"auto"` on any node, bound to state, sets an iOS or Android phone's
+status bar: of what the bar sits over, the declaration painted on top wins.
+`auto` follows the winner's `color-scheme`, else the page's scheme; without a valid
+declaration the bar follows the page's scheme. Android's navigation bar icons keep
+following the page's scheme independently (LLP 1105 D7). Android's modal routes are
+pages that cover the bar; native sheet detents and transition completion are not
+available there (see `host/android/README.md`, Edge to edge). On iOS a flip shows in
+its batch's frame after navigation settles, and `status-bar-animation="fade"` fades
+it. Android ignores the animation; other hosts ignore both properties.
 `system-bars-hidden=true` on any node, bound to state, hides an iOS phone's
 status bar and auto-hides its home indicator (it fades after a few seconds
 without a touch, and a swipe still goes home): a full-screen game or toy. It
