@@ -371,6 +371,11 @@ pub fn period(period_ms: f64) {
     with(|m| m.set_period(period_ms));
 }
 
+/// Whether a canvas's next frame is due at `now_ms` under its cap ([`crate::Module::due`]).
+pub fn due(id: u32, now_ms: f64) -> bool {
+    with(|m| m.due(id, now_ms)).unwrap_or(true)
+}
+
 /// Whether a canvas has unrendered inputs.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
@@ -617,6 +622,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_period(period_ms: f64) {
             $crate::web::period(period_ms)
+        }
+
+        /// Whether a canvas's next frame is due at `now_ms` under its frame-rate cap.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_due(id: u32, now_ms: f64) -> bool {
+            $crate::web::due(id, now_ms)
         }
 
         /// The page's GPU tier, told before `gpu_load` (`GpuTier::code`: 0

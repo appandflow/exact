@@ -233,6 +233,9 @@ impl Module {
         inst.drain();
         let failure = inst.surface.take_error();
         let ready = cfg!(target_arch = "wasm32") || inst.surface.frame_ready();
+        let cap = inst.surface.max_fps();
+        inst.cadence
+            .after(cap, frame.now_ms, self.period_ms, wants || !ready);
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(s) = inst.scratch.as_mut().filter(|_| retry) {
             if ready && failure.is_none() {
@@ -330,6 +333,9 @@ impl Module {
         inst.drain();
         let failure = inst.surface.take_error();
         let ready = inst.surface.frame_ready();
+        let cap = inst.surface.max_fps();
+        inst.cadence
+            .after(cap, frame.now_ms, self.period_ms, wants || !ready);
         open.canvases.push(Rendered {
             id,
             complete: ready,

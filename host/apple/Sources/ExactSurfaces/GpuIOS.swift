@@ -678,6 +678,8 @@ final class CanvasesHost {
             // canvases keep what they want (and their dirty inputs) and render
             // the first frame they are seen.
             guard shown(e, metal) else { more = true; continue }
+            // Under its frame-rate cap (`Surface::max_fps`), a canvas skips the frames before its deadline.
+            if let due = m.due, due(e.id, now) == 0 { more = true; continue }
             e.shownTick = ticks
             // Waiting for the drawable it asked for as its last frame was
             // presented (gpu/src/acquire.rs): a render now would draw

@@ -118,6 +118,14 @@ pub trait Game: 'static {
     fn render_idle(_world: &World, _args: &Self::Args) -> bool {
         false
     }
+    /// The canvas's drawn frames per second at most, 0 for the display's rate:
+    /// a cap on drawing alone, the tick rate (`HZ`) unchanged; a cap below 5
+    /// draws 5, since a longer gap would slow the ticks too. A render hook's
+    /// `Hooks::max_fps` may cap it lower. Read after each drawn frame; never
+    /// saved or hashed.
+    fn max_fps(_world: &World, _args: &Self::Args) -> u32 {
+        0
+    }
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
     /// Rebuild presentation-only state (`#[derive(Presentation)]` components) from

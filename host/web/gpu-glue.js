@@ -445,7 +445,10 @@ function frame(now) {
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id || entry.terminal) continue;
-    if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, at);
+    const owed = entry.wants || gpu.gpu_dirty(entry.id);
+    // Under its frame-rate cap (Surface::max_fps) a canvas skips the callbacks before its deadline.
+    if (owed && gpu.gpu_due?.(entry.id, clockFor(at)) === false) { more = true; continue; }
+    if (owed) render(entry, at);
     more ||= entry.wants;
   }
   flush();

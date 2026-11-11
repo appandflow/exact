@@ -45,7 +45,9 @@ writes that line ([game README](../README.md#exact2-integration)).
 See LLP 1046.006.000 and `tests/hooks.rs` for the independent public fixture.
 
 Hooks borrow `RenderWorld` for immutable extraction and `FrameView` for the exact
-engine camera, interpolation, viewport/capacity and clock-reset facts. Register
+engine camera, interpolation, viewport/capacity and clock-reset facts.
+A hook's `Hooks::max_fps` (a frame budget, say) caps drawing; the lower
+non-zero of it and `Game::max_fps` stands. Register
 entities through `entities()` to get tick-interpolated `FrameView::pose`. Use
 `Pipelines<T>` for asynchronous candidate validation, `Needs::PENDING` until ready,
 and `error()` for a named rejected replacement. Never step or mutate the simulation.

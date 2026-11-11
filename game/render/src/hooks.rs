@@ -307,6 +307,11 @@ pub trait Hooks: Default {
     ) -> Result<(), RenderError> {
         Ok(())
     }
+    /// Drawn frames per second at most, 0 for none: a frame budget, say. The
+    /// lower of this and the game's `Game::max_fps` stands, either 0 for none.
+    fn max_fps(&self) -> u32 {
+        0
+    }
     /// Drop device-owned state immediately; the next prepare receives reset=true.
     fn device_lost(&mut self) {
         *self = Self::default();

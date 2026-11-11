@@ -506,6 +506,8 @@ final class CanvasesHost {
             guard live(e.view.id) === e, let metal = e.view.canvasMetal, e.wants || m.dirty(e.id) != 0 || e.resized(box(metal)) else { continue }
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }
+            // Under its frame-rate cap (`Surface::max_fps`), a canvas skips the frames before its deadline.
+            if let due = m.due, due(e.id, now) == 0 { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
             e.drawnBox = box(metal)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)

@@ -1,4 +1,5 @@
-//! Render on demand: presentation only, never the world.
+//! Render on demand and the frame-rate cap: presentation only, never the
+//! world.
 use super::*;
 use exact_game::Quality;
 
@@ -23,6 +24,9 @@ impl Game for Dice {
     }
     fn render_idle(_: &World, args: &DiceArgs) -> bool {
         !args.rolling
+    }
+    fn max_fps(_: &World, args: &DiceArgs) -> u32 {
+        args.fps
     }
     fn setup(w: &mut World, _: &DiceArgs) {
         w.spawn_named("die", (Transform::at(0., 0.5, 0.), Mesh::cube(1.)));
@@ -124,5 +128,25 @@ fn the_agents_clock_never_rests() {
         );
     }
     assert_eq!(tick(&s), 114, "every millisecond ticks");
+}
+
+#[derive(Default)]
+struct Capped;
+impl crate::Hooks for Capped {
+    fn max_fps(&self) -> u32 {
+        30
+    }
+}
+
+#[test]
+fn the_lower_cap_stands() {
+    let mut s = WorldSurface::<Dice, (), false, Capped>::default();
+    s.bind(&args(true, 0, 60), None).unwrap();
+    use exact_gpu::Surface as _;
+    assert_eq!(s.max_fps(), 30, "the hook's is lower");
+    s.bind(&args(true, 0, 24), None).unwrap();
+    assert_eq!(s.max_fps(), 24, "the game's is lower");
+    s.bind(&args(true, 0, 0), None).unwrap();
+    assert_eq!(s.max_fps(), 30, "the game has none");
 }
 

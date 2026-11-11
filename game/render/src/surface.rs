@@ -307,6 +307,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn render_scale(&self) -> f32 {
         self.raster_scale()
     }
+    fn max_fps(&self) -> u32 {
+        let game = (self.sim.as_ref()).map_or(0, |sim| G::max_fps(sim.world(), sim.args()));
+        exact_gpu::lower_cap(game, crate::Hooks::max_fps(&self.hooks))
+    }
     fn retier(&mut self) -> bool {
         self.retier_rung()
     }

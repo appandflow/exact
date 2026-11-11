@@ -130,6 +130,10 @@ final class GpuModule {
 
     typealias SeekableFn = @convention(c) (Bool) -> Void
     typealias PeriodFn = @convention(c) (Double) -> Void
+    typealias DueFn = @convention(c) (UInt32, Double) -> UInt32
+    /// Whether a canvas's next frame is due at a frame time under its cap (`Module::due`), and its cap.
+    var due: DueFn?
+    var maxFps: WantsFn?
 
     let wantsInput: WantsFn?
     let input: BindFn?
@@ -317,6 +321,8 @@ final class GpuModule {
         module.observeDevice()
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
+        module.due = sym("gpu_due", DueFn.self)
+        module.maxFps = sym("gpu_max_fps", WantsFn.self)
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)

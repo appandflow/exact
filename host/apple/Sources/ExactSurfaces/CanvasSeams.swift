@@ -515,6 +515,18 @@ extension CanvasesHost.Entry {
     func resized(_ box: SIMD3<Float>?) -> Bool { drawnBox != nil && box != nil && box != drawnBox }
 }
 
+extension CanvasesHost {
+    /// The highest cap of the canvases that want frames; 0 when one is uncapped.
+    var frameCap: Int {
+        var cap = 0
+        for e in entries.values where e.wants && e.id != 0 {
+            guard let fps = e.module?.maxFps?(e.id), fps > 0 else { return 0 }
+            cap = max(cap, Int(fps))
+        }
+        return cap
+    }
+}
+
 // A live surface asks for the session once per process; its category is the
 // app's, set by its one owner (`AudioSession`, LLP 1096 D8).
 private enum CanvasAudio {

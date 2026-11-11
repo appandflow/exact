@@ -643,6 +643,16 @@ pub fn period(period_ms: f64) {
     with(|m| m.set_period(period_ms));
 }
 
+/// Whether a canvas's next frame is due at `now_ms` under its cap ([`crate::Module::due`]).
+pub fn due(id: u32, now_ms: f64) -> bool {
+    with(|m| m.due(id, now_ms)).unwrap_or(true)
+}
+
+/// A canvas's frame-rate cap, 0 for none.
+pub fn max_fps(id: u32) -> u32 {
+    with(|m| m.max_fps(id)).unwrap_or(0)
+}
+
 /// Whether a canvas has inputs it has not rendered.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
@@ -1095,6 +1105,12 @@ macro_rules! module {
         /// The display's frame period in milliseconds, 0 while unknown.
         #[no_mangle]
         pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
+        /// 1 when a canvas's next frame is due at `now_ms` under its frame-rate cap.
+        #[no_mangle]
+        pub extern "C" fn gpu_due(id: u32, now_ms: f64) -> u32 { u32::from($crate::native::due(id, now_ms)) }
+        /// A canvas's frame-rate cap, 0 for none.
+        #[no_mangle]
+        pub extern "C" fn gpu_max_fps(id: u32) -> u32 { $crate::native::max_fps(id) }
 
         /// The host's GPU tier before `gpu_load` (`GpuTier::code`: 0 high, 1 mid,
         /// 2 low); 3 asks. Returns the tier the module's surfaces use.

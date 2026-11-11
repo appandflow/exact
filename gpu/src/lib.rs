@@ -45,6 +45,8 @@ mod frame;
 #[cfg(all(test, target_os = "macos"))]
 mod hdr_tests;
 mod input;
+mod pace;
+pub use pace::lower_cap;
 #[cfg(not(target_arch = "wasm32"))]
 mod readback;
 mod release;
@@ -205,6 +207,11 @@ pub trait Surface {
     /// use 1. Explicit readback/fixture sizes are unaffected.
     fn render_scale(&self) -> f32 {
         1.0
+    }
+    /// Drawn frames per second at most, 0 for the display's rate: a host that
+    /// paces its canvases ([`Module::due`]) skips frames to keep under it.
+    fn max_fps(&self) -> u32 {
+        0
     }
     /// Device work follows visibility: a hidden chart stops its ticker, a video
     /// stops decoding, and both resume when shown. This never advances saved
@@ -526,6 +533,8 @@ struct Instance {
     hdr: bool,
     alpha_modes: Vec<wgpu::CompositeAlphaMode>,
     headroom: f32,
+    /// When its next frame is due under its cap, and when its last drew ([`pace`]).
+    cadence: pace::Cadence,
 }
 
 /// The format a window target's frames render in: its sRGB view when the
@@ -953,6 +962,7 @@ impl Module {
                 hdr: false,
                 alpha_modes: Vec::new(),
                 headroom: 1.0,
+                cadence: Default::default(),
             },
         );
         Some(id)
@@ -1444,42 +1454,5 @@ pub mod web;
 mod asset_name;
 pub use asset_name::asset_name;
 
-/// The panic line a GPU module reports before it aborts, from the hook's
-/// `PanicHookInfo` ("panicked at <file>:<line>:<column>:\n<message>").
-fn panic_line(info: &dyn std::fmt::Display) -> String {
-    format!("GPU module panicked: {info}")
-}
-
-/// Release GPU modules abort on panic. On the web that surfaces only as
-/// `RuntimeError: unreachable`, so the message goes to the console first; a
-/// native module repeats it after the default report, whose backtrace would
-/// otherwise push it out of a log's tail. Installed once, at load.
-pub(crate) fn report_panics() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        #[cfg(target_arch = "wasm32")]
-        std::panic::set_hook(Box::new(|info| web::console_error(&panic_line(info))));
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let default = std::panic::take_hook();
-            std::panic::set_hook(Box::new(move |info| {
-                default(info);
-                eprintln!("{}", panic_line(info));
-            }));
-        }
-    });
-}
-
-#[cfg(test)]
-mod panic_tests {
-    // The formatter alone: the process-wide hook is never swapped under
-    // concurrently running tests.
-    #[test]
-    fn a_panic_line_names_the_message_and_location() {
-        let info = "panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized";
-        assert_eq!(
-            super::panic_line(&info),
-            "GPU module panicked: panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized"
-        );
-    }
-}
+mod panic;
+pub(crate) use panic::report_panics;
