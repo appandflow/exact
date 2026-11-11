@@ -221,6 +221,19 @@ test('host.web.head takes script, link and meta entries and refuses the rest by 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('host.windows.window takes its size and refuses keepRunning, which the Windows host does not build', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-manifest-'));
+  const read = window => {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Tray', app: { id: 'test.tray', name: 'Tray' }, host: { windows: { window } } }));
+    return readManifest(dir, 'fixture');
+  };
+  try {
+    assert.doesNotThrow(() => read({ width: 800, height: 600 }));
+    assert.throws(() => read({ keepRunning: true }), /host\.windows\.window\.keepRunning: not a known key/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a misspelt key beside host.web.head is refused as any unknown key is', async () => {
   const { readManifest } = await import('./app.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-manifest-'));

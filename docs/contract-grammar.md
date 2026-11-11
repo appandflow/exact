@@ -2635,8 +2635,12 @@ the virtual clock).
   stays an ordinary button in the window. With
   `host.macos.activationPolicy: "accessory"` the app has no Dock tile and
   opens no window at launch. Bare `focus()` is the window's, as the web's
-  `window.focus()`: it shows the session's window if hidden, brings it
-  forward and activates the app; `focus(id)` stays an element's.
+  `window.focus()`: on macOS it shows the session's window if hidden, brings
+  it forward and activates the app; Windows and Linux bring no window forward
+  yet and log it as unsupported. `focus(id)` stays an element's.
+  Windows opens a window on every launch and exits when it closes; it has no
+  `keepRunning` setting. The login package stores `hidden`, but Windows does
+  not yet honor it at launch (LLP 1133.025 §14).
 
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)

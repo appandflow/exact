@@ -3277,7 +3277,8 @@ when there is none. On macOS the button takes no room in the page; elsewhere,
 Windows included (its notification-area icon is not built), it is an
 ordinary button. An accessory app's status menu ends with the host's Quit,
 which `-exact-menu-remove="status-quit"` removes. Bare `focus()` brings the
-window forward, showing it if it was hidden; the agent lists the items as
+window forward on macOS, showing it if it was hidden (Windows and Linux log
+it as unsupported); the agent lists the items as
 `state.statusItems` and `state.dockMenu`.
 
 
