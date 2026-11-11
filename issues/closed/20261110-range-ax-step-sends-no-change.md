@@ -1,6 +1,7 @@
 # A Mac range stepped by an assistive app sends no `change` unless the app's last event was a mouse-up or a key-down
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Mac range actions commit outside mouse-down and dragging, so accessibility steps send input followed by change.
 **Systems:** host/apple/Sources/ExactKit/Mac/RangeMac.swift, ControlHost
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
