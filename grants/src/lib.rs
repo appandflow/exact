@@ -474,6 +474,15 @@ impl GrantSet {
                     }
                     let origin = origin(target, false)
                         .map_err(|e| format!("line {}: bad origin `{target}`: {e}", index + 1))?;
+                    // A socket's origin is `ws` or `wss`: a line with another scheme would admit none.
+                    if capability == "net.websocket"
+                        && !matches!(origin.scheme.as_str(), "ws" | "wss")
+                    {
+                        return Err(format!(
+                            "line {}: `{target}`: a `net.websocket` line needs `ws` or `wss`",
+                            index + 1
+                        ));
+                    }
                     if capability == "net.fetch" {
                         Grant::Fetch(origin)
                     } else {

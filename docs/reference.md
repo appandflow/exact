@@ -1031,7 +1031,8 @@ writes a scheme source: `net.fetch https:` or `net.fetch http:` admits any host
 at any port of that scheme, for a server the person names at run time (a URL
 they type, a local server on a port chosen at launch). `net.websocket` takes an
 origin, a subdomain wildcard (`wss://*.example.com` or `ws://*.example.com`),
-or `wss:`/`ws:` the same way. In either family's subdomain wildcard, `*` must
+or `wss:`/`ws:` the same way; its scheme is `wss` or `ws`, and a line with
+another (`net.websocket https://example.com`) fails the build. In either family's subdomain wildcard, `*` must
 be the whole leftmost label, the suffix must have at least two labels and
 must not be an IP address, and userinfo, paths, queries and fragments are
 refused (a trailing `/` is allowed). Only hosts strictly under the suffix

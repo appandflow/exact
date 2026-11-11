@@ -511,6 +511,15 @@ other `SQLite: `, and exact2's prelude reads the code from that prefix
 alone. exact2's web worker (`host/web/storage-worker.js`) answers the same
 words and sets the code from SQLite's result. Replay on a refresh.
 
+## Local patch 28, a `net.websocket` line is `ws` or `wss`
+
+`grant.rs` refuses a plain `net.websocket` line whose origin has another
+scheme (`net.websocket https://example.com`), as its subdomain and
+scheme-wide forms already were: no socket has that origin, so the line
+admitted nothing. exact2's `grants` crate refuses the same lines, and the
+shared corpus (`host/web/tests/fixtures/grants.json`) holds them. Replay on a
+refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

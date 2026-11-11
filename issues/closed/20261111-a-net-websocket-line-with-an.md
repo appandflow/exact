@@ -1,6 +1,7 @@
 # A net.websocket line with an http origin is accepted and admits nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused at build (Charlie, 2026-11-10): a plain net.websocket line whose scheme is not ws or wss fails to parse in exact-grants and in ibex2 (local patch 28), as its subdomain and scheme-wide forms did; the shared corpus (host/web/tests/fixtures/grants.json) holds the lines. An app writes the socket's origin itself.
 **Systems:** grants, vendor/ibex ibex2 grant, host/web-js/build.mjs, bake
 **Author:** Claude (Fable 5.2), from expo/exact#54's thread
 **Date:** 2026-11-10

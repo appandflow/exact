@@ -475,6 +475,13 @@ impl GrantSet {
                     let port = url.port_or_known_default().ok_or_else(|| {
                         format!("line {}: no default port for `{}`", index + 1, url.scheme())
                     })?;
+                    // A socket's origin is `ws` or `wss`: a line with another scheme would admit none.
+                    if capability == "net.websocket" && !matches!(url.scheme(), "ws" | "wss") {
+                        return Err(format!(
+                            "line {}: `{target}`: a `net.websocket` line needs `ws` or `wss`",
+                            index + 1
+                        ));
+                    }
                     let origin = Origin::new(url.scheme(), host, port);
                     if capability == "net.fetch" {
                         Grant::Fetch(origin)
