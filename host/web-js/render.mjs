@@ -127,7 +127,7 @@ export function renderer(dist, { closed = false } = {}) {
     // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers. The
     // base is the shell's `<base href="/">`, against which the runtime checks that a link navigates (rt.js `navigable`).
     Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: 'http://render.invalid/' });
-    const location = { pathname: '/', search: '', href: 'http://render.invalid/', origin: '' };
+    const location = { pathname: '/', search: '', href: 'http://render.invalid/', origin: 'http://render.invalid' };
     // What the render read that another render may not read alike: how long its answers stay fresh for any reader
     // (http-cache.mjs `FRESH`), and whether a source drew a random number (its only other reading the clock and
     // `Math.random` refuse, ts-fetch.js) — so how long its page may be given again (`keep`).
