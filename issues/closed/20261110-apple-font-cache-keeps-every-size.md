@@ -1,6 +1,7 @@
 # The Apple text engine keeps a font for every size, weight and axis value it was ever asked for
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each Apple text engine caches at most 256 fonts across all resolution paths and clears the cache on memory pressure.
 **Systems:** host/apple/Sources/ExactCore/Text.swift (`TextEngine.fonts`, `font(size:weight:family:italic:…)`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

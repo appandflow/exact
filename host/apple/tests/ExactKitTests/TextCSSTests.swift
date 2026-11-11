@@ -8,6 +8,96 @@ import CExact
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
 
+    func testFontCacheIsBoundedAcrossContinuousSizesAndAxes() {
+        for axes in [false, true] {
+            let engine = TextEngine(resolve: { _ in nil })
+            var peak = 0
+            for i in 0..<1024 {
+                autoreleasepool {
+                    let font = engine.font(size: 14 + CGFloat(i) * 0.005,
+                                           weight: axes ? 301 + i % 397 : 400,
+                                           family: 0, italic: false,
+                                           stretch: axes ? 75 + CGFloat(i % 501) * 0.1 : 100)
+                    let line = CTLineCreateWithAttributedString(NSAttributedString(
+                        string: "Changing font size", attributes: [.font: font]))
+                    XCTAssertGreaterThan(CTLineGetTypographicBounds(line, nil, nil, nil), 0)
+                    peak = max(peak, engine.fonts.count)
+                }
+            }
+            XCTAssertLessThanOrEqual(peak, 256, "axes: \(axes)")
+        }
+    }
+
+    func testFontCacheBoundsDeclaredCascadesAndFeatureVariants() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let data = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let descriptor = (CTFontManagerCreateFontDescriptorsFromData(data as CFData) as! [CTFontDescriptor])[0]
+        let face = RegisteredFace(family: "Flex", generic: nil, weights: 100...1000,
+                                  stretches: 25...151, italic: false, descriptor: descriptor)
+        let fallback = RegisteredFace(family: "system-ui", generic: 0, weight: 400,
+                                      italic: false, descriptor: descriptor)
+        for (family, numeric) in [(0, 1), (8, 0), (9, 0), (9, 1)] {
+            let engine = TextEngine(resolve: { _ in nil })
+            engine.catalog[8] = [face]
+            engine.catalog[9] = [face, fallback]
+            var peak = 0
+            for i in 0..<1024 {
+                autoreleasepool {
+                    let font = engine.font(size: 16, weight: 400, family: family, italic: false,
+                                           numeric: numeric, variations: [FontAxis(tag: 0x77676874, value: 300 + Float(i) * 0.1)])
+                    XCTAssertEqual(CTFontGetSize(font as CTFont), 16)
+                    peak = max(peak, engine.fonts.count)
+                }
+            }
+            XCTAssertLessThanOrEqual(peak, 256, "family: \(family), numeric: \(numeric)")
+        }
+    }
+
+    func testFontCacheBoundsPlatformControlVariants() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let base = engine.font(size: 16, weight: 400, family: 0, italic: false)
+        let family = Int(engine.registerControlFont(base))
+        var peak = 0
+        for i in 0..<1024 {
+            autoreleasepool {
+                let size = 14 + CGFloat(i) * 0.005
+                let font = engine.font(size: size, weight: 400, family: family, italic: false)
+                XCTAssertEqual(CTFontGetSize(font as CTFont), size, accuracy: 0.00001)
+                peak = max(peak, engine.fonts.count)
+            }
+        }
+        XCTAssertLessThanOrEqual(peak, 256)
+        XCTAssertTrue(engine.font(size: 16, weight: 400, family: family, italic: false) === base)
+    }
+
+    func testFontCacheEvictionAndPressurePreserveLiveTextAndCheckpoints() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let font = engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: "0123456789", attributes: [.font: font]))
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        let saved = engine.fonts
+        XCTAssertTrue(engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1) === font)
+        XCTAssertEqual(engine.fonts.count, saved.count)
+        let checkpoint = engine.checkpoint()
+        for i in 0..<1024 {
+            autoreleasepool {
+                _ = engine.font(size: 20 + CGFloat(i) * 0.005, weight: 400, family: 0, italic: false)
+            }
+        }
+        XCTAssertFalse(engine.fonts.values.contains { $0 === font })
+        XCTAssertEqual(CTLineGetTypographicBounds(line, nil, nil, nil), width)
+        let rebuilt = engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1)
+        XCTAssertTrue(CFEqual(font as CTFont, rebuilt as CTFont))
+        engine.install(nil)
+        XCTAssertTrue(engine.fonts.isEmpty)
+        engine.restore(checkpoint)
+        XCTAssertEqual(engine.fonts, saved)
+        engine.dropCold()
+        XCTAssertTrue(engine.fonts.isEmpty)
+        XCTAssertEqual(CTLineGetTypographicBounds(line, nil, nil, nil), width)
+        XCTAssertTrue(CFEqual(font as CTFont, engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1) as CTFont))
+    }
+
     func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
         guard !TextEngine.installedFaces("Arial").isEmpty,
               !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Arial or Menlo unavailable") }
