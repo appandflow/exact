@@ -244,8 +244,12 @@ fn a_password_value_is_masked_in_every_reply() {
         node.contains(r#""value":"•••""#) && !node.contains("hunter2"),
         "{node}"
     );
+    // `state` masks a slot a password field reads (LLP 1156.001 D6); asked
+    // with `reveal`, as `expect state` asks, it shows what the app keeps.
     let state = handle(&mut p, r#"{"op":"state"}"#);
-    assert!(state.contains(r#""secret":"hunter2""#), "{state}");
+    assert!(!state.contains("hunter2"), "{state}");
+    let revealed = handle(&mut p, r#"{"op":"state","reveal":true}"#);
+    assert!(revealed.contains(r#""secret":"hunter2""#), "{revealed}");
 }
 
 /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
