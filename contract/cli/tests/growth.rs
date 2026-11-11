@@ -217,3 +217,38 @@ fn file_scopes_share_the_programs_names() {
     }
     scope_growth(&dir, &paths);
 }
+
+#[test]
+fn action_injects_grow_with_the_channels_they_reach() {
+    let dir = std::env::temp_dir().join(format!("contract-inject-growth-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut paths = Vec::new();
+    for count in [200, 800] {
+        let mut source = String::from("component Root\n  state n = 0\n");
+        for i in 0..count {
+            source.push_str(&format!("  action a{i}\n    n = n + {i}\n"));
+        }
+        source.push_str("  provide\n");
+        for i in 0..count {
+            source.push_str(&format!("    a{i}\n"));
+        }
+        source.push_str("  view\n    column\n");
+        for i in 0..count / 10 {
+            source.push_str(&format!("      Child{i}()\n"));
+        }
+        for i in 0..count / 10 {
+            source.push_str(&format!("component Child{i}\n  inject\n"));
+            for j in 0..40 {
+                source.push_str(&format!("    a{}: action\n", (i * 7 + j) % count));
+            }
+            source.push_str(&format!(
+                "  view\n    button press=a{}\n      text \"child\"\n",
+                i * 7 % count
+            ));
+        }
+        let path = dir.join(format!("app{count}.contract"));
+        std::fs::write(&path, source).unwrap();
+        paths.push(path);
+    }
+    scope_growth(&dir, &paths);
+}
