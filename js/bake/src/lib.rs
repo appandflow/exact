@@ -958,6 +958,8 @@ fn bake_in(
     if [
         "__exact_entry.ts",
         "__exact_backend_source.json",
+        "__exact_backend_warning.json",
+        "__exact_code_warnings.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_binding.mjs",
@@ -1112,6 +1114,11 @@ fn bake_in(
         {
             warnings.push(warning);
         }
+    }
+    // Each site that runs code from a string, which throws on every host
+    // (`typescript.mjs` `CODE_WARNINGS`).
+    if let Ok(bytes) = std::fs::read(stage.join("__exact_code_warnings.json")) {
+        warnings.extend(serde_json::from_slice::<Vec<String>>(&bytes).map_err(|e| e.to_string())?);
     }
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;

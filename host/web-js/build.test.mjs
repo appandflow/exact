@@ -720,6 +720,35 @@ test("compiled Markdown goes before the shell's own entry, whatever the head's s
   }
 });
 
+// The render realm runs no code from a string by any route (#128): the module's `Function` and `eval` throw Hermes's
+// error, and a function's own `constructor` throws the realm's EvalError, as under the render server's CSP.
+test('a page rendered at build runs no code from a string, by any name or through a function\'s constructor', () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-strings-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  try {
+    site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n\ncomponent App\n  resource note = note("x") as shape Note\n  view\n    column\n      text note.text\n');
+    // A module that names only `eval`, never `globalThis`: its `eval` is the stand-in all the same (build.mjs `scopedModule`).
+    // A parameter named `globalThis` stands between no `eval` and the stand-in.
+    writeFileSync(resolve(app, 'evals.ts'), "export const direct = () => eval('6*7'), indirect = () => (0, eval)('6*7');\n"
+      + "export function captured(globalThis: { eval(source: string): unknown }) { return eval('1'); }\n"
+      + "export function probe(globalThis: null) { return typeof eval; }\n");
+    writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nimport { captured, direct, indirect, probe } from './evals';\nexport const appId = 'test.site';\nexport const grants = '';\n"
+      + "const tried = (f: () => unknown) => { try { return `ran ${String(f())}`; } catch (e) { return (e as Error).name; } };\n"
+      + "const F = Function;\n"
+      + "const sources: Sources = { note: (): Result<'note'> => ({ text: [tried(() => new Function('return 1')()), tried(() => new F('return 1')()), tried(() => Reflect.construct(Function, ['return 1'])), tried(() => globalThis.Function('return 1')),\n"
+      + "  tried(direct), tried(indirect), tried(() => globalThis.eval('1')), tried(() => captured({ eval: () => 1 })), String(Function instanceof Function), String(eval instanceof Function),\n"
+      + "  tried(() => probe(null)),\n"
+
+      + "  tried(() => new ((function () {}).constructor as FunctionConstructor)('return 1')())].join(' ') }) };\n"
+      + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
+    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    // Each spelling of `Function` and `eval` is the module's stand-in, through the build's own bindings (`scopedModule`).
+    expect(readFileSync(resolve(out, 'index.html'), 'utf8')).toContain(`>${Array(8).fill('SyntaxError').join(' ')} true true ran function EvalError<`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 300_000);
+
 function site(app, source) {
   mkdirSync(app, { recursive: true });
   writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));

@@ -443,6 +443,9 @@ export function stagePackages(stage) {
 // unguarded use of the DOM or of Node's globals are refused by package and
 // file: no executor has them.
 const RECORD='__exact_packages.json';
+/** The bundle's sites that run code from a string, a JSON list of warnings each producer says (the web build,
+ * js/bake/src/lib.rs `bake_in`). */
+export const CODE_WARNINGS='__exact_code_warnings.json';
 const BUILTIN=new Set(builtinModules);
 const builtin=(spec)=>spec.startsWith('node:') || BUILTIN.has(spec) || BUILTIN.has(spec.split('/')[0]);
 // npm's package names (with the old capitals) and versions: a place in the
@@ -529,6 +532,8 @@ export const dataBundle=(stage)=>({...bundleOptions, transform:{...bundleOptions
 export function capturedSources(stage, refusals=null) {
   stage=realpathSync.native(stage);
   const files=new Map(), roots=new Map(), edges=new Map(), stray=new Map(), area=join(stage,'node_modules','.packages');
+  // Each site that runs code from a string, once (`packageRefusals`): written beside the stage at the build's end.
+  const warned=new Set();
   let total=0;
   // Staged declarations and captured package code sit under a `node_modules` in the stage.
   const staged=(id)=>within(id,stage) && relative(stage,id).split(sep).includes('node_modules');
@@ -536,6 +541,11 @@ export function capturedSources(stage, refusals=null) {
     const file=files.get(id);
     if (!file) return slash(relative(stage,id))+at;
     return `${file.package.key} (${slash(relative(file.package.root,file.real))}${at})`;
+  };
+  // A diagnostic's file: the app's path, or the package's name, version and path in it (`zod@4.6.7/v4/core/util.js`).
+  const place=(id,at='')=>{
+    const file=files.get(id);
+    return (file ? `${file.package.key}/${slash(relative(file.package.root,file.real))}` : slash(relative(stage,id)))+at;
   };
   const copy=(from,to,pkg)=>{
     if (files.has(to)) return;
@@ -631,8 +641,12 @@ export function capturedSources(stage, refusals=null) {
       id=physicalId(id);
       const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage), inPackage=files.has(id);
       const reads=envReads(id,code,parse,(at)=>label(id,at),inPackage);
-      // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
-      report([...(inPackage ? [] : ambientRefusals(stage,id,code,parse)), ...(inPackage ? [] : reads.map(r=>r.why)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
+      // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is. Every other
+      // module that runs, the app's TypeScript and a package's TypeScript or JSX, is checked only for code from a string.
+      const fromStrings=[], other=!js && within(id,stage) && /\.[cm]?[jt]sx?$/.test(id) && !/\.d\.[cm]?ts$/.test(id);
+      if (other) packageRefusals(code,(at)=>label(id,at),parse,fromStrings,/\.[cm]?tsx$/.test(id) ? 'tsx' : /\.jsx$/.test(id) ? 'jsx' : 'ts',(at)=>place(id,at));
+      report([...(inPackage ? [] : ambientRefusals(stage,id,code,parse)), ...(inPackage ? [] : reads.map(r=>r.why)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse,fromStrings,'js',(at)=>place(id,at)) : [])]);
+      for (const why of fromStrings) warned.add(why);
       if (!inPackage || !reads.length) return null;
       // A package's read of a setting is a read only if the bundle keeps it: each becomes a global of the same length,
       // which tree-shaking drops with the code around it, and `renderChunk` refuses any the output still holds. A
@@ -665,6 +679,7 @@ export function capturedSources(stage, refusals=null) {
       });
       const path=resolve(stage,RECORD);
       if (!existsSync(path) || readFileSync(path,'utf8')!==record) writeFileSync(path,record);
+      writeFileSync(resolve(stage,CODE_WARNINGS),JSON.stringify([...warned].sort()));
     },
   };
 }

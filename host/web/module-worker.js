@@ -4,7 +4,7 @@
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
 import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
-import { agentStream, keyStore } from './storage-environment.js';
+import { agentStream, keyStore, refuseCodeFromStrings } from './storage-environment.js';
 import { sameGrantDeclaration } from './grant-admission.js';
 
 const checkpoint = () => new Promise(resolve => {
@@ -76,7 +76,8 @@ self.__exact_host = (op, name, value) => {
 
 // Indirect eval runs the verified text at the worker's global scope, where
 // a classic script would: the prelude finds `this`, the module defines `exact`.
-const evaluate = source => (0, eval)(source);
+// The worker's own `eval`, taken before the module's is refused.
+const evaluate = (indirect => source => indirect(source))(eval);
 
 function init(message) {
   admitted = message.admitted;
@@ -87,6 +88,7 @@ function init(message) {
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
+  refuseCodeFromStrings(self);
   // The worker's timers, before the prelude takes them from this global: a storage lock's bound (storage-fs.js),
   // held in this closure and never the module's.
   const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };

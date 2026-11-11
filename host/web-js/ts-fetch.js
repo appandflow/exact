@@ -367,8 +367,22 @@ const noIo = api => function () { throw new Error(`${api} is unavailable in data
 const pageYield = globalThis.scheduler?.yield?.bind(globalThis.scheduler) ?? (typeof MessageChannel === 'function'
   ? () => new Promise(resolve => { const { port1, port2 } = new MessageChannel(); port1.onmessage = () => { port1.close(); resolve(); }; port2.postMessage(null); })
   : () => Promise.resolve());
+// Code from a string runs on no host a data module runs on: Hermes compiles none, and throws `SyntaxError: Parsing
+// source code unsupported` at the call. `Function` and `eval` throw that here too, so a package's guarded probe (zod's
+// `allowsEval`) takes its fallback as it does on Hermes; `x instanceof Function`, `Function.prototype` and its `call`,
+// `apply` and `bind` are the page's. The constructor a function's own `constructor` names is still the page's, as
+// LLP 1027 D5 records. As host/web/storage-environment.js `refuseCodeFromStrings`, the wasm route's.
+const codeFromString = () => { throw new SyntaxError('Parsing source code unsupported: a data source runs no code from a string (Function, eval), as on Hermes'); };
+// Each has its own `constructor`, the stand-in, where a function inherits the page's real one from `Function.prototype`;
+// what reaches `Function.prototype.constructor` reaches the real one (LLP 1027 D5).
+const NoFunction = function Function(body) { return codeFromString(body); };
+// A method, since no function may be named `eval` in strict code; as `eval`, not a constructor.
+const noEval = { eval(source) { return codeFromString(source); } }.eval;
+Object.defineProperty(NoFunction, 'prototype', { value: globalThis.Function.prototype });
+// Fixed, so no `delete` or write uncovers the inherited one.
+for (const f of [NoFunction, noEval]) Object.defineProperty(f, 'constructor', { value: NoFunction, writable: false, configurable: false });
 const guarded = {
-  Date: GuardedDate, Math: GuardedMath,
+  Date: GuardedDate, Math: GuardedMath, Function: NoFunction, eval: noEval,
   XMLHttpRequest: noIo('XMLHttpRequest'), WebSocket: noIo('WebSocket'), EventSource: noIo('EventSource'),
   Intl: Object.freeze(Object.create(NativeIntl, { DateTimeFormat: { value: DateTimeFormat } })),
   setTimeout(callback, delay, ...args) {
@@ -420,6 +434,9 @@ export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame,
   cancelAnimationFrame, cancelIdleCallback, performance, scheduler, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
 // Not a binding of this module's own: its `fetch` keeps the page's `AbortSignal.timeout` for `exactTimeout`.
 export { GuardedAbortSignal as AbortSignal };
+// By name, since no binding of this module may be named `Function` or `eval` here; a module imports `eval` under
+// another name, since no import may bind that one (host/web-js/build.mjs `scopedModule`).
+export { NoFunction as Function, noEval as eval };
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.
@@ -440,21 +457,33 @@ const page = globalThis;
 // The `fetch` a source's `globalThis.fetch` is: this module's, or, for sources with no network grant, the asset path and the
 // refusal alone (ts-fetch-refused.js); the data glue sets it (ts-data.js), so the request paths link only where they can be
 // reached (LLP 1047.002 D3).
-let Fetch = null; export const useFetch = f => { Fetch = f; };
-export const appGlobal = new Proxy(Object.create(null), {
-  has(_, name) { return !ABSENT.has(name) && Reflect.has(page, name); },
-  getOwnPropertyDescriptor(_, name) {
+let Fetch = null;
+// The module's own: `fetch` and `guarded`'s names (`Date`, `Function`, `eval`, …) are data properties of the proxy's
+// target, so a read, write, definition, descriptor or deletion of one behaves as on any object, and never reaches the
+// page, whose own code keeps its `Date` and `Function` (`globalThis.Function = globalThis.Function` would otherwise
+// install the stand-in as the page's). Deleting one defines the module's original again, so a read never falls through
+// to the page's; one the module made non-configurable cannot be deleted, as on any object.
+const target = Object.create(null), mine = new Set(['fetch', ...Object.keys(guarded)]);
+const original = name => Reflect.defineProperty(target, name, { value: name === 'fetch' ? Fetch : guarded[name], writable: true, enumerable: false, configurable: true });
+for (const name of mine) original(name);
+export const useFetch = f => { Fetch = f; original('fetch'); };
+export const appGlobal = new Proxy(target, {
+  has(own, name) { return mine.has(name) ? Reflect.has(own, name) : !ABSENT.has(name) && Reflect.has(page, name); },
+  getOwnPropertyDescriptor(own, name) {
+    if (mine.has(name)) return Reflect.getOwnPropertyDescriptor(own, name);
     const found = ABSENT.has(name) ? undefined : Reflect.getOwnPropertyDescriptor(page, name);
     return found && { ...found, configurable: true };
   },
-  ownKeys() { return Reflect.ownKeys(page).filter(name => !ABSENT.has(name)); },
+  ownKeys(own) { return [...new Set([...Reflect.ownKeys(own), ...Reflect.ownKeys(page).filter(name => !ABSENT.has(name))])]; },
   getPrototypeOf() { return Object.prototype; },
-  set(_, name, value) { return Reflect.set(page, name, value); },
-  defineProperty(_, name, descriptor) { return Reflect.defineProperty(page, name, descriptor); },
-  deleteProperty(_, name) { return Reflect.deleteProperty(page, name); },
-  get(_, name) {
-    if (name === 'fetch') return Fetch;
-    if (Object.hasOwn(guarded, name)) return guarded[name];
+  set(own, name, value, receiver) { return mine.has(name) ? Reflect.set(own, name, value, receiver) : Reflect.set(page, name, value); },
+  defineProperty(own, name, descriptor) { return Reflect.defineProperty(mine.has(name) ? own : page, name, descriptor); },
+  deleteProperty(own, name) {
+    if (!mine.has(name)) return Reflect.deleteProperty(page, name);
+    return Reflect.deleteProperty(own, name) && original(name);
+  },
+  get(own, name, receiver) {
+    if (mine.has(name)) return Reflect.get(own, name, receiver);
     if (ABSENT.has(name)) return undefined;
     if (name === 'globalThis') return appGlobal;
     const value = Reflect.get(page, name, page);

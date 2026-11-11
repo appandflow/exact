@@ -209,6 +209,9 @@ export function renderer(dist, { closed = false } = {}) {
       return fetched(input, { ...init, signal: signal ? AbortSignal.any([owner.signal, signal]) : owner.signal })
         .then(noted, error => { read.fresh = 0; throw error; });
     };
+    // No code from a string, by any route (a function's own `constructor` too): as on Hermes, and as the page under
+    // the render server's CSP, which admits no `'unsafe-eval'`. The module's `Function` and `eval` throw Hermes's
+    // error (ts-fetch.js); what reaches the realm's own throws its EvalError.
     const ctx = vm.createContext({
       document, location,
       // The locale a runner has before a host reports the reader's (runner/src/time.rs), as `exactTime` answers in a
@@ -229,7 +232,7 @@ export function renderer(dist, { closed = false } = {}) {
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
       ...(closed ? { __exactMarkdown: new Map() } : {}),
       __exactMarkdownBuilt: JSON.parse(builtMarkdown(shell, seen)),
-    });
+    }, { codeGeneration: { strings: false } });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
     try { script.runInContext(ctx); } catch (error) { dispose(); throw error; }

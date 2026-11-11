@@ -310,19 +310,23 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // package code runs in this process. Under `--data` (a conformance fixture's synthetic plan over
 // another app's sources) it is captured but not checked: against the
 // fixture's declarations every source that app answers is unknown.
+// The check's errors, then its warnings: what `contract build` and a drive's summary read, warnings after refusals.
+const sayWarnings = (warnings) => { for (const warning of warnings ?? []) console.warn(warning); };
 const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
   console.error(`${error.message ?? error}\nerror: ${app}: app.ts failed the type check every host's build runs`);
+  sayWarnings(error.warnings);
   process.exit(1);
 }) : null;
 if (checkOnly) {
   const typeError = await captured?.typed;
-  if (typeError) { console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
-  process.exit(0);
+  if (typeError) console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`);
+  sayWarnings(captured?.warnings);
+  process.exit(typeError ? 1 : 0);
 }
 // Each setting app.ts read, as inlined, and its source (`configure`; LLP 1153 D4).
 if (ts) for (const line of settingLines(JSON.parse(readFileSync(resolve(tsStage, '__exact_env.json'), 'utf8')))) console.log(line);
 async function typecheck(checking) {
-  const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, capturedSources, staticFacts, CODE_WARNINGS } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -406,14 +410,19 @@ async function typecheck(checking) {
   const { rolldown } = await import('rolldown');
   const typed = checking ? check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error) : Promise.resolve(null);
   let failed;
+  rmSync(resolve(real, CODE_WARNINGS), { force: true });
   try {
     const bundle = await rolldown({ ...bundleOptions, cwd: real, input: resolve(real, '__exact_entry.ts'), tsconfig: resolve(real, '__exact_tsconfig.json'),
       logLevel: 'silent', plugins: [capturedSources(real, why)] });
     try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   } catch (error) { failed = error; }
+  // Each use of `Function` or `eval`, whose code from a string throws on every host (js/bake/src/__exact_portable.mjs):
+  // a diagnostic in the compiler's form, as `contract build` and a drive's summary read it, said after any error.
+  let warnings = [];
+  try { warnings = JSON.parse(readFileSync(resolve(real, CODE_WARNINGS), 'utf8')); } catch { /* a bundle that failed may have written none */ }
   if (failed || why.length) {
     const errors = [failed, ...why.map(line => new Error(line)), await typed].filter(Boolean);
-    throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
+    throw Object.assign(new Error(errors.map(e => e.message ?? String(e)).join('\n')), { warnings });
   }
   // The packages whose code it captured are inputs the dev loop watches, as
   // their declarations are: each package's tree, and each place it is
@@ -426,7 +435,7 @@ async function typecheck(checking) {
     sources.shallow = [...(sources.shallow ?? []), ...packages.flatMap(([, , installed]) => installed.map(path => [dirname(path), basename(path)]))];
     writeFileSync(listed, JSON.stringify(sources));
   }
-  return { facts: staticFacts(readFileSync(resolve(real, 'app.ts'), 'utf8'), parseSync), typed };
+  return { facts: staticFacts(readFileSync(resolve(real, 'app.ts'), 'utf8'), parseSync), typed, warnings };
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
@@ -445,7 +454,7 @@ const grants = ts ? developmentLocalNetwork(String(tsModule.grants ?? '')) : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_env.mjs', '__exact_portable.mjs', '__exact_env.json', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
+    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_code_warnings.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_env.mjs', '__exact_portable.mjs', '__exact_env.json', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...tsModule.exported.includes('draw') !== tsModule.exported.includes('surfaces') ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...tsModule.appId !== undefined && tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
@@ -757,18 +766,24 @@ const scopedModule = (code, id, lower = false) => {
   if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And ts-fetch.js's bindings: the clock and Math.random refused by name
   // (LLP 1027.000 D3), an answer's own timers (D1) with every other timer
-  // refused, the scheduler's yield (LLP 1141.001 D10), and the browser's own
-  // I/O refused, as the wasm target's realm refuses it.
+  // refused, the scheduler's yield (LLP 1141.001 D10), the browser's own
+  // I/O refused, as the wasm target's realm refuses it, and code from a
+  // string, which throws as on Hermes (`eval`, which no import may bind, is imported as `__exact_eval`, below).
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
-    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'scheduler', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto', 'AbortSignal'];
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'scheduler', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto', 'AbortSignal',
+    'Function'];
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
   // The stage's normalized configuration, never one found beside the file: a
   // mount's own `tsconfig.json` may extend a file outside the mount.
-  const result = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'), ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
+  // `define` makes a bare `eval` (`eval(…)`, `(0, eval)(…)`) `__exact_eval`, which inject imports as ts-fetch.js's
+  // stand-in: an import, so a parameter or local named `globalThis` cannot stand between. Rolldown's type comment says
+  // define runs after inject; in one transform as here (rolldown 1.2.9), inject still imports the name define wrote.
+  // Pinned by host/web-js/build.test.mjs "a page rendered at build runs no code from a string…".
+  const result = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'), ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), define: { eval: '__exact_eval' }, inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
-    globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
+    __exact_eval: [resolve(gen, 'ts-fetch.js'), 'eval'], globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };
@@ -991,7 +1006,9 @@ if (!production || !opt('--plan')) {
 // The type check, which ran while the page bundled: its diagnostics are the
 // native bake's (host/web/build.mjs keeps them in its summary).
 const typeError = await captured?.typed;
-if (typeError) { console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
+if (typeError) console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`);
+sayWarnings(captured?.warnings);
+if (typeError) process.exit(1);
 // Pages at build (LLP 1048.000): `--render rust` (the default where the app
 // has one) runs the app's native render entry (`<app>-render`, exact_render)
 // over this shell; `--render js` runs this runtime under Bun (render.mjs).

@@ -699,10 +699,15 @@ export function contract(args, env = process.env) {
   if (result.status === 0 && input && basename(input) === 'app.contract') {
     const dir = dirname(resolve(input));
     refreshTypes(dir, binary, {quiet: json});
-    const checked = checkTypes(dir, {capture: json});
+    // `--errors-only` leaves out the check's warnings in either form: captured, then said without them.
+    const errorsOnly = args.includes('--errors-only'), checked = checkTypes(dir, {capture: json || errorsOnly});
+    if (!json && errorsOnly) process.stderr.write(checked.report.split(/(?<=\n)/).filter((line) => !line.startsWith('warning: ') && !/^.+:\d+:\d+ warning \[[\w-]+\] /.test(line)).join(''));
     if (!json) return checked.status;
     const diagnostics = JSON.parse(result.stdout);
     if (checked.status) diagnostics.push(...typeDiagnostics(checked.report, dir));
+    // The check's warnings, after every refusal as the compiler's are (LLP 1116 D6), unless `--errors-only`.
+    if (!errorsOnly) diagnostics.push(...checkWarnings(checked.report, dir));
+    diagnostics.sort((a, b) => (a.severity === 'warning') - (b.severity === 'warning'));
     process.stdout.write(`${JSON.stringify(diagnostics)}\n`);
     return checked.status;
   }
@@ -730,6 +735,7 @@ export function checkTypes(dir, {capture = false, builder = resolve(ROOT, 'host/
 export function typeDiagnostics(report, dir) {
   const found = [], at = (file) => relative(process.cwd(), resolve(dir, file));
   for (const line of report.split(/\r?\n/)) {
+    if (line.startsWith('warning: ') || /^.+:\d+:\d+ warning \[[\w-]+\] /.test(line)) continue;
     const m = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(line);
     if (m) found.push({id: `typescript-${m[4]}`, severity: 'error', message: m[5], file: at(m[1]), line: Number(m[2]), col: Number(m[3]), end_col: Number(m[3]), related: []});
     else if (line.trim() && !/^error: .*: app\.ts failed the type check/.test(line)) {
@@ -738,6 +744,18 @@ export function typeDiagnostics(report, dir) {
     }
   }
   return found.length ? found : [{id: 'typescript-check', severity: 'error', message: 'app.ts failed the type check every host\'s build runs', file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []}];
+}
+
+/** The check's warnings as `build --json` diagnostics of severity `"warning"`: a diagnostic in the compiler's form,
+ * `file:line:col warning [id] text` (a use of `Function` or `eval`, #128), at its place, and a `warning: …` line (the
+ * backend's origin) on app.ts. */
+export function checkWarnings(report, dir) {
+  const at = (file) => relative(process.cwd(), resolve(dir, file));
+  return report.split(/\r?\n/).flatMap((line) => {
+    const m = /^(.+):(\d+):(\d+) warning \[([\w-]+)\] (.*)$/.exec(line);
+    if (m) return [{id: m[4], severity: 'warning', message: m[5], file: existsSync(resolve(dir, m[1])) ? at(m[1]) : m[1], line: Number(m[2]), col: Number(m[3]), end_col: Number(m[3]), related: []}];
+    return line.startsWith('warning: ') ? [{id: 'typescript-warning', severity: 'warning', message: line.slice('warning: '.length), file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []}] : [];
+  });
 }
 
 /** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten

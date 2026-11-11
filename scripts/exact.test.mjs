@@ -1080,6 +1080,46 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   assert.equal(readFileSync(types, 'utf8'), saved);
 }), 600_000); // The first call may compile the compiler.
 
+// LLP 1116 D6: the app.ts check's warnings (here a caught `new Function`, which throws on every host, #128) are said
+// after the refusals, and `--errors-only` leaves them out in either form, the array and the text.
+test('contract build --errors-only leaves out the app.ts check\'s warnings, with --json and without', () => inDir(dir => {
+  writeFileSync(resolve(dir, 'app.contract'), 'shape Greeting\n  text: string\ncomponent App\n  resource greeting = greeting("x") as shape Greeting\n  view\n    text greeting.text\n');
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Strings', app: { id: 'com.example.strings', name: 'Strings' } }));
+  writeFileSync(resolve(dir, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nexport const grants = '';\n"
+    + "const sources: Sources = { greeting: ([name]): Result<'greeting'> => { try { new Function(''); } catch {} return { text: name }; } };\n"
+    + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
+  const build = (...flags) => spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), 'contract', 'build', 'app.contract', ...flags], { cwd: dir, encoding: 'utf8', timeout: 600_000 });
+  const warning = /^app\.ts:3:\d+ warning \[code-from-string\] uses 'Function', which builds code from a string/m;
+  let r = build();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, warning);
+  r = build('--errors-only');
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /code-from-string/);
+  r = build('--json');
+  assert.deepEqual(JSON.parse(r.stdout).map((d) => [d.id, d.severity, d.file, d.line]), [['code-from-string', 'warning', 'app.ts', 3]]);
+  r = build('--json', '--errors-only');
+  assert.deepEqual([r.status, r.stdout], [0, '[]\n']);
+  // With an error too (a type error, which the same check finds): the error first, then the warning; under
+  // --errors-only, the error alone.
+  writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8') + "export const count: number = 'one';\n");
+  const refused = /^app\.ts[:(]5[:,]\d+.*TS2322/m;
+  r = build();
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, refused);
+  assert.match(r.stderr, warning);
+  assert.ok(r.stderr.search(refused) < r.stderr.search(warning), r.stderr);
+  r = build('--errors-only');
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, refused);
+  assert.doesNotMatch(r.stderr, /code-from-string/);
+  const said = (r) => JSON.parse(r.stdout).map((d) => [d.severity, d.file, d.line]);
+  r = build('--json');
+  assert.deepEqual(said(r), [['error', 'app.ts', 5], ['warning', 'app.ts', 3]]);
+  r = build('--json', '--errors-only');
+  assert.deepEqual(said(r), [['error', 'app.ts', 5]]);
+}), 600_000);
+
 // `exact.mjs docs <words>`: the section that holds the words as whole words, most densely, first; printed from its
 // heading when the heading is on the words, else from the paragraph that mentions them. A word may start with `-`.
 test('docs prints the section on its words first, matching whole words', () => {
