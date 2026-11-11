@@ -1,6 +1,7 @@
 # The slot check passes `visibility="collapse"`, which hides the fill on the terminal, Linux and web hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The shared slot checker refuses visibility: collapse as hiding the fill, alongside hidden.
 **Systems:** contract/lower/src/anatomy/slot.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
