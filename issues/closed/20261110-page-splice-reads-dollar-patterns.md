@@ -1,6 +1,7 @@
 # Prepared Markdown and the dev checkpoint are spliced into the page as a replacement string, so a `$` pattern in them corrupts the page
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Prepared Markdown and dev checkpoints preserve dollar patterns literally when inserted into HTML.
 **Systems:** host/web-js/build.mjs, host/web-js/dev.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

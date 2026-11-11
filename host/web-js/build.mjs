@@ -758,7 +758,8 @@ const scopedModule = (code, id, lower = false) => {
   return result.code;
 };
 // Both bundles take app.ts and its packages from the checked capture alone.
-const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage, [resolve(gen, 'ts-fetch.js'), resolve(realpathSync(gen), 'ts-fetch.js')]) : null;
+const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage,
+  generatedRoots.flatMap(root => ['ts-fetch.js', ...(fetchRefused ? ['ts-fetch-refused.js'] : [])].map(name => resolve(root, name)))) : null;
 // These hooks are optional. Keep their static accesses for tree-shaking,
 // but suppress missing-export warnings only at the generated glue's path.
 const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
@@ -999,7 +1000,7 @@ if (markdownReaders) {
     const tag = `<script type="application/vnd.exact.markdown">${data}</script>`;
     for (const file of ['index.html', 'shell.html']) {
       const path = resolve(out, file);
-      writeFileSync(path, readFileSync(path, 'utf8').replace('<script type="module"', tag + '<script type="module"'));
+      writeFileSync(path, readFileSync(path, 'utf8').replace('<script type="module"', () => tag + '<script type="module"'));
     }
     console.log(`${app}: ${prepared.length} Markdown sources compiled`);
   }

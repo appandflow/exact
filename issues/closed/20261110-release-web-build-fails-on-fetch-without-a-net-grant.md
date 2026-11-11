@@ -1,6 +1,7 @@
 # A release web build fails when `app.ts` calls `fetch` and the app holds no `net.fetch` grant
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Release web builds resolve the generated fetch module for sources without a network grant, preserving asset access and named refusals.
 **Systems:** host/web-js/build.mjs, js/bake/src/typescript.mjs (replayCaptured)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
