@@ -103,8 +103,8 @@ pub(crate) fn stacks(
 pub(crate) struct Navigation {
     pub(crate) split: crate::presenter::split::State,
     routes: BTreeMap<ViewId, (bool, bool)>,
-    /// The tabpanels a root last hid or showed: one it stops naming shows again.
-    panels: BTreeSet<ViewId>,
+    /// Tabpanels and tablists last projected: one no longer owned by a root is released.
+    tab_containers: BTreeSet<ViewId>,
     refused: BTreeMap<ViewId, String>,
     /// Each root's stack as last shown, its keys through its selected route.
     shown: BTreeMap<ViewId, Vec<String>>,
@@ -181,7 +181,7 @@ impl Navigation {
         self.refused.retain(|id, _| kernel.node(*id).is_some());
         self.shown.retain(|id, _| kernel.node(*id).is_some());
         let mut logs = Vec::new();
-        let before = std::mem::take(&mut self.panels);
+        let before = std::mem::take(&mut self.tab_containers);
         self.popovers = false;
         let mut first = true;
         for id in order {
@@ -195,8 +195,10 @@ impl Navigation {
             let first = std::mem::take(&mut first);
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let (tabs, stacks) = stacks(kernel, *id);
-            let panels = tabs.map_or(Vec::new(), |tabs| tabs.panels);
-            self.panels.extend(panels.iter().copied());
+            let panels = tabs.as_ref().map_or(&[][..], |tabs| tabs.panels.as_slice());
+            self.tab_containers.extend(panels.iter().copied());
+            self.tab_containers
+                .extend(tabs.as_ref().map(|tabs| tabs.tablist));
             let key = |id: &ViewId| {
                 kernel
                     .node(*id)
@@ -246,6 +248,16 @@ impl Navigation {
                 };
                 if stack == at {
                     let through = keys.iter().position(|k| *k == shown).map_or(0, |i| i + 1);
+                    if let Some(tabs) = &tabs {
+                        // A sheet covers the root's tab bar too (LLP 1115.000 D4.5).
+                        let inert = matches!(
+                            kernel
+                                .node(routes[through - 1])
+                                .and_then(|n| n.props.str(PropId::NavigationPresentation)),
+                            Some("modal" | "fullscreen")
+                        );
+                        self.routes.insert(tabs.tablist, (false, inert));
+                    }
                     self.shown
                         .insert(*id, keys[..through].iter().map(|k| k.to_string()).collect());
                     if first && matched {
@@ -268,8 +280,8 @@ impl Navigation {
                 }
             }
         }
-        for panel in before.difference(&self.panels) {
-            self.routes.remove(panel);
+        for container in before.difference(&self.tab_containers) {
+            self.routes.remove(container);
         }
         logs
     }

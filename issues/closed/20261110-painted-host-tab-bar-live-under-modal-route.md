@@ -1,6 +1,7 @@
 # On the painted hosts the tab bar under a modal route still takes presses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Modal and fullscreen routes make the painted tablist and shell navigation bar inert until dismissal.
 **Systems:** host/linux/src/navigation.rs (the painted presenter: Linux, Windows), host/linux/src/presenter/bars.rs (Android)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
