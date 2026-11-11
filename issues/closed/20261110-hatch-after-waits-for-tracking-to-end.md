@@ -1,6 +1,7 @@
 # A hatch's `after` does not fire while a scroll, a menu or a drag is tracked
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Hatch after timers use the session clock's common run-loop modes and fire while input is tracked.
 **Systems:** host/apple/Sources/ExactKit/HatchClock.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
