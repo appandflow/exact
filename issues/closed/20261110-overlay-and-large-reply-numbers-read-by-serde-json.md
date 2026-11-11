@@ -1,6 +1,7 @@
 # An overlay's value, and an answer holding a 64 K string, read their numbers one ulp off
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Overlays and replies with captured strings use the correctly rounded JSON reader and preserve JavaScript numbers exactly.
 **Systems:** js/src/reply.rs, js/src/lib.rs (overlay), js/value
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

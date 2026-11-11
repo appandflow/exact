@@ -1114,7 +1114,8 @@ impl Module {
         ) {
             return Err(DataError::Overrun(format!("`{source}`'s overlay {why}")));
         }
-        let reply: Json = serde_json::from_str(&text)
+        let reply = exact_js_value::json::parse(text.as_bytes())
+            .map(Json::from)
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay: {e}")))?;
         let keep = reply
             .get("keep")
