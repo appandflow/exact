@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
+import {existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -55,6 +55,19 @@ test('ordinary app executables refuse WidgetKit, ActivityKit and SwiftUI, includ
       assert.doesNotThrow(() => assertCapabilityFrameworks(executable, framework === 'SwiftUI' ? [] : ['ExactSnapshot'], framework === 'SwiftUI' ? ['SwiftUI'] : []));
     }
   } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test("the ActivityKit arm compiles the checkout's sources when the build runs from an app's own directory", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-activity-arm-'));
+  try {
+    // A child process, so the working directory is the app's and not this process's.
+    const script = `const { packageActivityArm } = await import(${JSON.stringify(new URL('./activities.mjs', import.meta.url).href)});
+try { packageActivityArm({ directory: process.cwd(), device: false, triple: 'arm64-apple-ios17.0-simulator', sdk: '/sdk', runApple: (cmd, args) => { console.log(JSON.stringify(args)); throw new Error('stop'); } }); } catch {}`;
+    const r = spawnSync(process.execPath, ['-e', script], { cwd: dir, encoding: 'utf8' });
+    const sources = JSON.parse(r.stdout || '[]').filter(arg => arg.endsWith('.swift'));
+    assert.equal(sources.length, 2, r.stderr);
+    for (const source of sources) assert.ok(existsSync(source), source);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('activity refusals allow native APNs without activities and still scan every activity bundle binary', () => {

@@ -1,15 +1,18 @@
 // @ref LLP 1126.001 WP9 — ActivityKit stays outside the app's load commands.
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { copyFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { wrapFramework } from './assets.mjs';
 import { activityEntries } from './widgets.mjs';
+// The checkout's root: an app outside it builds from its own directory.
+const root = fileURLToPath(new URL('../..', import.meta.url));
 export function packageActivityArm({ app, bundle, directory, triple, sdk, device, runApple }) {
   const binary = resolve(directory, 'libexact_activity.dylib');
   // The system identifies the attributes by their module and type name. Compile the
   // existing envelope in ExactSnapshot, without linking its driver or ExactCore.
   runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactSnapshot', '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'),
-    resolve('host/apple/Sources/ExactSnapshot/ActivityEnvelope.swift'), resolve('host/apple/activityarm/ActivityArm.swift'), '-o', binary]);
+    resolve(root, 'host/apple/Sources/ExactSnapshot/ActivityEnvelope.swift'), resolve(root, 'host/apple/activityarm/ActivityArm.swift'), '-o', binary]);
   const frameworks = resolve(bundle, 'Frameworks');
   copyFileSync(binary, resolve(frameworks, 'libexact_activity.dylib'));
   wrapFramework(frameworks, 'libexact_activity.dylib', 'ExactActivity', app, device ? 'iPhoneOS' : 'iPhoneSimulator');
