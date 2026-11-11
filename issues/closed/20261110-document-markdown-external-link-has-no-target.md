@@ -1,6 +1,7 @@
 # On a rendered page a Markdown link that leaves the app opens in the app's own tab
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Rust document writer gives a Markdown link that leaves the app `target="_blank"` and `rel="external noopener"`, and the JS render server's DOM reflects `target` as an attribute, so renderMarkup's is written.
 **Systems:** host/web/src/document.rs, host/web-js/dom.js, host/web-js/markdown.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

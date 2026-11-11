@@ -433,7 +433,13 @@ component App
         doc.contains("<span style=\"font-weight:700;\">b</span>"),
         "{doc}"
     );
-    assert!(doc.contains("<a href=\"https://e.dev/\">safe</a>"), "{doc}");
+    // It leaves the app, so it opens in a new browsing context, as natively.
+    assert!(
+        doc.contains(
+            "<a href=\"https://e.dev/\" target=\"_blank\" rel=\"external noopener\">safe</a>"
+        ),
+        "{doc}"
+    );
     assert!(doc.contains("<span>unsafe</span>"), "{doc}");
     assert!(!doc.contains("javascript"), "{doc}");
     assert!(doc.contains("<br>"), "{doc}");
@@ -1053,5 +1059,25 @@ fn a_progress_prerenders_with_its_value() {
         tag("p2").contains(r#"value="3""#) && tag("p2").contains(r#"max="8""#),
         "{}",
         tag("p2")
+    );
+}
+
+/// A Markdown link that leaves the app opens as a link node to the same URL
+/// does: in a new browsing context, as natively (renderMarkup's rule).
+#[test]
+fn a_markdown_link_that_leaves_the_app_prerenders_with_its_target() {
+    let html = document(
+        "component App\n  view\n    column\n      text \"see [site](https://example.com/a) and [here](/b)\" markup=\"markdown\" testId=\"md\"\n",
+    );
+    assert!(
+        html.contains(r#"href="https://example.com/a""#)
+            && html.contains(r#"rel="external noopener""#)
+            && html.contains(r#"target="_blank""#),
+        "{html}"
+    );
+    let inside = &html[html.find(r#"href="/b""#).expect("the app's own link")..];
+    assert!(
+        !inside[..inside.find('>').unwrap()].contains("target"),
+        "{html}"
     );
 }

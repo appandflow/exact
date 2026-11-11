@@ -122,6 +122,9 @@ class Element extends Node {
   // Read only (symbols.js `tinted`): the class attribute's names.
   get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
+  // Reflected as a browser reflects it, so a link renderMarkup sends out of the app is written with it.
+  get target() { return this.getAttribute('target') ?? ''; }
+  set target(v) { this.setAttribute('target', v); }
   get rel() { return this.getAttribute('rel') ?? ''; }
   set rel(v) { this.setAttribute('rel', v); }
   get alt() { return this.getAttribute('alt') ?? ''; }

@@ -1188,6 +1188,11 @@ impl<S: Source> Walk<'_, '_, S> {
             }
             if link {
                 attrs.push(("href".to_owned(), Some(piece.href.clone())));
+                // It leaves the app, as natively: renderMarkup's rule (navigation.js).
+                if super::element::leaves_app(&piece.href) {
+                    attrs.push(("target".to_owned(), Some("_blank".to_owned())));
+                    attrs.push(("rel".to_owned(), Some("external noopener".to_owned())));
+                }
             }
             let lines: Vec<&str> = if hang {
                 vec![piece.text.as_str()]
