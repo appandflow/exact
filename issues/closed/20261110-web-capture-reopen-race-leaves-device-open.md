@@ -1,6 +1,7 @@
 # On the web, a lease retaken while its track is reopening leaves a microphone or camera capturing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each `activate` takes its own lease number and adopts the browser track only while that lease is current; `deactivate` ends it. `packages/media-capture/web/lease.test.mjs` retakes a lease during a slow open and checks no browser track stays live.
 **Systems:** packages/media-capture/web/index.js, packages/media-capture/web/video.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
