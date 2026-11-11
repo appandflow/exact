@@ -63,16 +63,25 @@ export function framePhases(items, read, compute, write) {
   return results;
 }
 
+// Canvas takes `fontStretch` and `textRendering` as keywords (HTML's
+// CanvasRenderingContext2D), and ignores what else it is given; computed style
+// gives font-stretch as a percentage and text-rendering in lower case. A
+// percentage with no keyword cannot be measured (`compute`).
+const STRETCH = { '50%': 'ultra-condensed', '62.5%': 'extra-condensed', '75%': 'condensed', '87.5%': 'semi-condensed', '100%': 'normal',
+  '112.5%': 'semi-expanded', '125%': 'expanded', '150%': 'extra-expanded', '200%': 'ultra-expanded' };
+const STRETCH_KEYWORDS = new Set(Object.values(STRETCH));
+const RENDERING = { optimizespeed: 'optimizeSpeed', optimizelegibility: 'optimizeLegibility', geometricprecision: 'geometricPrecision' };
 export function fontStyle(style, mac = false, lang = '') {
   // Pretext's platform ledger: Canvas and DOM resolve different SF optical
   // faces on macOS. Pin both measurement AND painted runs to a named face.
   const family = mac ? style.fontFamily.replace(/(^|,\s*)(?:system-ui|-apple-system|ui-sans-serif)(?=\s*(?:,|$))/g, '$1"Helvetica Neue"') : style.fontFamily;
   const font = `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${style.fontSize} ${family}`;
-  const extra = { fontKerning: style.fontKerning || 'auto', fontStretch: style.fontStretch || 'normal',
+  // The canvas takes these in this order (`measurementCache`): Chrome's `lang` setter puts `fontStretch` back to normal.
+  const extra = { lang, direction: style.direction || 'ltr', fontKerning: style.fontKerning || 'auto',
+    fontStretch: STRETCH[style.fontStretch] ?? (style.fontStretch || 'normal'),
     fontVariantCaps: style.fontVariantCaps || 'normal', fontVariantNumeric: style.fontVariantNumeric || 'normal',
     fontVariantLigatures: style.fontVariantLigatures || 'normal',
-    textRendering: style.textRendering || 'auto',
-    direction: style.direction || 'ltr', lang };
+    textRendering: RENDERING[style.textRendering] ?? (style.textRendering || 'auto') };
   const spacing = px(style.letterSpacing);
   return { font, family, spacing, extra, key: JSON.stringify([font, spacing, extra]), size: px(style.fontSize),
     lineHeight: px(style.lineHeight),
@@ -343,7 +352,7 @@ function paintContent(span, fragment, state, lineHeight) {
     const piece = document.createElement('span');
     const font = state.runs[fragment.ellipsisRun]?.font;
     // `font` resets `line-height`: the ellipsis keeps the line's, as the runs do
-    if (font) piece.style.cssText = `font:${font.font};letter-spacing:${font.spacing}px;line-height:${lineHeight}px;`;
+    if (font) piece.style.cssText = `font:${font.font};font-stretch:${font.extra.fontStretch};letter-spacing:${font.spacing}px;line-height:${lineHeight}px;`;
     piece.textContent = '…'; piece.exactFlowSourceStart = fragment.paint_end;
     children.push(piece);
   }
@@ -621,6 +630,8 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
         return { s, skipped: 'font-variant-ligatures cannot be measured by canvas; ordinary text retained' };
       if (fonts.some(f => (f.fontFeatureSettings || 'normal') !== 'normal'))
         return { s, skipped: 'font-feature-settings cannot be measured by canvas; ordinary text retained' };
+      if (fonts.some(f => !STRETCH_KEYWORDS.has(f.extra.fontStretch) || (f.extra.fontStretch !== 'normal' && !('fontStretch' in context))))
+        return { s, skipped: 'font-stretch cannot be measured by canvas; ordinary text retained' };
       // CSS tabs advance to a stop from the line's start; the walker takes
       // fixed segment widths before it chooses the lines.
       if (preserves(snapshot.whiteSpace) && s.text.includes('\t'))
@@ -685,6 +696,7 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
       }
       if (change.content) {
         span.style.font = result.font.font; span.style.letterSpacing = `${result.font.spacing}px`;
+        span.style.fontStretch = result.font.extra.fontStretch;
         span.style.lineHeight = `${result.lineHeight}px`; span.style.direction = result.direction;
         paintContent(span, f, s, result.lineHeight);
       }

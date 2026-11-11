@@ -1126,45 +1126,64 @@ browserTest('a flowed paragraph is trimmed to its own font\'s cap height, whatev
   expect(Math.abs(fallbackInk - 20 * 0.416)).toBeGreaterThan(1); // the fallback's H is not the font's cap height
 }, 20000);
 
-// Each paragraph beside an exclusion, over a stand-in walker that puts the whole text on one
-// fragment: the width CSS lays the text out at, the width measured for the walker, and the
-// painted fragment's width and `white-space`, or why it kept ordinary layout.
+// Paragraphs beside an exclusion, over a stand-in walker: compare CSS, measured and
+// painted widths, including clamped and hyphenated endings, or the refusal to flow.
 async function flowWidthFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
   const root = document.getElementById('root'), out = {};
+  // Roboto Flex's `wdth` axis answers every font-stretch from 25% to 151%.
+  document.fonts.add(await new FontFace('Flex', 'url(/flex.ttf)', { stretch: '25% 151%' }).load());
   const cases = {
     pre: ['a      b', 'white-space:pre'], preWrap: ['a      b', 'white-space:pre-wrap'], normal: ['a      b', ''],
+    condensed: ['Hamburgefonts', 'font-family:Flex;font-stretch:condensed'], expanded: ['Hamburgefonts', 'font-family:Flex;font-stretch:expanded'],
+    flex: ['Hamburgefonts', 'font-family:Flex'], between: ['Hamburgefonts', 'font-family:Flex;font-stretch:80%'],
+    condensedClamp: ['Hamburgefonts more', 'font-family:Flex;font-stretch:condensed;-webkit-line-clamp:1', 'clamp'],
+    condensedHyphen: ['Hambur\u00adgefonts', 'font-family:Flex;font-stretch:condensed', 'hyphen'],
   };
-  for (const [name, [text, extra]] of Object.entries(cases)) {
+  for (const [name, [text, extra, ending]] of Object.entries(cases)) {
     const style = `font:16px/24px serif;${extra}`, n = text.length;
-    root.innerHTML = `<span id="plain" style="${style}">${text}</span><div id="context" style="position:relative;width:300px"><div id="paragraph" style="${style}">${text}</div><div id="ball" style="position:absolute;left:0;top:0;width:40px;height:40px"></div></div>`;
+    const end = ending === 'hyphen' ? 7 : n, reference = ending === 'hyphen' ? 'Hambur-' : ending === 'clamp' ? 'Hambur…' : text;
+    const byteAt = i => new TextEncoder().encode(text.slice(0, i)).length;
+    root.innerHTML = `<span id="plain" style="${style}">${reference}</span><div id="context" style="position:relative;width:300px"><div id="paragraph" style="${style}">${text}</div><div id="ball" style="position:absolute;left:0;top:0;width:40px;height:40px"></div></div>`;
     const views = new Map([[1, document.getElementById('context')], [2, document.getElementById('paragraph')], [3, document.getElementById('ball')]]);
-    let measured = null, skipped = null;
+    let measured = null, skipped = null, hyphen = 0;
+    const css = document.getElementById('plain').getBoundingClientRect().width, available = ending === 'clamp' ? css + 0.1 : 260;
     const request = (op, id, input) => {
-      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
-      if (op === 1) { measured = new DataView(input.buffer, input.byteOffset).getFloat32(4, true); return { prepared: true }; }
+      if (op === 0) return { ranges: [[0, byteAt(end), 0, end]], graphemes: Array.from({ length: n }, (_, i) => [byteAt(i), byteAt(i + 1), i, i + 1]) };
+      if (op === 1) { const data = new DataView(input.buffer, input.byteOffset); hyphen = data.getFloat32(0, true); measured = data.getFloat32(4, true); return { prepared: true }; }
       if (op !== 2) return {};
-      return { shapes: [], complete: true, height: 24, line_height: 24,
-        fragments: [{ start: 0, end: n, utf16_start: 0, utf16_end: n, paint_start: 0, paint_end: n, x: 40, y: 0, width: measured, available: 260, line: 0 }] };
+      return { shapes: [], complete: ending !== 'clamp', clamped: ending === 'clamp', height: 24, line_height: 24,
+        fragments: [{ start: 0, end: byteAt(end), utf16_start: 0, utf16_end: end, paint_start: 0, paint_end: end, x: 40, y: 0,
+          width: measured + (ending === 'hyphen' ? hyphen : 0), available, line: 0, hyphenated: ending === 'hyphen' }] };
     };
     const flow = createTextFlow({ views, request, agentMode: true, advance() {}, log: line => { skipped = line; } });
     flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false, refusal: null }] }] }], timers: false });
     await flow.settle();
-    const piece = document.querySelector('[data-flow-fragment] span');
-    out[name] = { css: document.getElementById('plain').getBoundingClientRect().width, measured,
-      painted: piece?.getBoundingClientRect().width ?? null, whiteSpace: piece?.style.whiteSpace ?? null, skipped: piece ? null : skipped };
+    const fragment = document.querySelector('[data-flow-fragment]'), piece = fragment?.firstElementChild;
+    out[name] = { css, measured: flow.facts(2)?.fragments?.[0]?.width ?? measured,
+      painted: fragment?.getBoundingClientRect().width ?? null, whiteSpace: piece?.style.whiteSpace ?? null, skipped: piece ? null : skipped,
+      endingStretch: !fragment ? null : ending === 'hyphen' ? getComputedStyle(fragment, '::after').fontStretch : ending === 'clamp' ? getComputedStyle(fragment.lastElementChild).fontStretch : null };
     flow.dispose();
   }
   return out;
 }
 
 // `white-space: pre` keeps its runs of spaces beside an exclusion, as `pre-wrap` does and as CSS lays it out.
+// Condensed and expanded text is measured at its width: the canvas takes font-stretch's keywords, not the
+// percentage computed style gives, and a percentage with no keyword keeps ordinary layout.
 browserTest('a flowed paragraph is measured and painted at the width CSS gives it', async () => {
-  const got = await inChrome(flowWidthFixture, ['/textflow-glue.js', '/timer-glue.js']);
+  const { between, condensedClamp, condensedHyphen, ...got } = await inChrome(flowWidthFixture, ['/textflow-glue.js', '/timer-glue.js'],
+    { '/flex.ttf': new URL('../linux/tests/fonts/RobotoFlex-subset.ttf', import.meta.url) });
   for (const [name, { css, measured, painted }] of Object.entries(got)) {
     expect([name, Math.abs(measured - css) < 0.5, Math.abs(painted - css) < 0.5]).toEqual([name, true, true]);
   }
+  expect([condensedClamp, condensedHyphen].map(({ css, measured, painted, endingStretch }) => ({
+    measured: Math.abs(measured - css) < 0.1, painted: Math.abs(painted - measured) < 0.1, stretch: endingStretch,
+  }))).toEqual([{ measured: true, painted: true, stretch: '75%' }, { measured: true, painted: true, stretch: '75%' }]);
   expect(got.pre.css).toBeGreaterThan(got.normal.css + 10);
+  expect(got.condensed.css).toBeLessThan(got.flex.css - 3);
+  expect(got.expanded.css).toBeGreaterThan(got.flex.css + 3);
+  expect(between.skipped).toContain('font-stretch cannot be measured by canvas');
   expect([got.pre.whiteSpace, got.preWrap.whiteSpace, got.normal.whiteSpace]).toEqual(['pre', 'pre', 'normal']);
 }, 20000);
 
