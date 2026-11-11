@@ -15,6 +15,7 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 import ExactPackage
+import IOKit.hidsystem
 
 public final class GlobalShortcutsModule: ExactPackage {
     private let context: ExactPackageContext
@@ -100,8 +101,6 @@ private final class HotKeys {
     private var order = 0
     private var handler: EventHandlerRef?
     private var monitors: [Any] = []
-    /// The modifier keys down now, by key code, for pairs.
-    private var down: Set<UInt16> = []
     private static let signature: OSType = 0x4558_4354 // 'EXCT'
 
     /// `keys` read for `id` by `module`: registered, or why not.
@@ -195,13 +194,17 @@ private final class HotKeys {
 
     // MARK: Pairs
 
-    /// The two key codes of a pair's modifier (`Shift+Shift`), or nil.
-    private static func pair(_ keys: String) -> (UInt16, UInt16)? {
+    /// The key codes and device flag mask of a modifier pair (`Shift+Shift`), or nil.
+    private static func pair(_ keys: String) -> (left: UInt16, right: UInt16, mask: UInt)? {
         switch keys {
-        case "Shift+Shift": (UInt16(kVK_Shift), UInt16(kVK_RightShift))
-        case "Control+Control": (UInt16(kVK_Control), UInt16(kVK_RightControl))
-        case "Alt+Alt": (UInt16(kVK_Option), UInt16(kVK_RightOption))
-        case "Meta+Meta": (UInt16(kVK_Command), UInt16(kVK_RightCommand))
+        case "Shift+Shift":
+            (UInt16(kVK_Shift), UInt16(kVK_RightShift), UInt(NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK))
+        case "Control+Control":
+            (UInt16(kVK_Control), UInt16(kVK_RightControl), UInt(NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK))
+        case "Alt+Alt":
+            (UInt16(kVK_Option), UInt16(kVK_RightOption), UInt(NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK))
+        case "Meta+Meta":
+            (UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt(NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK))
         default: nil
         }
     }
@@ -218,17 +221,14 @@ private final class HotKeys {
     private func removeMonitors() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
-        down = []
     }
 
     private func flags(_ event: NSEvent) {
         let code = event.keyCode
-        let wasDown = down.contains(code)
-        // A modifier key's flagsChanged toggles it; the device flags say which side.
-        if wasDown { down.remove(code) } else { down.insert(code) }
-        guard !wasDown else { return }
+        // Device flags describe both sides at this event, even if the monitor missed an earlier change.
         for keys in chords.keys {
-            guard let (left, right) = Self.pair(keys), [left, right].contains(code), down.contains(left), down.contains(right) else { continue }
+            guard let pair = Self.pair(keys), code == pair.left || code == pair.right,
+                  event.modifierFlags.rawValue & pair.mask == pair.mask else { continue }
             deliver(keys)
         }
     }

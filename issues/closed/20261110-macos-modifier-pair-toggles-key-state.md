@@ -1,6 +1,7 @@
 # On macOS, a modifier pair fires on one key once its monitor has missed a single key event
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** macOS modifier pairs use each event's side-specific flags and fire only when both keys are down, even after missed events.
 **Systems:** packages/global-shortcuts/apple/GlobalShortcuts.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
