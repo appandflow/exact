@@ -331,6 +331,44 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
     assert!(executor.call(&vec![0; abi::MAX_MESSAGE + 1]).is_err());
 }
 
+// A trap leaves the instance's memory as the call left it. The module keeps
+// the pages in use at address 1024: "x" needs 600 free pages above them,
+// "leaky" takes 300 and traps before it frees them. Of the 1,024 pages the
+// executor allows, one instance runs out on the second round.
+#[test]
+fn a_call_after_a_trap_runs_in_a_fresh_instance() {
+    let store = Store::new("secret.keep token", []);
+    let good = abi::call_request(&store, "x", &[], None).unwrap().len();
+    let used = "i32.const 1024 i32.load";
+    let reach = |pages: u32| {
+        format!(
+            "(block $done (loop $grow memory.size {used} i32.const {pages} i32.add \
+            i32.ge_u br_if $done i32.const 1 memory.grow drop br $grow))"
+        )
+    };
+    let module = wasm(&format!(
+        "local.get 2 i32.const {good} i32.gt_u
+        if {} i32.const 1024 {used} i32.const 300 i32.add i32.store unreachable end
+        {}",
+        reach(301),
+        reach(601),
+    ));
+    let plan = plan();
+    let mut candidate = Swappable::wasm(Fixture)
+        .replacement(&plan, &receipt(&plan, &module), module)
+        .unwrap();
+    candidate.activate().unwrap();
+    for _ in 0..3 {
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+        let trapped = candidate.query("leaky", &[]).unwrap_err();
+        assert!(
+            matches!(&trapped, DataError::Interface(e) if e.contains("unreachable")),
+            "{trapped:?}"
+        );
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+    }
+}
+
 // This crate's dev-dependencies compile wasmi's `simd` and `memory64` in, as
 // another crate of an app may: the engine still refuses both proposals.
 #[test]

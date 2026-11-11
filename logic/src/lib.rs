@@ -40,6 +40,11 @@ pub const MAX_MODULE: usize = 32 << 20;
 
 trait Executor {
     fn call(&mut self, bytes: &[u8]) -> Result<Vec<u8>, String>;
+    /// Whether a call trapped. A trapped instance's memory and state are
+    /// undefined, so it takes no further calls.
+    fn trapped(&self) -> bool {
+        false
+    }
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
@@ -194,11 +199,29 @@ impl<D: DataSource> Swappable<D> {
     ) -> Result<Answer, DataError> {
         let request =
             abi::call_request(store, source, args, outcome).map_err(DataError::Interface)?;
+        let bytes = self.run(&request)?;
+        abi::call_reply(&bytes, store)
+    }
+    /// Run one request on the active executor. After a trap the instance is
+    /// discarded and the module activated afresh, so the trap costs that call
+    /// only (LLP 1029.000 §3: module-local caches may be discarded).
+    fn run(&mut self, request: &[u8]) -> Result<Vec<u8>, DataError> {
         let engine = self.executor.as_mut().ok_or_else(|| {
             DataError::Unavailable("Rust module awaits post-pixel activation".into())
         })?;
-        let bytes = engine.call(&request).map_err(DataError::Interface)?;
-        abi::call_reply(&bytes, store)
+        let error = match engine.call(request) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => error,
+        };
+        if engine.trapped() {
+            self.executor = None;
+            if let Err(again) = self.activate_module() {
+                return Err(DataError::Interface(format!(
+                    "{error}; activating the module again failed: {again}"
+                )));
+            }
+        }
+        Err(DataError::Interface(error))
     }
     fn activate_module(&mut self) -> Result<(), String> {
         if self.executor.is_some() {
@@ -351,12 +374,12 @@ impl<D: DataSource> DataSource for Swappable<D> {
             return embedded.overlay(source, args, answer, writes);
         }
         // Before activation the module can't overlay: the answer shows.
-        let Some(engine) = self.executor.as_mut() else {
+        if self.executor.is_none() {
             return Ok(None);
-        };
+        }
         let request =
             abi::overlay_request(source, args, answer, writes).map_err(DataError::Interface)?;
-        let bytes = engine.call(&request).map_err(DataError::Interface)?;
+        let bytes = self.run(&request)?;
         abi::overlay_reply(&bytes)
     }
     /// A replaced Rust module parks nothing.

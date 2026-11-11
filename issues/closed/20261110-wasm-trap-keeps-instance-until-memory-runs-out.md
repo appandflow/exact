@@ -1,6 +1,7 @@
 # A call that traps in the interpreted Rust executor keeps its memory, and the instance is reused until every larger call fails
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A call that traps marks its interpreted instance trapped, and `Swappable` drops that instance and activates the module afresh, so the next call runs in a new instance with its own memory.
 **Systems:** logic/src/wasm.rs, logic/src/lib.rs (the interpreted Rust executor)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
