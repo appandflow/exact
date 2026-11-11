@@ -98,7 +98,166 @@ function browser(engine) {
 }
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
 
+async function dragSelection(page, field, from, to, destination, copy = false, changed = true) {
+  await field.focus();
+  const points = await field.evaluate((el, [from, to, destination]) => {
+    el.setSelectionRange(from, to);
+    const start = el.exactMarkup.rangeFrame(from, to);
+    const end = typeof destination === 'number' ? el.exactMarkup.rangeFrame(destination, destination) : null;
+    return { from: { x: start.x + start.width / 2, y: start.y + start.height / 2 },
+      to: end ? { x: end.x, y: end.y + end.height / 2 } : destination };
+  }, [from, to, destination]);
+  await settle(page);
+  await field.evaluate((el, changed) => {
+    // A changed drop can detach the source, so finish at its input.
+    // A cancelled drop keeps the source and finishes without an input.
+    window.dragDone = new Promise(ok => el.addEventListener(changed ? 'input' : 'dragend', ok, { once: true }));
+  }, changed);
+  const cdp = page.context().browser().browserType().name() === 'chromium' ? await page.context().newCDPSession(page) : null;
+  if (copy) await page.keyboard.down('Alt');
+  try {
+    await page.mouse.move(points.from.x, points.from.y);
+    if (cdp) {
+      await cdp.send('Input.setInterceptDrags', { enabled: true });
+      const dragged = new Promise(ok => cdp.once('Input.dragIntercepted', ok));
+      const timestamp = Date.now() / 1000, modifiers = copy ? 1 : 0;
+      // Chromium's macOS text-drag threshold is time since the press.
+      // Encode the held press in native timestamps, without sleeping.
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...points.from,
+        button: 'left', buttons: 1, clickCount: 1, modifiers, timestamp: timestamp - 0.25 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: points.from.x + 8, y: points.from.y + 8,
+        button: 'left', buttons: 1, modifiers, timestamp });
+      const { data } = await dragged;
+      for (const type of ['dragEnter', 'dragOver', 'drop']) {
+        await cdp.send('Input.dispatchDragEvent', { type, ...points.to, data, modifiers });
+      }
+    } else {
+      await page.mouse.down();
+      await page.mouse.move(points.from.x + 8, points.from.y + 8);
+      await page.mouse.move(points.to.x, points.to.y, { steps: 12 });
+      await page.mouse.up();
+    }
+    await page.evaluate(() => window.dragDone.then(() => {}));
+  } finally {
+    if (copy) await page.keyboard.up('Alt');
+    if (cdp) { await cdp.send('Input.setInterceptDrags', { enabled: false }); await cdp.detach(); }
+  }
+}
+
+// WebKit's macOS text-drag delay cannot be advanced by its pinned protocol:
+// Input.dispatchMouseEvent has no timestamp. Exercise its source-range drop
+// inputs explicitly; Chromium and Firefox below exercise native gestures.
+async function dropSelection(page, field, from, to, destination) {
+  await field.focus();
+  const pending = await field.evaluate((el, [from, to, destination]) => {
+    el.setSelectionRange(from, to);
+    const range = getSelection().getRangeAt(0), source = range.startContainer;
+    const target = new StaticRange({ startContainer: source, startOffset: range.startOffset,
+      endContainer: range.endContainer, endOffset: range.endOffset });
+    const end = el.exactMarkup.rangeFrame(destination, destination), text = el.value.slice(from, to);
+    el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true,
+      clientX: end.x, clientY: end.y + end.height / 2 }));
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag',
+      bubbles: true, cancelable: true, targetRanges: [target] }));
+    const pending = [el.value, source.isConnected];
+    // WebKit retains the source selection as the insertion range after a
+    // cancelled native deletion. The drop coordinates supply the caret.
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertFromDrop', data: text,
+      bubbles: true, cancelable: true, targetRanges: [target] }));
+    return pending;
+  }, [from, to, destination]);
+  expect(pending[1]).toBe(true);
+  return pending[0];
+}
+
+for (const engine of engines) engineTest[engine](`${engine}: ${engine === 'webkit' ? 'Markdown drop inputs' : 'native Markdown drags'} move text in one undo step`, async () => {
+  for (const [source, word, at, expected, wrap] of [
+    ['alpha beta gamma delta', 'beta', 22, 'alpha  gamma deltabeta'],
+    ['alpha beta gamma delta', 'beta', 0, 'betaalpha  gamma delta'],
+    ['alpha **beta** gamma delta', 'beta', 26, 'alpha  gamma deltabeta'],
+    ['- alpha beta gamma delta', 'beta', 24, '- alpha  gamma deltabeta'],
+    ['alpha beta gamma delta', 'beta', 22, 'alpha  gamma deltabeta', true],
+    ['alpha beta gamma\ndelta', 'beta', 22, 'alpha  gamma\ndeltabeta'],
+    ['alpha beta😀 gamma delta', 'beta😀', 24, 'alpha  gamma deltabeta😀'],
+  ]) {
+    await editor(engine, source, async (page, field) => {
+      if (wrap) await field.evaluate(el => { el.style.width = '260px'; el.style.font = '20px monospace'; });
+      const from = source.indexOf(word);
+      if (engine === 'webkit') expect(await dropSelection(page, field, from, from + word.length, at)).toBe(source);
+      else await dragSelection(page, field, from, from + word.length, at);
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+      const events = await heard(page);
+      expect(events.filter(e => e.type === 'beforeinput').map(e => e.inputType)).toEqual(['deleteByDrag', 'insertFromDrop']);
+      expect(events.filter(e => e.type === 'input').map(e => e.value)).toEqual([expected]);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe(source);
+      await page.keyboard.press('ControlOrMeta+Shift+Z');
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+    });
+  }
+}, 60000);
+
+engineTest.chromium('chromium: a Markdown drag can copy, leave the editor or be cancelled', async () => {
+  const source = 'alpha beta gamma delta';
+  for (const operation of ['copy', 'outside', 'cancel-drop', 'cancel-delete', 'cancel-insert']) {
+    await editor('chromium', source, async (page, field) => {
+      let destination = source.length;
+      if (operation === 'outside') {
+        destination = await field.evaluate(el => {
+          const other = document.createElement('textarea');
+          other.id = 'other'; el.after(other);
+          const box = other.getBoundingClientRect();
+          return { x: box.x + 5, y: box.y + 5 };
+        });
+      } else if (operation.startsWith('cancel-')) {
+        await field.evaluate((el, operation) => {
+          if (operation === 'cancel-drop') el.addEventListener('drop', e => e.preventDefault());
+          else window.prevent = e => e.inputType === (operation === 'cancel-delete' ? 'deleteByDrag' : 'insertFromDrop');
+        }, operation);
+      }
+      await dragSelection(page, field, 6, 10, destination, operation === 'copy', operation !== 'cancel-drop');
+      const expected = ['copy', 'cancel-delete'].includes(operation) ? source + 'beta'
+        : operation === 'cancel-drop' ? source : 'alpha  gamma delta';
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+      if (operation === 'outside') expect(await page.locator('#other').inputValue()).toBe('beta');
+      if (operation === 'copy') expect((await heard(page)).filter(e => e.type === 'beforeinput').map(e => e.inputType)).toEqual(['insertFromDrop']);
+      if (operation !== 'cancel-drop') {
+        await field.focus();
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+      }
+    });
+  }
+}, 60000);
+
 for (const engine of engines) {
+  engineTest[engine](`${engine}: a drag deletion settles without a drop and retires with its source`, async () => {
+    await editor(engine, 'alpha beta gamma delta', async (page, field) => {
+      await field.focus();
+      expect(await field.evaluate(async el => {
+        el.setSelectionRange(6, 10);
+        const done = new Promise(ok => el.addEventListener('input', ok, { once: true }));
+        el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag', bubbles: true, cancelable: true }));
+        const pending = el.value;
+        await done;
+        return [pending, el.value];
+      })).toEqual(['alpha beta gamma delta', 'alpha  gamma delta']);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe('alpha beta gamma delta');
+      for (const retire of ['replace', 'destroy']) {
+        expect(await field.evaluate(async (el, retire) => {
+          el.setSelectionRange(6, 10);
+          el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag', bubbles: true, cancelable: true }));
+          if (retire === 'replace') el.value = 'a new source';
+          else el.exactMarkup.destroy();
+          // Run after the deletion's queued task, including when it was cleared.
+          await new Promise(ok => setTimeout(ok, 0));
+          return el.value;
+        }, retire)).toBe('a new source');
+      }
+    });
+  }, 60000);
+
   engineTest[engine](`${engine}: formatting whole Markdown lines keeps their block markers`, async () => {
     const source = '# Title\n\n- one\n- [ ] task\n> quote';
     await editor(engine, source, async (page, field) => {

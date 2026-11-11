@@ -7,6 +7,53 @@ fn u(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
+#[test]
+fn a_drag_moves_source_through_cleanup_as_one_undo_step() {
+    for (source, from, to, at, dropped, expected) in [
+        ("alpha beta gamma", 6, 10, 16, "beta", "alpha  gammabeta"),
+        ("alpha beta gamma", 6, 10, 0, "beta", "betaalpha  gamma"),
+        (
+            "alpha **beta** gamma",
+            8,
+            12,
+            20,
+            "beta",
+            "alpha  gammabeta",
+        ),
+        (
+            "[beta](url) **gamma**",
+            1,
+            5,
+            19,
+            "beta",
+            "[](url) **gammabeta**",
+        ),
+        ("😀 beta\ngamma", 3, 7, 13, "beta", "😀 \ngammabeta"),
+        ("beta beta beta", 0, 4, 14, "beta", " beta betabeta"),
+    ] {
+        let mut e = Editor::new();
+        e.load(&u(source));
+        e.set_words(&u("directions"));
+        assert!(e.move_text(from, to, at, &u(dropped), 0.0).source);
+        assert_eq!(e.source(), u(expected), "{source}");
+        let selection = e.selection();
+        e.command("undo", "", 1.0);
+        assert_eq!(e.source(), u(source));
+        assert_eq!(e.selection(), (from, to));
+        assert_eq!(e.words_back(), Some(u("directions").as_slice()));
+        e.command("redo", "", 2.0);
+        assert_eq!(e.source(), u(expected));
+        assert_eq!(e.selection(), selection);
+        e.command("undo", "", 3.0);
+        assert!(!e.command("undo", "", 4.0).source);
+    }
+    let mut e = Editor::new();
+    e.load(&u("alpha beta gamma"));
+    assert!(!e.move_text(6, 10, 8, &u("beta"), 0.0).source);
+    assert_eq!(e.source(), u("alpha beta gamma"));
+    assert!(!e.command("undo", "", 1.0).source);
+}
+
 struct Page {
     e: Editor,
     now: f64,

@@ -543,6 +543,39 @@ impl Editor {
         change
     }
 
+    /// Move a dragged range to `at`, all in the original source coordinates.
+    /// The platform supplies the dropped text; deletion and insertion share
+    /// one undo step and the same hidden-syntax cleanup.
+    pub fn move_text(&mut self, from: u32, to: u32, at: u32, text: &[u16], now: f64) -> Change {
+        self.now = now;
+        let (from, to) = self.proj.outward(self.clamp((from, to)));
+        let at = self.snap(at.min(self.len()));
+        if (from..=to).contains(&at) {
+            return Change::default();
+        }
+        self.set_selection(from, to);
+        let reps = self
+            .proj
+            .visible_parts(from, to)
+            .into_iter()
+            .map(|(a, b)| (a, b, Vec::new()))
+            .collect::<Vec<_>>();
+        let removed = self.simulate(&reps, true);
+        let at = removed.caret(at);
+        // Resolve insertion against the source after deletion, including its
+        // syntax cleanup, without putting that intermediate state in history.
+        let mut moved = Self {
+            source: removed.result,
+            atoms: self.atoms.clone(),
+            ..Self::new()
+        };
+        moved.restyle();
+        moved.set_selection(at, at);
+        let (at, _) = moved.selection();
+        moved.insert(&clean(text), at, at);
+        self.commit(moved.source, moved.sel, moved.sticky.is_some(), Kind::Edit)
+    }
+
     /// Select everything.
     pub fn select_all(&mut self) -> Change {
         self.sel = (0, self.len());

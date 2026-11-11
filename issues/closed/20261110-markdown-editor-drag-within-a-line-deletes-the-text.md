@@ -1,6 +1,7 @@
 # Dragging selected text to another place in the same line of a web Markdown editor deletes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Dragging text within a Markdown editor preserves the drop target and commits the move as one undoable edit.
 **Systems:** host/web/markup-editor.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
