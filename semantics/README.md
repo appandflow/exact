@@ -653,8 +653,9 @@ by that loop over the bound list, then the call.
 for each generated program it takes the plan `contract::compile` made, and
 in one Lean process per batch decodes every derive, root slot initializer,
 resource argument and action body, runs it on the VM model in every
-configuration the semantics reaches along the script (actions with sample
-arguments, inside a row instance) and compares the result with `eval`'s (or
+configuration the semantics reaches along the script, including after
+landings of mutation continuations and queued sends (actions with sample
+arguments, inside a row instance), and compares the result with `eval`'s (or
 `exec`'s effects); and compares the body with `Contract.Lower`'s,
 instruction for instruction. A divergence or an undecodable body fails the
 run and keeps the program under `target/difftest/failures/`; a structural

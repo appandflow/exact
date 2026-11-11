@@ -198,7 +198,7 @@ def exprOf (p : Program) (b : Body) : Option Expr :=
   | .resource k => (p.resources.find? (·.name == b.name)).bind (·.args[k]?)
   | .action => .none
 
-def check (p : Program) (o : Oracle) (events : List Observe.Event) (pi : PlanInfo)
+def check (p : Program) (o : Oracle) (events : List Observe.ScriptEvent) (pi : PlanInfo)
     (roster : Array (String × Nat)) : List String := Id.run do
   let pool : Pool := { strings := pi.strings, types := pi.types, roster }
   let L := layout p pi
@@ -206,8 +206,8 @@ def check (p : Program) (o : Oracle) (events : List Observe.Event) (pi : PlanInf
   let mut out : Array String := #[]
   -- The configurations to check in: boot, and after each event that is not
   -- poisoned. A refused observed step can still have committed the work due
-  -- before its event, or the event after a refused advance (`dispatchAt`), so
-  -- the run goes on from what it returned; `observe_step_sound` makes it reachable.
+  -- before its event, the event after a refused advance (`dispatchAt`), or
+  -- earlier continuations in a landing, so the run goes on from what it returned.
   let (c0, o0) := boot p o
   let mut cfgs : Array Config := #[]
   match o0 with
@@ -216,7 +216,9 @@ def check (p : Program) (o : Oracle) (events : List Observe.Event) (pi : PlanInf
   let mut c := c0
   if !cfgs.isEmpty then
     for e in events do
-      let (c', r) := Observe.step p o c e
+      let (c', r) := match e.event with
+        | .some event => Observe.step p o c event
+        | .none => (Observe.land p o c).1
       match r with
       | .ok => cfgs := cfgs.push c'; c := c'
       | .refused _ => cfgs := cfgs.push c'; c := c'

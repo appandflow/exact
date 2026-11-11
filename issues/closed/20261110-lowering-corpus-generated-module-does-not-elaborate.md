@@ -1,6 +1,7 @@
 # `difftest lowering-corpus` checks nothing: its Lean module fails to elaborate on `.land`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Lowering checks accept script landings and validate bodies after mutation continuations and queued sends complete.
 **Systems:** semantics/difftest/src/lowering.rs, semantics/Contract/LowerCheck.lean, scripts/async.mjs (the `difftest` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
