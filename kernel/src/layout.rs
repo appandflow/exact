@@ -284,7 +284,7 @@ impl LayoutMirror for LayoutTree {
             return 0;
         }
         let before = self.alert_prefixes.get(&parent).copied();
-        let ids = order::laid_out(arena, parent, &self.taffy, node, before, |c| arena.taffy(c));
+        let ids = order::laid_out(arena, parent, before, |c| arena.taffy(c));
         LayoutTree::set_children(self, node, &ids);
         // A list's rows are many boxes of few shapes, rebound and built as
         // it scrolls: each is laid out by replaying a row like it (Taffy

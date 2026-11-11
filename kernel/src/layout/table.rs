@@ -441,7 +441,7 @@ impl LayoutTree {
         for slot in left.collect::<Vec<u32>>() {
             if let Some(node) = node_for(slot) {
                 let before = self.alert_prefixes.get(&slot).copied();
-                let ids = order::laid_out(arena, slot, &self.taffy, node, before, node_for);
+                let ids = order::laid_out(arena, slot, before, node_for);
                 self.set_children(node, &ids);
                 self.restyle_with(arena, slot, node);
             }

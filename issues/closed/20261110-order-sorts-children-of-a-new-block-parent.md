@@ -1,6 +1,7 @@
 # A block box mounted with only paint rows lays its children out by `order`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Child ordering reads the arena's current computed display, so newly mounted block containers keep document order even with only paint styles.
 **Systems:** kernel/src/layout/order.rs, kernel/src/txn.rs, kernel/src/layout.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
