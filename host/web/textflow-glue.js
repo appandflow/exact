@@ -191,6 +191,8 @@ function complexWords(text) {
   return [...wordSegmenter.segment(text)].map(s => s.index)
     .filter(i => i > 0 && complex.test(text[i - 1]) && complex.test(text[i]));
 }
+// `pre` and `pre-wrap` keep their spaces (the walker's `WhiteSpace::preserves`); the others collapse them.
+const preserves = (whiteSpace) => whiteSpace === 'pre-wrap' || whiteSpace === 'pre';
 function sourceInput(text, overflow, whiteSpace) {
   const source = encoder.encode(text), words = complexWords(text);
   const bytes = new Uint8Array(12 + words.length * 4 + source.length), view = new DataView(bytes.buffer);
@@ -322,7 +324,7 @@ function paintContent(span, fragment, state, lineHeight) {
     const piece = document.createElement('span');
     // Normal collapses source whitespace, including consumed hard-break controls;
     // max-content on the absolutely positioned outer prevents independent wrapping.
-    piece.style.cssText = `white-space:${state.whiteSpace === 'pre-wrap' ? 'pre' : 'normal'};font:${run.font.font};letter-spacing:${run.font.spacing}px;line-height:${lineHeight}px;`;
+    piece.style.cssText = `white-space:${preserves(state.whiteSpace) ? 'pre' : 'normal'};font:${run.font.font};letter-spacing:${run.font.spacing}px;line-height:${lineHeight}px;`;
     // Keep color inherited through cloned authored runs: light-dark() must
     // respond to setScheme without a measurement, batch style op or DOM rebuild.
     piece.style.fontKerning = run.font.extra.fontKerning;
@@ -560,7 +562,7 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
         const r = s.runs[i], a = Math.max(start, r.start), b = Math.min(end, r.end);
         const from = lower(s.clusterStarts, a), to = lower(s.clusterStarts, b);
         const raw = s.text.slice(a, b);
-        const whitespace = snapshot.whiteSpace === 'pre-wrap' ? raw.replace(/\t/g, '        ') : raw.replace(/[ \t\n\r\f\u0085\u2028\u2029]+/g, ' ');
+        const whitespace = preserves(snapshot.whiteSpace) ? raw : raw.replace(/[ \t\n\r\f\u0085\u2028\u2029]+/g, ' ');
         const text = whitespace.replace(/[\u00ad\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
         total += metrics.measure(r.font, text, to - from, s.emojiPrefix[to] - s.emojiPrefix[from], calibration.get(r.font.key)?.correction || 0);
       }
@@ -587,8 +589,8 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
         const a = Math.max(f.paint_start, r.start), b = Math.min(end, r.end);
         if (a >= b) continue;
         let text = s.text.slice(a, b).replace(/[\u00ad\u200b]/g, '');
-        if (snapshot.whiteSpace !== 'pre-wrap') text = text.replace(/[ \t\r\n\f\u0085\u2028\u2029]+/g, ' ');
-        if (b === end) text = text.trimEnd();
+        if (!preserves(snapshot.whiteSpace)) text = text.replace(/[ \t\r\n\f\u0085\u2028\u2029]+/g, ' ');
+        if (b === end && snapshot.whiteSpace !== 'pre') text = text.trimEnd();
         total += metrics.measure(r.font, text, lower(s.clusterStarts, b) - lower(s.clusterStarts, a), 0);
       }
       return total;
@@ -619,6 +621,10 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
         return { s, skipped: 'font-variant-ligatures cannot be measured by canvas; ordinary text retained' };
       if (fonts.some(f => (f.fontFeatureSettings || 'normal') !== 'normal'))
         return { s, skipped: 'font-feature-settings cannot be measured by canvas; ordinary text retained' };
+      // CSS tabs advance to a stop from the line's start; the walker takes
+      // fixed segment widths before it chooses the lines.
+      if (preserves(snapshot.whiteSpace) && s.text.includes('\t'))
+        return { s, skipped: 'preserved tabs need line-relative tab stops; ordinary text retained' };
       if (!prepare(snapshot)) return { ...snapshot, pending: true };
       registerShapes(snapshot.exclusions);
       const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));

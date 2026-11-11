@@ -1126,6 +1126,147 @@ browserTest('a flowed paragraph is trimmed to its own font\'s cap height, whatev
   expect(Math.abs(fallbackInk - 20 * 0.416)).toBeGreaterThan(1); // the fallback's H is not the font's cap height
 }, 20000);
 
+// Each paragraph beside an exclusion, over a stand-in walker that puts the whole text on one
+// fragment: the width CSS lays the text out at, the width measured for the walker, and the
+// painted fragment's width and `white-space`, or why it kept ordinary layout.
+async function flowWidthFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const root = document.getElementById('root'), out = {};
+  const cases = {
+    pre: ['a      b', 'white-space:pre'], preWrap: ['a      b', 'white-space:pre-wrap'], normal: ['a      b', ''],
+  };
+  for (const [name, [text, extra]] of Object.entries(cases)) {
+    const style = `font:16px/24px serif;${extra}`, n = text.length;
+    root.innerHTML = `<span id="plain" style="${style}">${text}</span><div id="context" style="position:relative;width:300px"><div id="paragraph" style="${style}">${text}</div><div id="ball" style="position:absolute;left:0;top:0;width:40px;height:40px"></div></div>`;
+    const views = new Map([[1, document.getElementById('context')], [2, document.getElementById('paragraph')], [3, document.getElementById('ball')]]);
+    let measured = null, skipped = null;
+    const request = (op, id, input) => {
+      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) { measured = new DataView(input.buffer, input.byteOffset).getFloat32(4, true); return { prepared: true }; }
+      if (op !== 2) return {};
+      return { shapes: [], complete: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: n, utf16_start: 0, utf16_end: n, paint_start: 0, paint_end: n, x: 40, y: 0, width: measured, available: 260, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {}, log: line => { skipped = line; } });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false, refusal: null }] }] }], timers: false });
+    await flow.settle();
+    const piece = document.querySelector('[data-flow-fragment] span');
+    out[name] = { css: document.getElementById('plain').getBoundingClientRect().width, measured,
+      painted: piece?.getBoundingClientRect().width ?? null, whiteSpace: piece?.style.whiteSpace ?? null, skipped: piece ? null : skipped };
+    flow.dispose();
+  }
+  return out;
+}
+
+// `white-space: pre` keeps its runs of spaces beside an exclusion, as `pre-wrap` does and as CSS lays it out.
+browserTest('a flowed paragraph is measured and painted at the width CSS gives it', async () => {
+  const got = await inChrome(flowWidthFixture, ['/textflow-glue.js', '/timer-glue.js']);
+  for (const [name, { css, measured, painted }] of Object.entries(got)) {
+    expect([name, Math.abs(measured - css) < 0.5, Math.abs(painted - css) < 0.5]).toEqual([name, true, true]);
+  }
+  expect(got.pre.css).toBeGreaterThan(got.normal.css + 10);
+  expect([got.pre.whiteSpace, got.preWrap.whiteSpace, got.normal.whiteSpace]).toEqual(['pre', 'pre', 'normal']);
+}, 20000);
+
+browserTest('a clamped pre line includes painted trailing spaces in its measured width', async () => {
+  const got = await inChrome(async () => {
+    const { createTextFlow } = await import('/textflow-glue.js');
+    const root = document.getElementById('root'), text = 'hello   world\nmore', n = text.length;
+    root.innerHTML = '<div id="context" style="position:relative;width:300px"><div id="paragraph" style="font:16px/24px monospace;white-space:pre;-webkit-line-clamp:1"></div><div id="ball" style="position:absolute;left:0;top:0;width:20px;height:20px"></div></div>';
+    const paragraph = document.getElementById('paragraph'); paragraph.textContent = text;
+    const canvas = document.createElement('canvas').getContext('2d'); canvas.font = '16px monospace';
+    const available = canvas.measureText('hello…').width + 0.1;
+    const views = new Map([[1, root.firstElementChild], [2, paragraph], [3, document.getElementById('ball')]]);
+    const request = op => {
+      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) return { prepared: true };
+      if (op !== 2) return {};
+      return { shapes: [], complete: false, clamped: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 14, utf16_start: 0, utf16_end: 14, paint_start: 0, paint_end: 13, x: 0, y: 0, width: 200, available, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false }] }] }], timers: false });
+    await flow.settle();
+    const span = paragraph.querySelector('[data-flow-fragment]');
+    const result = { text: span.textContent, painted: span.getBoundingClientRect().width, measured: flow.facts(2).fragments[0].width, available };
+    flow.dispose(); return result;
+  }, ['/textflow-glue.js', '/timer-glue.js']);
+  expect(Math.abs(got.painted - got.measured)).toBeLessThan(0.1);
+  expect(got.text).toBe('hello…');
+  expect(got.painted).toBeLessThanOrEqual(got.available);
+}, 20000);
+
+// Tab advances depend on their column, which the walker's fixed segment widths
+// cannot express. Compare the retained DOM with ordinary CSS, including clamps.
+test('adding and removing a preserved tab restores and resumes flow', async () => {
+  const f = controllerFixture();
+  try {
+    f.p.computed.whiteSpace = 'pre';
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments.length).toBeGreaterThan(0);
+    const change = { ops: [{ op: 'props', id: 2 }], timers: false };
+    f.controller.beforeBatch(change); f.p.textContent = 'a\tb'; f.controller.afterBatch(change); await f.settle();
+    expect(f.controller.facts(2).skipped).toContain('preserved tabs');
+    expect(f.p.textContent).toBe('a\tb');
+    f.controller.beforeBatch(change); f.p.textContent = 'a b'; f.controller.afterBatch(change); await f.settle();
+    expect(f.controller.facts(2).fragments.length).toBeGreaterThan(0);
+    expect(f.controller.facts(2).skipped).toBeUndefined();
+  } finally { f.close(); }
+});
+
+async function preservedTabFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const root = document.getElementById('root'), results = [];
+  for (const whiteSpace of ['pre', 'pre-wrap']) for (const clamped of [false, true]) {
+    const text = clamped ? 'a\tbcdefghijklmnopqrstuvwxyz' : 'a\tb', n = text.length;
+    root.innerHTML = '<div id="context" style="position:relative;width:300px"><div id="paragraph"></div><div id="ball" style="position:absolute;left:0;top:0;width:20px;height:20px"></div></div><div id="plain"></div>';
+    const paragraph = document.getElementById('paragraph'), plain = document.getElementById('plain');
+    const canvas = document.createElement('canvas').getContext('2d'); canvas.font = '16px monospace';
+    const available = clamped ? canvas.measureText('a        …').width + 0.1 : 300;
+    const style = `font:16px/24px monospace;white-space:${whiteSpace};width:${available}px;` +
+      (clamped ? 'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;' : 'text-align:right;');
+    for (const el of [paragraph, plain]) { el.style.cssText = style; el.textContent = text; }
+    const source = paragraph.firstChild;
+    const views = new Map([[1, document.getElementById('context')], [2, paragraph], [3, document.getElementById('ball')]]);
+    let measured = null;
+    const request = (op, id, input) => {
+      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) { measured = new DataView(input.buffer, input.byteOffset).getFloat32(4, true); return { prepared: true }; }
+      if (op !== 2) return {};
+      return { shapes: [], complete: !clamped, clamped, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: n, utf16_start: 0, utf16_end: n, paint_start: 0, paint_end: n, x: 0, y: 0, width: measured, available, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false }] }] }], timers: false });
+    await flow.settle();
+    const rangeBox = el => { const range = document.createRange(); range.selectNodeContents(el); return range.getBoundingClientRect(); };
+    const fragment = paragraph.querySelector('[data-flow-fragment]'), painted = rangeBox(paragraph), css = rangeBox(plain);
+    results.push({ whiteSpace, clamped, measured: flow.facts(2)?.fragments?.[0]?.width ?? painted.width,
+      painted: fragment?.getBoundingClientRect().width ?? painted.width, css: css.width, available,
+      right: painted.right - paragraph.getBoundingClientRect().left, cssRight: css.right - plain.getBoundingClientRect().left,
+      retained: paragraph.firstChild === source, fragments: paragraph.querySelectorAll('[data-flow-fragment]').length,
+      skipped: flow.facts(2)?.skipped, text: paragraph.textContent, source: text });
+    flow.dispose();
+  }
+  return results;
+}
+
+for (const clamped of [false, true]) browserTest(clamped
+  ? 'clamped preserved tabs keep ordinary CSS layout instead of an overwide prefix'
+  : 'right-aligned preserved tabs keep the measured and painted CSS width', async () => {
+  const cases = (await inChrome(preservedTabFixture, ['/textflow-glue.js', '/timer-glue.js'])).filter(r => r.clamped === clamped);
+  expect(cases.map(r => [r.whiteSpace, Math.round((r.painted - r.measured) * 100) / 100,
+    r.fragments ? r.painted <= r.available : true])).toEqual([['pre', 0, true], ['pre-wrap', 0, true]]);
+  for (const r of cases) {
+    expect(r.retained).toBe(true);
+    expect(r.fragments).toBe(0);
+    expect(r.skipped).toContain('preserved tabs');
+    expect(r.text).toBe(r.source);
+    expect(Math.abs(r.painted - r.css)).toBeLessThan(0.1);
+    expect(Math.abs(r.right - r.cssRight)).toBeLessThan(0.1);
+  }
+}, 20000);
+
 // A line box shorter than the font grows when trimmed to its text edges, as
 // Apple and Linux grow it: the cuts keep their sign.
 test('a trim to the text edges of a short line box is a negative cut', () => {
