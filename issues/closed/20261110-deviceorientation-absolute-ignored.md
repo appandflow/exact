@@ -1,6 +1,7 @@
 # `deviceOrientation(absolute=true)` is honoured only for the web's first reader, is a quarter turn off on Apple, and is ignored on Android
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each platform keys an absolute `deviceOrientation` reader apart from a relative one and answers it from its own source with `absolute` true: `deviceorientationabsolute` on the web, the x-north attitude turned to y-north on Apple, and `TYPE_ROTATION_VECTOR` on Android.
 **Systems:** packages/motion/web/index.js, packages/motion/apple/Motion.swift, packages/motion/android/Motion.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
