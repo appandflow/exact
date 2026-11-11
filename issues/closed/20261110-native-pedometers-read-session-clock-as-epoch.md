@@ -1,6 +1,7 @@
 # The native pedometers use the session clock where they need the time since the epoch
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Native pedometers use epoch time for boundaries and timestamps; Android refresh intervals use the session clock.
 **Systems:** packages/pedometer/apple/Pedometer.swift, packages/pedometer/android/Pedometer.kt
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
