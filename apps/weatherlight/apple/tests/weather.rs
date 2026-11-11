@@ -113,6 +113,8 @@ fn location(lat: f64, lon: f64, revision: f64) -> Vec<Value> {
         Value::Number(revision + 1.),
         // A chosen city's, not the device's location (f8807ee6e4).
         Value::Bool(false),
+        // `plus`: without Weatherlight+, a seven-day forecast.
+        Value::Bool(false),
     ]
 }
 
@@ -235,6 +237,7 @@ fn loading_keeps_forecast_slots_and_refresh_never_relabels_another_city() {
                 Value::Number(35.6762),
                 Value::Number(139.6503),
                 Value::Number(0.),
+                Value::Bool(false),
                 Value::Bool(false),
             ],
         )
