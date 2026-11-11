@@ -2,7 +2,7 @@
 #[cfg(target_arch = "wasm32")]
 mod probe {
     use exact_game::{audio::Synth, World};
-    use exact_game_audio::{Output, Player, Transport, WebOutput};
+    use exact_game_audio::{Output, Pcm, Player, Transport, WebOutput};
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen]
     pub struct Probe {
@@ -31,6 +31,13 @@ mod probe {
         }
         pub fn frame(&mut self) {
             self.player.sync(&self.world, None, self.transport);
+        }
+        pub fn start(&mut self, samples: Vec<f32>, rate: u32) -> bool {
+            let pcm = Pcm::F32(samples.into());
+            self.player.output.start(1, &pcm, rate, false, 0, 1.0)
+        }
+        pub fn set(&mut self, left: f32, right: f32) {
+            self.player.output.set(1, left, right);
         }
     }
 }

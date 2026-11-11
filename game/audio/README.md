@@ -150,8 +150,9 @@ channels from mono PCM and each channel from its own stereo channel, on both
 executors. WebAudio failures return refusal for retry instead of trapping the module.
 Each web voice connects buffer source → (channel splitter, for stereo) → left and
 right gains → channel merger → destination; the `AudioBuffer` is created at the
-source's rate and cached per allocation. Playback rate implements pitch; gains use
-`setTargetAtTime` with a 10 ms time constant.
+source's rate and cached per allocation. Playback rate implements pitch. Gains
+start at zero and ramp linearly to their targets over 10 ms, as in the native
+mixer. A change during a ramp starts a new 10 ms ramp from its current value.
 
 Apple and Windows share 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by

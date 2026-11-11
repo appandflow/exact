@@ -2,9 +2,33 @@ use crate::{Output, Pcm};
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 use wasm_bindgen::JsValue;
 use web_sys::{
-    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, ChannelMergerNode, GainNode,
+    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioNode, AudioParam, ChannelMergerNode,
+    GainNode,
 };
 type CachedBuffer = (Pcm, AudioBuffer);
+
+#[derive(Default)]
+struct GainRamp {
+    from: f32,
+    to: f32,
+    at: f64,
+}
+impl GainRamp {
+    fn set(&mut self, param: &AudioParam, target: f32, now: f64) -> Result<(), JsValue> {
+        const SECONDS: f64 = 0.01;
+        // AudioParam.value can lag by a render quantum. Hold the scheduled
+        // ramp's value at this time before replacing its endpoint.
+        let progress = ((now - self.at) / SECONDS).clamp(0.0, 1.0) as f32;
+        let current = self.from + (self.to - self.from) * progress;
+        param.cancel_scheduled_values(now)?;
+        param.set_value_at_time(current, now)?;
+        param.linear_ramp_to_value_at_time(target, now + SECONDS)?;
+        self.from = current;
+        self.to = target;
+        self.at = now;
+        Ok(())
+    }
+}
 
 /// source → (splitter, for stereo) → left and right gains → merger → destination.
 /// Mono feeds both gains; stereo feeds each gain its own channel, as on Apple.
@@ -14,6 +38,8 @@ struct Voice {
     nodes: Vec<AudioNode>,
     left: GainNode,
     right: GainNode,
+    left_ramp: GainRamp,
+    right_ramp: GainRamp,
     buffer: (usize, u32),
 }
 /// One suspended context. Construct only for a human-owned surface, never an agent.
@@ -141,6 +167,8 @@ impl WebOutput {
                 nodes,
                 left,
                 right,
+                left_ramp: GainRamp::default(),
+                right_ramp: GainRamp::default(),
                 buffer: key,
             },
         );
@@ -202,10 +230,10 @@ impl Output for WebOutput {
         self.begin(id, pcm, rate, looping, offset, pitch).is_ok()
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
-        if let Some(v) = self.voices.get(&id) {
+        if let Some(v) = self.voices.get_mut(&id) {
             let now = self.context.current_time();
-            let _ = v.left.gain().set_target_at_time(left, now, 0.01);
-            let _ = v.right.gain().set_target_at_time(right, now, 0.01);
+            let _ = v.left_ramp.set(&v.left.gain(), left, now);
+            let _ = v.right_ramp.set(&v.right.gain(), right, now);
         }
     }
     fn stop(&mut self, id: u64) {

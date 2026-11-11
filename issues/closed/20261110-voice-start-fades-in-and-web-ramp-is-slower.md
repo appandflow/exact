@@ -1,6 +1,7 @@
 # The web output smooths a voice's gain more slowly than the native mixer, so short sounds are quieter on the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web voice gains ramp linearly over 10 ms from their current values, matching the native mixer.
 **Systems:** game/audio/src/web.rs, game/audio/src/native.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
