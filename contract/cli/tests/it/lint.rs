@@ -457,18 +457,38 @@ fn an_inset_sized_button_has_area() {
     assert!(format!("{e}").contains("zero area"), "{e}");
 }
 
-/// The web's JS target bakes nothing; `contract::check` refuses there what
-/// every native bake would, before the page's module answers (files diary
-/// F13). Hidden controls and descendants have no pressable layout until shown.
+/// The web's JS target checks layout before the page's module answers.
+/// Hidden controls and descendants have no pressable layout until shown.
 #[test]
 fn check_refuses_without_data_what_no_answer_could_change() {
     let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
-    contract::check(&contract::compile(hidden).unwrap()).unwrap();
     let nested = hidden
         .replace("    column\n", "    column display=\"none\"\n")
         .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
-    contract::check(&contract::compile(&nested).unwrap()).unwrap();
-    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
+    for src in [hidden, nested.as_str()] {
+        let plan = contract::compile(src).unwrap();
+        contract::check(&plan).unwrap();
+        contract::bake(plan, NoData).unwrap();
+    }
+    for dimension in ["width", "height"] {
+        let src = hidden.replace(
+            "display=\"none\"",
+            &format!("{dimension}=0 padding=0 border-width=0"),
+        );
+        let plan = contract::compile(&src).unwrap();
+        for result in [
+            contract::check(&plan),
+            contract::bake(plan, NoData).map(|_| ()),
+        ] {
+            match result.unwrap_err() {
+                BakeError::Lint { id, message, .. } => {
+                    assert_eq!(id, "bake-zero-size", "{dimension}: {message}");
+                    assert!(message.contains("testId=\"down\""), "{message}");
+                }
+                other => panic!("{dimension}: {other:?}"),
+            }
+        }
+    }
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).

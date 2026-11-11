@@ -1343,13 +1343,12 @@ fn fact_shape(
 /// nothing bounding it (it grows, and never scrolls — 0102, 0103), and a
 /// pressable with zero area (nothing can press it — valet 0003). A pressable
 /// holding an image or a canvas is exempt: their size is the host's.
+/// A pressable hidden by `display: none` on itself or an ancestor is skipped.
 ///
 /// Unanswered (`answered` false, [`check`]), a verdict that could rest on a
 /// placeholder is not given: an empty list's `scroll`, or a button whose
-/// label is a resource's empty zero. What stays is a pressable whose zero
-/// area is its own style's — `display: none` on it or an ancestor, a zero
-/// `width` or `height` — which no answer changes (files diary F13: a hidden
-/// shortcut button).
+/// label is a resource's empty zero. A zero-area pressable is still refused
+/// if its own `width` or `height` is explicitly zero.
 fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), BakeError> {
     let (w, h) = LINT_VIEWPORT;
     let roots = runner.roots();
@@ -1429,7 +1428,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
-                if (!answered && !styled_out(kernel, node)) || in_placeholder(kernel, node) {
+                if (!answered && !has_zero_dimension(node)) || in_placeholder(kernel, node) {
                     continue;
                 }
                 let mut stack = node.children();
@@ -1473,14 +1472,9 @@ fn in_placeholder(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
     false
 }
 
-/// Whether a node's zero area is its style's: `display: none` on it or an
-/// ancestor, or a zero `width` or `height` of its own.
-fn styled_out(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
+fn has_zero_dimension(node: exact_kernel::NodeRef<'_>) -> bool {
     let zero = |d: Dimension| matches!(d, Dimension::Points(p) if p == 0.0);
-    if zero(node.style.width) || zero(node.style.height) {
-        return true;
-    }
-    hidden(kernel, node)
+    zero(node.style.width) || zero(node.style.height)
 }
 
 fn hidden(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {

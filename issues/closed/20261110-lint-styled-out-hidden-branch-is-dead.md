@@ -1,6 +1,7 @@
 # The layout lint's doc says a `display: none` button is refused; the code skips it, `styled_out`'s `hidden` test is dead, and its test asserts no refusal
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The layout lint documents hidden controls as skipped, checks only explicit zero dimensions after that skip, and tests check and bake refusals for zero width and height.
 **Systems:** contract/cli/src/lib.rs, contract/cli/tests/it/lint.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
