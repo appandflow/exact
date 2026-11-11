@@ -14,6 +14,94 @@ function runtimeServer(development = false) {
   } });
 }
 
+test.each(['resource', 'svg'])('departed %s scopes release their memo closures', async kind => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    await page.evaluate(async kind => {
+      globalThis.__exactRender = true;
+      const rt = await import('/host/web-js/rt.js');
+      const { resEach } = await import('/host/web-js/each.js');
+      const { svgGeometry } = await import('/host/web-js/svg-transform.js');
+      const ids = rt.sig([0]), width = rt.sig(4), refs = [];
+      rt.clock.agent = true;
+      rt.data.answer = (_, [id]) => ({ v: String(id).padEnd(1024, 'x') });
+      let items;
+      rt.mount(root => {
+        if (kind === 'resource') items = resEach('items', 'item', ids, x => x, x => [x], '[s', 's', '');
+        else rt.each(root, ids, id => id(), parent => {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          parent.append(svg);
+          const held = { svg };
+          refs.push(new WeakRef(held));
+          svgGeometry(svg, 'x', () => (held.svg.localName === 'svg' ? width() : 0));
+        });
+      });
+      const remember = () => { if (items) refs.push(new WeakRef(items.r.members()[0])); };
+      remember();
+      for (let i = 1; i <= 40; i++) {
+        rt.commit(() => rt.W(ids, [i]));
+        remember();
+      }
+      rt.commit(() => rt.W(width, 9));
+      window.fixture = { rt, ids, refs, items };
+    }, kind);
+    expect(await page.evaluate(kind => kind === 'resource'
+      ? fixture.items().map(v => v.slice(0, 2))
+      : [...document.querySelectorAll('svg')].map(e => e.getAttribute('x')), kind))
+      .toEqual(kind === 'resource' ? ['40'] : ['9']);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('HeapProfiler.collectGarbage');
+    expect(await page.evaluate(() => fixture.refs.filter(r => r.deref()).length)).toBe(1);
+    await page.evaluate(() => fixture.rt.commit(() => fixture.rt.W(fixture.ids, [])));
+    // The next commit releases the previous commit's completion callbacks.
+    await page.evaluate(() => fixture.rt.commit(() => {}));
+    await cdp.send('HeapProfiler.collectGarbage');
+    expect(await page.evaluate(() => fixture.refs.filter(r => r.deref()).length)).toBe(0);
+  } finally { await browser.close(); server.stop(true); }
+});
+
+test.each(['message', 'beforeunload', 'midimessage'])('%s registrations end with their scope', async kind => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    const result = await page.evaluate(async kind => {
+      globalThis.__exactRender = true;
+      const rt = await import('/host/web-js/rt.js');
+      rt.clock.agent = true;
+      const { commitGuestOrigin } = await import('/host/web-js/navigation.js');
+      const listeners = new Set(), add = window.addEventListener, remove = window.removeEventListener;
+      window.addEventListener = function(type, f, options) {
+        if (type === kind) listeners.add(f);
+        return add.call(this, type, f, options);
+      };
+      window.removeEventListener = function(type, f, options) {
+        if (type === kind) listeners.delete(f);
+        return remove.call(this, type, f, options);
+      };
+      const bind = { message: rt.onMessage, beforeunload: rt.onUnload, midimessage: rt.onMIDI }[kind];
+      const size = () => kind === 'midimessage' ? rt.Sounds.midi.size : listeners.size;
+      let heard = 0, el, live;
+      for (let i = 0; i < 41; i++) {
+        if (live) rt.end(live);
+        el = document.createElement(kind === 'message' ? 'iframe' : 'div');
+        if (kind === 'message') el.setAttribute('sandbox', 'allow-scripts');
+        document.body.append(el);
+        if (kind === 'message') commitGuestOrigin(el);
+        live = rt.scope(() => rt.on(el, kind, () => heard++, bind));
+      }
+      const mounted = size();
+      if (kind === 'message') window.dispatchEvent(new MessageEvent(kind, { source: el.contentWindow, origin: 'null', data: 'hello' }));
+      else if (kind === 'beforeunload') window.dispatchEvent(new Event(kind));
+      else for (const [, f] of rt.Sounds.midi) f(['input', [144, 60, 127], 0, -1]);
+      rt.end(live);
+      // Exit presentation may keep the DOM connected after its scope ends.
+      return { mounted, ended: size(), heard, connected: el.isConnected };
+    }, kind);
+    expect(result).toEqual({ mounted: 1, ended: 0, heard: 1, connected: true });
+  } finally { await browser.close(); server.stop(true); }
+});
+
 test.each([true, false])('writes over list members retire independently (overlay: %s)', async overlay => {
   const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
   try {

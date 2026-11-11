@@ -414,7 +414,7 @@ let markupModule, decorationsModule; const markupPending = new WeakSet(); functi
     const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
     if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
     markupPending.delete(el); if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
-    install(el, { live, replace(node) { views.get(id)?.exactIntersect?.(); views.set(id, node); attach(node, id, el.exactHandlers); }, // (the old node's first entry lets go: the new one is observed)
+    install(el, { live, replace(node) { views.get(id)?.exactUnload?.abort(); views.get(id)?.exactIntersect?.(); views.set(id, node); attach(node, id, el.exactHandlers); }, // (the old node's first entry lets go: the new one is observed)
       select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
   }).catch(error => console.error('exact: Markdown editor:', error));
 }
@@ -568,7 +568,7 @@ function attach(el, id, handlers) {
       if (kind === "paste") documentsGlue(); atBody(kind, on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { const text = e.clipboardData?.getData("text/plain") ?? "", driver = agentMode ? globalThis.exact.agentPaste : null; globalThis.exact.agentPaste = null; const files = kind === "paste" && (e.clipboardData?.files?.length || driver) ? globalThis.exact.documents?.pasted(e.clipboardData, driver) ?? [] : []; send(wasm.exact_dispatch(id, files.length ? 57 : 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(files.length ? `${files.length}\n${files.join("\n")}\n${text}` : text), now())); } finally { keyEvent = outer; } })); // preventDefault() cancels the default (a field's own paste; #125)
     } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload", "dragenter", "dragleave"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
       const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
-      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else if (kind === "dragenter" || kind === "dragleave") documentsGlue().then(() => globalThis.exact.documents.hearDrags(el, kind, () => !el.matches(":disabled") && !inertAncestor(el), e => go(kind, e))); else on(kind, e => go(kind, e));
+      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e), { signal: (el.exactUnload = new AbortController()).signal }); else if (kind === "dragenter" || kind === "dragleave") documentsGlue().then(() => globalThis.exact.documents.hearDrags(el, kind, () => !el.matches(":disabled") && !inertAncestor(el), e => go(kind, e))); else on(kind, e => go(kind, e));
       if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
@@ -601,7 +601,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire before teardown blur. Keep removed descendants attached to their removed parent for the outgoing focusout; presence reads leaving boxes before any op (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); } }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactUnload?.abort(); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -822,7 +822,7 @@ function apply(batch) {
         pieces.canvas2d({ id: op.id, forget: true });
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactUnload?.abort(); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); dropSurface(op.id); break;
       }
       case "roots": {
@@ -1348,7 +1348,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   for (const el of lists.keys()) forgetList(el);
   for (const id of views.keys()) pieces.canvas2d({ id, forget: true });
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) { el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
+  for (const el of views.values()) { el.exactUnload?.abort(); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";

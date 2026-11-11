@@ -1,6 +1,6 @@
 import { markdownText } from './markdown.js';
 import { resourceInspection } from "./resource-inspection.js";
-import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
+import { oneActivation, suppressedInvocation, imageEvent, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
 import { viewChildren, listRow, listItem, syncListItemRoles, listOwner, unwrapListItem, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt, scrollDrag } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; export { canSetStatus, statusSubject } from "./document.js"; import { conforms, eq, equal, failureCode, failureReason, loneSurrogate } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { autofocus, press } from "./focus.js";
@@ -39,7 +39,7 @@ function drop(n) {
   n.src = [];
   if (n.kids) { for (const k of n.kids) dispose(k); n.kids = null; }
 }
-function dispose(n) { n.gone = 1; drop(n); if (n.ends) for (const f of n.ends.splice(0)) f(); }
+function dispose(n) { n.gone = 1; Settle.delete(n); drop(n); if (n.ends) for (const f of n.ends.splice(0)) f(); }
 /** Run `f` when the scope that owns this code ends (a region's arm or row). */
 function onEnd(f) { if (Owner) (Owner.ends ??= []).push(f); }
 function run(n) {
@@ -90,7 +90,7 @@ export function sig(v, t, name) { // an initial value outside `t`: the runner re
 /** A string past MAX_STRING's UTF-8 bytes (runner `too_long`): one test, TextEncoder's U+FFFD for a lone surrogate (LLP 1090 D6). */
 const long = s => typeof s === "string" && s.length > 22369621 && (s.length > 67108864 || new TextEncoder().encode(s).length > 67108864);
 const tooLong = name => new Refusal(`StringTooLong { name: ${JSON.stringify(name)} }`);
-const Settle = [];
+const Settle = new Set();
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
 export function memo(fn, t, name) {
@@ -114,7 +114,7 @@ export function memo(fn, t, name) {
     }
     return v;
   } : fn);
-  Settle.push(n);
+  Settle.add(n);
   const g = () => read(n); g.n = n; return g;
 }
 export function effect(fn) { const n = node(fn, undefined, 1); if (Mask) n.m = Mask; fresh(n); return n; }
@@ -872,14 +872,6 @@ export function Sm(e, prop, unit, f) {
 }
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
-// An image's `load` and `error` (LLP 1011 §2) as HTML `<img>` fires them, once per source, the error with its message (glue.js `imageEvents`); a symbol fires neither. A tinted raster paints
-// through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
-const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", Probes = new Map(), srcOf = e => e.$why != null ? `why:${e.$why}` : e.currentSrc; // `$why`: a package picture's refusal (pictures.js), which an image's `error` says
-function imageEvent(e, kind, f) {
-  const probe = src => Probes.get(src) ?? (inflight.n++, Probes.set(src, new Promise(ok => { Object.assign(new Image(), { crossOrigin: "anonymous", onload: () => ok(true), onerror: () => ok(false) }).src = src; }).finally(() => inflight.n--)).get(src));
-  const settle = failed => { const src = srcOf(e); if (!e.isConnected || e.hasAttribute("data-symbol-path") || e.$settled?.[kind] === src) return; (failed || !getComputedStyle(e).maskImage?.includes("url(") || /^(data|blob):/.test(src) || new URL(src, location.href).origin === location.origin ? Promise.resolve(!failed) : probe(src)).then(ok => { if (srcOf(e) !== src || !e.isConnected || (e.$settled ??= {})[kind] === src) return; e.$settled[kind] = src; if (ok ? kind === "load" : kind === "error") ok ? f() : f(failed ? (e.$why ?? IMAGE_ERROR) : CORS_ERROR); }); };
-  e.addEventListener("load", () => settle(false)); e.addEventListener("error", () => settle(true)); if (e.complete && e.getAttribute("src")) setTimeout(() => e.complete && settle(!e.naturalWidth));
-}
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
   const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null, pointer = kind === "pointerdown" || kind === "pointerup", /* another event's handler run inside a pointer handler (a focus it moved) is not that pointer event's: its `stopPropagation()` does not stop it */ run = (...a) => { if (pointer) return go(...a); const outer = Propagating; Propagating = null; try { return go(...a); } finally { Propagating = outer; } };
@@ -890,7 +882,7 @@ export function on(e, kind, f, bind) {
   if (e.$media && Media.MEDIA_EVENTS.has(kind)) return Media.mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
-  if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
+  if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f, inflight);
   if (e.localName === "iframe" && kind === "error") return l(kind, ev => f(ev.detail ?? "iframe did not load"));
   return bind ? bind(e, kind, f, l) : l(kind, kind === "pictureinpictureerror" ? ev => f(ev.detail) : () => f()); // picture-in-picture.js: the failure's reason
 }
@@ -913,15 +905,23 @@ export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped)
 // `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code, repeat and isComposing last; a keyCode-229 keydown, one an input method processed, is composing, as web code takes it: WebKit's Enter that commits a composition comes after `compositionend`, isComposing false). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (`atBody`; never a copy a flow forwards to a detached node), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
 let BodyHeard; const atBody = (e, kind, g) => { (e.$body ??= {})[kind] = g; if (!globalThis.document?.documentElement) return g; BodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, ev => { const root = document.getElementById("exact-root"), h = root?.firstElementChild?.$body; if (!h || (ev.target !== document.body && ev.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(ev); h.key?.(ev); } else h[t]?.(ev); })); return g; };
 export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, atBody(e, kind, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat, !!(ev.isComposing || ev.keyCode === 229 || ev.key === "Process")]); } finally { KeyEvent = outer; } }), kind === "keycapture"); };
-export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
+export function onMIDI(e, kind, f) { // a MIDI input's message (LLP 1125 D8), filtered by `midiinputs` in midi.js
+  const pair = [e, f], listeners = Sounds.midi ??= new Set();
+  listeners.add(pair);
+  onEnd(() => listeners.delete(pair));
+}
+function onWindow(kind, listener) {
+  addEventListener(kind, listener);
+  onEnd(() => removeEventListener(kind, listener));
+}
 // The window's, heard by every connected element that declares it (studio diary R17).
-export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
+export const onUnload = (e, kind, f, l) => { return onWindow("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
 export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && ev.keyCode !== 229 && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); };
 // A package view's declared event (LLP 1133.021 §9 item 2): a message `{"exact:event": name, "args": […]}` runs `f` with the arguments as the runtime holds values of `types` (facts.rs `surface_type_json`): a record by position, a field left out none.
 const fromJSON = (j, t) => typeof t === "string" ? j : Array.isArray(t) ? (t[0] === "?" ? (j == null ? null : fromJSON(j, t[1])) : t[0] === "e" ? j : (Array.isArray(j) ? j : []).map(x => fromJSON(x, t[1]))) : Object.entries(t).map(([f, u]) => fromJSON(j?.[f] ?? null, u)); export const viewEvent = (name, types, f) => text => { let m; try { m = JSON.parse(text); } catch { return; } if (m?.["exact:event"] === name) f(...types.map((t, i) => fromJSON(m.args?.[i] ?? null, t))); };
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
-export const onMessage = (e, kind, f, l) => { if (e.localName !== "iframe") return l("exact-native", ev => { if (ev.detail?.kind === "message") f(ev.detail.value); }); /* a GPU canvas's surface (x.message) */ return addEventListener("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
+export const onMessage = (e, kind, f, l) => { if (e.localName !== "iframe") return l("exact-native", ev => { if (ev.detail?.kind === "message") f(ev.detail.value); }); /* a GPU canvas's surface (x.message) */ return onWindow("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
 export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } e.$bootScrollEnd = false; f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); }; export const onScrollend = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScrollEnd) { e.$bootScrollEnd = false; return; } f(); }); }; // the boot's restored offset ends no reader's scroll, unless a smooth restore went on to deliver scrolls
 // A scroll drag's start and release, one tracker for both (navigation.js `scrollDrag`; Charlie, 2026-11-10): the release's `ScrollDragEvent` is its velocity and no target, which a browser never says.

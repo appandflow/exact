@@ -1,6 +1,7 @@
 # The JS runtime keeps every memo of an ended scope: a list resource's departed elements and a row's bound SVG geometry
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Disposed scopes remove their memos from settlement, releasing departed list resources and SVG bindings.
 **Systems:** host/web-js/rt.js, host/web-js/each.js, host/web-js/svg-transform.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

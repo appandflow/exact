@@ -1,6 +1,7 @@
 # `message`, `beforeunload` and MIDI handlers are never removed when their element's scope ends, on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Window and MIDI registrations end with their JS scopes; wasm beforeunload listeners end on removal, reload, or editor replacement.
 **Systems:** host/web-js/rt.js, host/web-js/midi.js, host/web/glue.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
