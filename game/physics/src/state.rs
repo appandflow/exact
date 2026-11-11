@@ -17,7 +17,7 @@ use std::{
 // v3 writes each static collider that its entry rebuilds bit-exactly as a hole.
 const SNAPSHOT: &[u8] = b"EXPHYS\0\x03";
 
-#[derive(Clone, Debug, Default, Data)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Entry {
     pub entity: Entity,
     pub body_handle: Option<[u32; 2]>,
@@ -25,7 +25,17 @@ pub(crate) struct Entry {
     pub body: Option<Body>,
     pub collider: Option<Collider>,
     pub pose: Transform,
+    // The handles of `Collider::extra`, in its order; written only when present.
+    pub extra_handles: Vec<[u32; 2]>,
 }
+crate::types::record!(Entry {
+    entity,
+    body_handle,
+    collider_handle,
+    body,
+    collider,
+    pose,
+} unnamed {} named { extra_handles });
 impl Entry {
     pub fn bh(&self) -> Option<RigidBodyHandle> {
         self.body_handle
@@ -34,6 +44,13 @@ impl Entry {
     pub fn ch(&self) -> Option<ColliderHandle> {
         self.collider_handle
             .map(|h| ColliderHandle::from_raw_parts(h[0], h[1]))
+    }
+    // The primary collider's handle, then the extras'.
+    pub fn colliders(&self) -> impl Iterator<Item = [u32; 2]> + '_ {
+        self.collider_handle
+            .iter()
+            .chain(&self.extra_handles)
+            .copied()
     }
 }
 // The world and write revisions the last sync observed; derived, never saved.
@@ -51,6 +68,8 @@ pub(crate) struct Live {
     // parented at the last sync, and each index's entry.
     pub bodies: BTreeSet<Entity>,
     pub parented: BTreeSet<Entity>,
+    // Entities whose collider has extras.
+    pub extended: BTreeSet<Entity>,
     pub slots: BTreeMap<u32, Entity>,
     // Collider handles removed this step, unmapped once its events are named.
     pub removed: Vec<[u32; 2]>,
@@ -66,7 +85,12 @@ impl Live {
         Self {
             reverse: entries
                 .values()
-                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
+                .flat_map(|e| e.colliders().map(|h| (h, e.entity)))
+                .collect(),
+            extended: entries
+                .values()
+                .filter(|e| !e.extra_handles.is_empty())
+                .map(|e| e.entity)
                 .collect(),
             bodies: entries
                 .values()
@@ -269,7 +293,7 @@ fn rebuild(e: &Entry) -> Result<rapier3d::prelude::Collider, &'static str> {
     let c = e
         .collider
         .as_ref()
-        .filter(|_| e.body.is_none())
+        .filter(|c| e.body.is_none() && c.extra.is_empty())
         .ok_or("physics: a collider hole's entry is not a static collider")?;
     Ok(crate::step::try_collider(c, e.pose, None)?
         .position(crate::math::try_pose(e.pose)?)

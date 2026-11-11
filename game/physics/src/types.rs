@@ -151,6 +151,7 @@ record!(Body {
     spin_damping,
     asleep,
 } unnamed { ccd } named { force, inertia });
+pub(crate) use record;
 impl Component for Body {
     const NAME: &'static str = "Body";
 }
@@ -240,6 +241,14 @@ pub struct Collider {
     /// instead of the larger. Takes effect only when both colliders set it.
     /// Saved, hashed and serialized only when set.
     pub bounce_average: bool,
+    /// More shapes on the same Body, each with its own shape, offset, material,
+    /// layer and mask. They add no mass: the Body's mass and inertia are the
+    /// primary shape's (or authored). A touch with one reports this entity.
+    /// Queries (rays, sweeps, overlaps, capsules) see the primary shape only.
+    /// Needs a Body; an extra may not be a sensor, a mesh or a heightfield, and
+    /// its own `extra` must be empty. Saved, hashed and serialized only when
+    /// not empty.
+    pub extra: Vec<Collider>,
 }
 impl Default for Collider {
     fn default() -> Self {
@@ -252,6 +261,7 @@ impl Default for Collider {
             layer: 1,
             mask: u32::MAX,
             bounce_average: false,
+            extra: Vec::new(),
         }
     }
 }
@@ -263,7 +273,7 @@ record!(Collider {
     sensor,
     layer,
     mask,
-} unnamed {} named { bounce_average });
+} unnamed {} named { bounce_average, extra });
 impl Component for Collider {
     const NAME: &'static str = "Collider";
 }

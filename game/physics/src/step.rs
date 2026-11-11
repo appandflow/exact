@@ -5,7 +5,7 @@ use crate::{
 };
 use exact_game::{Entity, Parent, Transform, World};
 use rapier3d::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 pub(crate) fn body_type(kind: BodyKind) -> RigidBodyType {
@@ -196,6 +196,18 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         let t = world.get::<Transform>(e);
         let parent = world.get::<Parent>(e);
         let (b, c, t, parent) = (b.as_deref(), c.as_deref(), t.as_deref(), parent.as_deref());
+        if let Some(c) = c {
+            assert!(
+                c.extra.is_empty() || b.is_some(),
+                "physics: extra colliders need a Body"
+            );
+            assert!(
+                c.extra.iter().all(|x| !x.sensor
+                    && x.extra.is_empty()
+                    && !matches!(x.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })),
+                "physics: an extra collider cannot be a sensor, a mesh or a heightfield, or have extras"
+            );
+        }
         if b.is_some() {
             assert!(
                 parent.is_none(),
@@ -368,6 +380,28 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             entry.collider_handle = None;
             wake = true;
         }
+        // Extras are rebuilt whenever the primary is: they are few, and a rebuild
+        // keeps their handles in `Collider::extra` order.
+        if collider_changed || c.is_none() {
+            for h in entry.extra_handles.drain(..) {
+                r.remove_collider(ColliderHandle::from_raw_parts(h[0], h[1]));
+                live.removed.push(h);
+                wake = true;
+            }
+            if let (Some(c), Some(bh)) = (c, entry.bh()) {
+                for x in &c.extra {
+                    let cb = collider(x, t, None).density(0.0).position(Pose::IDENTITY);
+                    let h = raw(r.insert_collider(cb, Some(bh)));
+                    entry.extra_handles.push(h);
+                    live.reverse.insert(h, e);
+                }
+            }
+            if entry.extra_handles.is_empty() {
+                live.extended.remove(&e);
+            } else {
+                live.extended.insert(e);
+            }
+        }
         if body_changed {
             entry.body = b.cloned();
         }
@@ -398,7 +432,8 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         } else if let Some(h) = entry.ch() {
             live.rapier.remove_collider(h);
         }
-        live.removed.extend(entry.collider_handle);
+        live.removed.extend(entry.colliders());
+        live.extended.remove(e);
         live.bodies.remove(e);
         live.parented.remove(e);
         if live.slots.get(&e.index()) == Some(e) {
@@ -456,6 +491,33 @@ fn unchanged_asleep(world: &World, live: &Live, pending: &Pending) -> bool {
                 && (b.velocity != exact_game::Vec3::ZERO || b.spin != exact_game::Vec3::ZERO)))
     })
 }
+// The entity pairs touching through any collider of the given entities, as their
+// collision events last reported it: a contact pair whose last event was a start,
+// or an intersecting sensor pair.
+fn touching(live: &Live, of: &BTreeMap<Entity, Vec<[u32; 2]>>) -> BTreeSet<(Entity, Entity)> {
+    let np = &live.rapier.narrow_phase;
+    let mut out = BTreeSet::new();
+    for (&e, handles) in of {
+        for &[i, g] in handles {
+            let h = ColliderHandle::from_raw_parts(i, g);
+            let other = |a: ColliderHandle, b: ColliderHandle| if a == h { b } else { a };
+            let contacts = np
+                .contact_pairs_with(h)
+                .filter(|p| p.start_event_emitted())
+                .map(|p| other(p.collider1, p.collider2));
+            let sensors = np
+                .intersection_pairs_with(h)
+                .filter(|p| p.2)
+                .map(|(a, b, _)| other(a, b));
+            for o in contacts.chain(sensors) {
+                if let Some(&o) = live.reverse.get(&raw(o)).filter(|o| **o != e) {
+                    out.insert((e.min(o), e.max(o)));
+                }
+            }
+        }
+    }
+    out
+}
 #[derive(Default)]
 struct Events(Mutex<Vec<CollisionEvent>>);
 impl EventHandler for Events {
@@ -501,7 +563,23 @@ pub fn step(world: &mut World) {
         world.resource_mut::<Physics>().events.clear();
         return;
     }
+    // A touch through an extra collider is its entity's: an entity pair begins when
+    // its first collider pair does and ends with its last. So the events of every
+    // entity with extras, before or after this sync, come from comparing the
+    // touching entity pairs before and after the step rather than from Rapier's
+    // per-collider events.
+    let mut shaped: BTreeMap<Entity, Vec<[u32; 2]>> = live
+        .extended
+        .iter()
+        .map(|e| (*e, live.entries[e].colliders().collect()))
+        .collect();
     let moved_kinematic = sync(world, live, &pending);
+    for e in &live.extended {
+        shaped
+            .entry(*e)
+            .or_insert_with(|| live.entries[e].colliders().collect());
+    }
+    let before = touching(live, &shaped);
     if live.rapier.gravity != gravity {
         live.rapier.wake_up_all(true);
     }
@@ -518,8 +596,8 @@ pub fn step(world: &mut World) {
                 .as_ref()
                 .is_some_and(|b| b.kind == BodyKind::Kinematic)
         }) {
-            if let Some(h) = entry.ch() {
-                let co = &mut r.colliders[h];
+            for h in entry.colliders() {
+                let co = &mut r.colliders[ColliderHandle::from_raw_parts(h[0], h[1])];
                 co.set_position(*co.position());
             }
         }
@@ -549,6 +627,22 @@ pub fn step(world: &mut World) {
             })
         })
         .collect();
+    if !shaped.is_empty() {
+        events.retain(|t| !shaped.contains_key(&t.a) && !shaped.contains_key(&t.b));
+        for (e, handles) in shaped.iter_mut() {
+            *handles = live
+                .entries
+                .get(e)
+                .map(|entry| entry.colliders().collect())
+                .unwrap_or_default();
+        }
+        let after = touching(live, &shaped);
+        events.extend(before.symmetric_difference(&after).map(|&(a, b)| Touch {
+            a,
+            b,
+            began: after.contains(&(a, b)),
+        }));
+    }
     events.sort_by_key(|e| (e.a, e.b, e.began));
     events.dedup();
     for h in live.removed.drain(..) {

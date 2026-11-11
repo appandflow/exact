@@ -192,3 +192,151 @@ fn bounce_average_needs_both_colliders() {
         );
     }
 }
+
+// A die's extra shape meets other dice while its primary meets the table: each
+// filters by its own layers, adds no mass, is invisible to queries, reports its
+// touches as the die (one begin and one end per entity pair, however many of its
+// shapes touch), is saved and restored with the world, and goes when removed.
+#[test]
+fn extra_colliders_share_the_body_and_filter_by_their_own_layers() {
+    let mut w = world();
+    let floor = w.spawn((
+        Transform::at(0.0, -0.5, 0.0),
+        Collider {
+            shape: Shape::Box {
+                half: Vec3::new(20.0, 0.5, 20.0),
+            },
+            friction: 0.0,
+            layer: 3,
+            ..Collider::default()
+        },
+    ));
+    let die = w.spawn((
+        Transform::at(0.0, 0.5, 0.0),
+        Body {
+            velocity: Vec3::X * 2.0,
+            ..Body::default()
+        },
+        Collider {
+            shape: Shape::Sphere { radius: 0.5 },
+            friction: 0.0,
+            mask: 1,
+            extra: vec![Collider {
+                shape: Shape::Box {
+                    half: Vec3::splat(0.4),
+                },
+                offset: Vec3::new(0.0, -0.1, 0.0),
+                friction: 0.0,
+                layer: 2,
+                mask: 2,
+                ..Collider::default()
+            }],
+            ..Collider::default()
+        },
+    ));
+    let other = w.spawn((
+        Transform::at(1.5, 0.2, 0.0),
+        Body::default(),
+        Collider {
+            shape: Shape::Box {
+                half: Vec3::splat(0.2),
+            },
+            friction: 0.0,
+            layer: 2,
+            mask: 2,
+            ..Collider::default()
+        },
+    ));
+    let x = |w: &World, e| w.get::<Transform>(e).unwrap().position.x;
+    let pair = |a: Entity, b: Entity| (a.min(b), a.max(b));
+    let mut log = Vec::new();
+    let tick = |w: &mut World, log: &mut Vec<(usize, Entity, Entity, bool)>, n: usize| {
+        physics::step(w);
+        log.extend(physics::events(w).iter().map(|t| (n, t.a, t.b, t.began)));
+    };
+    for n in 0..20 {
+        tick(&mut w, &mut log, n);
+    }
+    // The primary sphere's mass alone.
+    let sphere = 1000.0 * 4.0 / 3.0 * std::f32::consts::PI * 0.125;
+    let mass = physics::mass(&w, die).unwrap();
+    assert!((mass - sphere).abs() < 1e-3 * sphere, "{mass}");
+    // A ray through the extra box alone, beside the sphere, misses the die.
+    let low = Vec3::new(x(&w, die) + 0.39, 0.05, 0.39);
+    let hit = physics::raycast(&w, low + Vec3::Y, -Vec3::Y, 2.0, u32::MAX).unwrap();
+    assert_eq!(hit.entity, floor);
+    let mut r = restored(&w);
+    let mut replay = Vec::new();
+    for n in 20..60 {
+        tick(&mut w, &mut log, n);
+        tick(&mut r, &mut replay, n);
+        assert_eq!(r.hash(), w.hash(), "tick {n}");
+    }
+    assert_eq!(
+        replay,
+        log.iter()
+            .filter(|t| t.0 >= 20)
+            .copied()
+            .collect::<Vec<_>>()
+    );
+    assert!(x(&w, other) > 1.6, "the box pushed the other die");
+    // Sphere and box both rest on the floor: one begin, at the first step.
+    let (a, b) = pair(die, floor);
+    assert_eq!(log.iter().filter(|t| (t.1, t.2) == (a, b)).count(), 1);
+    assert!(log.contains(&(0, a, b, true)), "{log:?}");
+    // The other die is met by the box, not the sphere, which reaches it first.
+    let (a, b) = pair(die, other);
+    let met = log.iter().find(|t| (t.1, t.2) == (a, b)).expect("met").0;
+    assert!(2.0 * (met + 1) as f32 / 60.0 > 0.85, "met at tick {met}");
+    // Removing the extras ends that touch; the sphere passes through the other
+    // die, stopped where it stands.
+    w.get_mut::<Collider>(die).unwrap().extra.clear();
+    w.get_mut::<Body>(other).unwrap().velocity = Vec3::ZERO;
+    tick(&mut w, &mut log, 60);
+    assert_eq!(*log.last().unwrap(), (60, a, b, false));
+    for n in 61..120 {
+        tick(&mut w, &mut log, n);
+    }
+    assert!(x(&w, die) > x(&w, other) + 0.5, "passed through");
+    let json = exact_game::json::to_string(&*w.get::<Collider>(die).unwrap()).unwrap();
+    assert!(!json.contains("extra"), "{json}");
+}
+
+#[test]
+fn extra_colliders_are_refused_without_a_body_and_as_sensors_or_meshes() {
+    let mesh = Shape::Mesh {
+        vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Z],
+        indices: vec![[0, 1, 2]],
+    };
+    let extra = |x: Collider| Collider {
+        extra: vec![x],
+        ..Collider::default()
+    };
+    for (body, collider) in [
+        (false, extra(Collider::default())),
+        (
+            true,
+            extra(Collider {
+                sensor: true,
+                ..Collider::default()
+            }),
+        ),
+        (
+            true,
+            extra(Collider {
+                shape: mesh,
+                ..Collider::default()
+            }),
+        ),
+        (true, extra(extra(Collider::default()))),
+    ] {
+        let mut w = world();
+        let e = w.spawn((Transform::default(), collider));
+        if body {
+            w.insert(e, Body::default());
+        }
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| physics::step(&mut w)));
+        assert!(result.is_err());
+    }
+}
