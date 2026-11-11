@@ -1,6 +1,7 @@
 # A background transfer to a URL with a user name and password keeps them in its record and its refusal
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Admission refuses a record URL with a user name or password, every such refusal names the URL through `grants::redacted` (no userinfo, query or fragment), and the Apple carrier records the URL without user and password.
 **Systems:** runner/src/runner/modules/admit.rs, host/apple/Sources/ExactKit/Transfers.swift
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)

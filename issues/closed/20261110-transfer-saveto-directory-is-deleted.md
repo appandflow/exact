@@ -1,6 +1,7 @@
 # A background transfer whose `saveTo` names a directory deletes that directory and everything in it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A `saveTo` that is a folder is refused at `start` (`TypeError`) and never replaced in `place`, which replaces an existing file with `FileManager.replaceItemAt`, keeping it when that fails.
 **Systems:** packages/background-transfer/apple/Transfers.swift
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)
