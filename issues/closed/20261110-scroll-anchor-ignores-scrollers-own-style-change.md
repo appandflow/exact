@@ -1,6 +1,7 @@
 # Scroll anchoring on the painted hosts adjusts when the scroller's own padding, margin or height changes, where CSS suppresses it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Changes to the scroller's own layout properties suppress scroll anchoring, using the same property comparison as the anchor path.
 **Systems:** host/linux/src/scroll_anchor.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
