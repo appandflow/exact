@@ -1,6 +1,7 @@
 # Under the Bun renderer every undeclared route of an app with a strings table is `eager`, where the native render infers `interaction`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** e2f7cca3 keeps strings-only Bun pages waiting for interaction and fresh request pages reusable; host/web-js/render-language.test.mjs now guards activation, module preloads, request reuse, and random draws.
 **Systems:** host/web-js/render.mjs, host/web/navigation.js (reportPlace)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
