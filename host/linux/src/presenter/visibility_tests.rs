@@ -245,6 +245,74 @@ fn mouse_click_common_ancestor_with_an_acknowledged_display() {
     common_ancestor_clicks(true);
 }
 
+#[test]
+fn a_wheel_during_a_mouse_press_keeps_the_click_if_the_button_stays_under_it() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for attached in [false, true] {
+        for (scrolls, wheel, offset, presses) in [
+            (false, None, 0., 1.),
+            (false, Some(40.), 0., 1.),
+            (true, Some(-40.), 0., 1.),
+            (true, Some(40.), 40., 1.),
+            (true, Some(300.), 300., 0.),
+        ] {
+            let source = format!(
+                r#"component App
+  state presses = 0
+  state ups = 0
+  action pressed
+    presses = presses + 1
+  action lifted
+    ups = ups + 1
+  view
+    column width=400
+      button press=pressed pointerup=lifted testId="button" width=200 height=200
+        text "Go"
+      box height={height} flex-shrink=0
+"#,
+                height = if scrolls { 2000 } else { 0 },
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&source),
+                (),
+                (400., 500.),
+                1.,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            if attached {
+                let frame = p.display_frame().unwrap();
+                assert!(p.display_complete(&frame));
+            }
+            assert_eq!(p.hit(100., 150.), Some(id(&p, "button")));
+            p.pointer_down(100., 150., 1.).unwrap();
+            if let Some(dy) = wheel {
+                p.wheel_at(100., 150., 0., dy);
+            }
+            let ups_before_release = p.host.runner().slot("ups").cloned();
+            if attached {
+                let frame = p.display_frame().unwrap();
+                assert!(p.display_complete(&frame));
+            }
+            p.pointer_up(100., 150., 2.).unwrap();
+            let label = format!("attached={attached} scrolls={scrolls} wheel={wheel:?}");
+            actual.push((
+                label.clone(),
+                p.page(),
+                ups_before_release,
+                p.host.runner().slot("ups").cloned(),
+                p.host.runner().slot("presses").cloned(),
+            ));
+            let number = |n| Some(exact_runner::Value::Number(n));
+            expected.push((label, (0., offset), number(0.), number(1.), number(presses)));
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
 fn common_ancestor_clicks(attached: bool) {
     // Chrome 151, Input.dispatchMouseEvent: removal suppresses click; hiding
     // does not. Pointerup's style changes happen after click target selection.

@@ -129,9 +129,14 @@ impl<D: DataSource> Presenter<D> {
         if self.wheel_event(x, y, dx, dy) || canvas {
             return;
         }
-        // A UI wheel can take over a UI gesture, but does not release a game's
-        // captured pointer. Browser wheel events do not end pointer capture.
-        if self.contact_canvas().is_none() {
+        // A scrollbar drag bypasses contact recognition.
+        if self.brush.scrollbars.drag.take().is_some() {
+            self.dirty = true;
+        }
+        self.brush.scrollbars.pressed = false;
+        // A wheel takes over a recognized UI gesture, leaving pending presses
+        // and game pointer capture intact (LLP 1015.002, 1057.001 §6).
+        if self.contact_canvas().is_none() && self.contact_has_gesture() {
             if let Err(error) = self.pointer_cancel(self.pointer_now()) {
                 self.host.log(error);
             }

@@ -1,6 +1,7 @@
 # A wheel event between mouse down and up cancels a press that has begun no gesture, so the click is lost
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A wheel cancels recognized UI gestures and scrollbar drags; a pending mouse press clicks if its button remains under the pointer.
 **Systems:** host/linux/src/presenter/wheel.rs (the painting host with a mouse: Linux, Windows)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

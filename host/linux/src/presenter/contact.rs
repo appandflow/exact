@@ -707,6 +707,11 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn contact_canvas(&self) -> Option<u32> {
         self.contact.as_ref().and_then(|c| c.canvas)
     }
+    pub(super) fn contact_has_gesture(&self) -> bool {
+        self.contact
+            .as_ref()
+            .is_some_and(|c| c.hold.is_some() || c.group || c.panning)
+    }
     /// The canvas a free pointer at a viewport point is over, where a press
     /// there would be the canvas's own.
     pub(crate) fn hover_canvas(&mut self, x: f32, y: f32) -> Option<u32> {

@@ -220,6 +220,67 @@ mod tests {
     }
 
     #[test]
+    fn a_wheel_ends_a_scrollbar_drag_without_reverting_its_scroll() {
+        for vertical in [false, true] {
+            for redraw in [false, true] {
+                let source = r#"component App
+  state presses = 0
+  action press
+    presses = presses + 1
+  view
+    column width=240 height=200 overflow="auto"
+      button press=press width=1000 height=1000 flex-shrink=0
+        text "A large row"
+"#;
+                let (mut p, error) = Presenter::boot_with(
+                    &crate::test_plan(source),
+                    (),
+                    (240., 200.),
+                    1.,
+                    PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                p.set_scrollbars(false);
+                p.frame();
+                let bar = *p
+                    .brush
+                    .scrollbars
+                    .bars
+                    .iter()
+                    .find(|b| b.vertical == vertical)
+                    .unwrap();
+                let (x, y) = (
+                    bar.thumb.0 + bar.thumb.2 / 2.,
+                    bar.thumb.1 + bar.thumb.3 / 2.,
+                );
+                p.pointer_down(x, y, 0.).unwrap();
+                assert!(p.brush.scrollbars.drag.is_some());
+                let offset = if vertical { (0., 40.) } else { (40., 0.) };
+                p.wheel_at(x, y, offset.0, offset.1);
+                assert_eq!(p.scroll_of(bar.id), offset);
+                let dragging = p.brush.scrollbars.drag.is_some();
+                let pressed = p.brush.scrollbars.pressed;
+                if redraw {
+                    p.frame();
+                }
+                p.pointer_up(x, y, 1.).unwrap();
+                assert_eq!(
+                    p.scroll_of(bar.id),
+                    offset,
+                    "vertical={vertical}, redraw={redraw}"
+                );
+                assert!(!dragging && !pressed);
+                assert_eq!(
+                    p.host.runner().slot("presses"),
+                    Some(&exact_runner::Value::Number(0.))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn desktop_scrollbars_drag_page_and_cancel_without_pressing_content() {
         let source = r#"component App
   state presses = 0
