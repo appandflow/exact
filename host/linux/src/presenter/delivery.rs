@@ -94,6 +94,9 @@ impl<D: DataSource> Presenter<D> {
                 if self.pending_dev.as_ref().map(|g| &g.identity) != Some(&generation.identity) {
                     self.dev.as_mut().unwrap().held_since = None;
                 }
+                // Held, or refused below: the poll downloads it again only
+                // once the dev server publishes another.
+                self.dev.as_mut().unwrap().held = Some(generation.identity.clone());
                 self.pending_dev = Some(generation);
             }
             // A dev loop's status (its producers starting) once, not each tick.
@@ -115,6 +118,7 @@ impl<D: DataSource> Presenter<D> {
                     let waker = self.executor.waker();
                     let dev = self.dev.as_mut().unwrap();
                     dev.identity = Some(generation.identity);
+                    dev.held = None;
                     // A new executor, so its waker (and a new wake
                     // descriptor, which the Android reader watches again).
                     *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);

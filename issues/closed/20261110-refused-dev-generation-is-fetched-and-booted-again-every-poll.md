@@ -1,6 +1,7 @@
 # A dev generation the painting host refuses is downloaded and tried again twice a second
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The poller skips a generation the host holds or refused, as it skips the one running, and chooses the Rust variant before it downloads the plan.
 **Systems:** host/linux/src/fetch.rs, host/linux/src/presenter/delivery.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

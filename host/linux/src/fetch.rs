@@ -119,6 +119,9 @@ pub(crate) struct Poller {
     url: String,
     compat: String,
     pub identity: Option<String>,
+    /// A generation the host holds (preparing its module, or waiting on
+    /// requests) or could not run: the poll does not download it again.
+    pub held: Option<String>,
     due: std::time::Instant,
     worker: Option<std::sync::mpsc::Receiver<Tick>>,
     /// The in-flight tick asked for `/__dev/design`.
@@ -172,6 +175,7 @@ impl Poller {
             url,
             compat,
             identity,
+            held: None,
             due: now,
             worker: None,
             asked_design: false,
@@ -301,7 +305,7 @@ impl Poller {
         if self.worker.is_none() && std::time::Instant::now() >= self.due {
             let url = self.url.clone();
             let compat = self.compat.clone();
-            let previous = self.identity.clone();
+            let (previous, held) = (self.identity.clone(), self.held.clone());
             // Once the channel is on, live frames come down its poll and
             // the snapshot is fetched only when asked (LLP 1122 D4).
             let design = self.link.as_mut().is_none_or(|link| link.take_design());
@@ -310,7 +314,7 @@ impl Poller {
             self.worker = Some(receive);
             let waker = self.waker.clone();
             std::thread::spawn(move || {
-                let changed = fetch_changed(&url, &compat, previous.as_deref());
+                let changed = fetch_unless(&url, &compat, &[previous.as_deref(), held.as_deref()]);
                 let design = design.then(|| fetch_design(&url)).flatten();
                 let _ = send.send((changed, design));
                 wake(&waker);
@@ -351,6 +355,17 @@ pub fn fetch_changed(
     page: &str,
     compat: &str,
     previous: Option<&str>,
+) -> Result<Option<Generation>, String> {
+    fetch_unless(page, compat, &[previous])
+}
+
+/// Fetch only when the envelope's generation is none of `known`: the one
+/// running, and one the host holds or could not run, which another download
+/// would not change.
+fn fetch_unless(
+    page: &str,
+    compat: &str,
+    known: &[Option<&str>],
 ) -> Result<Option<Generation>, String> {
     let transport = ibex2::transport::default_transport();
     let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>, String), String> {
@@ -415,7 +430,7 @@ pub fn fetch_changed(
         }
     }
     let identity = format!("{:x}", Sha256::digest(fingerprint.as_bytes()));
-    if previous == Some(identity.as_str()) {
+    if known.contains(&Some(identity.as_str())) {
         return Ok(None);
     }
     let fetch_card = |card: &PlanCard, limit: usize| -> Result<Vec<u8>, String> {
@@ -447,19 +462,28 @@ pub fn fetch_changed(
         }
         Ok(bytes)
     };
+    // The Rust variant this binary runs is chosen before anything is
+    // downloaded: an envelope it cannot take costs no plan.
+    let variant = match &envelope.rust {
+        Some(variants) => {
+            let compat: serde_json::Value =
+                serde_json::from_str(compat).map_err(|e| e.to_string())?;
+            let mode = compat["inputs"]["rustMode"].as_str().unwrap_or("off");
+            if variants.keys().any(|k| k != "native" && k != "wasm") {
+                return Err("invalid Rust executor manifest".into());
+            }
+            let variant = variants
+                .get(mode)
+                .ok_or("no Rust replacement matching this binary's executor")?;
+            if mode == "native" && variant.target.as_deref() != compat["target"].as_str() {
+                return Err("Rust replacement target does not match this binary".into());
+            }
+            Some(variant)
+        }
+        None => None,
+    };
     let plan = fetch_card(&envelope.plan, MAX_PLAN_BYTES)?;
-    let module = if let Some(variants) = envelope.rust {
-        let compat: serde_json::Value = serde_json::from_str(compat).map_err(|e| e.to_string())?;
-        let mode = compat["inputs"]["rustMode"].as_str().unwrap_or("off");
-        if variants.keys().any(|k| k != "native" && k != "wasm") {
-            return Err("invalid Rust executor manifest".into());
-        }
-        let variant = variants
-            .get(mode)
-            .ok_or("no Rust replacement matching this binary's executor")?;
-        if mode == "native" && variant.target.as_deref() != compat["target"].as_str() {
-            return Err("Rust replacement target does not match this binary".into());
-        }
+    let module = if let Some(variant) = variant {
         Some(crate::delivery::Module {
             receipt: String::from_utf8(fetch_card(&variant.receipt, 1 << 20)?)
                 .map_err(|e| e.to_string())?,
@@ -834,7 +858,7 @@ mod tests {
         let serving_revision = revision.clone();
         let serving_payloads = payload_requests.clone();
         let server = std::thread::spawn(move || {
-            for connection in listener.incoming().take(9) {
+            for connection in listener.incoming().take(11) {
                 let mut stream = connection.unwrap();
                 let path = read_request_path(&mut stream);
                 let module =
@@ -883,6 +907,21 @@ mod tests {
         assert_ne!(next.identity, first.identity);
         assert_eq!(next.module.unwrap().bytes, b"wasm revision 2");
         assert_eq!(payload_requests.load(SeqCst), 6);
+        // A generation the host holds or refused is not downloaded again, and
+        // one whose Rust this binary cannot run costs no plan.
+        assert!(super::fetch_unless(
+            &page,
+            compat,
+            &[Some(&first.identity), Some(&next.identity)]
+        )
+        .unwrap()
+        .is_none());
+        assert!(super::fetch_changed(&page, r#"{"inputs":{"rustMode":"native"}}"#, None).is_err());
+        assert_eq!(
+            payload_requests.load(SeqCst),
+            6,
+            "only the envelope, for a held generation and an unrunnable one"
+        );
         server.join().unwrap();
     }
 }
