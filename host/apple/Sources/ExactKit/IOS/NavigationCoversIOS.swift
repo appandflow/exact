@@ -115,8 +115,10 @@ extension NavigationHost {
                 // A route the keyboard shortens can end above the bars, with no bottom cover.
                 let end = c.node.convert(c.node.bounds, to: c.contentMount).maxY + (c.contentViewport?.frame.minY ?? 0)
                 let reached = end - (c.view.bounds.maxY - safe.bottom)
+                // A transparent bar covers nothing of the route's top, scroller or not: the content starts under it.
                 edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                        collapses: c.collapseScroll != nil || !topPeers.isEmpty || !c.ridingBars.isEmpty, reached: reached)
+                                        collapses: c.collapseScroll != nil || !topPeers.isEmpty || !c.ridingBars.isEmpty || Self.transparentBar(c.node),
+                                        reached: reached)
                 c.bottomClearance = edges?.bottom ?? 0
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
