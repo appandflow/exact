@@ -1,6 +1,7 @@
 # Three app embeddings under semantics/Apps are stale, and Photo Editor's `keeps_ready` fails on the app as it is
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** All four app embeddings match their sources, and Photo Editor's readiness proof covers every current action.
 **Systems:** semantics/Apps, semantics/Apps/Proofs/PhotoEditor.lean, semantics/README.md, scripts/async.mjs (the `difftest` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -534,6 +534,8 @@ source as it is.
    and that it is not refused (geometry reads are outside the semantics,
    below). From then on `difftest apps`, in the
    async lane, fails when the source moves and the embedding did not.
+   After editing an app or its imports, regenerate the embeddings and run
+   `lake build Apps` in `semantics/` to recheck their proofs.
 2. **State.** Write the property in `Apps/Proofs/<Module>.lean` over the
    embedding: of every reachable configuration (`Reachable <name> c`), of
    every event from any configuration (`Event.step`), or of one committed
