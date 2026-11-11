@@ -1,6 +1,7 @@
 # On Android `clip-path`, `mask-image` and an SVG `clipPath` clip nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android records CSS and SVG path clips and composites gradient masks over isolated content.
 **Systems:** host/linux/src/canvas.rs (`canvas::Recorder`), host/linux/src/paint/backend.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

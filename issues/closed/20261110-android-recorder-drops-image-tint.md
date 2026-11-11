@@ -1,6 +1,7 @@
 # On Android an image's `-exact-tint-color` is ignored: a tinted raster draws in its own colours
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android records image tint and applies it through the image alpha on both image draw paths.
 **Systems:** host/linux/src/canvas.rs, host/android/canvas/src/main/java/dev/exact/canvas/Player.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

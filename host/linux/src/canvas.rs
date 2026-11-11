@@ -49,6 +49,9 @@
 //!   outside the border box `b…` (`canvas/shadow.rs`)
 //! - `43 SHADER len …` — the next RRECT, PATH or STROKE paints with a gradient shader (`canvas/gradient.rs`)
 //! - `44 BLUR sigma` — the next GLYPHS draws through a blur of `sigma`, local units (`canvas/glyphs.rs`)
+//! - `45 CLIP_UNION len n (rule path)×n` — save and clip to the union of independently filled paths
+//! - `46 MASK_LAYER` — save a layer composited through destination-in at its RESTORE
+//! - `47 IMAGE_TINT color` — the next IMAGE or IMAGE_RRECT uses this colour through the image's alpha
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -454,56 +457,6 @@ impl Recorder {
             self.ops.push(u32::from_le_bytes(w));
         }
     }
-
-    /// A picture mapped onto `dst` under `clips`.
-    fn picture(&mut self, picture: &Picture, dst: Rect4, clips: &[Shape], ts: Transform) {
-        let id = self.image_id(picture);
-        if self.image_rrect(id, dst, clips, ts) {
-            return;
-        }
-        self.need(None);
-        self.transform(ts);
-        for c in clips {
-            self.ops.push(CLIP_RRECT);
-            self.rect_radii(c);
-        }
-        self.ops.extend([IMAGE, id]);
-        for v in [dst.0, dst.1, dst.2, dst.3] {
-            self.f(v);
-        }
-        for _ in clips {
-            self.ops.push(RESTORE);
-        }
-    }
-
-    fn image_id(&mut self, image: &Picture) -> u32 {
-        let key = image.key();
-        let now = self.frames;
-        match &mut self.row {
-            Some(row) => row.images.push(key),
-            None => self.again_image(key),
-        }
-        if let Some((id, weak, used)) = self.images.get_mut(&key) {
-            if weak.is(image) {
-                *used = now;
-                return *id;
-            }
-        }
-        let id = self.next_image;
-        self.next_image += 1;
-        self.images.insert(key, (id, image.downgrade(), now));
-        self.ops
-            .extend([IMAGE_DEF, id, image.width(), image.height()]);
-        if let Picture::Bitmap(b) = image {
-            if let Some(file) = b.animation_file() {
-                let path = file.to_string_lossy();
-                self.ops.extend([ANIMATED, id]);
-                self.string(&path);
-            }
-        }
-        pending().insert(id, image.clone());
-        id
-    }
 }
 
 impl Backend for Recorder {
@@ -613,12 +566,12 @@ impl Backend for Recorder {
         dst: Rect4,
         clips: &[Shape],
         ts: Transform,
-        _tint: Option<[u8; 4]>,
+        tint: Option<[u8; 4]>,
     ) {
         if dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
-        self.picture(&Picture::Bitmap(image.clone()), dst, clips, ts);
+        self.picture(&Picture::Bitmap(image.clone()), dst, clips, ts, tint);
     }
 
     fn blurred_shadow(
@@ -681,7 +634,7 @@ impl Backend for Recorder {
         if dst.2 <= 0.0 || dst.3 <= 0.0 || pixels.width() == 0 || pixels.height() == 0 {
             return;
         }
-        self.picture(&Picture::Canvas(pixels.clone()), dst, clips, ts);
+        self.picture(&Picture::Canvas(pixels.clone()), dst, clips, ts, None);
     }
 
     /// A canvas child its surface placed (`paint/placed.rs`), already warped.
@@ -747,6 +700,22 @@ impl Backend for Recorder {
 
     fn push_clip(&mut self, s: &Shape, ts: Transform) {
         self.clip_push(s, ts);
+    }
+
+    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        self.css_clip(path, ts)
+    }
+
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        self.svg_clip(clip, ts)
+    }
+
+    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
+        self.push_opacity(1.0);
+    }
+
+    fn pop_mask(&mut self, shape: &Shape, mask: &Result<GradientPaint, [u8; 4]>, ts: Transform) {
+        self.mask_end(shape, mask, ts);
     }
 
     fn pop_clip(&mut self) {

@@ -80,6 +80,17 @@ internal class Player(private val fonts: Map<Int, Font>) {
     var height = 0
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var imageTint: Int? = null
+    private val clipUnion = Path()
+    private val maskPaint = Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+    }
+    private fun tintImage() {
+        imagePaint.colorFilter = imageTint?.let {
+            android.graphics.PorterDuffColorFilter(it, android.graphics.PorterDuff.Mode.SRC_IN)
+        }
+        imageTint = null
+    }
     private val imagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val src = RectF()
@@ -113,8 +124,13 @@ internal class Player(private val fonts: Map<Int, Font>) {
      * `AnimatedImageDrawable` drew a strip of its frames, or nothing, at bounds away from the origin. */
     private fun drawAnimated(c: Canvas, anim: android.graphics.drawable.Drawable) {
         c.save(); c.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        anim.setBounds(0, 0, bounds.width(), bounds.height()); anim.draw(c)
-        c.restore()
+        anim.colorFilter = imagePaint.colorFilter
+        try {
+            anim.setBounds(0, 0, bounds.width(), bounds.height()); anim.draw(c)
+        } finally {
+            anim.colorFilter = null
+            c.restore()
+        }
     }
 
     /**
@@ -191,21 +207,6 @@ internal class Player(private val fonts: Map<Int, Font>) {
     private val measurer = Bounds()
     private val layerRect = RectF()
     private val layerMatrix = Matrix()
-
-    /** The RESTORE that closes the group whose content starts at [from], or -1. */
-    private fun layerEnd(b: IntBuffer, from: Int, n: Int): Int {
-        var depth = 0
-        var i = from
-        while (i < n) {
-            when (b.get(i)) {
-                4, 5, 7 -> depth++
-                6 -> { if (depth == 0) return i; depth-- }
-                20, 21 -> return -1
-            }
-            i = walker.end(b, i)
-        }
-        return -1
-    }
 
     /** Whether [from, to) is one rect fill (op 2) and matrices. */
     private fun singleFill(b: IntBuffer, from: Int, to: Int): Boolean {
@@ -679,6 +680,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
 
     fun replay(canvas: Canvas, b: IntBuffer, from: Int, n: Int, reuseGroups: Boolean = false) {
         tint = 1f; tintEnd = -1
+        imageTint = null
         val base = canvas.save()
         val matrixBase = matrixDepth
         // Each recording starts locally; stream matrices supply the device coordinates.
@@ -750,6 +752,28 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     i = readPath(b, i + 2, b.get(i + 1) == 1)
                     c.clipPath(path)
                 }
+                45 -> {
+                    saveMatrix()
+                    c.save()
+                    val end = i + 2 + b.get(i + 1)
+                    val count = b.get(i + 2)
+                    var at = i + 3
+                    clipUnion.rewind()
+                    repeat(count) { child ->
+                        at = readPath(b, at + 1, b.get(at) == 1)
+                        if (child == 0) clipUnion.set(path)
+                        else check(clipUnion.op(path, Path.Op.UNION)) { "invalid clip union" }
+                    }
+                    c.clipPath(clipUnion)
+                    i = end
+                }
+                46 -> {
+                    saveMatrix()
+                    // The transparent area outside the mask must erase the isolated content too.
+                    c.saveLayer(null, maskPaint)
+                    i += 1
+                }
+                47 -> { imageTint = b.get(i + 1); i += 2 }
                 6 -> {
                     if (i == tintEnd) { tint = 1f; tintEnd = -1 }
                     c.restore(); restoreMatrix(); i += 1
@@ -758,7 +782,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     // saveLayer bounds use the current Canvas space, including earlier restores.
                     saveMatrix()
                     val alpha = f(b, i + 1)
-                    val end = layerEnd(b, i + 2, n)
+                    val end = walker.layerEnd(b, i + 2, n)
                     if (end > 0 && singleFill(b, i + 2, end)) {
                         // One fill cannot overlap itself: its colour carries the opacity, with no offscreen surface.
                         c.save(); tint = alpha; tintEnd = end
@@ -768,6 +792,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     i += 2
                 }
                 8 -> {
+                    tintImage()
                     rect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {
@@ -799,6 +824,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 11 -> i += 4
                 12 -> i += 2
                 14 -> {
+                    tintImage()
                     // A picture drawn within a (rounded) rect.
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {

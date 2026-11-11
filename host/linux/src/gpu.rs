@@ -953,34 +953,14 @@ impl Backend for Gpu {
         true
     }
 
-    // @ref LLP 1055.000 D10 — an SVG clip: its shapes as one clip layer
-    // (a union under one rule), its own clip a layer inside it.
+    // @ref LLP 1055.000 D10 — children union under their own rules;
+    // a clip on the clipPath itself intersects that union.
     fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
         let a = self.affine(ts);
         let mut pushed = 0;
         let mut level = Some(clip);
         while let Some(c) = level {
-            let mut b = BezPath::new();
-            for shape in &c.shapes {
-                for seg in &shape.path.0 {
-                    match *seg {
-                        exact_kernel::svg::Seg::Move(x, y) => b.move_to((x as f64, y as f64)),
-                        exact_kernel::svg::Seg::Line(x, y) => b.line_to((x as f64, y as f64)),
-                        exact_kernel::svg::Seg::Cubic(p, q, r, s, x, y) => b.curve_to(
-                            (p as f64, q as f64),
-                            (r as f64, s as f64),
-                            (x as f64, y as f64),
-                        ),
-                        exact_kernel::svg::Seg::Close => b.close_path(),
-                    }
-                }
-            }
-            let rule = if !c.shapes.is_empty() && c.shapes.iter().all(|s| s.even_odd) {
-                Fill::EvenOdd
-            } else {
-                Fill::NonZero
-            };
-            self.push_recorded(backdrop::Layer::Clip(rule, a, b));
+            self.push_recorded(backdrop::Layer::svg_clip(c, a));
             pushed += 1;
             level = c.then.as_deref();
         }
