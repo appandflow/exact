@@ -1,6 +1,7 @@
 # `Storage` hands out a kept reply's continuation under a token it cannot dispatch
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Storage` gives a delivery's continuation a token of its own, which `dispatch`, `release`, `discard`, `continuation` and `host_continuation` map back to the child's and `forgotten` keeps, since the runner holds it as module work rather than in flight.
 **Systems:** data/host/src/lib.rs (`exact_data_host::Storage`), kept replies (LLP 1146 D2), ordered sets (LLP 1027.002 D3)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -27,7 +27,11 @@ pub struct Directories {
 }
 
 enum Pending {
+    /// An answer's continuation, under the token its child handed out.
     Child(u64),
+    /// A kept reply's delivery continuation, under its child's token. The
+    /// runner holds it as module work, outside what `forgotten` names.
+    Delivery(u64),
     #[cfg(not(target_arch = "wasm32"))]
     Storage(Vec<u8>, String),
 }
@@ -77,6 +81,16 @@ impl<D: Default> Default for Storage<D> {
     }
 }
 impl<D: DataSource> Storage<D> {
+    /// Keeps `pending` under a new token of this executor's.
+    fn token(&mut self, pending: Pending) -> Result<u64, DataError> {
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| unavailable("storage token space exhausted"))?;
+        self.pending.insert(self.next, pending);
+        Ok(self.next)
+    }
+
     fn step(
         &mut self,
         store: &mut Store,
@@ -127,23 +141,13 @@ impl<D: DataSource> Storage<D> {
                         .grants
                         .clone()
                         .unwrap_or_else(|| self.grants().into());
-                    self.next = self
-                        .next
-                        .checked_add(1)
-                        .ok_or_else(|| unavailable("storage token space exhausted"))?;
-                    self.pending
-                        .insert(self.next, Pending::Storage(payload.clone(), scope));
-                    *request = exact_runner::Request::continuation(self.next);
+                    let token = self.token(Pending::Storage(payload.clone(), scope))?;
+                    *request = exact_runner::Request::continuation(token);
                     return Ok(answer);
                 }
             }
-            if let Some(token) = request.continuation {
-                self.next = self
-                    .next
-                    .checked_add(1)
-                    .ok_or_else(|| unavailable("storage token space exhausted"))?;
-                self.pending.insert(self.next, Pending::Child(token));
-                request.continuation = Some(self.next);
+            if let Some(child) = request.continuation {
+                request.continuation = Some(self.token(Pending::Child(child))?);
             }
         }
         Ok(answer)
@@ -264,7 +268,15 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
         self.source.canvases_retired(retired)
     }
     fn host_continuation(&self, token: u64) -> bool {
-        self.source.host_continuation(token)
+        if token == exact_runner::BACKGROUND {
+            return self.source.host_continuation(token);
+        }
+        match self.pending.get(&token) {
+            Some(Pending::Child(child) | Pending::Delivery(child)) => {
+                self.source.host_continuation(*child)
+            }
+            _ => false,
+        }
     }
 
     fn configure_secrets(
@@ -333,7 +345,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
     /// Continuation tokens are this source's own: each goes back to its
     /// child's where the child handed one out (a storage request's never
     /// did, and one already dispatched can't be told any more), and an entry
-    /// the runner no longer has in flight is let go.
+    /// the runner no longer has in flight is let go, apart from a delivery's.
     fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let view: Vec<InFlight<'_>> = in_flight
             .iter()
@@ -348,7 +360,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
             })
             .collect();
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
-        self.pending.retain(|outer, _| tokens.contains(outer));
+        self.pending
+            .retain(|outer, p| matches!(p, Pending::Delivery(_)) || tokens.contains(outer));
         self.source.forgotten(store, &view);
     }
 
@@ -358,7 +371,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
             return self.source.dispatch(token, store);
         }
         match self.pending.get(&token) {
-            Some(Pending::Child(child)) => {
+            Some(Pending::Child(child) | Pending::Delivery(child)) => {
                 let child = *child;
                 let dispatch = self.source.dispatch(child, store);
                 if !matches!(dispatch, Dispatch::Held) {
@@ -381,7 +394,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
             let outer = self
                 .pending
                 .iter()
-                .find(|(_, p)| matches!(p, Pending::Child(c) if *c == child))
+                .find(|(_, p)| matches!(p, Pending::Child(c) | Pending::Delivery(c) if *c == child))
                 .map(|(outer, _)| *outer);
             let Some(outer) = outer else {
                 continue;
@@ -395,7 +408,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
     }
 
     fn discard(&mut self, token: u64) {
-        if let Some(Pending::Child(child)) = self.pending.remove(&token) {
+        if let Some(Pending::Child(child) | Pending::Delivery(child)) = self.pending.remove(&token)
+        {
             self.source.discard(child);
         }
     }
@@ -417,8 +431,9 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
     }
 
     // Work that outlives its answer (LLP 1146 D2): its tokens are the
-    // source's own, which the runner keeps beside its tickets, so nothing is
-    // remapped.
+    // source's own, which the runner keeps beside its tickets, so they are
+    // not remapped. A delivery's continuation is dispatched like any other,
+    // so it goes out under one of this executor's.
     fn keeps_sent(&self, fetch: u64) -> bool {
         self.source.keeps_sent(fetch)
     }
@@ -438,7 +453,13 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
         token: u64,
         outcome: Outcome,
     ) -> Result<Option<exact_runner::Request>, DataError> {
-        self.source.module_delivery(store, token, outcome)
+        let Some(mut request) = self.source.module_delivery(store, token, outcome)? else {
+            return Ok(None);
+        };
+        if let Some(child) = request.continuation {
+            request.continuation = Some(self.token(Pending::Delivery(child))?);
+        }
+        Ok(Some(request))
     }
 
     // The kept request's token is the source's own, as above; the
@@ -450,9 +471,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
     ) -> Option<(u64, exact_runner::Request)> {
         let (token, mut request) = self.source.timer_before_reply(store, in_flight)?;
         let child = request.continuation?;
-        self.next = self.next.checked_add(1)?;
-        self.pending.insert(self.next, Pending::Child(child));
-        request.continuation = Some(self.next);
+        request.continuation = Some(self.token(Pending::Child(child)).ok()?);
         Some((token, request))
     }
 
@@ -484,7 +503,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
             return self.source.continuation(token);
         }
         match self.pending.remove(&token)? {
-            Pending::Child(token) => self.source.continuation(token),
+            Pending::Child(token) | Pending::Delivery(token) => self.source.continuation(token),
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
