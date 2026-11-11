@@ -1,6 +1,7 @@
 # On the Mac ⌘A selects the first virtualized list's text wherever the focus is
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** On macOS, Select All follows the current list or paragraph context in the receiving window; prose selects that window's mounted paragraphs, and only a reader without paragraph context falls back to its sole list.
 **Systems:** host/apple/Sources/ExactKit/Mac/TextSelectionMac.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

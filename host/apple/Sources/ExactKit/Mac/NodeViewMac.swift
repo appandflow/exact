@@ -44,7 +44,7 @@ private final class BlurBackground: NSVisualEffectView {
 }
 
 package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
-    package override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
+    package override func selectAll(_ sender: Any?) { presenter?.selection.selectAll(in: window) }
 
     package let id: UInt32
     /// Bumped whenever it moves to another superview or window: a captured
@@ -285,7 +285,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.menus.key(event) == true || presenter?.dialogs.key(event) == true { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
-            case "a": presenter?.selection.selectAll(); return
+            case "a": presenter?.selection.selectAll(in: window); return
             case "c": presenter?.selection.copy(); return
             default: break
             }
@@ -332,7 +332,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
-            case "a": presenter?.selection.selectAll(); return true
+            case "a": presenter?.selection.selectAll(in: window); return true
             case "c": presenter?.selection.copy(); return true
             default: break
             }

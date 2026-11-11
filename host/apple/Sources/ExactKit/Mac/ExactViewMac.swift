@@ -17,7 +17,7 @@ extension ExactSession {
 
 public final class ExactView: NSView {
     public let session: ExactSession
-    public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
+    public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll(in: window) }
     /// The first root's `copy` with nothing focused (`RootEdits`), else the text selection's.
     @objc public func copy(_ sender: Any?) { if !rootEdits.perform(#selector(NodeView.copy(_:))) { session.presenter.selection.copy() } }
     /// Edit ▸ Cut, Copy and Paste with nothing focused, after the window in its responder chain.

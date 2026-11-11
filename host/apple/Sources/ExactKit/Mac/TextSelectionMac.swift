@@ -750,12 +750,24 @@ package final class TextSelection {
         presenter?.session?.follow(url)
     }
 
-    func selectAll() {
+    func selectAll(in window: NSWindow? = nil) {
         requested = nil
         gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
-        let nodes = paragraphs
-        if let first = nodes.first(where: { position($0, offset: 0) != nil }),
-           let (owner, start) = position(first, offset: 0),
+        let nodes = paragraphs.filter { window == nil || $0.window === window }
+        var owners: [UInt32: NodeView] = [:]
+        for node in nodes {
+            if let (owner, _) = position(node, offset: 0) { owners[owner.id] = owner }
+        }
+        // Other windows can retain a responder after this one takes the keyboard.
+        let responder = (window?.firstResponder ?? presenter?.focusResponder) as? NodeView
+        let context = [responder, pressed].compactMap { $0 }.first { candidate in nodes.contains { $0 === candidate } }
+        // The logical list survives retired rows. A press outside a list
+        // keeps page selection; only an unplaced reader takes the sole list.
+        let owner = list.flatMap { owners[$0.id] }
+            ?? context.flatMap { position($0, offset: 0)?.0 }
+            ?? (context == nil && owners.count == 1 ? owners.values.first : nil)
+        if let owner, let first = nodes.first(where: { position($0, offset: 0)?.0 === owner }),
+           let (_, start) = position(first, offset: 0),
            let last = nodes.last(where: { $0.isDescendant(of: owner) }),
            let (_, end) = position(last, offset: length(last)) {
             list = owner; logicalAnchor = start; logicalFocus = end; allListText = true
@@ -824,7 +836,8 @@ package final class TextSelection {
         }
         guard anchor != nil && focus != nil else { return nil }
         if ordered == nil { _ = paragraphs }
-        guard let anchor, let focus, let a = indices[anchor.id], let b = indices[focus.id],
+        // Other windows' presented surfaces can fall between these endpoints.
+        guard let anchor, let focus, node.window === anchor.window, let a = indices[anchor.id], let b = indices[focus.id],
               let n = indices[node.id], n >= min(a, b), n <= max(a, b) else { return nil }
         let forward = a < b || (a == b && anchorIndex <= focusIndex)
         let start = forward ? a : b, end = forward ? b : a
