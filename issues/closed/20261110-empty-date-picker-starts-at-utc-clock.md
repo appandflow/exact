@@ -1,6 +1,7 @@
 # An empty date or time input on iOS opens at UTC's day and time, not the wall clock's
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by c3eb81b7: an empty picker starts from the local wall clock, within its bounds (DateValue.initial). The issue's twelve Los Angeles and Tokyo cases pass; not run on a phone.
 **Systems:** host/apple/Sources/ExactKit/IOS/DatesIOS.swift (makeDate, configureDate)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
