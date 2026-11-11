@@ -61,7 +61,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     if MODEL_DISCARD && baked.flags.x==1.0 && base.a < baked.emission_cutoff.w { discard; }
     let metallic=clamp(baked.surface.x*mr.b*input.part.x,0.0,1.0);
     let roughness=clamp(baked.surface.y*mr.g*input.part.y,0.045,1.0);
-    let v=normalize(frame.camera_alpha.xyz-input.world);
+    let v=view_direction(input.world);
     // The colour in `shading` (frame.wgsl): f16 where the device has it.
     let albedo=vec3<shading>(base.rgb);
     var color=ambient(n,v,albedo,metallic,roughness)*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
@@ -71,8 +71,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     if LIGHTS && frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,albedo,metallic,roughness); }
     if LIGHTS { add_local_lights(&color,input.clip.xy,input.world,n,v,albedo,metallic,roughness,true); }
     if baked.flags.y > 0.0 {
-        let rim_view=select(v,-frame.view_depth.xyz,frame.toon.w>0.5);
-        color += shading(baked.flags.y * input.part.z * pow(1.0 - clamp(dot(n,rim_view),0.0,1.0),3.0)) * mix(albedo,vec3<shading>(1.0),0.2);
+        color += shading(baked.flags.y * input.part.z * pow(1.0 - clamp(dot(n,v),0.0,1.0),3.0)) * mix(albedo,vec3<shading>(1.0),0.2);
     }
     if FOG { color=shaded_fog(color,input.world); }
     var alpha=1.0;

@@ -329,3 +329,182 @@ fn toggling_a_shadowed_flashlight_reuses_its_shadow_layers() {
     }
     assert!(creations.windows(2).all(|w| w[0] == w[1]), "{creations:?}");
 }
+
+#[derive(Default, Args)]
+struct FloorView {
+    model: bool,
+    orthographic: bool,
+    roughness: f32,
+    camera_scale: f32,
+}
+struct Floor;
+impl Game for Floor {
+    const ID: &'static str = "floor-view-direction";
+    const ASSETS: &'static [&'static str] = &["floor.model"];
+    type Args = FloorView;
+    fn setup(w: &mut World, args: &FloorView) {
+        w.insert_resource(Environment {
+            zenith: [0.2; 3],
+            horizon: [0.2; 3],
+            ground: [0.2; 3],
+            bloom: None,
+            fog: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        let floor = w.spawn((
+            Transform::default(),
+            if args.model {
+                Mesh::asset("floor.model")
+            } else {
+                Mesh::plane(400., 400.)
+            },
+        ));
+        if !args.model {
+            w.insert(
+                floor,
+                Material {
+                    roughness: args.roughness,
+                    ..Material::rgb(0.5, 0.5, 0.5)
+                },
+            );
+        }
+        w.spawn((
+            Transform::at(0., 6., 0.)
+                .looking_at(Vec3::ZERO, -Vec3::Z)
+                .with_scale([1., 1., args.camera_scale]),
+            if args.orthographic {
+                Camera::orthographic(10.)
+            } else {
+                Camera {
+                    fov_y_degrees: 80.,
+                    ..Default::default()
+                }
+            },
+        ));
+        w.spawn((
+            Transform::at(1., 1., 0.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight {
+                shadows: false,
+                ..Default::default()
+            },
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &FloorView) {}
+}
+
+fn floor_shading(model: bool) {
+    use exact_game::asset::{MaterialData, MeshData, Model, Node};
+    let Some(gpu) = gpu() else { return };
+    let (vertices, indices) = exact_game_render::shapes::plane();
+    let bounds = [-200., 0., -200., 200., 0., 200.];
+    let mut floor = Model {
+        meshes: vec![MeshData {
+            positions: vertices
+                .iter()
+                .flat_map(|v| v.position.map(|x| x * 400.))
+                .collect(),
+            normals: vertices.iter().flat_map(|v| v.normal).collect(),
+            uvs: vertices.iter().flat_map(|v| v.uv).collect(),
+            indices,
+            bounds,
+            ..Default::default()
+        }],
+        materials: vec![MaterialData {
+            base_color: [0.5, 0.5, 0.5, 1.],
+            metallic: 0.,
+            ..Default::default()
+        }],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        bounds,
+        ..Default::default()
+    };
+    let frame = Frame {
+        width: 160.,
+        height: 100.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    for (orthographic, roughness) in [
+        (true, 0.3),
+        (true, 0.5),
+        (true, 0.8),
+        (true, 1.),
+        (false, 0.3),
+    ] {
+        floor.materials[0].roughness = roughness;
+        let scales: &[f32] = if orthographic { &[1., 0.5, 2.] } else { &[1.] };
+        let mut unscaled = [0; 3];
+        for &camera_scale in scales {
+            let mut surface =
+                WorldSurface::<Floor, exact_game_render::ModelExecutor, true>::default();
+            surface.device_ready(exact_gpu::wgpu::Features::empty());
+            surface
+                .bind(
+                    &FloorView {
+                        model,
+                        orthographic,
+                        roughness,
+                        camera_scale,
+                    }
+                    .values(),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(surface.assets().requests, ["floor.model"]);
+            surface.asset("floor.model", Ok(&exact_game::asset::encode_model(&floor)));
+            assert!(
+                !surface.sim().unwrap().is_loading(),
+                "{}",
+                surface.agent(r#"{"op":"state"}"#).unwrap()
+            );
+            let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+            assert!(surface.error().is_none(), "{:?}", surface.error());
+            // The orthographic row samples near x = -6, 0 and +6 metres, clear of edges.
+            let row = [20, 80, 140].map(|x| pixels.at(x, 50)[0]);
+            let spread = row.iter().max().unwrap() - row.iter().min().unwrap();
+            eprintln!(
+                "model={model}, orthographic={orthographic}, roughness={roughness}, \
+                 camera_scale={camera_scale}: {row:?}"
+            );
+            assert!(
+                row[1] > 20 && row[1] < 240,
+                "the lit floor must be visible: {row:?}"
+            );
+            if orthographic {
+                assert!(spread <= 1, "parallel view rays must shade alike: {row:?}");
+                if camera_scale == 1. {
+                    unscaled = row;
+                } else {
+                    assert!(
+                        row.iter().zip(unscaled).all(|(a, b)| a.abs_diff(b) <= 1),
+                        "camera scale must preserve lighting: {unscaled:?} -> {row:?}"
+                    );
+                }
+            } else {
+                assert!(
+                    spread > 20,
+                    "a perspective eye keeps its highlight: {row:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn orthographic_primitive_shading_uses_parallel_view_rays() {
+    floor_shading(false);
+}
+
+#[test]
+fn orthographic_model_shading_uses_parallel_view_rays() {
+    floor_shading(true);
+}

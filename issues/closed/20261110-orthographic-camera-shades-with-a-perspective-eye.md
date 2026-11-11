@@ -1,6 +1,7 @@
 # Under an orthographic camera, surfaces are shaded as if seen from the camera's position
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Orthographic lighting uses unit parallel view rays, and fog and soft particles measure distances along those rays; perspective behavior is preserved.
 **Systems:** game/render/src/shaders/forward.wgsl, game/render/src/shaders/model.wgsl
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
