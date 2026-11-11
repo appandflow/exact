@@ -1781,6 +1781,16 @@ request are refused (`notifications.showNotification: refused, grant-missing
   outermost node: the tag and the notification's `{tag, data, title, body}`,
   delivered once, in order, after first pixel; one that starts the app (macOS,
   iOS) is held until then. A click always brings the app forward.
+- On macOS and iOS a remote notification's click (one the system shows for
+  an app's own registration) opens its payload's top-level `navigate`
+  string, warm or at launch, as a local notification's `navigate=` opens:
+  reduced by `location_of` to the app's own location whatever its scheme or
+  origin, never through the app's `protocol_handlers`. Nothing else of its
+  payload is read and no event is raised; without `navigate`, the app only
+  comes forward. A server writes that string, so a route must not act on
+  being opened. An embedder that keeps the notification delegate itself
+  forwards the tap with `openNotification(_:session:)`, naming the session;
+  a tap for a session that is gone opens nothing.
 - `setAppBadge(contents=)` sets the app icon's badge, best effort: a number, no
   number for a flag (`•` on the Mac's Dock tile, `1` on iOS), 0 to clear;
   `clearAppBadge()` clears it. The badge is the app's: an embedded host's
