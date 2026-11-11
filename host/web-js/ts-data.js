@@ -505,7 +505,12 @@ export function install(data, mixed = false, modules = null) {
       // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
       const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       call.abandon = settle;
-      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects, call };
+      // In flight: its later turns may send (ts-stream.js `later`), behind what this source sent, once the commit
+      // that asked it stands; a refused commit takes those batches back.
+      call.flight = true;
+      const stood = Object.assign(() => { call.stood = true; for (const go of call.waiting ?? []) go(); call.waiting = null; },
+        { refused: why => { call.stood = false; for (const go of call.waiting ?? []) go.refused(why); call.waiting = null; } });
+      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects: [...(effects ?? []), stood], call };
     }
     call.settled = true; dropTimers(call); answering.untraced.delete(call);
     return { v: conv(shaped(r), result, target_), store: seen.read, effects };

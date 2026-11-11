@@ -1628,10 +1628,12 @@ turn's answer; a mapper's call drains none, so code a mapper resumes runs
 in the next answer asked, or in none (and its send refuses) when that is
 the waiting answer's own re-ask. Send before the first `await`, or settle
 waiters from an answer. An answer asked again sends again, so key a
-request that must not repeat. On the web build only the source's
-synchronous call may send: a send after an `await` or in the answer's
-timer throws, saying so, and sends nothing. There a frame that must follow
-awaited work goes from a second mutation, sent by the first's `then`. An answer
+request that must not repeat. On the web build an `async` function's
+steps after an `await` and the answer's own timers are its later turns
+too, and each sends when it ends; a plain `.then` callback outside an
+`async` function runs under no answer there, and its send throws. An
+answer that has given its value has no later turn: a send from code it
+left running throws `InvalidStateError`. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the
 view) sends nothing more as its own; what it sent stays sent. It may also
 `fetch`, though a mutation's synchronous source still may not do both. A

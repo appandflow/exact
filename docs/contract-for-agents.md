@@ -1070,8 +1070,9 @@ comes second refuses it). A resource's answer may send its own
 request on its module's socket and await the reply, with no timer, and so
 may a mutation whose source answers with a promise: what each turn of it
 sends goes out once the commit that ran that turn stands, and stays sent if
-it is let go (on the web build, only its source's synchronous call may
-send). Refreshing or removing the
+it is let go (on the web build a later turn has no commit of its own: what it
+sends goes as the turn ends, once the commit that asked the answer stands).
+Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See
@@ -1389,14 +1390,14 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   the socket is not open (nothing was sent), and when the socket closes before
   the answer. That last one may have run, and nothing is sent again on the
   next connection: a write that must not repeat carries its own key.
-- **A person's token.** `cx.setAuth(jwt)` in a mutation's source, before any
-  `await` (the web sends only from a source's own turn, and a later call is
-  refused), with a JWT the deployment accepts (its `auth.config.ts`);
-  `cx.setAuth(undefined)` signs out. With `@exact/oauth`, signing in is two
-  mutations: `signIn`, then in its `then` one whose source is `(_a, store) =>
-  { cx.setAuth(provider.idToken(store) ?? undefined); return { ok: true }; }`.
-  When `live.authError` says the token expired, send `provider.refresh(store)`
-  and then that one again. The token stays in data code. No answer computed for the person before is given again, but the screen
+- **A person's token.** `cx.setAuth(jwt)` in a mutation's source, with a JWT
+  the deployment accepts (its `auth.config.ts`); `cx.setAuth(undefined)` signs
+  out. In an `async` source it may follow an `await`; in a plain `.then`
+  callback its send throws on the web. With `@exact/oauth`, signing in is one
+  source: `async (_a, store) => { const r = await provider.signIn(store);
+  cx.setAuth(provider.idToken(store) ?? undefined); return r; }`. When
+  `live.authError` says the token expired, a source that awaits
+  `provider.refresh(store)` and calls `setAuth` the same way renews it. The token stays in data code. No answer computed for the person before is given again, but the screen
   keeps what it showed until the new answers land: gate a signed-in screen on
   your own session, as with any backend. A refused token is `live.authError`;
   Convex closes the socket, and the next connection is signed out.

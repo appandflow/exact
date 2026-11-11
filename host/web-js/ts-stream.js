@@ -2,7 +2,7 @@
 // shared web reader owns admission and lifetime; the mapper produces a
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
-import { answering, isSignal, ownSignal, SOCKET_AND_FETCH } from './ts-fetch.js';
+import { answering, answers, isSignal, ownSignal, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { rt } from './rt-link.js'; // (rt.js's own, as a lazy chunk takes them: rt-link.js)
 const { clock, journal } = rt;
 import { failureCode, failureReason } from './shape.js';
@@ -65,7 +65,9 @@ function longPollOf(poll, method, url) {
 // A turn's operations, sent once its commit stands. The whole batch is
 // checked again before any frame: an earlier batch in the same commit may
 // have filled the browser's buffer or closed the socket.
-const publish = operations => () => {
+const publish = (operations, call) => () => {
+  // Sent or refused, they are no longer the call's to count (`bufferedAmount`, the buffer's bound).
+  if (call?.unsent) call.unsent = call.unsent.filter(x => !operations.includes(x));
   const totals = new Map();
   for (const x of operations) {
     if (x.owner.signal.aborted || x.owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
@@ -77,43 +79,61 @@ const publish = operations => () => {
     journal.push(`t=${clock.now} socket ${x.op}: ${x.size} bytes (${x.owner.streamName})`);
   }
 };
+// What an answer in flight sent in a later turn (its code after an `await` in an async function, or its
+// own timer): one batch for the turn, sent when the turn ends, behind what its source sent, which waits for
+// the commit that asked it (LLP 1016.000 D7, the amendment of 2026-11-10 on later turns). A refused commit
+// takes the batches that waited for it back and says so.
+function later(call) {
+  const batch = call.laterOps, go = publish(batch, call);
+  call.laterOps = null;
+  const said = why => journal.push(`t=${clock.now} answer ${call.name} failed: ${why}; socket frames were refused`);
+  const run = Object.assign(() => { try { go(); } catch (e) { said(e?.message ?? e); } }, { refused: why => { call.unsent = call.unsent.filter(x => !batch.includes(x)); said(why); } });
+  if (call.stood) run(); else if (call.stood === false) run.refused('the commit that asked it was refused'); else (call.waiting ??= []).push(run);
+}
 // The module never sees the browser socket. Operations belong to the current
 // mutation's answer, to the socket's own mapper while it answers `open` or a
-// `message` (`answering.mapper`), or to a resource's answer while its source
-// runs, the one turn of it this page can tie to it (LLP 1016.000 D7, the
-// amendment of 2026-10-18). rt.js publishes them only after the commit that
-// settles that turn, or that ran that source, stands.
+// `message` (`answering.mapper`), or to an answer in flight: while its source
+// runs, and in each later turn the bundle's async helper or its own timer puts
+// it back for (ts-data.js `__exact_async_context`, ts-fetch.js `runAs`; LLP
+// 1016.000 D7, the amendments of 2026-10-18 and 2026-11-10). rt.js publishes
+// a source's only after the commit that settles that turn, or that ran that
+// source, stands.
 function handle(transport, owner) {
   const encoder = new TextEncoder();
   answering.sockets = true;
   const turn = () => answering.mapper?.owner === owner ? answering.mapper : answering.call;
   const stage = (op, data, reason, size = 0) => {
     const call = turn(), mapper = !!call && call === answering.mapper, answer = !!call && !mapper && !call.mutation;
-    // An answer's code after an `await` or in its timer runs as that answer
-    // (ts-data.js `__exact_async_context`), but its source has returned and
-    // what it sent has gone to the commit: the page has no turn to send it in.
-    if (!mapper && !call?.turn) throw new Error(`socket.${op} is only available in a mutation's or a resource's synchronous source, or its socket's own mapper (on the web, not after an await or in a timer)`);
-    if (owner.signal.aborted || owner.active?.() === false || answer && !owner.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
-    if (!mapper && !answer && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+    // Code no answer is put back for (a plain `.then` callback outside an async function) has no turn here.
+    if (!mapper && !call) throw new Error(`socket.${op} is only available in an answer's own turns (its source, its code after an \`await\` in an async function, its timer), or its socket's own mapper`);
+    // A later turn: only of an answer still in flight. One that gave its value, failed or was let go has none.
+    const resumed = !mapper && !call.turn;
+    if (resumed && (!call.flight || !answers(call) || call.stood === false)) throw new DOMException(`socket.${op}: the answer has given its value or was let go`, 'InvalidStateError');
+    if (owner.signal.aborted || owner.active?.() === false || (answer || resumed) && !owner.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
+    // A mutation's synchronous source may not both send and fetch; an answer in flight's later turns may.
+    if (!mapper && !answer && !resumed && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
     // Overload fails a mapper's snapshot, caught or not.
     const over = e => { if (mapper && e.name === 'QuotaExceededError') call.overload = e; return e; };
-    const kind = mapper ? 'mapper call' : answer ? 'answer' : 'mutation';
-    const operations = call.socketOps ??= [];
-    if (operations.length >= 256) throw over(new DOMException(`socket ${kind} exceeds 256 operations`, 'QuotaExceededError'));
-    if (operations.some(x => x.transport === transport && x.op === 'close')) throw new DOMException('the socket is not open', 'InvalidStateError');
-    // The turn's payload is bounded as a whole; each socket's buffer with
-    // what the turn stages on it.
-    if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw over(new DOMException(`socket ${kind} exceeds 1 MiB`, 'QuotaExceededError'));
-    try { transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size); } catch (e) { throw over(e); }
-    if (!mapper && !operations.length) (call.effects ??= []).push(publish(operations));
-    operations.push({ transport, owner, op, data, reason, size });
+    const kind = mapper ? 'mapper call' : answer || resumed ? 'answer' : 'mutation';
+    // The call's bounds are over all its turns; its buffer's, over what it has staged and not yet sent.
+    const all = call.socketAll ??= [], unsent = call.unsent ??= [];
+    if (all.length >= 256) throw over(new DOMException(`socket ${kind} exceeds 256 operations`, 'QuotaExceededError'));
+    if (call.closed?.has(transport)) throw new DOMException('the socket is not open', 'InvalidStateError');
+    if (all.reduce((n, x) => n + x.size, 0) + size > 1048576) throw over(new DOMException(`socket ${kind} exceeds 1 MiB`, 'QuotaExceededError'));
+    try { transport.check(unsent.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size); } catch (e) { throw over(e); }
+    const operations = resumed ? (call.laterOps ??= []) : (call.socketOps ??= []);
+    if (resumed) { if (!operations.length) queueMicrotask(() => later(call)); }
+    else if (!mapper && !operations.length) (call.effects ??= []).push(publish(operations, call));
+    const staged = { transport, owner, op, data, reason, size };
+    operations.push(staged); all.push({ size }); unsent.push(staged);
+    if (op === 'close') (call.closed ??= new Set()).add(transport);
   };
   return Object.freeze({
     get readyState() { return owner.signal.aborted ? 3 : transport.readyState; },
     // The browser's count (WHATWG: as of the task's start, plus its sends)
     // and what this turn has staged on the socket.
     get bufferedAmount() {
-      const staged = turn()?.socketOps ?? [];
+      const staged = turn()?.unsent ?? [];
       return transport.bufferedAmount + staged.reduce((n, x) => x.transport === transport ? n + x.size : n, 0);
     },
     send(data) {

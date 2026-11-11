@@ -198,7 +198,7 @@ function asCall(call, run) {
   try { return run(); } finally { answering.call = before; }
 }
 /** Whether `call` still answers: it has not answered, and its ticket was not let go. */
-function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
+export function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
 function disarm(id) {
   const armed = Armed.get(id);
   if (!armed) return;
