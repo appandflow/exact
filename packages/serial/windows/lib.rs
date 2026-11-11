@@ -354,8 +354,12 @@ impl Serial {
         let set = unsafe {
             GetCommState(h, &mut dcb) != 0 && {
                 dcb.baud = baud as u32;
-                // fBinary, and RTS/CTS handshaking for hardware flow control (fOutxCtsFlow, fRtsControl = 2).
-                dcb.flags = 1 | if options["flowControl"] == "hardware" { 0x4 | (2 << 12) } else { 1 << 12 };
+                // The DCB's bit fields (winbase.h): fBinary (bit 0); fParity (bit 1), so a parity error is reported;
+                // fDtrControl = DTR_CONTROL_ENABLE (bits 4-5), DTR raised on open as the terminal's open raises it on
+                // Linux and macOS and Chromium's Web Serial sets it on Windows; and fRtsControl (bits 12-13): enabled,
+                // or RTS/CTS handshaking with fOutxCtsFlow (bit 2) for hardware flow control.
+                dcb.flags = 1 | 1 << 1 | 1 << 4
+                    | if options["flowControl"] == "hardware" { 1 << 2 | 2 << 12 } else { 1 << 12 };
                 dcb.byte_size = options["dataBits"].as_u64().unwrap_or(8) as u8;
                 dcb.parity = match options["parity"].as_str() { Some("odd") => 1, Some("even") => 2, _ => 0 };
                 dcb.stop_bits = if options["stopBits"] == 2 { 2 } else { 0 };

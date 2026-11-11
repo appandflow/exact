@@ -1,6 +1,7 @@
 # The Windows serial `open` turns DTR off and parity checking off
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `open` writes the DCB with `fParity` set and `fDtrControl = DTR_CONTROL_ENABLE`, as Chromium's Web Serial does, so DTR is raised on open and parity errors are reported.
 **Systems:** packages/serial/windows/lib.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
