@@ -269,7 +269,7 @@ impl Loader<'_> {
         ));
         let library = library::read(&self.sources, self.app_root);
         match self.scope() {
-            Ok(mut file) => {
+            Ok((mut file, scopes)) => {
                 let escaped = contract_lower::params::escaped(&file, &owned);
                 if !escaped.is_empty() {
                     let all = escaped.into_iter().map(CompileError::from).collect();
@@ -279,7 +279,8 @@ impl Loader<'_> {
                 file.library_packages = library.packages;
                 file.design = design;
                 file.package_designs = package_designs;
-                crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
+                crate::modules::desugar(&mut file, &scopes)
+                    .map_err(|all| resolve(&self.sources, all))?;
                 Ok(file)
             }
             Err(all) => Err(resolve(&self.sources, all)),
@@ -790,8 +791,8 @@ impl Loader<'_> {
 
     /// Give every declaration its program-unique name (D4), rewrite each
     /// file through its own scope (D1, D5), and merge the files into the one
-    /// `File` every later pass reads.
-    fn scope(&mut self) -> Result<File, Vec<CompileError>> {
+    /// `File` every later pass reads. Keep the scopes for module event attributes.
+    fn scope(&mut self) -> Result<(File, Vec<Scope>), Vec<CompileError>> {
         self.prepare_members()?;
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
@@ -799,7 +800,7 @@ impl Loader<'_> {
             self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
-            return Ok(file);
+            return Ok((file, vec![Scope::default()]));
         }
         let unique = self.unique_names();
         let mut scopes: Vec<Option<Scope>> = (0..self.units.len()).map(|_| None).collect();
@@ -807,6 +808,10 @@ impl Loader<'_> {
             self.scope_of(index, &unique, &mut scopes)
                 .map_err(|e| vec![e])?;
         }
+        let mut scopes: Vec<Scope> = scopes
+            .into_iter()
+            .map(|s| s.expect("every unit is scoped"))
+            .collect();
         let elsewhere = self.declared_elsewhere(&unique);
         self.declared = self
             .units
@@ -853,7 +858,7 @@ impl Loader<'_> {
         }
         self.units = units;
         for (index, unit) in self.units.iter_mut().enumerate() {
-            let mut scope = scopes[index].take().expect("every unit is scoped");
+            let scope = &mut scopes[index];
             scope.elsewhere = elsewhere
                 .iter()
                 .filter(|(key, e)| e.unit != index && !scope.names.contains_key(*key))
@@ -888,7 +893,7 @@ impl Loader<'_> {
                 .collect();
             atoms.sort();
             unit.file.atom_scopes.insert(index as u32, atoms);
-            rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
+            rescope(&mut unit.file, scope).map_err(|e| vec![e.into()])?;
             // Refusals that are no `use` line's to fix, reported with the rest.
             refused.extend(scope.refused.take().into_iter().map(CompileError::from));
             let misses = scope.missing.take();
@@ -941,7 +946,7 @@ impl Loader<'_> {
                 .collect());
         }
         self.splice_members();
-        Ok(self.merge())
+        Ok((self.merge(), scopes))
     }
 
     /// Each unit's own declarations, by namespace and name, to their

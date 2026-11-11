@@ -15,7 +15,7 @@ use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 
 const APP: &str = r#"use loginItemStatus, registerLoginItem, unregisterLoginItem, LoginItemStatus from "@exact/login-item"
-use globalShortcut, checkGlobalShortcut, GlobalShortcut, GlobalShortcutCheck from "@exact/global-shortcuts"
+use globalShortcut, checkGlobalShortcut, globalshortcut, GlobalShortcut, GlobalShortcutCheck from "@exact/global-shortcuts"
 use requestAttention from "@exact/dock"
 
 component App

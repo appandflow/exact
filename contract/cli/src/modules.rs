@@ -12,6 +12,7 @@
 //! bound by `name=action` on the root (`module_events.rs`).
 
 use crate::CompileError;
+use contract_syntax::scope::Scope;
 use contract_syntax::{Expr, Field, File, ModuleDecl, ModuleKind, ShapeDecl, Span, Stmt, TypeExpr};
 use std::collections::HashMap;
 
@@ -24,7 +25,7 @@ struct Known {
 
 /// Rewrite every call of a module name in `file`, and declare the records
 /// the calls build. Every refusal in one run.
-pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
+pub(crate) fn desugar(file: &mut File, scopes: &[Scope]) -> Result<(), Vec<CompileError>> {
     if file.modules.is_empty() {
         return Ok(());
     }
@@ -99,7 +100,7 @@ pub(crate) fn desugar(file: &mut File) -> Result<(), Vec<CompileError>> {
             stmts(&mut a.body, &modules, &shapes, &surfaces, &mut errors);
         }
     }
-    crate::module_events::bind(file, &mut errors);
+    crate::module_events::bind(file, scopes, &mut errors);
     agent_states(file, &mut errors);
     if errors.is_empty() {
         Ok(())

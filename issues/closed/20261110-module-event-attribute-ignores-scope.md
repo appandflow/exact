@@ -1,6 +1,7 @@
 # A module event imported under an alias cannot be heard: its root attribute is matched by name, not through the file's scope
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Module event attributes resolve through their file's imports, including aliases, even when local bindings force an internal rename.
 **Systems:** contract/cli/src/module_events.rs, contract/cli/src/sources.rs, contract/syntax/src/scope.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
