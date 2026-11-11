@@ -308,8 +308,22 @@ impl<D: DataSource> DataSource for Swappable<D> {
         }
         Ok(())
     }
+    fn configure_secrets(
+        &mut self,
+        secrets: std::sync::Arc<dyn exact_runner::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.configure_secrets(secrets)?;
+        }
+        Ok(())
+    }
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         self.embedded.as_mut()?.continuation(token)
+    }
+    fn host_continuation(&self, token: u64) -> bool {
+        self.embedded
+            .as_ref()
+            .is_some_and(|embedded| embedded.host_continuation(token))
     }
     fn placement(&self) -> exact_runner::Placement {
         self.embedded
@@ -394,6 +408,11 @@ impl<D: DataSource> DataSource for Swappable<D> {
             Some(embedded) => embedded.keep_sent(store, let_go, refused),
             None => vec![None; let_go.len()],
         }
+    }
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        self.embedded
+            .as_ref()
+            .is_some_and(|embedded| embedded.keeps_sent(fetch))
     }
     fn timer_before_reply(
         &mut self,

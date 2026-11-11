@@ -2,6 +2,7 @@ use super::*;
 use exact_plan::bytes::Writer;
 use exact_runner::Dispatch;
 use serde_json::json;
+use std::sync::Arc;
 
 struct Fixture;
 impl DataSource for Fixture {
@@ -19,6 +20,12 @@ impl DataSource for Fixture {
             Some(registry) => Dispatch::Host(registry),
             None => Dispatch::Missing,
         }
+    }
+    fn host_continuation(&self, token: u64) -> bool {
+        token == 7
+    }
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        fetch == 9
     }
     fn module_delivery(
         &mut self,
@@ -65,6 +72,60 @@ fn configured_embedded_executor_preserves_browser_continuation_routing() {
     ));
     assert_eq!(source.placement(), exact_runner::Placement::Main);
 }
+
+#[test]
+fn configured_entry_preserves_host_continuations_and_kept_fetches() {
+    let source = ConfiguredFixture::default();
+    assert!(source.host_continuation(7));
+    assert!(!source.host_continuation(8));
+    assert!(source.keeps_sent(9));
+    assert!(!source.keeps_sent(10));
+}
+
+#[test]
+fn configured_entry_passes_the_shared_secret_backend_and_configuration_errors() {
+    #[derive(Default)]
+    struct Source(Option<Arc<dyn exact_runner::SharedSecrets>>);
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Bool(self.0.is_some()))
+        }
+        fn configure_secrets(
+            &mut self,
+            secrets: Arc<dyn exact_runner::SharedSecrets>,
+        ) -> Result<(), DataError> {
+            if self.0.is_some() {
+                return Err(DataError::Unavailable("already configured".into()));
+            }
+            self.0 = Some(secrets);
+            Ok(())
+        }
+    }
+    struct Secrets;
+    impl exact_runner::SharedSecrets for Secrets {
+        fn acquire(
+            &self,
+            _: &str,
+            _: Arc<dyn Fn() + Send + Sync>,
+        ) -> Box<dyn exact_runner::SecretWait> {
+            panic!("configuration must not acquire a secret")
+        }
+    }
+    crate::configured!(Entry, Source, || Swappable::off(Source::default()));
+    let mut source = Entry::default();
+    let secrets: Arc<dyn exact_runner::SharedSecrets> = Arc::new(Secrets);
+    source.configure_secrets(secrets.clone()).unwrap();
+    assert_eq!(source.query("configured", &[]).unwrap(), Value::Bool(true));
+    assert!(Arc::ptr_eq(
+        source.0.embedded.as_ref().unwrap().0.as_ref().unwrap(),
+        &secrets,
+    ));
+    assert!(matches!(
+        source.configure_secrets(secrets),
+        Err(DataError::Unavailable(message)) if message == "already configured"
+    ));
+}
+
 fn encoded(op: u8, f: impl FnOnce(&mut Writer)) -> Vec<u8> {
     let mut w = Writer::default();
     w.u32(abi::ABI);

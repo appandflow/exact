@@ -78,6 +78,15 @@ macro_rules! configured {
             ) -> Option<Box<dyn FnOnce() -> $crate::exact_runner::Outcome + Send>> {
                 $crate::exact_runner::DataSource::continuation(&mut self.0, token)
             }
+            fn configure_secrets(
+                &mut self,
+                secrets: std::sync::Arc<dyn $crate::exact_runner::SharedSecrets>,
+            ) -> Result<(), $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::configure_secrets(&mut self.0, secrets)
+            }
+            fn host_continuation(&self, token: u64) -> bool {
+                $crate::exact_runner::DataSource::host_continuation(&self.0, token)
+            }
             fn placement(&self) -> $crate::exact_runner::Placement {
                 $crate::exact_runner::DataSource::placement(&self.0)
             }
@@ -144,6 +153,9 @@ macro_rules! configured {
                 refused: bool,
             ) -> Vec<Option<u64>> {
                 $crate::exact_runner::DataSource::keep_sent(&mut self.0, store, let_go, refused)
+            }
+            fn keeps_sent(&self, fetch: u64) -> bool {
+                $crate::exact_runner::DataSource::keeps_sent(&self.0, fetch)
             }
             fn timer_before_reply(
                 &mut self,

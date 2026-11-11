@@ -1,6 +1,7 @@
 # The generated app entry does not pass the host's shared secrets to the data source, so `@exact/oauth` cannot sign in on Linux, Android or Windows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Swappable and configured forward shared-secret configuration, host continuations and kept-fetch queries; the separate Linux pump issue still blocks the OAuth fixture.
 **Systems:** logic/src/lib.rs (Swappable), logic/src/configured.rs, js/bake/src/lib.rs, host/linux/src/host.rs, packages/oauth
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
