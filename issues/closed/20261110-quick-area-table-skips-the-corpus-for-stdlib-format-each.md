@@ -1,6 +1,7 @@
 # `difftest quick` skips the corpus that tests `runner/src/stdlib.rs`, `format.rs` and `each.rs`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Quick checks the whole corpus for stdlib changes and includes formatting and resource cases for format and each changes.
 **Systems:** semantics/difftest/src/quick.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
