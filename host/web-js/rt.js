@@ -142,7 +142,7 @@ export { scope, end, untracked, write, onEnd };
 export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket, stood = f => Out.push(f), restoring = () => Restoring; // `stood`: run `f` once this commit stands (each.js)
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
-/** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
+/** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`), carrying the source's failure details. */
 export class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Finishes = null, Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
 const why = (step, m, c = [...m]) => `while ${step}: ${c.length > WHY_MAX ? `${c.slice(0, WHY_MAX).join("")}… (${c.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // by code point; a write's value or a source's error may be long, or private
@@ -438,8 +438,8 @@ function ask(source, args, name, mutation = false) {
   return a && a.then ? (a.then(undefined, e => globalThis.exact?.generationGone?.(e)), { promise: a, call: a.call }) : a; // (a reaped build's lazy chunk fails here: the page loads again, generation-reload.js)
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
- * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
- * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
+ * promise's value, or the parse of the outcome). Any refusal spends the reply: the ticket goes in a commit of its own,
+ * as the runner's `release_failed` (admission.rs), so a derive's refusal cannot leave it pending forever. */
 function reply(t, name, source, held, f, next, gone) {
   t.held = held;
   if (t.call) t.call.wanted = held; // what the answer's module calls read (ts-data.js `__exact_module`); not `call.held`, held.js's count of its held fetches
@@ -450,7 +450,7 @@ function reply(t, name, source, held, f, next, gone) {
       try { if (o.error !== undefined) throw new Failed(o.error, o.code, o.reason); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e), failureReason(e)); }
       f(p, o); Out.push(...(o.effects ?? [])); // a socket frame's replies from its mapper, sent once this commit stands (LLP 1016.000 D7)
-    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
+    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !held()) return;
     const failed = `request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`; say(failed); if (DEVELOPMENT_STORE) console.error(`exact: ${failed}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere); a development page's console too (LLP 1142 D4)
     gone(Refused.message, Refused.code, Refused.reason); recommit(() => { if (t.r) again(t); }, "a failed request");
   };
@@ -491,8 +491,9 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     if (r.failed || mk) return r.failed ? r.value : data.uploads.answer(r, mk, a, { take, fails, release }); // an upload answers as it ended, or goes on
     const baked = r.baked; r.baked = false;
     if (!forced && !rev) {
-      // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
-      if (r.settled !== undefined && equal(a, r.settled) && !baked) return r.value;
+      // Reuse follows the request in flight; the displayed value may answer older arguments (LLP 1016 D5).
+      // `equal`: `-0` is `0`, NaN asks again; a bake is asked once anyway (LLP 1048.003 D6).
+      if (!r.ticket && r.settled !== undefined && equal(a, r.settled) && !baked) return r.value;
       if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans; Inspections.begin(r);

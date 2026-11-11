@@ -76,6 +76,92 @@ test('resource observations keep request provenance through switching, failure, 
   }
 }, 30000);
 
+test.each(['reply', 'message'])('a resource %s refused by a derive fails without losing its last value', async kind => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    await page.evaluate(async kind => {
+      const rt = await import('/host/web-js/rt.js'), answers = [];
+      rt.clock.agent = true;
+      rt.data.answer = () => kind === 'reply'
+        ? { promise: new Promise(resolve => answers.push({ finish: resolve })) }
+        : { stream: (deliver, controller) => {
+          answers.push({ finish: v => deliver({ v }), controller });
+          return new Promise(() => {});
+        } };
+      let count, share;
+      rt.mount(root => {
+        count = rt.res('count', 'count', () => [], undefined, undefined, 'n', 0);
+        share = rt.memo(() => 100 / (count() - 5), 'n', 'share');
+        rt.hd(root, { headTitle: () => `${share()} ${count.p() ? 'pending' : 'settled'}` });
+      });
+      window.fixture = { rt, count, answers,
+        finish: (i, value) => answers[i].finish(value),
+        refresh: () => rt.commit(() => rt.R(count)),
+        state: () => ({ value: count(), pending: count.p(), failure: count.e(),
+          ticket: !!count.r.ticket, title: document.title, asks: answers.length }) };
+    }, kind);
+    const finish = async (i, value) => {
+      await page.evaluate(([i, value]) => fixture.finish(i, value), [i, value]);
+      await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    };
+    await finish(0, 4);
+    expect(await page.evaluate(() => fixture.state())).toMatchObject({ value: 4, pending: false, title: '-100 settled' });
+    await page.evaluate(() => fixture.refresh());
+    await finish(1, 5);
+    expect(await page.evaluate(() => fixture.state())).toEqual({
+      value: 4, pending: false, ticket: false, title: '-100 settled', asks: 2,
+      failure: ['error', 'derive "share": value does not conform to its type', ''],
+    });
+    if (kind === 'message') expect(await page.evaluate(() => fixture.answers[1].controller.signal.aborted)).toBe(true);
+    await page.evaluate(() => fixture.rt.commit(() => {}));
+    expect(await page.evaluate(() => fixture.answers.length)).toBe(2);
+    await page.evaluate(() => fixture.refresh());
+    await finish(2, 10);
+    expect(await page.evaluate(() => fixture.state())).toMatchObject({ value: 10, pending: false, failure: null, title: '20 settled', asks: 3 });
+  } finally { await browser.close(); server.stop(true); }
+}, 30000);
+
+test.each(['reply', 'message'])('returning to settled arguments forgets an intervening resource %s', async kind => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    await page.evaluate(async kind => {
+      const rt = await import('/host/web-js/rt.js'), key = rt.sig('A'), answers = [];
+      rt.clock.agent = true;
+      rt.data.answer = (_, [key]) => kind === 'reply'
+        ? { promise: new Promise(resolve => answers.push({ key, finish: resolve })) }
+        : { stream: (deliver, controller) => {
+          answers.push({ key, finish: v => deliver({ v }), controller });
+          return new Promise(() => {});
+        } };
+      let resource;
+      rt.mount(root => {
+        resource = rt.res('r', 'src', () => [key()], undefined, undefined, 's', '');
+        rt.hd(root, { headTitle: () => `${resource()} ${resource.p() ? 'pending' : 'settled'}` });
+      });
+      window.fixture = { rt, resource, answers,
+        pick: value => rt.commit(() => rt.W(key, value)),
+        finish: (i, value) => answers[i].finish(value),
+        state: () => ({ value: resource(), pending: resource.p(), title: document.title,
+          ticketArgs: resource.r.ticket?.args, asks: answers.map(a => a.key) }) };
+    }, kind);
+    await page.evaluate(() => fixture.finish(0, 'vA'));
+    await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    await page.evaluate(() => { fixture.pick('B'); fixture.pick('A'); });
+    const waiting = { value: 'vA', pending: true, title: 'vA pending', ticketArgs: ['A'], asks: ['A', 'B', 'A'] };
+    expect(await page.evaluate(() => fixture.state())).toEqual(waiting);
+    await page.evaluate(async () => { fixture.finish(1, 'vB'); await Promise.resolve(); });
+    expect(await page.evaluate(() => fixture.state())).toEqual(waiting);
+    if (kind === 'message') expect(await page.evaluate(() => fixture.answers[1].controller.signal.aborted)).toBe(true);
+    await page.evaluate(() => fixture.rt.commit(() => {}));
+    expect(await page.evaluate(() => fixture.state())).toEqual(waiting);
+    await page.evaluate(() => fixture.finish(2, 'vA fresh'));
+    await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    expect(await page.evaluate(() => fixture.state())).toMatchObject({ value: 'vA fresh', pending: false, title: 'vA fresh settled', asks: ['A', 'B', 'A'] });
+  } finally { await browser.close(); server.stop(true); }
+}, 30000);
+
 test.each([['not pending', false], ['pending', true]])('resource pending state rolls back with its request (initially %s)', async (_, initiallyPending) => {
   const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
   try {

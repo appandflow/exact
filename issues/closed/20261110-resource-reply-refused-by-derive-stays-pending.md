@@ -1,6 +1,7 @@
 # A resource whose reply's commit is refused by a derive stays pending forever on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A refused resource reply releases its ticket, records the failure and keeps its last value, including when a derive refuses the commit.
 **Systems:** host/web-js/rt.js, runner/src/runner/commit.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -1,6 +1,7 @@
 # A resource whose arguments return to its settled ones keeps the request it left in flight and shows its answer, on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Resource reuse follows the request in flight, so returning to settled arguments replaces an intervening request and drops its late reply.
 **Systems:** host/web-js/rt.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
