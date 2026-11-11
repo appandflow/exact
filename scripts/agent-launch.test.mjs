@@ -191,6 +191,62 @@ test("the Android build finds the NDK's tools for a Mac, Linux and Windows host"
   } finally { rmSync(ndk, { recursive: true, force: true }); }
 });
 
+// The APK's Gradle step: `gradlew` where a POSIX shell runs it, the wrapper jar under the JDK on Windows, and a Gradle
+// that could not start said so rather than ending the build silently.
+test('the Android build starts Gradle on every host, and says when it could not', async () => {
+  const { gradleWrapper, jvmOptions, runGradle } = await import('./agent-android.mjs');
+  const reader = resolve(import.meta.dir, '../host/android');
+  for (const platform of ['darwin', 'linux']) expect(gradleWrapper(platform, {})).toEqual([resolve(reader, 'gradlew')]);
+  const jar = ['-Xmx64m', '-Xms64m', '-Dorg.gradle.appname=gradlew', '-jar', resolve(reader, 'gradle/wrapper/gradle-wrapper.jar')];
+  expect(gradleWrapper('win32', { JAVA_HOME: '/jdk' })).toEqual([resolve('/jdk', 'bin', 'java.exe'), ...jar]);
+  expect(gradleWrapper('win32', { JAVA_HOME: '"/jdk"' })[0]).toBe(resolve('/jdk', 'bin', 'java.exe'));
+  expect(gradleWrapper('win32', { JAVA_HOME: '""' })[0]).toBe('java.exe');
+  expect(gradleWrapper('win32', {})).toEqual(['java.exe', ...jar]);
+  expect(existsSync(jar.at(-1))).toBe(true);
+  // JAVA_OPTS, then GRADLE_OPTS, between the heap flags and the jar: a proxy for the distribution's download, a quoted
+  // value with a space, a Windows path's backslashes and an apostrophe, which quotes nothing on Windows.
+  const opts = { JAVA_HOME: '/jdk', JAVA_OPTS: '-Xmx2g  "-Djavax.net.ssl.trustStore=C:\\Program Files\\certs\\store" -Dtrust=C:\\Users\\O\'Brien\\certs\\corp.jks',
+    GRADLE_OPTS: '-Dhttps.proxyHost=proxy.example\t-Dhttps.proxyPort=8080 "-Dhttp.nonProxyHosts=localhost|*.lan" it\'s two\'s' };
+  expect(gradleWrapper('win32', opts)).toEqual([resolve('/jdk', 'bin', 'java.exe'), '-Xmx64m', '-Xms64m', '-Xmx2g',
+    '-Djavax.net.ssl.trustStore=C:\\Program Files\\certs\\store', "-Dtrust=C:\\Users\\O'Brien\\certs\\corp.jks",
+    '-Dhttps.proxyHost=proxy.example', '-Dhttps.proxyPort=8080', '-Dhttp.nonProxyHosts=localhost|*.lan', "it's", "two's", ...jar.slice(2)]);
+  // The C runtime's backslash and quote rules: `\"` is a literal quote, `\\"` a backslash and a quote that quotes, and
+  // `""` inside quotes one quote.
+  expect(jvmOptions('-Da=\\"x\\" "-Db=C:\\dir\\\\" -Dc=a\\\\\\"b "-Dd=say ""hi"""')).toEqual(['-Da="x"', '-Db=C:\\dir\\', '-Dc=a\\"b', '-Dd=say "hi"']);
+  expect(jvmOptions(undefined)).toEqual([]);
+  // A malformed value is named, never printed: it can hold a password.
+  const leaky = { GRADLE_OPTS: '-Dhttps.proxyPassword=hunter2 "-Xmx2g' };
+  expect(() => gradleWrapper('win32', leaky)).toThrow('GRADLE_OPTS has an unmatched " at character 31');
+  try { gradleWrapper('win32', leaky); } catch (e) { expect(e.message).not.toContain('hunter2'); }
+  const missing = resolve(tmpdir(), 'exact-no-such-jdk');
+  const said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try { expect(runGradle(['--version'], { env: { JAVA_HOME: missing, JAVA_OPTS: '-Dhttps.proxyPassword=hunter2' } }, 'win32')).toBe(false); }
+  finally { console.error = error; }
+  expect(said.join('\n')).not.toContain('hunter2');
+  expect(said).toEqual([expect.stringContaining(`could not start Gradle (${resolve(missing, 'bin', 'java.exe')}): `)]);
+});
+
+// The Windows launch gives Java what the POSIX gradlew gives it, in the same order, under a stand-in java that prints
+// its arguments. Double quotes only, where xargs and the Windows rules agree.
+test.skipIf(process.platform === 'win32')("the Windows Gradle launch passes the JVM options as gradlew does", async () => {
+  const { gradleWrapper } = await import('./agent-android.mjs');
+  const jdk = mkdtempSync(resolve(tmpdir(), 'exact-jdk-'));
+  try {
+    mkdirSync(resolve(jdk, 'bin'));
+    writeFileSync(resolve(jdk, 'bin/java'), '#!/bin/sh\nfor a; do printf "%s\\n" "$a"; done\n', { mode: 0o755 });
+    const env = { PATH: process.env.PATH, JAVA_HOME: jdk, JAVA_OPTS: '-Xmx2g "-Dtrust=/certs/my store"',
+      GRADLE_OPTS: '-Dhttps.proxyHost=proxy.example -Dhttps.proxyPort=8080 "-Dhttp.nonProxyHosts=localhost|*.lan"' };
+    const reader = resolve(import.meta.dir, '../host/android');
+    const posix = spawnSync(resolve(reader, 'gradlew'), [':app:assembleRelease', '-PappDir=/my apps/a b'], { cwd: reader, env, encoding: 'utf8' });
+    expect(posix.status).toBe(0);
+    const given = posix.stdout.trimEnd().split('\n');
+    const [, ...windows] = gradleWrapper('win32', env);
+    const jar = (args) => args.map((a) => a.endsWith('gradle-wrapper.jar') ? 'gradle-wrapper.jar' : a);
+    expect(jar(given)).toEqual(jar([...windows, ':app:assembleRelease', '-PappDir=/my apps/a b']));
+  } finally { rmSync(jdk, { recursive: true, force: true }); }
+});
+
 // An app's directory pins no toolchain, so the Android build asks rustup about the pinned one by name.
 test.skipIf(process.platform === 'win32')('the Android build checks the pinned toolchain for its Rust target', () => {
   const bin = mkdtempSync(resolve(tmpdir(), 'exact-rustup-'));

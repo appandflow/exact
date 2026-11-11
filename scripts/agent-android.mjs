@@ -348,6 +348,57 @@ function bakedOut(dir, crate) {
   return newest?.out ?? null;
 }
 
+/** How the reader's Gradle wrapper starts on `platform`. Windows cannot run the POSIX `gradlew`, and Bun starts a `.bat`
+ * only through cmd.exe, which would reparse every argument: there the JDK runs the wrapper jar with the arguments
+ * `gradlew` gives it, JAVA_OPTS and GRADLE_OPTS among them (JAVA_HOME's java, else the one on PATH). */
+export function gradleWrapper(platform = process.platform, env = process.env) {
+  if (platform !== 'win32') return [resolve(READER, 'gradlew')];
+  // gradlew.bat drops the quotes a `set JAVA_HOME="C:\Program Files\…"` stores in the variable.
+  const home = env.JAVA_HOME?.replaceAll('"', '');
+  const java = home ? resolve(home, 'bin', 'java.exe') : 'java.exe';
+  return [java, '-Xmx64m', '-Xms64m', ...jvmOptions(env.JAVA_OPTS, 'JAVA_OPTS'), ...jvmOptions(env.GRADLE_OPTS, 'GRADLE_OPTS'),
+    '-Dorg.gradle.appname=gradlew', '-jar', resolve(READER, 'gradle/wrapper/gradle-wrapper.jar')];
+}
+
+/** A JVM options variable as java.exe sees it under gradlew.bat, which expands `%JAVA_OPTS% %GRADLE_OPTS%` unquoted onto
+ * java's command line: split by the Microsoft C runtime's rules ("Parsing C command-line arguments", learn.microsoft.com).
+ * Spaces and tabs separate words outside double quotes; only `"` quotes, and `""` inside quotes is one `"`; backslashes
+ * are literal except before a `"`, where 2n of them are n and the quote still quotes, and 2n+1 are n and a literal `"`
+ * (so `\"` is an escaped quote). An apostrophe is an ordinary character. With no cmd.exe between, `|`, `&` and `^` are
+ * data too. An unmatched `"` is refused by the variable's name and the quote's position: a value can hold a password. */
+export function jvmOptions(value = '', name = 'the JVM options') {
+  const words = [];
+  let word = null, quoted = false, opened = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (c === '\\') {
+      let n = 0;
+      while (value[i + n] === '\\') n++;
+      if (value[i + n] !== '"') { word = (word ?? '') + '\\'.repeat(n); i += n - 1; }
+      else if (n % 2) { word = (word ?? '') + '\\'.repeat(n >> 1) + '"'; i += n; }
+      else { word = (word ?? '') + '\\'.repeat(n >> 1); i += n - 1; }
+    } else if (c === '"') {
+      if (quoted && value[i + 1] === '"') { word += '"'; i++; }
+      else { quoted = !quoted; opened = i; word ??= ''; }
+    } else if (!quoted && (c === ' ' || c === '\t')) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else word = (word ?? '') + c;
+  }
+  if (quoted) throw new Error(`${name} has an unmatched " at character ${opened + 1}`);
+  if (word !== null) words.push(word);
+  return words;
+}
+
+/** Gradle in the reader with `args`, under `options` (its `env` names the JDK): whether it succeeded. A Gradle that
+ * could not be started is said so. */
+export function runGradle(args, options, platform = process.platform) {
+  const [command, ...prefix] = gradleWrapper(platform, options.env);
+  const gradle = spawnSync(command, [...prefix, ...args], { cwd: READER, stdio: 'inherit', ...options });
+  if (gradle.error) console.error(`could not start Gradle (${command}): ${gradle.error.message}`);
+  return gradle.status === 0;
+}
+
 /** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
  * is generated under `.shells/`) built for the phone's ABI and put, with the app's assets, where the Gradle shell
  * packages them (host/android/app), then `:app:assembleRelease`. An app with a GPU module (LLP 1009) is built as a
@@ -402,17 +453,17 @@ function buildApk(app, env, profile, writeLocks = false) {
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
   const graph = mavenGraph(app, writeLocks);
   if (!graph) return null;
-  let gradle;
+  let assembled;
   try {
-    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
+    assembled = runGradle([':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
       `-PexactDevelopment=${development ? '1' : '0'}`,
       `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
-      ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
-    if (gradle.status === 0) graph.kept();
+      ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env) } });
+    if (assembled) graph.kept();
   } finally {
     graph.done();
   }
-  if (gradle.status !== 0) return null;
+  if (!assembled) return null;
   const apk = readerApk(app);
   writeFileSync(resolve(dirname(apk), 'exact-build.json'), JSON.stringify({ started, library: built(crate), workspace: app.workspace ?? app.dir,
     sources: [...READER_SOURCES, ...[resolve(app.dir, 'modules/android')].filter(existsSync)] }) + '\n');
