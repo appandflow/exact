@@ -1,6 +1,7 @@
 # `Manifest::placement` still accepts `typescript.aliases`, a retired key the scripts refuse and nothing reads
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Manifest::placement rejects the retired typescript.aliases key as unknown, matching the script manifest validator.
 **Systems:** contract/cli/src/manifest.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
