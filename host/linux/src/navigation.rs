@@ -1,6 +1,6 @@
 //! @ref LLP 1038 D6 — the browser's route visibility rule, without a view mirror.
 use exact_kernel::invocation::Action;
-use exact_kernel::{Kernel, PropId, ViewId};
+use exact_kernel::{Kernel, NodeRef, PropId, StyleId, ViewId};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const POPOVER_UNSUPPORTED: &str = "Linux does not support popover presentation";
@@ -48,20 +48,34 @@ pub fn survivor(shown: &[String], declared: impl Fn(&str) -> bool) -> Option<Str
     shown.iter().rev().find(|key| declared(key)).cloned()
 }
 
-/// Hidden and inert, respectively, for each direct route child, `sheets`
-/// saying which routes are sheets. A sheet shows what it sits over: the page
-/// (the last route beneath it that is not a sheet) and every sheet between,
+/// A full-screen route's authored background composites over the page,
+/// including while its colour animates toward transparent (Charlie, 2026-11-10).
+pub(crate) fn over_page(node: &NodeRef<'_>) -> bool {
+    match node.props.str(PropId::NavigationPresentation) {
+        Some("modal") => true,
+        Some("fullscreen") => {
+            node.style.written.has(StyleId::BackgroundColor)
+                || node.style.written.has(StyleId::BackgroundImage)
+        }
+        _ => false,
+    }
+}
+
+/// Hidden and inert, respectively, for each direct route child, `overlays`
+/// saying which routes show what they sit over: a modal or a full-screen
+/// route with an authored background. These keep the page (the last route
+/// beneath them that is not an overlay) and every overlay between visible,
 /// as navigation.js `covered` does. An unmatched selection leaves the
 /// previously projected state alone.
 pub fn route_visibility(
     keys: &[&str],
     selected: &str,
-    sheets: &[bool],
+    overlays: &[bool],
 ) -> Option<Vec<(bool, bool)>> {
     let selected = keys.iter().position(|key| *key == selected)?;
-    let sheet = |i: usize| sheets.get(i).copied().unwrap_or(false);
-    let page = (0..selected).rev().find(|i| !sheet(*i)).unwrap_or(0);
-    let covered = |i: usize| sheet(selected) && (page..selected).contains(&i);
+    let overlay = |i: usize| overlays.get(i).copied().unwrap_or(false);
+    let page = (0..selected).rev().find(|i| !overlay(*i)).unwrap_or(0);
+    let covered = |i: usize| overlay(selected) && (page..selected).contains(&i);
     Some(
         (0..keys.len())
             .map(|index| {
@@ -264,16 +278,11 @@ impl Navigation {
                         self.stack = Some(routes[..through].to_vec());
                     }
                 }
-                let sheets: Vec<bool> = routes
+                let overlays: Vec<bool> = routes
                     .iter()
-                    .map(|r| {
-                        kernel
-                            .node(*r)
-                            .and_then(|n| n.props.str(PropId::NavigationPresentation))
-                            == Some("modal")
-                    })
+                    .map(|r| kernel.node(*r).is_some_and(|n| over_page(&n)))
                     .collect();
-                if let Some(visibility) = route_visibility(&keys, shown, &sheets) {
+                if let Some(visibility) = route_visibility(&keys, shown, &overlays) {
                     for (route, state) in routes.iter().zip(visibility) {
                         self.routes.insert(*route, state);
                     }

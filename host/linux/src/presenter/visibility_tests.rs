@@ -40,6 +40,95 @@ fn holds(rect: Rect4, point: (f32, f32)) -> bool {
 }
 
 #[test]
+fn a_fullscreen_background_composites_over_the_inert_page() {
+    for (presentation, background, hidden, pixel) in [
+        ("fullscreen", "", true, None),
+        (
+            "fullscreen",
+            "background-color=\"rgba(0, 0, 0, 0.5)\"",
+            false,
+            Some([127, 0, 0, 255]),
+        ),
+        (
+            "fullscreen",
+            "background-color=\"transparent\"",
+            false,
+            Some([255, 0, 0, 255]),
+        ),
+        (
+            "fullscreen",
+            "background-image=\"linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5))\"",
+            false,
+            Some([127, 0, 0, 255]),
+        ),
+        (
+            "fullscreen",
+            "background-color=\"#0000ff\"",
+            false,
+            Some([0, 0, 255, 255]),
+        ),
+        ("push", "background-color=\"transparent\"", true, None),
+    ] {
+        let source = format!(
+            r##"routes nav
+  home "/"
+    cover "/cover"
+component App
+  action open
+    nav = push(nav, "/cover")
+  action close
+    nav = back(nav)
+  view
+    main navigationKey=`${{top(nav).id}}` width="100%" height="100%"
+      for e in stack(nav).filter(x => x.name == "home") key=e.id
+        column navigationKey=`${{e.id}}` position="absolute" inset=0 background-color="#ffffff"
+          button "Open" testId="open" press=open
+          box testId="page" tabindex=0 position="absolute" left=40 top=100 width=200 height=200 background-color="#ff0000"
+      for e in stack(nav).filter(x => x.name == "cover") key=e.id
+        column navigationKey=`${{e.id}}` navigationPresentation="{presentation}" {background} position="absolute" inset=0
+          button "Close" testId="close" press=close
+"##
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert_eq!(error, None);
+        let tap = |p: &mut Presenter<()>, name| {
+            let target = id(p, name);
+            let (x, y) = p.box_of(target).unwrap().center();
+            let now = p.host.now();
+            p.pointer_down(x, y, now + 1.).unwrap();
+            p.pointer_up(x, y, now + 2.).unwrap();
+        };
+        let page = id(&p, "page");
+        assert_eq!(rgba(&mut p, 100., 150.), [255, 0, 0, 255]);
+        tap(&mut p, "open");
+        assert_eq!(
+            p.host.route_visibility(page),
+            (hidden, true),
+            "{presentation} {background}"
+        );
+        assert_eq!(p.box_of(page).is_none(), hidden);
+        if let Some(pixel) = pixel {
+            assert_eq!(rgba(&mut p, 100., 150.), pixel, "{background}");
+        }
+        assert!(p.host.runner().inactive(page));
+        assert_ne!(p.hit(100., 150.), Some(page));
+        tap(&mut p, "close");
+        assert_eq!(p.host.route_visibility(page), (false, false));
+        assert_eq!(rgba(&mut p, 100., 150.), [255, 0, 0, 255]);
+        assert!(!p.host.runner().inactive(page));
+        assert_eq!(p.hit(100., 150.), Some(page));
+    }
+}
+
+#[test]
 fn a_visible_descendant_of_a_hidden_box_paints_and_is_hit() {
     let mut p = boot();
     let (parent, shown, kept) = (id(&p, "parent"), id(&p, "shown"), id(&p, "kept"));

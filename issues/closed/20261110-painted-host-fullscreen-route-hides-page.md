@@ -1,6 +1,7 @@
 # A full-screen route with an authored background hides the page under it on Linux, Windows and Android, where the guide says the page shows through
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Full-screen routes with authored backgrounds keep the covered page and split panes visible and inert on Linux, Windows and Android
 **Systems:** host/linux/src/navigation.rs (the painted presenter: Linux, Windows, Android), docs/contract-for-agents.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
