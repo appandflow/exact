@@ -1,7 +1,7 @@
 //! @ref LLP 1039 D3 / LLP 1030 D7 — host facts must not enter kept storage.
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind, Value};
-use exact_runner::{DataError, DataSource, Runner, Viewport};
+use exact_runner::{DataError, DataSource, Runner, RunnerError, Viewport};
 
 #[derive(Default)]
 struct Deferred {
@@ -111,6 +111,58 @@ fn runner_facts_never_write_kept_answers() {
             .collect::<Vec<_>>(),
         ["exact.kept.value"]
     );
+}
+
+#[test]
+fn refused_delivery_facts_are_restored_and_can_be_retried() {
+    let plan = contract::compile(
+        r#"shape Delivery
+  seq: number
+component App
+  state limit = 5
+  resource delivery = exactDelivery() as shape Delivery
+  derive spare = 1 / (limit - delivery.seq)
+  action allow
+    limit = 6
+  view
+    text `${spare}`
+"#,
+    )
+    .unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        Deferred::default(),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    let previous = runner.delivery().clone();
+    let mut delivery = previous.clone();
+    delivery.seq = 5;
+    for _ in 0..2 {
+        assert!(matches!(
+            runner.set_delivery(delivery.clone()),
+            Err(RunnerError::NonFiniteValue { name }) if name == "spare"
+        ));
+        assert_eq!(runner.delivery(), &previous);
+        assert_eq!(
+            runner.resource("delivery"),
+            Some(&Value::record(vec![Value::Number(0.)]))
+        );
+        let state: serde_json::Value =
+            serde_json::from_str(&exact_runner::agent::state(&runner)).unwrap();
+        assert_eq!(state["delivery"]["seq"], 0);
+    }
+    assert!(runner.set_delivery(previous).unwrap().is_none());
+    runner.act("allow", vec![]).unwrap();
+    assert!(runner.set_delivery(delivery.clone()).unwrap().is_some());
+    assert_eq!(runner.delivery(), &delivery);
+    assert_eq!(
+        runner.resource("delivery"),
+        Some(&Value::record(vec![Value::Number(5.)]))
+    );
+    assert!(runner.set_delivery(delivery).unwrap().is_none());
 }
 
 #[test]

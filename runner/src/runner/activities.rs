@@ -93,6 +93,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Enumerated activities, token rotation and state changes, in one commit.
+    /// A refused commit keeps the previous snapshot.
     pub fn set_activities(&mut self, json: &str) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut snapshot: Json = serde_json::from_str(json).map_err(|e| RunnerError::Data {
             resource: "exactActivities".into(),
@@ -104,8 +105,12 @@ impl<D: DataSource> Runner<D> {
         if snapshot == self.activities.snapshot {
             return Ok(None);
         }
-        self.activities.snapshot = snapshot;
-        self.recommit_activities()
+        let previous = std::mem::replace(&mut self.activities.snapshot, snapshot);
+        let result = self.recommit_activities();
+        if result.is_err() {
+            self.activities.snapshot = previous;
+        }
+        result
     }
 
     fn recommit_activities(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
@@ -317,6 +322,54 @@ component App
             );
             assert!(!r.take_activities_demand());
         }
+    }
+    #[test]
+    fn refused_activity_facts_are_restored_and_can_be_retried() {
+        let plan = contract::compile(
+            r#"shape Activities
+  frequentPushesEnabled: bool
+  linked: bool
+component App
+  state allowed = false
+  resource activities = exactActivities() as shape Activities
+  derive spare = 1 / (activities.frequentPushesEnabled && !allowed ? 0 : 1)
+  action allow
+    allowed = true
+  view
+    text `${spare}`
+"#,
+        )
+        .unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.link_activities().unwrap();
+        let previous = r.activities.snapshot.clone();
+        let snapshot = r#"{"activities":[],"frequentPushesEnabled":true}"#;
+        for _ in 0..2 {
+            assert!(matches!(
+                r.set_activities(snapshot),
+                Err(RunnerError::NonFiniteValue { name }) if name == "spare"
+            ));
+            assert_eq!(r.activities.snapshot, previous);
+            assert_eq!(
+                r.resource("activities"),
+                Some(&Value::record(vec![Value::Bool(false), Value::Bool(true)]))
+            );
+        }
+        assert!(r.set_activities(&previous.to_string()).unwrap().is_none());
+        r.act("allow", vec![]).unwrap();
+        assert!(r.set_activities(snapshot).unwrap().is_some());
+        assert_eq!(
+            r.resource("activities"),
+            Some(&Value::record(vec![Value::Bool(true), Value::Bool(true)]))
+        );
+        assert!(r.set_activities(snapshot).unwrap().is_none());
     }
     #[test]
     fn a_failed_demand_retries_and_a_successful_publication_stops_loading() {

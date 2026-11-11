@@ -1,6 +1,7 @@
 # A refused `set_delivery` or `set_activities` keeps the new facts, so telling them again asks nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused delivery and activities updates restore the previous facts, so identical retries are evaluated again.
 **Systems:** runner/src/runner/delivery.rs, runner/src/runner/activities.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

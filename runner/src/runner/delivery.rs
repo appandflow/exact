@@ -124,6 +124,7 @@ impl<D: DataSource> Runner<D> {
     /// Tell the runner its delivery facts. Every resource reading
     /// [`crate::delivery::SOURCE`] is answered again in one commit; `None`
     /// when the facts did not change, or when no resource reads them.
+    /// A refused commit keeps the previous facts.
     pub fn set_delivery(
         &mut self,
         delivery: Delivery,
@@ -131,11 +132,15 @@ impl<D: DataSource> Runner<D> {
         if delivery == self.delivery {
             return Ok(None);
         }
-        self.delivery = delivery;
+        let previous = std::mem::replace(&mut self.delivery, delivery);
         let which: Vec<usize> = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
-        self.recommit(which, "delivery")
+        let result = self.recommit(which, "delivery");
+        if result.is_err() {
+            self.delivery = previous;
+        }
+        result
     }
 
     /// [`Runner::set_delivery`] with the binary's own three facts read out
