@@ -1,6 +1,7 @@
 # On evdev one wheel detent of an ordinary mouse scrolls twice
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Evdev selects high-resolution input per device and axis, without duplicate ticks or lost input from other wheels.
 **Systems:** host/linux/src/input.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
