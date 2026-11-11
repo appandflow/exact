@@ -92,38 +92,28 @@ function scriptTags(html, problems) {
   return scripts;
 }
 
-// Remove comments and literal bodies while retaining code in ${...}; this is
-// only for detecting dynamic import. Static imports and all syntax are parsed
-// by the runtime's module parser below; none of the source is executed.
-function codeOnly(source) {
-  const out = [...source].fill(' ');
-  const templates = [];
-  let state = 'code';
-  let quote = null;
-  let braces = 0;
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i], next = source[i + 1];
-    if (state === 'line') { if (ch === '\n') { state = 'code'; out[i] = ch; } continue; }
-    if (state === 'block') { if (ch === '*' && next === '/') { state = 'code'; i++; } continue; }
-    if (state === 'string') { if (ch === '\\') { i++; continue; } if (ch === quote) state = 'code'; continue; }
-    if (state === 'template') {
-      if (ch === '\\') { i++; continue; }
-      if (ch === '`') { state = 'code'; continue; }
-      if (ch === '$' && next === '{') { templates.push(braces); braces++; state = 'code'; i++; }
-      continue;
+// Fail closed: boot sources may not spell a dynamic import, even in comments
+// or literals. Comments between the keyword and parenthesis count as whitespace.
+// The runtime's module parser below checks static imports and syntax.
+function hasDynamicImport(source) {
+  for (const match of source.matchAll(/\bimport\b/g)) {
+    let at = match.index + match[0].length;
+    while (at < source.length) {
+      if (/\s/.test(source[at])) { at++; continue; }
+      if (source.startsWith('/*', at)) {
+        const end = source.indexOf('*/', at + 2);
+        if (end < 0) break;
+        at = end + 2;
+      } else if (source.startsWith('//', at)) {
+        at += 2;
+        while (at < source.length && !/[\r\n\u2028\u2029]/.test(source[at])) at++;
+      } else {
+        if (source[at] === '(') return true;
+        break;
+      }
     }
-    if (ch === '/' && next === '/') { state = 'line'; i++; continue; }
-    if (ch === '/' && next === '*') { state = 'block'; i++; continue; }
-    if (ch === '"' || ch === "'") { state = 'string'; quote = ch; continue; }
-    if (ch === '`') { state = 'template'; continue; }
-    if (ch === '{') braces++;
-    if (ch === '}') {
-      braces--;
-      if (templates.length && braces === templates[templates.length - 1]) { templates.pop(); state = 'template'; continue; }
-    }
-    out[i] = ch;
   }
-  return out.join('');
+  return false;
 }
 
 function localModule(root, from, specifier, problems) {
@@ -173,7 +163,7 @@ function run() {
     let requests;
     try { requests = new vm.SourceTextModule(source, { identifier: file }).dependencySpecifiers; }
     catch (error) { problems.push(`invalid module syntax in ${rel}: ${error.message}`); continue; }
-    if (/\bimport\s*\(/.test(codeOnly(source))) problems.push(`dynamic import before first pixel in ${rel}`);
+    if (hasDynamicImport(source)) problems.push(`dynamic import before first pixel in ${rel}`);
     for (const request of requests) {
       const next = localModule(root, file, request, problems);
       if (next) queue.push(next);
@@ -187,7 +177,7 @@ function run() {
     const source = readFileSync(resolve(root, documentEntry), 'utf8');
     documentBytes = Buffer.byteLength(source);
     const imports = new vm.SourceTextModule(source).dependencySpecifiers;
-    if (imports.length || /\bimport\s*\(/.test(codeOnly(source))) problems.push(`${documentEntry} must have no imports before first pixel`);
+    if (imports.length || hasDynamicImport(source)) problems.push(`${documentEntry} must have no imports before first pixel`);
   } catch (error) { problems.push(`invalid document entry: ${error.message}`); }
   // The capture script: its bytes as pages carry them, pinned by hash, capped,
   // a classic script that imports nothing. A built document, when this
@@ -200,7 +190,7 @@ function run() {
     if (capture.sha256 !== CAPTURE.sha256) problems.push(`${CAPTURE.path} changed (sha256 ${capture.sha256}); served pages may run only the pinned capture script (${CAPTURE.sha256})`);
     if (capture.bytes > CAPTURE.maxBytes) problems.push(`${CAPTURE.path} is ${capture.bytes} B, over its ${CAPTURE.maxBytes} B cap`);
     new vm.Script(text);
-    if (/\bimport\b/.test(codeOnly(text))) problems.push(`${CAPTURE.path} must import nothing`);
+    if (/\bimport\b/.test(text)) problems.push(`${CAPTURE.path} must import nothing`);
   } catch (error) { problems.push(`invalid capture script: ${error.message}`); }
   const built = resolve(root, 'host/web/dist/index.html');
   if (existsSync(built)) {

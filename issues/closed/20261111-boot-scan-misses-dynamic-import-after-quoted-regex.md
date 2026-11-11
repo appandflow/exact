@@ -1,6 +1,7 @@
 # `boot` passes a dynamic import in `navigation.js`: a regular expression holding quotes puts its scanner inside a string
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Boot rejects dynamic import text even after quoted regular expressions; page-store retries load their shared-lock helper through loadAfterPaint.
 **Systems:** scripts/boot.mjs, host/web/navigation.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the fix lanes of the 2026-11-10 project review

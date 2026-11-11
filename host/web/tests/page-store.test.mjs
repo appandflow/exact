@@ -39,7 +39,12 @@ function host(storage, warned, enabled = true) {
     console: { warn: (...line) => warned.push(line), error: (...line) => { throw new Error(line.join(' ')); } },
   };
   Object.defineProperty(scope, 'localStorage', { get: storage });
-  scope.pendingStore = pageStore(storage, scope.console.warn, { request: (_key, work) => work() });
+  const load = async (file, exported) => {
+    expect(file).toBe('./storage-environment.js');
+    expect(exported).toBe('retrySecretWrite');
+    return (await import('../storage-environment.js'))[exported];
+  };
+  scope.pendingStore = pageStore(load, storage, scope.console.warn, { request: (_key, work) => work() });
   vm.createContext(scope);
   vm.runInContext(glueDeclarations(readFileSync(new URL('../glue.js', import.meta.url), 'utf8'), ['apply']), scope);
   return async (...ops) => { scope.apply({ ops }); await scope.pendingStore.flush(); };

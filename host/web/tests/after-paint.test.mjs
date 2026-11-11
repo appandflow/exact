@@ -6,12 +6,31 @@
 // read from the sources and run against stand-in frames and timers.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { glueDeclarations } from './glue-fixture.mjs';
 
 const navigation = readFileSync(new URL('../navigation.js', import.meta.url), 'utf8');
 const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
 const afterPaint = navigation.match(/^export (function afterPaint\(fn, agent = false\) \{.*\})$/m)[1];
 const loadGpu = glue.match(/function loadGpuIfNeeded\(\) \{[^]*?\n\}/)[0];
 const dropSurface = glue.match(/function dropSurface\(id\) \{[^{}]*\}/)[0];
+
+test('after-paint loads reuse published exports and retry a failed load', async () => {
+  const scripts = [], exact = {};
+  const document = { createElement: () => ({}), head: { append: script => scripts.push(script) } };
+  const source = glueDeclarations(glue, ['loadAfterPaint']).replace('import.meta.url', JSON.stringify('http://localhost/glue.js'));
+  const load = new Function('document', 'globalThis', `${source}\nreturn loadAfterPaint;`)(document, { exact });
+  const failed = load('./storage-environment.js', 'retrySecretWrite');
+  scripts[0].onerror();
+  await expect(failed).rejects.toThrow('host module loader failed: ./storage-environment.js');
+  const retried = load('./storage-environment.js', 'retrySecretWrite');
+  expect(scripts).toHaveLength(2);
+  expect(scripts[1]).toMatchObject({ type: 'module', src: 'http://localhost/storage-environment.js' });
+  exact.retrySecretWrite = () => {};
+  scripts[1].onload();
+  expect(await retried).toBe(exact.retrySecretWrite);
+  for (let i = 0; i < 10; i++) expect(await load('./storage-environment.js', 'retrySecretWrite')).toBe(exact.retrySecretWrite);
+  expect(scripts).toHaveLength(2);
+});
 
 // Stand-in frames and timers: each queued, fired when the test says.
 const world = (exact = {}) => {

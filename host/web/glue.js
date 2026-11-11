@@ -90,13 +90,13 @@ const dataImports = {
   },
 };
 function loadAfterPaint(file, exported) {
-  return new Promise((resolve, reject) => {
+  return globalThis.exact?.[exported] === undefined ? new Promise((resolve, reject) => {
     const script = Object.assign(document.createElement('script'), { type: 'module' });
     script.src = new URL(file, import.meta.url).href;
     script.onload = () => resolve(globalThis.exact[exported]);
     script.onerror = () => reject(new Error('host module loader failed: ' + file));
     document.head.append(script);
-  });
+  }) : Promise.resolve(globalThis.exact[exported]);
 }
 const pageFile = name => (path, grants) => (globalThis.exact[name] ? Promise.resolve(globalThis.exact[name]) : loadAfterPaint('./storage-request.js', name)).then(f => f(globalThis.exact.compat.inputs.app, grants, path));
 async function loadRust() {
@@ -160,7 +160,7 @@ function moduleCall(op, ptr, len) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
-const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"), agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"), pendingStore = pageStore(); // `--storage` on the page (platformer R10); a nameless drive stays in memory
+const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"), agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"), pendingStore = pageStore(loadAfterPaint); // `--storage` on the page (platformer R10); a nameless drive stays in memory
 // The driver's fetch faults (LLP 1103, faults.js, loaded with the first request): an injected failure's journal line is the runner's.
 if (agentMode) globalThis.__exactFaultLog = line => log(line);
 let agentClock = agentMode ? 0 : null, followOnSeek = true;

@@ -148,3 +148,5 @@ export async function retrySecretWrite(key, current, write, locks = globalThis.n
   if (!locks) throw new Error('This browser cannot coordinate a secret write retry');
   await locks.request(key, () => { if (current()) write(); });
 }
+
+if (globalThis.exact) globalThis.exact.retrySecretWrite = retrySecretWrite;
