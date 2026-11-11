@@ -1,6 +1,7 @@
 # On Hermes, `fetch` gives a string or `URLSearchParams` body no `Content-Type`, so the server sees none on Linux and a form type for every POST on Apple
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Hermes fetch supplies Fetch's string and form Content-Type defaults without replacing explicit headers; Apple's untyped byte POST default is documented.
 **Systems:** js/src/prelude.js (`request`), docs/reference.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

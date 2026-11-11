@@ -20,7 +20,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, bufferSourceBytes = binary.bufferSourceBytes, copyBytes = binary.copyBytes;
+  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, copyBytes = binary.copyBytes;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -590,16 +590,10 @@
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     if (call.socketConflict || (call.socketOps && call.socketOps.length)) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
-    var headers = Array.from(new global.Headers(init && init.headers).entries());
-    // A BufferSource body goes as its bytes, in base64 beside the text body
-    // (LLP 1069.002 D4); the host accepts a whole body, so streams refuse.
-    var raw = init ? init.body : undefined, bytes = null;
-    if (binary.isReadableStream(raw)) return Promise.reject(new TypeError("fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first"));
-    // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
-    if (raw != null && (method === "GET" || method === "HEAD"))
-      return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
-    try { bytes = bufferSourceBytes(raw, "fetch"); } catch (e) { return Promise.reject(e); }
-    var body = bytes || raw == null ? "" : String(raw);
+    var headers = new global.Headers(init && init.headers);
+    var raw = init ? init.body : undefined, extracted;
+    try { extracted = binary.requestBody(raw, method, headers); } catch (e) { return Promise.reject(e); }
+    var bytes = extracted.bytes, body = extracted.text;
     // A body from an app file (LLP 1108 D6 R2): only the path goes to the
     // host, which reads the file when it runs the request, under `fs.read`,
     // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
@@ -664,7 +658,7 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && (!!listen || !!own || /^wss?:/i.test(String(url)));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: Array.from(headers.entries()), body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) { call.stream = stream; call.upload = !!upload; }

@@ -2,7 +2,7 @@
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
 // poll's terms as the seam carries them (LLP 1016.000 D8), an upload's
-// option and events, a fetch's file
+// option and events, a fetch's body and file
 // options, an image call's options and an answer's timers (here, beside the
 // prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
@@ -577,6 +577,29 @@
   // Whether `value` has the internal slot `getter` reads
   function holds(getter, value) { try { slot(getter, value); return true; } catch (e) { return false; } }
 
+  var formText = global.URLSearchParams && global.URLSearchParams.prototype.toString;
+  // Whether `value` is a `URLSearchParams`, by the platform's own check
+  function isForm(value) {
+    if (!formText || value === null || typeof value !== "object") return false;
+    try { reflectApply(formText, value, []); return true; } catch (e) { return false; }
+  }
+  // Fetch's BodyInit extraction gives strings and forms a type, bytes and streams none.
+  function bodyType(body, form) {
+    return form ? "application/x-www-form-urlencoded;charset=UTF-8" : typeof body === "string" ? "text/plain;charset=UTF-8" : null;
+  }
+  function requestBody(raw, method, headers) {
+    if (isReadableStream(raw)) throw new TypeError("fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first");
+    // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
+    if (raw != null && (method === "GET" || method === "HEAD"))
+      throw new TypeError("fetch: a " + method + " request cannot have a body");
+    // A BufferSource goes as bytes (LLP 1069.002 D4); forms use their internal list, never an app's toString.
+    var bytes = bufferSourceBytes(raw, "fetch"), form = !bytes && isForm(raw);
+    var text = bytes || raw == null ? "" : form ? reflectApply(formText, raw, []) : String(raw);
+    var type = bytes || raw == null ? null : bodyType(text, form);
+    if (type && !headers.has("content-type")) headers.set("content-type", type);
+    return { bytes: bytes, text: text };
+  }
+
   // A fetch's `Response` (Fetch, "Response class"): the host's replies
   // (`reply`) and an app's own, as a demo's server in the app makes one. Its
   // state is out of the app's reach, as the platform's is: properties an app
@@ -600,7 +623,6 @@
     // The platform's own operations, taken before any app code runs, for what an app's object could answer itself; a
     // realm may lack either class
     var Headers = global.Headers, eachHeader = Headers && Headers.prototype.forEach, appendHeader = Headers && Headers.prototype.append;
-    var formText = global.URLSearchParams && global.URLSearchParams.prototype.toString;
     var states = new WeakMap();
     var streamRead = StreamBody && StreamBody.prototype.arrayBuffer, streamClone = StreamBody && StreamBody.prototype.clone;
     var streamUsed = StreamBody && Object.getOwnPropertyDescriptor(StreamBody.prototype, "bodyUsed").get;
@@ -622,11 +644,6 @@
       var copy = new Headers();
       reflectApply(eachHeader, headers, [function (value, name) { reflectApply(appendHeader, copy, [name, value]); }]);
       return guard(copy, kind);
-    }
-    // Whether `value` is a `URLSearchParams`, by the platform's own check
-    function isForm(value) {
-      if (!formText || value === null || typeof value !== "object") return false;
-      try { reflectApply(formText, value, []); return true; } catch (e) { return false; }
     }
     // Web IDL's `unsigned short`: ToNumber (a BigInt or a symbol refused), truncated, modulo 2^16; NaN and the infinities 0
     function unsignedShort(value) { var n = +value; return isFinite(n) ? ((Math.trunc(n) % 65536) + 65536) % 65536 : 0; }
@@ -723,7 +740,7 @@
       var api = "new Response()", form = isForm(body), stream = isReadableStream(body);
       var kept = body == null || form || stream || isBufferSource(body, api) ? body : string(body, api), options = initOf(init, api);
       var source = kept == null ? null : stream ? new StreamBody(kept) : form ? reflectApply(formText, kept, []) : typeof kept === "string" ? kept : bufferSourceBytes(kept, api);
-      var type = typeof kept === "string" ? "text/plain;charset=UTF-8" : form ? "application/x-www-form-urlencoded;charset=UTF-8" : null;
+      var type = bodyType(kept, form);
       states.set(this, initialized(source, type, options, api));
     }
     ["status", "statusText", "headers", "exactBodyTo"].forEach(function (name) {
@@ -794,10 +811,9 @@
     return { Response: Response, reply: reply };
   }
   global.__exact_binary = Object.freeze({
-    isReadableStream: isReadableStream,
+    requestBody: requestBody,
     keptReply: keptReply,
     responses: responses,
-    bufferSourceBytes: bufferSourceBytes,
     copyBytes: copyBytes,
     timers: timers,
     fileRefusal: fileRefusal,
