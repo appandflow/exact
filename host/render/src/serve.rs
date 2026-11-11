@@ -460,13 +460,25 @@ impl Response {
             _ => "",
         };
         let mut out = format!("HTTP/1.1 {} {reason}\r\n", self.status);
+        let page = self
+            .headers
+            .iter()
+            .any(|(name, value)| *name == "Content-Type" && value.starts_with("text/html"));
         // A 304 carries what updates the copy the client holds (RFC 9110
         // §15.4.5), nothing of the representation's own: its CSP, surrogate
-        // keys and length are the stored response's already.
+        // keys and length are the stored response's already. Its `Vary` is
+        // every one its 200 sends, a page's viewport `Vary` among them.
         if self.status == 304 {
             for (name, value) in &self.headers {
                 if matches!(*name, "ETag" | "Cache-Control" | "Vary" | "Expires" | "Age") {
                     let _ = write!(out, "{name}: {value}\r\n");
+                }
+            }
+            if page {
+                for line in page_headers.split_inclusive("\r\n") {
+                    if line.starts_with("Vary:") {
+                        out.push_str(line);
+                    }
                 }
             }
             let _ = write!(out, "Connection: {connection}\r\n\r\n");
@@ -480,10 +492,6 @@ impl Response {
         // A page's policy. On a script's response a CSP would govern only a
         // worker made from it, and a module worker evaluates the module text
         // it verified against the receipt (LLP 1027.002 D2).
-        let page = self
-            .headers
-            .iter()
-            .any(|(name, value)| *name == "Content-Type" && value.starts_with("text/html"));
         if page {
             let _ = write!(out, "Content-Security-Policy: {csp}\r\n");
             // A page's own code never reaches a device the app was not

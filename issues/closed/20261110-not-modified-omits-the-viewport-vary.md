@@ -1,6 +1,7 @@
 # A 304 for a page kept per viewport class leaves out the `Vary` its 200 carried
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A page's 304 sends the viewport `Vary` its 200 sends, as RFC 9110 §15.4.5 requires.
 **Systems:** host/render/src/serve.rs, host/render/src/viewport.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
