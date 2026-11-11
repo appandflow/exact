@@ -1,6 +1,7 @@
 # On macOS, a global shortcut whose `keys` change keeps its old chord registered until the app quits
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The macOS module keeps each `(id, keys)` pair it reads, so a release of a reader's old keys unregisters that chord while its new keys stay registered.
 **Systems:** packages/global-shortcuts/apple/GlobalShortcuts.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

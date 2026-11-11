@@ -18,8 +18,10 @@ import ExactPackage
 
 public final class GlobalShortcutsModule: ExactPackage {
     private let context: ExactPackageContext
-    /// The chords this session reads, by `id`.
-    private var reading: [String: String] = [:]
+    /// The chords this session reads, each with its `id`: a reader that
+    /// moves to new keys reads both until the runner releases the old ones.
+    private var reading: Set<Reading> = []
+    private struct Reading: Hashable { let id: String; let keys: String }
 
     public init(context: ExactPackageContext) { self.context = context }
 
@@ -30,7 +32,7 @@ public final class GlobalShortcutsModule: ExactPackage {
             case "globalShortcut":
                 let id = args["id"] as? String ?? ""
                 let (registered, reason) = HotKeys.shared.read(keys, id: id, by: self)
-                if registered { reading[id] = keys }
+                if registered { reading.insert(Reading(id: id, keys: keys)) }
                 context.log("global-shortcuts: \(keys) for \(id): \(registered ? "registered" : "not registered (\(reason ?? ""))")")
                 reply(["id": id, "keys": keys, "registered": registered, "reason": reason ?? NSNull()])
             case "checkGlobalShortcut":
@@ -55,16 +57,16 @@ public final class GlobalShortcutsModule: ExactPackage {
     /// reading of that chord for that id ends.
     public func release(_ name: String, args: [String: Any]) {
         guard name == "globalShortcut", let id = args["id"] as? String, let keys = args["keys"] as? String,
-              reading[id] == keys else { return }
-        reading[id] = nil
+              reading.remove(Reading(id: id, keys: keys)) != nil else { return }
         HotKeys.shared.release(keys, id: id, by: self)
+        context.log("global-shortcuts: \(keys) for \(id): released")
     }
 
     /// No reader of `globalShortcut` is left in this session.
     public func release(_ name: String) {
         guard name == "globalShortcut" else { return }
-        for (id, keys) in reading { HotKeys.shared.release(keys, id: id, by: self) }
-        reading = [:]
+        for read in reading { HotKeys.shared.release(read.keys, id: read.id, by: self) }
+        reading = []
     }
 
     public func destroy(_ done: @escaping () -> Void) {
