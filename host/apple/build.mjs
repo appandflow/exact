@@ -488,7 +488,8 @@ export function distributionKeys(sdkName = 'iphoneos') {
     DTXcode: `${major.padStart(2, '0')}${minor}${patch}`,
     DTXcodeBuild: /Build version (\S+)/.exec(xcode)?.[1] ?? '',
     BuildMachineOSBuild: read('sw_vers', ['-buildVersion']).stdout.trim(),
-    UIRequiredDeviceCapabilities: ['arm64'],
+    // A device requirement: a simulator bundle on an Intel Mac is x86_64.
+    ...(sdkName.endsWith('simulator') ? {} : { UIRequiredDeviceCapabilities: ['arm64'] }),
     // What iOS assumes when the key is absent, written out: App Store Connect
     // requires it (all four on iPad, for multitasking).
     UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
@@ -698,6 +699,8 @@ async function main(args, lockHeld = false) {
   const optimize = (args.includes('--optimize') ? args[args.indexOf('--optimize') + 1] : undefined) ?? app.manifest.host?.[ios ? 'ios' : 'macos']?.optimize ?? (args.includes('--embed') ? 'size' : 'speed');
   if (!['speed', 'size'].includes(optimize)) throw new Error(`host/apple: --optimize is speed or size, not ${optimize}`);
   const production = cargoEnv.EXACT_UPDATE_TRUST === 'production';
+  const frameworkBundles = ios && production && !appleEmbedOnly(args);
+  const frameworkPlatform = tv ? (device ? 'AppleTVOS' : 'AppleTVSimulator') : device ? 'iPhoneOS' : 'iPhoneSimulator';
   const cargoProfile = production ? (optimize === 'size' ? 'size' : 'release') : HOST_DEV;
   // host-dev says `incremental = true`, and Cargo lets an inherited
   // CARGO_INCREMENTAL=0 (another project's shell setup) overrule the profile:
@@ -868,7 +871,7 @@ async function main(args, lockHeld = false) {
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed'), prepareGpu(product) {
     const artifact = gpuArtifacts.find(m => m.built === basename(product));
     if (!artifact) throw new Error(`unknown GPU product: ${product}`);
-    const signed = signedGpuProduct(product, { identity: sha1, app, framework: ipa ? artifact.framework : null, platform: tv ? 'AppleTVOS' : 'iPhoneOS', hardened: !ios && distribution });
+    const signed = signedGpuProduct(product, { identity: sha1, app, framework: frameworkBundles ? artifact.framework : null, platform: frameworkPlatform, hardened: !ios && distribution });
     preparedGpu.set(artifact.built, signed);
     return signed;
   }, capture(buildReceipt) {
@@ -893,8 +896,8 @@ async function main(args, lockHeld = false) {
     // GPU products are the signed copies prepareGpu made (the primary and each module).
     for (const m of gpuArtifacts) {
       const source = preparedGpu.get(m.built);
-      if (ipa) { cpSync(dirname(source), resolve(capture, `${m.framework}.framework`), { recursive: true }); rmSync(resolve(capture, `${m.framework}.framework`, m.framework)); }
-      take(source, ipa ? `${m.framework}.framework/${m.framework}` : m.built);
+      if (frameworkBundles) { cpSync(dirname(source), resolve(capture, `${m.framework}.framework`), { recursive: true }); rmSync(resolve(capture, `${m.framework}.framework`, m.framework)); }
+      take(source, frameworkBundles ? `${m.framework}.framework/${m.framework}` : m.built);
     }
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
@@ -928,14 +931,14 @@ async function main(args, lockHeld = false) {
   const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link, bakedCompat.reach?.auth?.sessions === true);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
-    const gpu = hasGpu ? (ipa ? 'ExactGpu.framework/ExactGpu' : loadName) : null;
+    const gpu = hasGpu ? (frameworkBundles ? 'ExactGpu.framework/ExactGpu' : loadName) : null;
     const embed = mkdtempSync(resolve(paths.namespace, '.embed-'));
     cleanup.push(embed);
     mkdirSync(resolve(embed, 'include'), { recursive: true });
     const archive = `lib${crate.replace(/-/g, '_')}.a`;
     copyFileSync(resolve(libDir, archive), resolve(embed, archive));
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
-    copyAppleGpuProducts(libDir, embed, gpuArtifacts, !!ipa);
+    copyAppleGpuProducts(libDir, embed, gpuArtifacts, frameworkBundles);
     const embeddedLibrary = embedLibrary(library, embed, ios); // a package's framework (LLP 1154 D3), which the consumer links and embeds
     // Beside the executable in the embedding app's bundle, as the standalone app has it.
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(embed, svgFilterLibraryName));
@@ -1312,8 +1315,8 @@ async function main(args, lockHeld = false) {
       cleanup.push(hostStage);
       cpSync(binDir, hostStage, { recursive: true });
       // Each product keeps its own dSYM and not the other's.
-      for (const name of [paths.executable, `${paths.executable}.app`, `${paths.executable}-Info.plist`, `${paths.executable}.dSYM`]) rmSync(resolve(hostStage, name), { recursive: true, force: true });
-      for (const name of [hostPaths.product, `${hostPaths.product}.app`, `${hostPaths.product}.dSYM`]) rmSync(resolve(binDir, name), { recursive: true, force: true });
+      for (const name of [paths.executable, `${paths.executable}.app`, `${paths.executable}-Info.plist`, `${paths.executable}.dSYM`, `${paths.executable}.dSYMs`, `${paths.executable}.receipt.json`]) rmSync(resolve(hostStage, name), { recursive: true, force: true });
+      for (const name of [hostPaths.product, `${hostPaths.product}.app`, `${hostPaths.product}.dSYM`, `${hostPaths.product}.dSYMs`, `${hostPaths.product}.receipt.json`]) rmSync(resolve(binDir, name), { recursive: true, force: true });
       placeAppleArtifact(hostStage, hostPaths.products);
     }
     placeAppleArtifact(binDir, paths.products);
@@ -1335,6 +1338,7 @@ async function main(args, lockHeld = false) {
   const { bundles, frameworkSymbols } = assembleIOS({intents, shared, library, serviceDylibs, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
   publishProducts();
   release();
+  if (!ipa && frameworkSymbols.count) console.log(`host/apple: framework symbols: ${resolve(paths.products, basename(frameworkSymbols.dir))} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)`);
   if (ipa) {
     const payload = mkdtempSync(resolve(tmpdir(), 'exact-ipa-'));
     cleanup.push(payload);

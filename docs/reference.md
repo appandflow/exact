@@ -785,9 +785,11 @@ directory to compile everything here. Every production Apple build (`--release`,
 Swift build and strips its executable, writing `<executable>.dSYM` beside the staged
 build product. Development builds keep their symbols. An IPA writes `<name>.dSYM`
 beside its archive; `exact release` copies the build's matching dSYM beside its release.
-What is distributed keeps its whole receipt beside it (an `--archive <name>.ipa` strips its
-frameworks too, their dSYMs in `<name>.dSYMs/<Framework>.framework.dSYM`, the
-layout of an Xcode archive's `dSYMs`); a production build links its Rust
+Production iOS and tvOS bundles ship a small receipt and stripped frameworks, whether
+archived or not. The whole receipt stays beside `<name>.app` or `<name>.ipa` as
+`<name>.receipt.json`; framework dSYMs are in `<name>.dSYMs/<Framework>.framework.dSYM`.
+GPU frameworks keep the bytes the bake authenticated and also get dSYMs.
+A production build links its Rust
 with fat LTO and, when its plan is fixed, leaves out the loaded modules the
 plan cannot reach (LLP 1036.000 §5–§10). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,

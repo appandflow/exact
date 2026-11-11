@@ -143,7 +143,7 @@ export function appleRefusals(app, platform, { archive = false } = {}) {
 export function iosAssets(app, dir, device, options = {}) {
   return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
 }
-export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, expectedLaunchImage, launch = 'system' } = {}) {
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, requireIcon = catalog, kept = null, expected, expectedLaunchImage, launch = 'system' } = {}) {
   const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
   const catalogs = appleAssetCatalogInventory(app, platform);
   const selected = catalogs.find(entry => entry.path.endsWith('.icon'));
@@ -152,6 +152,8 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
   const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
   if (expectedLaunchImage !== undefined && JSON.stringify(launchImage) !== JSON.stringify(expectedLaunchImage))
     throw new Error('the launch image changed after the bake; rebuild before packaging');
+  const refused = platform === 'ios' && iconRefusal(app, catalogs, requireIcon);
+  if (refused) throw new Error(refused);
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
@@ -167,7 +169,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
       try {
-        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, expectedLaunchImage: launchImage, launch })));
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, requireIcon, expected: catalogs, expectedLaunchImage: launchImage, launch })));
         rmSync(made, { recursive: true, force: true });
         renameSync(making, made);
       } finally { rmSync(making, { recursive: true, force: true }); }
@@ -200,8 +202,6 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
     const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog || alternateIcons.length ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
-    const refused = platform === 'ios' && iconRefusal(app, catalogs, catalog);
-    if (refused) throw new Error(refused);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       sources.push(assets);
@@ -223,7 +223,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
     }
-    if (catalog && platform === 'ios') {
+    if (catalog && platform === 'ios' && iconName) {
       const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
       if (!contents.some(asset => asset.Name === iconName)) throw new Error(`host/apple: ${dir}/Assets.car has no ${iconName}`);
     }

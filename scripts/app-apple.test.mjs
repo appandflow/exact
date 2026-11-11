@@ -3,7 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, PINNED_RUST, hermesBundle, hermesLeanSysRoots } from './app.mjs';
@@ -14,6 +14,88 @@ import { macReleaseEntitlements, launchImageInventory } from '../host/apple/asse
 
 // Profile selection reads DEVELOPMENT_TEAM; a test that means a team names it.
 delete process.env.DEVELOPMENT_TEAM;
+
+const packagingTools = process.platform === 'darwin' && ['clang', 'codesign', 'sips', 'dsymutil', 'nm'].every((tool) => Bun.which(tool));
+
+test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks and a small receipt with or without an archive', async () => {
+  useXcode();
+  const { createHash } = await import('node:crypto');
+  const { assembleIOS, stripForDistribution } = await import('../host/apple/bundle.mjs');
+  const { shippedReceipt, copyAppleGpuProducts } = await import('../host/apple/build.mjs');
+  const { wrapFramework, codeDigest, plistFile } = await import('../host/apple/assets.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-package-'));
+  const run = (cmd, args) => {
+    const r = spawnSync(cmd, args, { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
+    return r;
+  };
+  try {
+    const source = resolve(dir, 'module.c'), executable = resolve(dir, 'Fixture'), dylib = resolve(dir, 'module.dylib');
+    writeFileSync(source, 'static int local_value = 42; int answer(void){return local_value;} int main(void){return answer()!=42;}\n');
+    run('clang', ['-g', source, '-o', executable]);
+    run('clang', ['-g', '-dynamiclib', source, '-o', dylib]);
+    assert.match(run('nm', ['-a', dylib]).stdout, / _local_value$/m);
+    const icon = resolve(dir, 'icon.png');
+    writeFileSync(icon, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+afo0AAAAASUVORK5CYII=', 'base64'));
+    run('sips', ['-z', '1024', '1024', icon]);
+    const app = { dir, id: 'com.exact.fixture', name: 'Fixture', manifest: {} };
+    const plan = Buffer.from('fixture'), compat = { embedded: { plan: { sha256: createHash('sha256').update(plan).digest('hex'), bytes: plan.length }, assets: [] } };
+    const pairs = [['libweb.dylib', 'ExactWeb'], ['libmodules.dylib', 'ExactModules'], ['libsvg.dylib', 'ExactSvg'], ['libcanvas.dylib', 'ExactCanvasGpu'], ['libservice.dylib', 'ExactService']];
+    const build = { trust: 'production', linkedPlan: '/private/plan', binary: { sha256: 'binary', inputs: [{ path: '/private/source' }], metadata: {} }, products: [{ path: '/private/product' }], graph: { artifacts: [] } };
+    for (const [production, device, archived] of [[true, true, false], [true, true, true], [true, false, false], [false, true, false]]) {
+      app.manifest = archived ? { icons: [{ src: 'icon.png', sizes: '1024x1024' }] } : {};
+      const binDir = resolve(dir, `${production}-${device}-${archived}`); mkdirSync(binDir);
+      const capture = resolve(binDir, 'capture'); mkdirSync(capture);
+      const gpu = { built: 'gpu.dylib', load: 'libgpu.dylib', framework: 'ExactGpu' };
+      copyFileSync(dylib, resolve(capture, gpu.built));
+      if (production) wrapFramework(capture, gpu.built, gpu.framework, app, device ? 'iPhoneOS' : 'iPhoneSimulator');
+      if (production) copyFileSync(dylib, resolve(capture, gpu.built));
+      const gpuSource = resolve(capture, production ? 'ExactGpu.framework/ExactGpu' : gpu.built);
+      run('codesign', ['--force', '--sign', '-', '--timestamp=none', production ? resolve(capture, 'ExactGpu.framework') : gpuSource]);
+      const ipa = archived ? resolve(binDir, 'Archive.ipa') : null;
+      const bundle = resolve(binDir, 'Fixture.app');
+      const whole = JSON.stringify({ build, target: 'aarch64-apple-ios', development: production ? null : { token: 'kept' } });
+      const result = assembleIOS({ app, paths: { bundle, executable: 'Fixture', capture }, binDir, bin: executable, device,
+        production, distribution: archived, ipa, bakedCompat: compat, bakedPlan: plan, buildReceipt: build,
+        libDir: capture, gpuArtifacts: [gpu], looseArms: [[true, dylib, ...pairs[0]]],
+        modulesBuilt: dylib, modulesLoadName: pairs[1][0], hasSvg: true, svgBuilt: dylib, svgLoadName: pairs[2][0],
+        canvasGpuBuilt: dylib, canvasGpuLoadName: pairs[3][0], serviceDylibs: [{ built: dylib, load: pairs[4][0], framework: pairs[4][1] }],
+        args: [], unsigned: true, sha1: '-', linkRoot: binDir, sdkName: 'iphoneos' }, {
+        runApple: run, infoPlist: () => plistFile({ CFBundleIdentifier: app.id, CFBundleExecutable: 'Fixture', CFBundlePackageType: 'APPL' }),
+        copyAppleStaticTrees() {}, writeUsageStrings() {}, assertAppleIdentity() {}, distributionKeys: () => ({}),
+        receipt: () => whole, shippedReceipt, copyAppleGpuProducts, entitlements: () => plistFile({}), appClip: () => null, stripForDistribution,
+      });
+      const bundled = readFileSync(resolve(bundle, 'receipt.json'), 'utf8');
+      assert.equal(bundled, production ? shippedReceipt(whole) : whole);
+      if (production) {
+        const sidecar = resolve(binDir, ipa ? 'Archive.receipt.json' : 'Fixture.receipt.json');
+        assert.equal(readFileSync(sidecar, 'utf8'), whole);
+        assert.equal(result.frameworkSymbols.count, pairs.length + 1);
+        for (const [loose, name] of pairs) {
+          const binary = resolve(bundle, 'Frameworks', `${name}.framework`, name);
+          assert.equal(existsSync(resolve(bundle, 'Frameworks', loose)), false);
+          assert.doesNotMatch(run('nm', ['-a', binary]).stdout, / _local_value$/m, `${name} is stripped`);
+          const symbols = resolve(result.frameworkSymbols.dir, `${name}.framework.dSYM`);
+          assert.equal(/UUID: ([A-F0-9-]+)/.exec(run('dwarfdump', ['--uuid', symbols]).stdout)?.[1], /UUID: ([A-F0-9-]+)/.exec(run('dwarfdump', ['--uuid', binary]).stdout)?.[1]);
+        }
+        assert.equal(codeDigest(readFileSync(resolve(bundle, 'Frameworks/ExactGpu.framework/ExactGpu'))), codeDigest(readFileSync(gpuSource)), 'the baked GPU digest is preserved');
+        assert.ok(existsSync(resolve(result.frameworkSymbols.dir, 'ExactGpu.framework.dSYM')));
+      } else {
+        assert.equal(result.frameworkSymbols.count, 0);
+        for (const [loose] of pairs) assert.match(run('nm', ['-a', resolve(bundle, 'Frameworks', loose)]).stdout, / _local_value$/m);
+        assert.equal(existsSync(resolve(binDir, 'Fixture.receipt.json')), false);
+      }
+      run('codesign', ['--verify', '--deep', '--strict', bundle]);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
+
+test.skipIf(process.platform !== 'darwin' || !Bun.which('xcodebuild'))('a production simulator bundle does not require arm64', async () => {
+  useXcode();
+  const { distributionKeys } = await import('../host/apple/build.mjs');
+  assert.deepEqual(distributionKeys('iphoneos').UIRequiredDeviceCapabilities, ['arm64']);
+  assert.equal('UIRequiredDeviceCapabilities' in distributionKeys('iphonesimulator'), false);
+});
 
 test('unsigned device builds and archives refuse incompatible options before building', async () => {
   const { appleBuildRefusal } = await import('./help.mjs');
