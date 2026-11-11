@@ -162,11 +162,20 @@ pub(crate) unsafe extern "C" fn host_door(
         9 => wire::canvas_measure(state.canvas.as_ref(), &a).map(Some),
         // Under the agent, `b` bytes of its repeatable stream as hex; else
         // nothing, and the draw is the OS's (LLP 1069.005 D2b).
-        11 => Ok(state.agent.as_mut().map(|stream| {
-            let mut bytes = vec![0; b.parse::<usize>().unwrap_or(0).min(65_536)];
-            stream.fill(&mut bytes);
-            crypto::hex(&bytes)
-        })),
+        11 => {
+            let wanted = b.parse::<usize>().unwrap_or(0).min(65_536);
+            // Said once, at the first draw of any bytes (the prelude's probe at load asks for none): a
+            // drive against a server that remembers a client (a session id it drew) meets the same
+            // client at every launch, and nothing else shows why.
+            if let Some(seed) = state.agent_unsaid.take_if(|_| wanted > 0) {
+                state.journal.push(format!("crypto: the driver seeds this launch's randomness (seed {seed}), so each launch at that seed draws the same bytes; --seed <n> draws others (LLP 1069.005 D2b)"));
+            }
+            Ok(state.agent.as_mut().map(|stream| {
+                let mut bytes = vec![0; wanted];
+                stream.fill(&mut bytes);
+                crypto::hex(&bytes)
+            }))
+        }
         10 => Ok(wire::canvas_image(state.canvas.as_ref(), &a)),
         // Whether this host listens (LLP 1133.005 §8): the desktop's, where
         // the prelude installs `exactListen`.

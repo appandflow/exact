@@ -273,6 +273,8 @@ struct HostState {
     /// Under the agent, the repeatable stream `crypto` draws from instead
     /// of the OS (LLP 1069.005 D2b); this instance's, from its start.
     agent: Option<exact_data::crypto::AgentStream>,
+    /// Its seed, until the journal has said the first draw is seeded.
+    agent_unsaid: Option<u64>,
     /// `CryptoKey`s by handle, never on the heap (LLP 1069.005 D1b).
     keys: HashMap<u64, exact_data::crypto::EcKey>,
     next_key: u64,
@@ -461,6 +463,7 @@ impl Module {
     pub fn with_agent_seed(mut self, seed: Option<u64>) -> Module {
         self.agent_seed = seed;
         self.host.agent = seed.map(|s| exact_data::crypto::AgentStream::new(s, "typescript"));
+        self.host.agent_unsaid = seed;
         self
     }
 

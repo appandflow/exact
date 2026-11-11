@@ -967,7 +967,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   Cause: under the driver a native host's `crypto.getRandomValues` is seeded
   (`EXACT_AGENT_SEED`, 1 by default), so every launch draws the same session
   id, and Convex answers a request id it has seen from that session with the
-  first answer, without running it. Fix: a new `--seed` for each launch
+  first answer, without running it; `logs` says the draws are seeded. Fix: a new `--seed` for each launch
   (`agent macos --seed 7 …`), or drive against the stand-in
   (`bun exact.mjs docs convex live queries`). The web draws the browser's entropy, and a
   launch outside the driver the system's. (LLP 1157 §6, 2026-11-10.)
