@@ -2,10 +2,11 @@
 // refreshes an app's types (LLP 1116.001 D4.5).
 // `bun test ./scripts/exact.test.mjs`.
 import { test } from 'bun:test';
+import { pathFrom } from './app.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile, wrapFramework } from '../host/apple/assets.mjs';
@@ -1310,3 +1311,34 @@ test('exact add says how each grant line is written, from the device table', asy
   assert.equal(grantAdvice(['browser.automation']), '`browser.automation` alone');
   assert.equal(grantAdvice(['net.fetch']), '`net.fetch <its target>`, what it reaches');
 });
+
+test('add writes a relative package specifier within a shared tree, including through symlinks', async () => {
+  const { packageSpecifier } = await import('./exact.mjs');
+  inDir(dir => {
+    const app = resolve(dir, 'nested/shop'), sdk = resolve(dir, 'sdk');
+    mkdirSync(app, { recursive: true });
+    mkdirSync(resolve(sdk, 'packages/in-app-browser'), { recursive: true });
+    assert.equal(packageSpecifier(app, 'in-app-browser', sdk), 'file:../../sdk/packages/in-app-browser');
+    symlinkSync(app, resolve(dir, 'linked-shop'), 'dir');
+    symlinkSync(sdk, resolve(dir, 'linked-sdk'), 'dir');
+    assert.equal(packageSpecifier(resolve(dir, 'linked-shop'), 'in-app-browser', resolve(dir, 'linked-sdk')), 'file:../../sdk/packages/in-app-browser');
+  });
+});
+
+test('add installs a standard package by pathFrom from an outside app with an absolute EXACT2', () => inDir(dir => {
+  const root = resolve(import.meta.dir, '..'), app = resolve(dir, 'nested/shop');
+  const made = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'new', app], { encoding: 'utf8' });
+  assert.equal(made.status, 0, made.stdout + made.stderr);
+  const added = spawnSync(process.execPath, ['exact.mjs', 'add', '@exact/in-app-browser'], {
+    cwd: app, encoding: 'utf8', env: { ...process.env, EXACT2: root },
+  });
+  assert.equal(added.status, 0, added.stdout + added.stderr);
+  const spec = JSON.parse(readFileSync(resolve(app, 'package.json'), 'utf8')).dependencies['@exact/in-app-browser'];
+  assert.equal(spec, `file:${pathFrom(app, resolve(root, 'packages/in-app-browser'))}`);
+  assert.equal(JSON.parse(readFileSync(resolve(app, 'node_modules/@exact/in-app-browser/package.json'), 'utf8')).name, '@exact/in-app-browser');
+  const again = spawnSync(process.execPath, ['exact.mjs', 'add', '@exact/in-app-browser'], { cwd: app, encoding: 'utf8' });
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.equal(JSON.parse(readFileSync(resolve(app, 'package.json'), 'utf8')).dependencies['@exact/in-app-browser'], spec);
+  const frozen = spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: app, encoding: 'utf8' });
+  assert.equal(frozen.status, 0, frozen.stdout + frozen.stderr);
+}));

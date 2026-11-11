@@ -50,7 +50,7 @@ import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { grantAdvice } from './grant-advice.mjs';
 export { grantAdvice, grantLines } from './grant-advice.mjs';
-const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, pathFrom, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
 const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
 const { appleArtifacts, assertAppleIdentity } = await import('../host/apple/build.mjs');
@@ -872,6 +872,8 @@ release needs a "Developer ID Application" certificate and notarytool
 credentials in the keychain; it says how to get each if one is missing.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 
+export const packageSpecifier = (dir, short, root = ROOT) => `file:${pathFrom(dir, resolve(root, 'packages', short))}`;
+
 /** `exact add <module> [<app>]` (LLP 1133.001 D8): the app depends on one of exact2's standard modules by a path into
  *  this checkout, as an app consumes exact2 by path, so the module never differs from the SDK it compiles against. */
 export function add(args, say = console.log) {
@@ -884,7 +886,7 @@ export function add(args, say = console.log) {
   if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
   const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
   if (!manifest) throw new Error(`add: ${app.dir} has no package.json; an app exact new made has one`);
-  const key = `@exact/${short}`, spec = `file:${resolve(ROOT, 'packages', short)}`;
+  const key = `@exact/${short}`, spec = packageSpecifier(app.dir, short);
   if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
   if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
   const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
