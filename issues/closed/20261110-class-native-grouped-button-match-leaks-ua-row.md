@@ -1,6 +1,7 @@
 # A grouped list's button row made native by a class is refused for a `ua:` row when its face holds a `match`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Grouped native buttons accept match faces after both arms lose the list's UA sheet; authored face attributes remain checked.
 **Systems:** contract/lower/src/grouped.rs, contract/lower/src/controls.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
