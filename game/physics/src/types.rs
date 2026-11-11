@@ -219,6 +219,22 @@ impl Default for Shape {
     }
 }
 
+/// How a pair combines its two `bounce` values. A pair whose colliders choose
+/// different rules takes the one listed later (Rapier's priority: Average, Min,
+/// Multiply, Max), so Average applies only when both colliders choose it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum BounceCombine {
+    /// The mean of the two values.
+    Average,
+    /// The smaller value.
+    Min,
+    /// The product of the two values.
+    Multiply,
+    /// The larger value.
+    #[default]
+    Max,
+}
+
 /// Collision material and filtering; a collider without a Body is static.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Collider {
@@ -228,8 +244,8 @@ pub struct Collider {
     pub offset: Vec3,
     /// Coulomb coefficient; pair coefficients combine geometrically. Default 0.6.
     pub friction: f32,
-    /// Restitution in [0, 1]; a pair uses the larger value, or the average when
-    /// both colliders set `bounce_average`. Default zero.
+    /// Restitution in [0, 1], combined with the other collider's by
+    /// `bounce_combine`. Default zero.
     pub bounce: f32,
     /// Report touches but never apply impulses.
     pub sensor: bool,
@@ -237,18 +253,15 @@ pub struct Collider {
     pub layer: u32,
     /// Accepted membership bits; defaults to all bits.
     pub mask: u32,
-    /// Combine this pair's restitution by the average of the two `bounce` values
-    /// instead of the larger. Takes effect only when both colliders set it.
-    /// Saved, hashed and serialized only when set.
-    pub bounce_average: bool,
-    /// More shapes on the same Body, each with its own shape, offset, material,
-    /// layer and mask. They add no mass: the Body's mass and inertia are the
-    /// primary shape's (or authored). A touch with one reports this entity.
-    /// Queries (rays, sweeps, overlaps, capsules) see the primary shape only.
-    /// Needs a Body; an extra may not be a sensor, a mesh or a heightfield, and
-    /// its own `extra` must be empty. Saved, hashed and serialized only when
+    /// How this collider's pairs combine restitution; defaults to the larger
+    /// value. Saved, hashed and serialized only when not the default.
+    pub bounce_combine: BounceCombine,
+    /// More shapes on the same Body. They add no mass: the Body's mass and
+    /// inertia are the primary shape's (or authored). A touch with one reports
+    /// this entity. Queries (rays, sweeps, overlaps, capsules) see the primary
+    /// shape only, for now. Needs a Body. Saved, hashed and serialized only when
     /// not empty.
-    pub extra: Vec<Collider>,
+    pub extra: Vec<ExtraShape>,
 }
 impl Default for Collider {
     fn default() -> Self {
@@ -260,7 +273,7 @@ impl Default for Collider {
             sensor: false,
             layer: 1,
             mask: u32::MAX,
-            bounce_average: false,
+            bounce_combine: BounceCombine::Max,
             extra: Vec::new(),
         }
     }
@@ -273,7 +286,56 @@ record!(Collider {
     sensor,
     layer,
     mask,
-} unnamed {} named { bounce_average, extra });
+} unnamed {} named { bounce_combine, extra });
+
+/// One more shape on a collider's Body (`Collider::extra`), with its own
+/// material and filtering, and no mass. It may not be a mesh or a heightfield.
+#[derive(Clone, Debug, PartialEq, Data)]
+pub struct ExtraShape {
+    /// Local geometry.
+    pub shape: Shape,
+    /// Shape displacement in local metres, before Transform scale.
+    pub offset: Vec3,
+    /// As `Collider::friction`. Default 0.6.
+    pub friction: f32,
+    /// As `Collider::bounce`. Default zero.
+    pub bounce: f32,
+    /// As `Collider::bounce_combine`.
+    pub bounce_combine: BounceCombine,
+    /// Membership bits; defaults to bit one.
+    pub layer: u32,
+    /// Accepted membership bits; defaults to all bits.
+    pub mask: u32,
+}
+impl Default for ExtraShape {
+    fn default() -> Self {
+        let c = Collider::default();
+        Self {
+            shape: c.shape,
+            offset: c.offset,
+            friction: c.friction,
+            bounce: c.bounce,
+            bounce_combine: c.bounce_combine,
+            layer: c.layer,
+            mask: c.mask,
+        }
+    }
+}
+impl ExtraShape {
+    // The solid collider this shape is built as.
+    pub(crate) fn collider(&self) -> Collider {
+        Collider {
+            shape: self.shape.clone(),
+            offset: self.offset,
+            friction: self.friction,
+            bounce: self.bounce,
+            bounce_combine: self.bounce_combine,
+            layer: self.layer,
+            mask: self.mask,
+            ..Collider::default()
+        }
+    }
+}
 impl Component for Collider {
     const NAME: &'static str = "Collider";
 }

@@ -1,7 +1,7 @@
 use crate::{
     math,
     state::{raw, Entry, Live, Synced},
-    Announce, Body, BodyKind, Collider, Physics, Shape, Touch,
+    Announce, Body, BodyKind, BounceCombine, Collider, Physics, Shape, Touch,
 };
 use exact_game::{Entity, Parent, Transform, World};
 use rapier3d::prelude::*;
@@ -86,13 +86,14 @@ pub(crate) fn try_collider(
         (None, None) => builder.density(1000.0),
     })
 }
-// Rapier combines a pair by the higher-priority rule of the two, and Average has
-// the lowest: the average applies only when both colliders ask for it.
+// Rapier combines a pair by the higher-priority rule of the two, in the order of
+// `BounceCombine`'s variants.
 fn restitution_rule(c: &Collider) -> CoefficientCombineRule {
-    if c.bounce_average {
-        CoefficientCombineRule::Average
-    } else {
-        CoefficientCombineRule::Max
+    match c.bounce_combine {
+        BounceCombine::Average => CoefficientCombineRule::Average,
+        BounceCombine::Min => CoefficientCombineRule::Min,
+        BounceCombine::Multiply => CoefficientCombineRule::Multiply,
+        BounceCombine::Max => CoefficientCombineRule::Max,
     }
 }
 // The rows one sync visits. Every other row equals its entry by construction:
@@ -199,13 +200,13 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         if let Some(c) = c {
             assert!(
                 c.extra.is_empty() || b.is_some(),
-                "physics: extra colliders need a Body"
+                "physics: extra shapes need a Body"
             );
             assert!(
-                c.extra.iter().all(|x| !x.sensor
-                    && x.extra.is_empty()
-                    && !matches!(x.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })),
-                "physics: an extra collider cannot be a sensor, a mesh or a heightfield, or have extras"
+                c.extra
+                    .iter()
+                    .all(|x| !matches!(x.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })),
+                "physics: an extra shape cannot be a mesh or a heightfield"
             );
         }
         if b.is_some() {
@@ -391,7 +392,9 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             }
             if let (Some(c), Some(bh)) = (c, entry.bh()) {
                 for x in &c.extra {
-                    let cb = collider(x, t, None).density(0.0).position(Pose::IDENTITY);
+                    let cb = collider(&x.collider(), t, None)
+                        .density(0.0)
+                        .position(Pose::IDENTITY);
                     let h = raw(r.insert_collider(cb, Some(bh)));
                     entry.extra_handles.push(h);
                     live.reverse.insert(h, e);
@@ -667,6 +670,7 @@ pub fn step(world: &mut World) {
             })
         })
         .collect();
+    let mut crossed = BTreeSet::new();
     if !shaped.is_empty() {
         let mut transient = BTreeSet::new();
         events.retain(|t| {
@@ -691,15 +695,19 @@ pub fn step(world: &mut World) {
         }));
         // A pair that begins and ends within the step (a kinematic or CCD body
         // passing through a sensor) touches neither before nor after; Rapier's
-        // events are its only record, so report both.
-        events.extend(
+        // events are its only record, so report both, the begin first.
+        crossed.extend(
             transient
                 .into_iter()
-                .filter(|p| !before.contains(p) && !after.contains(p))
-                .flat_map(|(a, b)| [true, false].map(|began| Touch { a, b, began })),
+                .filter(|p| !before.contains(p) && !after.contains(p)),
+        );
+        events.extend(
+            crossed
+                .iter()
+                .flat_map(|&(a, b)| [true, false].map(|began| Touch { a, b, began })),
         );
     }
-    events.sort_by_key(|e| (e.a, e.b, e.began));
+    events.sort_by_key(|e| (e.a, e.b, e.began != crossed.contains(&(e.a, e.b))));
     events.dedup();
     for h in live.removed.drain(..) {
         live.reverse.remove(&h);

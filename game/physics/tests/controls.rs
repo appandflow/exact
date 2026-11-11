@@ -1,7 +1,7 @@
 // Body and collider controls that are saved only when set: a force, an authored
 // inertia, average restitution.
 use exact_game::{bin, hash, json, Entity, Transform, Vec3, World};
-use exact_game_physics::{self as physics, Body, Collider, Shape};
+use exact_game_physics::{self as physics, Body, BounceCombine, Collider, ExtraShape, Shape};
 
 fn world() -> World {
     let mut w = World::new(60, 0);
@@ -116,15 +116,15 @@ fn optional_force_and_inertia_round_trip() {
     };
     assert_ne!(hash::of(&force), hash::of(&inertia));
     let average = Collider {
-        bounce_average: true,
+        bounce_combine: BounceCombine::Average,
         ..Collider::default()
     };
     assert!(!json::to_string(&Collider::default())
         .unwrap()
-        .contains("bounce_average"));
+        .contains("bounce_combine"));
     assert!(json::to_string(&average)
         .unwrap()
-        .contains("\"bounce_average\":true"));
+        .contains("\"bounce_combine\":{\"Average\""));
     assert_eq!(
         bin::from_slice::<Collider>(&bin::to_vec(&average)).unwrap(),
         average
@@ -147,13 +147,20 @@ fn optional_force_and_inertia_round_trip() {
 // A drop's rebound speed over its impact speed is the pair's restitution: the
 // larger of the two, or their average when both colliders ask for it.
 #[test]
-fn bounce_average_needs_both_colliders() {
+fn average_bounce_needs_both_colliders() {
     for (ball_average, floor_average, want) in [
         (false, false, 0.42),
         (true, false, 0.42),
         (false, true, 0.42),
         (true, true, 0.21),
     ] {
+        let combine = |average| {
+            if average {
+                BounceCombine::Average
+            } else {
+                BounceCombine::Max
+            }
+        };
         let mut w = World::new(120, 0);
         physics::register(&mut w);
         w.spawn((
@@ -162,7 +169,7 @@ fn bounce_average_needs_both_colliders() {
                 shape: Shape::Box {
                     half: Vec3::new(5.0, 0.5, 5.0),
                 },
-                bounce_average: floor_average,
+                bounce_combine: combine(floor_average),
                 ..Collider::default()
             },
         ));
@@ -172,7 +179,7 @@ fn bounce_average_needs_both_colliders() {
             Collider {
                 shape: Shape::Sphere { radius: 0.1 },
                 bounce: 0.42,
-                bounce_average: ball_average,
+                bounce_combine: combine(ball_average),
                 ..Collider::default()
             },
         ));
@@ -221,7 +228,7 @@ fn extra_colliders_share_the_body_and_filter_by_their_own_layers() {
             shape: Shape::Sphere { radius: 0.5 },
             friction: 0.0,
             mask: 1,
-            extra: vec![Collider {
+            extra: vec![ExtraShape {
                 shape: Shape::Box {
                     half: Vec3::splat(0.4),
                 },
@@ -229,7 +236,7 @@ fn extra_colliders_share_the_body_and_filter_by_their_own_layers() {
                 friction: 0.0,
                 layer: 2,
                 mask: 2,
-                ..Collider::default()
+                ..ExtraShape::default()
             }],
             ..Collider::default()
         },
@@ -303,33 +310,19 @@ fn extra_colliders_share_the_body_and_filter_by_their_own_layers() {
 }
 
 #[test]
-fn extra_colliders_are_refused_without_a_body_and_as_sensors_or_meshes() {
+fn extra_shapes_are_refused_without_a_body_and_as_meshes() {
     let mesh = Shape::Mesh {
         vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Z],
         indices: vec![[0, 1, 2]],
     };
-    let extra = |x: Collider| Collider {
-        extra: vec![x],
+    let extra = |shape| Collider {
+        extra: vec![ExtraShape {
+            shape,
+            ..ExtraShape::default()
+        }],
         ..Collider::default()
     };
-    for (body, collider) in [
-        (false, extra(Collider::default())),
-        (
-            true,
-            extra(Collider {
-                sensor: true,
-                ..Collider::default()
-            }),
-        ),
-        (
-            true,
-            extra(Collider {
-                shape: mesh,
-                ..Collider::default()
-            }),
-        ),
-        (true, extra(extra(Collider::default()))),
-    ] {
+    for (body, collider) in [(false, extra(Shape::default())), (true, extra(mesh))] {
         let mut w = world();
         let e = w.spawn((Transform::default(), collider));
         if body {
@@ -415,7 +408,8 @@ fn weight_friction_acts_on_a_contact_lifting_off() {
 
 // A fast CCD body crossing a thin sensor within one tick touches it neither before
 // nor after the step; Rapier's events are the only record. An entity with extras
-// (here one that meets nothing) reports the same begin and end as one without.
+// (here one that meets nothing) reports that begin and then that end in the tick,
+// the events an entity without extras reports.
 #[test]
 fn a_body_with_extras_reports_a_touch_within_one_step() {
     let run = |extra: bool| {
@@ -441,9 +435,9 @@ fn a_body_with_extras_reports_a_touch_within_one_step() {
             Collider {
                 shape: Shape::Sphere { radius: 0.05 },
                 extra: if extra {
-                    vec![Collider {
+                    vec![ExtraShape {
                         mask: 0,
-                        ..Collider::default()
+                        ..ExtraShape::default()
                     }]
                 } else {
                     Vec::new()
@@ -461,11 +455,14 @@ fn a_body_with_extras_reports_a_touch_within_one_step() {
     };
     let (plain, sensor, bullet) = run(false);
     let (a, b) = (sensor.min(bullet), sensor.max(bullet));
-    assert!(
-        plain.iter().any(|t| (t.1, t.2, t.3) == (a, b, true)),
-        "{plain:?}"
-    );
-    assert_eq!(run(true).0, plain);
+    let (shaped, ..) = run(true);
+    let n = shaped.first().expect("a touch").0;
+    assert_eq!(shaped, vec![(n, a, b, true), (n, a, b, false)]);
+    let mut plain = plain;
+    plain.sort();
+    let mut sorted = shaped;
+    sorted.sort();
+    assert_eq!(sorted, plain);
 }
 
 // A body held up by a force falls once the force is cleared, asleep or not.
@@ -538,4 +535,13 @@ fn weight_friction_replays_after_a_restore() {
         physics::step(&mut r);
         assert_eq!(r.hash(), w.hash(), "tick {tick}");
     }
+}
+
+// Rapier's contact softness divides by the damping ratio: zero is refused.
+#[test]
+fn zero_contact_damping_is_refused() {
+    let mut w = world();
+    w.resource_mut::<physics::Physics>().contact_damping_ratio = 0.0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| physics::step(&mut w)));
+    assert!(result.is_err());
 }

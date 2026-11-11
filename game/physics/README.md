@@ -27,9 +27,10 @@ the actual `displacement` and `grounded` state.
   inertia along the body's axes (all zero derives it). `Body::force` is a world-space
   force at the centre of mass that persists until written back to zero; it is saved
   in the Rapier snapshot and replays exactly after a restore. Friction combines
-  geometrically, restitution by maximum, or by average when both colliders set
-  `Collider::bounce_average`. `ccd`, `force`, `inertia` and `bounce_average` are
-  saved and hashed only when set. Contact slop is 0.1 mm; other integration defaults
+  geometrically. Restitution combines by `Collider::bounce_combine`: `Max` (the
+  default), `Multiply`, `Min` or `Average`; a pair whose colliders differ takes the
+  later of those (Rapier's priority), so `Average` needs both. `ccd`, `force`,
+  `inertia` and a non-default `bounce_combine` are saved and hashed only when set. Contact slop is 0.1 mm; other integration defaults
   are Rapier's. The Physics resource sets the solver: `solver_iterations` (substeps,
   4), `contact_frequency` and `static_contact_frequency` (the contact springs
   between moving bodies and against a fixed one, 30 and 60 Hz),
@@ -47,13 +48,15 @@ the actual `displacement` and `grounded` state.
   `contact_with_coulomb_friction.rs`); its two integration parameters are not in
   the snapshot, since the resource holds them, so EXPHYS stays v3. At zero, the
   default, every contact keeps Rapier's Coulomb bound exactly.
-- `Collider::extra` adds shapes to the collider's Body, each with its own material,
-  layer and mask and no mass; they are Rapier colliders on that body, rebuilt with
-  the primary and saved with the world (`Entry::extra_handles`, written only when
-  present). An entity with extras reports one begin and one end per entity pair,
-  derived from Rapier's per-collider touch state before and after the step, so a
-  touch with two of its shapes is one touch. Queries and capsules see the primary
-  shape only. Extras need a Body and cannot be sensors, meshes or heightfields.
+- `Collider::extra` lists `ExtraShape`s (shape, offset, friction, bounce and its
+  combine rule, layer, mask) added to the collider's Body with no mass; they are
+  Rapier colliders on that body, rebuilt with the primary and saved with the world
+  (`Entry::extra_handles`, written only when present). An entity with extras
+  reports one begin and one end per entity pair, derived from Rapier's per-collider
+  touch state before and after the step (a pair that begins and ends within the
+  step is reported begin then end), so a touch with two of its shapes is one
+  touch. For now queries and capsules see the primary shape only. Extras need a
+  Body and cannot be meshes or heightfields.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
   (row-major, rows Z/columns X), and a convex hull of 4 to 255 points that any body
   may use, optionally rounded (its mass and inertia are the rounded solid's). Curved shapes and
