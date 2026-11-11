@@ -433,16 +433,19 @@ impl<G: Game> Sim<G> {
             game: PhantomData,
         })
     }
-    /// Validate first, then seek under the old arguments to the host's stamp.
+    /// Validate first, then advance under the old arguments to the host's stamp.
+    /// Keep the live clock when active; otherwise use seekable time.
     /// Setup changes restart at tick zero; live changes affect subsequent ticks.
     pub fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), String> {
-        self.bind_with(values, at_ms, |_, _| {})
+        self.bind_with(values, at_ms, Clock::Live, |_, _| {})
     }
-    /// Timed bind with the same post-tick observer as advance_with.
+    /// Timed bind using the host's clock and the post-tick observer of advance_with.
+    /// Only a live advance starts live timing; binds may precede the first display period.
     pub fn bind_with(
         &mut self,
         values: &[Value],
         at_ms: Option<f64>,
+        clock: Clock,
         after: impl FnMut(&World, u32),
     ) -> Result<(), String> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
@@ -453,10 +456,14 @@ impl<G: Game> Sim<G> {
         G::validate(&args)?;
         let args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
         let changed = self.args_json != args_json;
-        // Decoding is complete before seeking under the old arguments.
         let restart = self.args.setup_changed(&args);
         if let Some(at) = at_ms {
-            self.advance_with(at, Clock::Seekable, after);
+            let clock = if self.live_time.is_some() {
+                clock
+            } else {
+                Clock::Seekable
+            };
+            self.advance_with(at, clock, after);
         }
         if restart {
             let mut world = Self::build(&args, self.world.assets.clone());
@@ -525,9 +532,6 @@ impl<G: Game> Sim<G> {
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
-            self.world_us = self.exact_world_us();
-            self.live_time = None;
-            self.lookahead_us_hz = 0;
             self.paused_clock = true;
         }
         Ok(())
@@ -714,9 +718,6 @@ impl<G: Game> Sim<G> {
         }
         if G::paused(&self.args) {
             self.flush_paused(now);
-            self.world_us = self.exact_world_us();
-            self.live_time = None;
-            self.lookahead_us_hz = 0;
             self.paused_clock = true;
             self.last_us = Some(now);
             self.last_ms = Some(now_ms);

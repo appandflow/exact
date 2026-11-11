@@ -1,6 +1,7 @@
 # A stamped bind on a live canvas seeks on the seekable clock and adds up to one tick of world time
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Stamped binds retain the active live clock, so argument changes do not convert lookahead into elapsed world time.
 **Systems:** game/engine/src/sim.rs, game/render/src/surface/args.rs, host/apple, host/linux
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

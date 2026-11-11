@@ -1,6 +1,7 @@
 # Pausing a live world moves its picture back by the lookahead, up to one tick
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Pausing retains the live phase and lookahead, so paused frames and the first resumed frame keep the stopped pose.
 **Systems:** game/engine/src/sim.rs, game/render/src/surface/render.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

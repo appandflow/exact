@@ -70,6 +70,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             sim.bind_with(
                 values,
                 at_ms,
+                if self.seekable {
+                    Clock::Seekable
+                } else {
+                    Clock::Live
+                },
                 observer(
                     &mut self.render,
                     &mut self.placed,
@@ -112,5 +117,78 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         self.dirty = true;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_gpu::Surface;
+
+    #[derive(Default, exact_game::Args)]
+    struct Options {
+        #[live]
+        paused: bool,
+    }
+    struct Counter;
+    impl Game for Counter {
+        const ID: &'static str = "bind-clock";
+        type Args = Options;
+        fn setup(_: &mut exact_game::World, _: &Options) {}
+        fn tick(_: &mut exact_game::World, _: &exact_game::Input, _: &Options) {}
+        fn paused(args: &Options) -> bool {
+            args.paused
+        }
+    }
+
+    #[test]
+    fn stamped_bind_uses_the_surface_clock_before_the_next_frame() {
+        for seekable in [true, false] {
+            for paused in [true, false] {
+                let mut surface = WorldSurface::<Counter>::default();
+                surface.clock(false);
+                surface.bind(&[Value::Bool(false)], None).unwrap();
+                let sim = surface.sim.as_mut().unwrap();
+                sim.frame_period(1000. / 60.);
+                sim.advance(0., Clock::Live);
+                sim.advance(100., Clock::Live);
+                assert_eq!(sim.world().tick(), 6);
+
+                surface.clock(seekable);
+                surface.bind(&[Value::Bool(paused)], Some(1100.)).unwrap();
+                let sim = surface.sim.as_mut().unwrap();
+                let expected = if seekable { 66 } else { 21 };
+                assert_eq!(
+                    sim.world().tick(),
+                    expected,
+                    "seekable={seekable}, paused={paused}"
+                );
+                let clock = if seekable {
+                    Clock::Seekable
+                } else {
+                    Clock::Live
+                };
+                assert_eq!(sim.advance(1100., clock), 0);
+                assert_eq!(sim.world().tick(), expected);
+                if paused {
+                    assert_eq!(sim.advance(2100., clock), 0);
+                    assert_eq!(sim.world().tick(), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stamped_binds_before_the_first_live_frame_keep_seekable_time() {
+        let mut surface = WorldSurface::<Counter>::default();
+        surface.clock(false);
+        surface.bind(&[Value::Bool(false)], Some(0.)).unwrap();
+        surface.bind(&[Value::Bool(false)], Some(1000.)).unwrap();
+        let sim = surface.sim.as_mut().unwrap();
+        assert_eq!(sim.world().tick(), 60);
+        sim.frame_period(1000. / 60.);
+        sim.advance(1000., Clock::Live);
+        assert_eq!(sim.world().tick(), 60);
+        assert_eq!(sim.alpha(), 1.);
     }
 }
