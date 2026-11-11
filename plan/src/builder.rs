@@ -41,6 +41,22 @@ pub struct PlanBuilder {
     /// strings and remaps their references, including strings the app pass
     /// adds later (LLP 1121 stage 4).
     values: Vec<(ValueAt, String)>,
+    /// Equal type rows in insertion order, including a resumed plan's duplicates.
+    types_by: HashMap<TypeKey, Vec<TypesId>, BuildHasherDefault<BodyHasher>>,
+    types_indexed: usize,
+}
+
+/// A `types` row's structure: what makes two rows equal.
+type TypeKey = (TypeKind, Option<TypesId>, u32, u32, StrId);
+
+fn type_key(row: &TypesRow) -> TypeKey {
+    (
+        row.kind,
+        row.elem,
+        row.fields.start,
+        row.fields.len,
+        row.name,
+    )
 }
 
 /// Where a design value interned at finish goes.
@@ -90,6 +106,8 @@ impl PlanBuilder {
             interned: HashMap::default(),
             bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
             values: Vec::new(),
+            types_by: HashMap::default(),
+            types_indexed: 0,
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -122,6 +140,8 @@ impl PlanBuilder {
             interned,
             bodies: HashMap::default(),
             values: Vec::new(),
+            types_by: HashMap::default(),
+            types_indexed: 0,
         }
     }
 
@@ -231,7 +251,9 @@ impl PlanBuilder {
         let string = self.primitive(TypeKind::String);
         let fields: Vec<_> = values.iter().map(|v| (v.as_str(), string)).collect();
         let id = self.record("enum", &fields);
+        let before = type_key(&self.plan.types[id.0 as usize]);
         self.plan.types[id.0 as usize].kind = TypeKind::String;
+        self.retyped(id, before);
         id
     }
 
@@ -279,11 +301,39 @@ impl PlanBuilder {
     fn push_type(&mut self, row: TypesRow) -> TypesId {
         // Structural interning keeps equal types equal by id, which is what
         // `Record` opcodes and `conforms` compare against.
-        if let Some(i) = self.plan.types.iter().position(|t| *t == row) {
-            return TypesId(i as u32);
+        self.index_types();
+        if let Some(rows) = self.types_by.get(&type_key(&row)) {
+            return rows[0];
         }
         self.plan.types.push(row);
+        self.index_types();
         TypesId(self.plan.types.len() as u32 - 1)
+    }
+
+    /// Index the `types` rows not indexed yet, each under its structure.
+    fn index_types(&mut self) {
+        for i in self.types_indexed..self.plan.types.len() {
+            let key = type_key(&self.plan.types[i]);
+            self.types_by
+                .entry(key)
+                .or_default()
+                .push(TypesId(i as u32));
+        }
+        self.types_indexed = self.plan.types.len();
+    }
+
+    /// An enum changes kind after insertion; keep the earliest equal row first.
+    fn retyped(&mut self, id: TypesId, before: TypeKey) {
+        if let Some(rows) = self.types_by.get_mut(&before) {
+            rows.retain(|row| *row != id);
+            if rows.is_empty() {
+                self.types_by.remove(&before);
+            }
+        }
+        let after = type_key(&self.plan.types[id.0 as usize]);
+        let rows = self.types_by.entry(after).or_default();
+        let at = rows.partition_point(|row| row.0 < id.0);
+        rows.insert(at, id);
     }
 
     /// A declared font family and its faces (LLP 1019 D1–D2).

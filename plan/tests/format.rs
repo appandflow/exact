@@ -1083,3 +1083,21 @@ fn invalid_timer_wait_rows_are_refused_by_the_decoder() {
         );
     }
 }
+
+#[test]
+fn resumed_type_interning_keeps_the_first_equal_row_and_retyped_enums() {
+    let mut b = PlanBuilder::new(0, 0);
+    let string = b.primitive(TypeKind::String);
+    let empty_record = b.record("enum", &[]);
+    assert_eq!(b.string_enum(&[]), empty_record);
+    assert_eq!(b.plan().types[empty_record.0 as usize].kind, TypeKind::String);
+    let next_record = b.record("enum", &[]);
+    assert_ne!(next_record, empty_record);
+    let mut plan = b.finish().unwrap();
+    plan.types.push(plan.types[string.0 as usize].clone());
+    let mut resumed = PlanBuilder::from_plan(plan);
+    assert_eq!(resumed.primitive(TypeKind::String), string);
+    assert_eq!(resumed.record("enum", &[]), next_record);
+    assert_eq!(resumed.string_enum(&[]), next_record);
+    assert_ne!(resumed.record("enum", &[]), next_record);
+}
