@@ -1399,6 +1399,11 @@ pub(crate) fn flex_bounds(value: &Expr) -> bool {
     let Some((grow, _, basis)) = flex_longhands(value) else {
         return true;
     };
+    grow > 0.0 || flex_basis_bounds(&basis)
+}
+/// Whether a literal flex basis is a definite length: not `auto`, a content
+/// keyword or a zero percentage.
+pub(crate) fn flex_basis_bounds(basis: &str) -> bool {
     let basis = basis.trim();
     let intrinsic = matches!(
         basis,
@@ -1407,47 +1412,7 @@ pub(crate) fn flex_bounds(value: &Expr) -> bool {
     let zero_percent = basis
         .strip_suffix('%')
         .is_some_and(|n| n.trim().parse::<f64>().is_ok_and(|n| n == 0.0));
-    grow > 0.0 || !(intrinsic || zero_percent)
-}
-/// A shrinking flex item with a zero minimum fits a bounded flex column.
-/// Its shrink is the `flex-shrink` longhand's, or else the `flex`
-/// shorthand's (`flex="none"` does not shrink).
-pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
-    let shrink = attrs
-        .iter()
-        .rev()
-        .find(|a| a.name == "flex-shrink")
-        .map(|a| numeric_literal(&a.value))
-        .or_else(|| {
-            let flex = attrs.iter().rev().find(|a| a.name == "flex")?;
-            Some(flex_longhands(&flex.value).map(|(_, shrink, _)| shrink))
-        });
-    bounded_column
-        && attrs
-            .iter()
-            .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
-        && shrink.is_none_or(|n| n.is_none_or(|n| n > 0.0))
-}
-pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
-    let word = |name: &str| {
-        attrs
-            .iter()
-            .rev()
-            .find(|a| a.name == name)
-            .and_then(|a| match &a.value {
-                Expr::Str(s, _) => Some(s.as_str()),
-                _ => None,
-            })
-    };
-    let column = word("display").map_or(tag == "column" || tag == "button", |v| v == "flex")
-        && word("flex-direction").map_or(tag == "column" || tag == "button", |v| {
-            v.starts_with("column")
-        });
-    column
-        && (attrs.iter().any(|a| {
-            matches!(a.name.as_str(), "height" | "max-height")
-                && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
-        }) || shrinking_scroll(attrs, inherited))
+    !(intrinsic || zero_percent)
 }
 /// Why a multi-column or break value is refused (LLP 1093 §1), if it is.
 fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {

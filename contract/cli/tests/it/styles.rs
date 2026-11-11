@@ -1232,15 +1232,16 @@ fn css_flex_shorthands_lower_in_order_to_the_longhands() {
 
 #[test]
 fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
-    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
-        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
-    }
-    for parent in ["column", "box height=200"] {
-        let e = contract::compile(&format!(
-            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
-        ))
-        .unwrap_err();
-        assert_eq!(e.id, "lower-scroll-unbounded");
+    // A scroll container's automatic minimum is zero: a bare `scroll` is one.
+    for scroll in ["scroll flex-shrink=1 min-height=0", "scroll"] {
+        for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+            contract::compile(&format!("component App\n  view\n    column {bound}\n      {scroll}\n        box height=1000\n")).unwrap();
+        }
+        for parent in ["column", "box height=200"] {
+            let src = format!("component App\n  view\n    {parent}\n      {scroll}\n");
+            let e = contract::compile(&src).unwrap_err();
+            assert_eq!(e.id, "lower-scroll-unbounded");
+        }
     }
 }
 

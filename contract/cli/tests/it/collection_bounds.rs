@@ -306,3 +306,58 @@ fn scroll_margins_take_signed_lengths_and_refuse_percentages() {
         }
     }
 }
+
+/// A `scroll` that a flex row, a grid, its insets, its flex longhands or an
+/// aspect ratio bound compiles, and the bake's measure finds it bounded; one
+/// that a stacking parent leaves to its content is refused.
+#[test]
+fn a_scroll_bounded_by_its_parent_or_its_own_longhands_compiles() {
+    let app = |parent: &str, scroll: &str| {
+        format!("component App\n  view\n    {parent}\n      scroll {scroll}\n        view height=2000\n")
+    };
+    for (parent, scroll) in [
+        ("view display=\"flex\" height=300", "width=200"),
+        (
+            "view display=\"flex\" flex-direction=\"row-reverse\" height=300",
+            "",
+        ),
+        (
+            "view display=\"grid\" grid-template-columns=\"200px 1fr\" height=300",
+            "",
+        ),
+        (
+            "view position=\"relative\" height=300",
+            "position=\"absolute\" inset=0",
+        ),
+        (
+            "view position=\"relative\" height=300",
+            "position=\"absolute\" top=0 bottom=0 width=200",
+        ),
+        ("column height=300", "flex-grow=1 flex-basis=0"),
+        ("column height=300", "flex-basis=100"),
+        ("column height=300", "width=100 aspect-ratio=\"1\""),
+        ("column height=300", ""),
+        ("column max-height=300", "flex-shrink=1"),
+        ("column", "flex=\"none\" flex-basis=100"),
+    ] {
+        let plan = contract::compile(&app(parent, scroll))
+            .unwrap_or_else(|e| panic!("{parent} / {scroll}: {e}"));
+        contract::bake(plan, Rows).unwrap_or_else(|e| panic!("{parent} / {scroll}: {e:?}"));
+    }
+    for (parent, scroll) in [
+        ("view height=300", ""),
+        ("view display=\"flex\" flex-direction=\"column\"", ""),
+        ("column", "flex-grow=0 flex-basis=\"auto\""),
+        ("column height=300", "flex-shrink=0"),
+        ("column height=300", "min-height=100"),
+        ("column", "flex=1 flex-grow=0 flex-basis=\"0%\""),
+        (
+            "view position=\"relative\" height=300",
+            "position=\"absolute\" top=0",
+        ),
+        ("column", "aspect-ratio=\"1\""),
+    ] {
+        let e = contract::compile(&app(parent, scroll)).unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded", "{parent} / {scroll}: {e}");
+    }
+}

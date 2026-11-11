@@ -11,6 +11,8 @@ pub(super) struct ElementStep<'n> {
     pub(super) button_context: Option<&'static str>,
     pub(super) popover_child: bool,
     pub(super) bounded: bool,
+    /// Whether this element stacks its children top to bottom.
+    pub(super) stacks: bool,
     pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
     /// How many element levels below this one a list's rows are (LLP 1121
@@ -330,24 +332,13 @@ impl Lowerer<'_> {
         let expanded = back.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
-        let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
-        let clips_y = expanded.iter().any(|a| {
-            a.name == "overflow-y" && matches!(&a.value, Expr::Str(v, _) if v == "hidden")
-        });
-        if tag == "scroll"
-            && !clips_y
-            && parent_stacks
-            && !has(&["height", "max-height"])
-            && !expanded
-                .iter()
-                .any(|a| a.name == "flex" && values::flex_bounds(&a.value))
-            && !values::shrinking_scroll(expanded, self.parent_bounded_column)
-        {
-            return err(
-                        "lower-scroll-unbounded",
-                        "`scroll` has no `height`, `max-height`, or `flex`, and its parent stacks it top to bottom, so it will grow with its content and never scroll",
-                        *span,
-                    );
+        if tag == "scroll" {
+            scroll_bounds::check(
+                expanded,
+                self.parent_stacks,
+                self.parent_bounded_column,
+                *span,
+            )?;
         }
         controls::check_zero_size(tag, expanded, children, *span)?;
         // @ref LLP 1116.007 D5 — a route that scrolls a grouped list is on
@@ -1065,7 +1056,8 @@ impl Lowerer<'_> {
                     .any(|(id, v)| *id == StyleId::PositionType && *v != "static"),
             button_context: controls::button_context(tag, control, self.popover_child),
             popover_child: expanded.iter().any(|a| a.name == "popover"),
-            bounded: values::bounded_column(tag, expanded, self.parent_bounded_column),
+            bounded: scroll_bounds::bounded_column(tag, expanded, self.parent_bounded_column),
+            stacks: scroll_bounds::stacks(tag, t.fixed_styles, expanded),
             horizontal_flex: if attrs
                 .iter()
                 .any(|a| a.name == "class" && !matches!(a.value, Expr::Ident(..)))

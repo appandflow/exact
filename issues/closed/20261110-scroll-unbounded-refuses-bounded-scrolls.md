@@ -1,6 +1,7 @@
 # `lower-scroll-unbounded` refuses a `scroll` that a flex row, a grid, its own insets or its flex longhands bound
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `lower-scroll-unbounded` reads the parent's literal `display` and `flex-direction` (a flex row, a grid or a computed value does not stack), and counts the scroll's flex longhands, both vertical insets when absolutely positioned, an `aspect-ratio` beside a width, and an unwritten `min-height` in a bounded column as bounds.
 **Systems:** contract/lower/src/nodes.rs (the `lower-scroll-unbounded` check), contract/lower/src/values.rs (`flex_bounds`, `shrinking_scroll`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

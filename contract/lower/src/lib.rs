@@ -67,6 +67,7 @@ mod root_names;
 mod routes;
 mod row_look;
 mod scale;
+mod scroll_bounds;
 mod shorthands;
 mod sites;
 mod sounds;
@@ -293,6 +294,7 @@ pub(crate) struct Lowerer<'a> {
     /// parent): the node a site is placed under, as a page's tree has it (`NodeSite::parent`, stage 15 D3).
     site_parent: Option<u32>,
     parent_bounded_column: bool,
+    parent_stacks: bool,
     parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
@@ -439,6 +441,7 @@ fn lower_with_sites(
         parent_positioned: true,
         site_parent: None,
         parent_bounded_column: false,
+        parent_stacks: true,
         parent_horizontal_flex: Some(false),
         button_context: None,
         popover_child: false,
@@ -1017,6 +1020,7 @@ impl<'a> Lowerer<'a> {
                     std::mem::replace(&mut self.button_context, new_button_context);
                 let popover_child = std::mem::replace(&mut self.popover_child, step.popover_child);
                 let bounded = std::mem::replace(&mut self.parent_bounded_column, step.bounded);
+                let stacks = std::mem::replace(&mut self.parent_stacks, step.stacks);
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
                 let parent_axis =
                     std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
@@ -1045,6 +1049,7 @@ impl<'a> Lowerer<'a> {
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;
                 self.parent_bounded_column = bounded;
+                self.parent_stacks = stacks;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
                 self.parent_positioned = parent_positioned;
