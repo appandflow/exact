@@ -1210,7 +1210,12 @@ async function main(args, lockHeld = false) {
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(intents ? ['-Xlinker', intents.object] : []), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...appleLinkArgs(library, ios, shared ? null : undefined), ...linkedPlanArgs(shared ? null : linkedPlan?.dir)];
+      // A production executable exports one symbol. No library it loads binds to it (each takes a table of
+      // functions), so its exports trie and 6,430 global symbols were dead weight: 0.6 MB of the shop benchmark's
+      // executable. `exact_advance` stays, because the scroll recorder finds an Exact app by it (`feel/feel.m`);
+      // it is named as a pattern, which a product without the symbol still links with.
+      const unexported = production && !shared ? ['-Xlinker', '-exported_symbol', '-Xlinker', '_exact_advance*'] : [];
+      const productArgs = [...swiftArgs, ...unexported, ...entitledArgs(linkRoot, p), ...(intents ? ['-Xlinker', intents.object] : []), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...appleLinkArgs(library, ios, shared ? null : undefined), ...linkedPlanArgs(shared ? null : linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
