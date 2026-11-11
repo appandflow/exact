@@ -1,6 +1,7 @@
 # An option left `none` inside a list reaches Android's modules as the text "null"
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `written` drops `null` fields of records inside lists too, so a platform never sees an option the call left out; a list's own `null` elements stay.
 **Systems:** runner/src/runner/modules/bound.rs, packages/nfc/android/Nfc.kt, packages/quick-actions/android/QuickActions.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
