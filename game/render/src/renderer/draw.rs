@@ -673,6 +673,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .sun
             .filter(|sun| sun.illuminance != 0.0)
             .and_then(|s| s.shadows)
+            // A shadow distance at or before the near plane shadows nothing
+            // the camera sees: no cascades, and their maps are released.
+            .filter(|s| Cascades::reach(frame, *s).is_some())
             .map(|s| Cascades::new(frame, s));
         if let Some(c) = &cascades {
             if self.shadows.as_ref().is_none_or(|s| {

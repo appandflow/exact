@@ -1,6 +1,7 @@
 # A camera whose near plane is at or past the sun's shadow distance panics the renderer
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A frame whose shadow distance is at or before the camera's near plane draws with no cascades (`Cascades::reach`), instead of reaching the assert.
 **Systems:** game/render/src/shadows.rs, game/render/src/world/scene.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

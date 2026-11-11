@@ -725,6 +725,7 @@ dependencies = [
  "exact-color",
  "exact-motion",
  "exact-num",
+ "exact-plan",
  "serde",
  "serde_json",
 ]
