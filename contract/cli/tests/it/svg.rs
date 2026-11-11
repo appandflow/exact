@@ -104,6 +104,81 @@ fn the_sparkline_compiles_to_nodes_rows_and_resolved_animations() {
 }
 
 #[test]
+fn animation_lists_refuse_computed_longhands() {
+    for (name, literal) in [
+        (
+            "animation",
+            r#"animation="spin 1s linear infinite, fade 2s""#,
+        ),
+        ("animation-name", r#"animation-name="spin, fade""#),
+    ] {
+        for computed in [
+            r#"animation-play-state=(frozen ? "paused" : "running")"#,
+            "animation-duration=duration",
+        ] {
+            for attrs in [
+                format!("{literal} {computed}"),
+                format!("{computed} {literal}"),
+            ] {
+                let src = format!(
+                    r#"keyframes spin
+  to rotate="360deg"
+keyframes fade
+  to opacity=0
+component A
+  state frozen = false
+  state duration = "3s"
+  view
+    column {attrs}
+"#
+                );
+                let error = contract::compile(&src).unwrap_err();
+                assert_eq!(error.id, "lower-animation-longhand", "{error}");
+                assert_eq!(
+                    error.message,
+                    format!(
+                        "`{name}` is a list, and another part is computed: a computed animation is one animation"
+                    )
+                );
+                assert_eq!(error.span.line, 9);
+                assert_eq!(error.span.col as usize, 12 + attrs.find(literal).unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn literal_longhands_keep_the_shorthand_list() {
+    for (longhand, paused) in [("", false), (r#"animation-play-state="paused""#, true)] {
+        let r = boot(&format!(
+            r#"keyframes spin
+  to rotate="360deg"
+keyframes fade
+  to opacity=0
+component A
+  view
+    column testId="a" animation="spin 1s linear infinite, fade 2s" {longhand}
+"#
+        ));
+        let k = r.kernel();
+        let animations = &k
+            .node_by_key(k.find_by_test_id("a")[0])
+            .unwrap()
+            .style
+            .animation;
+        assert_eq!(
+            animations
+                .0
+                .iter()
+                .map(|a| (a.name.as_str(), a.duration, a.paused))
+                .collect::<Vec<_>>(),
+            [("spin", 1.0, paused), ("fade", 2.0, paused)]
+        );
+        assert!(animations.0[0].iterations.is_infinite());
+    }
+}
+
+#[test]
 fn a_computed_part_composes_one_animation() {
     let r = boot(
         "keyframes spin\n  to opacity=0\ncomponent A\n  state frozen = true\n  view\n    column testId=\"b\" animation=\"spin 1s linear infinite\" animation-play-state=(frozen ? \"paused\" : \"running\")\n",

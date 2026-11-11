@@ -729,6 +729,12 @@ impl Lowerer<'_> {
         } else {
             // One animation, its parts in shorthand order; a literal list
             // cannot be combined with a computed part.
+            if let Some(s) = short.filter(|_| base.len() > 1) {
+                return Err(bad(
+                    s.span,
+                    "`animation` is a list, and another part is computed: a computed animation is one animation".into(),
+                ));
+            }
             let defaults = base.into_iter().next().unwrap_or_default();
             let mut parts = Vec::new();
             for (i, name) in LONGHANDS.iter().enumerate() {

@@ -2921,6 +2921,10 @@ function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+Computed animation longhands cannot accompany a literal list in `animation` or
+another longhand. For a list that changes with state, compute the complete `animation`
+shorthand, including each animation's play state or duration.
+
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
 node's content box, `button` and `buttons`, `pressure`, `pointerType`,

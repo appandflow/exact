@@ -1,6 +1,7 @@
 # A computed animation longhand beside an `animation` list silently drops every animation after the first
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A literal animation shorthand list beside a computed longhand is refused with lower-animation-longhand instead of losing later animations.
 **Systems:** contract/lower/src/svg.rs (`compose_animation`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
