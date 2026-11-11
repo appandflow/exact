@@ -1,6 +1,7 @@
 # Copy Plain Text reads the selection as a document of its own, so part of a code block or of inline code loses its `*`, `_` and `#`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `plain_range` now applies the whole source's skips (hidden markers, fences, atoms, glyphs) to the selected range, as `plain_with` does for the whole, instead of reparsing the fragment with atoms as private-use stand-ins.
 **Systems:** markdown/src/segment.rs (`plain_range`), markdown/editor/src/editor.rs, host/web/markup-editor.js, host/apple/Sources/ExactKit (TextAreaMac.swift, TextAreaIOS.swift)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
