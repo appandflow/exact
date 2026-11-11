@@ -1,6 +1,7 @@
 # Space does not toggle a focused checkbox or switch on the painted hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Space at a focused, enabled checkbox or switch runs a click's path, its `press` and then the toggle with `input` and `change`, and Enter still toggles neither.
 **Systems:** host/linux/src/presenter/typing.rs, host/linux/src/presenter/control.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

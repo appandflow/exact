@@ -605,7 +605,7 @@ impl<D: DataSource> Presenter<D> {
     /// A key down at the focused node, by the web's name (`e.key`). Every
     /// `key` handler at or above it hears it first, as a keydown bubbles;
     /// then, unless one called `preventDefault()`, its default action: Enter or Space presses a button and
-    /// Enter a link; Enter submits a single-line input (its `submit`) or
+    /// Enter a link; Space toggles a checkbox; Enter submits a single-line input (its `submit`) or
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
     pub(crate) fn key_down(&mut self, name: &str, now_ms: f64) {

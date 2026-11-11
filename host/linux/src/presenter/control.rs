@@ -54,23 +54,28 @@ impl<D: DataSource> Presenter<D> {
         self.has_shell() || self.agent
     }
 
-    /// A key's default action at a focused file, date or time control:
-    /// Space or Enter does what a click does, its `press` and then its
-    /// picker, as the browser's button in it takes them. False when the key
-    /// clicks nothing at `id`.
+    /// A key's default action at a focused control that a key clicks: what
+    /// a click does there, its `press` and then its default. Space toggles
+    /// a checkbox or a switch, and Enter does not, as in Chrome and the
+    /// WAI-ARIA Authoring Practices' checkbox and switch patterns
+    /// (https://www.w3.org/WAI/ARIA/apg/patterns/checkbox/; LLP 1069.001 D7:
+    /// "Keyboard: Space toggles"); Space or Enter opens a file, date or
+    /// time control's picker, as the browser's button in it takes them.
+    /// False when the key clicks nothing at `id`.
     pub(crate) fn key_click(&mut self, id: ViewId, name: &str, now_ms: f64) -> bool {
         use exact_kernel::ControlKind;
         let Some(node) = self.host.kernel().node(id) else {
             return false;
         };
         let clicks = match ControlKind::of(node.node_type, node.props) {
-            Some(ControlKind::File) => true,
+            Some(ControlKind::Checkbox | ControlKind::Switch) => name == " ",
+            Some(ControlKind::File) => matches!(name, " " | "Enter"),
             Some(ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal) => {
-                self.date_picks()
+                self.date_picks() && matches!(name, " " | "Enter")
             }
             _ => false,
         };
-        if !clicks || !matches!(name, " " | "Enter") {
+        if !clicks {
             return false;
         }
         let press = (self.host.runner().handlers_of(id))

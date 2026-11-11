@@ -117,3 +117,54 @@ fn space_and_enter_at_a_file_or_date_control_click_it() {
         assert!(holds(&p).contains(&Some(date)), "{key:?} opens the date's");
     }
 }
+
+const TOGGLES: &str = r#"component App
+  state on = false
+  state sw = false
+  state role = false
+  state log = ""
+  action saw(v: bool)
+    log = `${log}input:${v} `
+  action flip(v: bool)
+    on = v
+    log = `${log}change:${v} `
+  action flick(v: bool)
+    sw = v
+  action flock(v: bool)
+    role = v
+  action pressed
+    log = `${log}press `
+  view
+    column width=400 height=600
+      input type="checkbox" checked=on input=saw change=flip press=pressed testId="check"
+      input type="checkbox" switch checked=sw change=flick testId="switch"
+      input type="checkbox" role="switch" checked=role change=flock testId="role"
+      input type="checkbox" testId="loose"
+"#;
+
+#[test]
+fn space_toggles_a_focused_checkbox_or_switch_as_a_click_and_enter_does_not() {
+    use exact_runner::Value;
+    let mut p = boot(TOGGLES);
+    let slot = |p: &Presenter<()>, name: &str| p.host.runner().slot(name).cloned();
+    let on = |v: bool| Some(Value::Bool(v));
+    assert_eq!(walk(&mut p, &["Tab", "Enter"]), ["check", "check"]);
+    assert_eq!(slot(&p, "on"), on(false), "Enter toggles no checkbox");
+    p.key_down(" ", 0.);
+    assert_eq!(slot(&p, "on"), on(true));
+    assert_eq!(
+        slot(&p, "log").as_ref().and_then(Value::as_str),
+        Some("press press input:true change:true "),
+        "Enter presses; Space presses, then the toggle's input and change"
+    );
+    for (name, state) in [("switch", "sw"), ("role", "role")] {
+        assert_eq!(walk(&mut p, &["Tab", "Enter"]), [name, name]);
+        assert_eq!(slot(&p, state), on(false), "Enter toggles no {name}");
+        p.key_down(" ", 0.);
+        assert_eq!(slot(&p, state), on(true), "Space toggles the {name}");
+    }
+    // An unbound checkbox keeps its own state.
+    let loose = id(&p, "loose");
+    assert_eq!(walk(&mut p, &["Tab", " "]), ["loose", "loose"]);
+    assert_eq!(p.controls.get(&loose), Some(&true));
+}
