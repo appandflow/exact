@@ -1,6 +1,7 @@
 # The web's split of a long speech result cuts at 16,384 characters, not 16 KB, and can add an empty result
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web speech pieces stay within 16,384 UTF-8 bytes, preserve code points and omit empty split tails.
 **Systems:** packages/speech-recognition/web/index.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
