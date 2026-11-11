@@ -659,17 +659,41 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     (x.computed(y), y.computed(x))
 }
 
-/// What a box whose outer shape is `outer` clips its children to, if
-/// anything. `clip` beside `visible` clips its own axis alone, without the
-/// radius (CSS Overflow 3 §3.1), so the rectangle reaches far past the box on
-/// the visible axis.
-pub(crate) fn overflow_clip(outer: &Shape, (ox, oy): (Overflow, Overflow)) -> Option<Shape> {
+/// What a box whose outer shape is `outer` and whose border is `widths`
+/// (top, right, bottom, left) clips its children to, if anything: its
+/// padding box, with the padding box's radii (CSS Overflow 3 §3.2, the
+/// overflow clip edge), so its border paints over them. `clip` beside
+/// `visible` clips its own axis alone, without the radius (§3.1), so the
+/// rectangle reaches far past the box on the visible axis.
+pub(crate) fn overflow_clip(
+    outer: &Shape,
+    widths: [f32; 4],
+    (ox, oy): (Overflow, Overflow),
+) -> Option<Shape> {
     const FAR: f32 = 1.0e6;
-    let (x, y, w, h) = outer.rect;
+    let padding = inset_sides(outer, widths);
+    let (x, y, w, h) = padding.rect;
     match (ox == Overflow::Visible, oy == Overflow::Visible) {
         (true, true) => None,
-        (false, false) => Some(*outer),
+        (false, false) => Some(padding),
         (true, false) => Some(Shape::rect((x - FAR, y, w + 2.0 * FAR, h))),
         (false, true) => Some(Shape::rect((x, y - FAR, w, h + 2.0 * FAR))),
     }
+}
+
+/// `outer` inset by (top, right, bottom, left), each radius less the two
+/// sides it meets (CSS Backgrounds 3 §5.3: the padding and content edges).
+pub(crate) fn inset_sides(outer: &Shape, [t, r, b, l]: [f32; 4]) -> Shape {
+    let (x, y, w, h) = outer.rect;
+    let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
+    Shape::elliptical(
+        (x + l, y + t, (w - l - r).max(0.0), (h - t - b).max(0.0)),
+        [
+            less(outer.radii[0], l, t),
+            less(outer.radii[1], r, t),
+            less(outer.radii[2], r, b),
+            less(outer.radii[3], l, b),
+        ],
+    )
+    .with_corners(outer.corners)
 }

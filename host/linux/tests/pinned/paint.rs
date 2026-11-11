@@ -329,6 +329,46 @@ fn a_one_axis_clip_leaves_the_other_axis_visible() {
     }
 }
 
+/// CSS Overflow 3 §3.2: a box clips its children at its padding edge, with
+/// the padding box's radii, so its border stays over what they paint.
+#[test]
+fn overflow_clips_at_the_padding_box() {
+    let source = r##"component App
+  view
+    column background-color="#ffffff" padding=20 gap=20 width="100%" height="100%"
+      box testId="a" width=100 height=100 box-sizing="border-box" overflow="hidden" border-style="solid" border-width=10 border-color="#ff0000"
+        box testId="a-child" width=200 height=200 margin-left=-10 margin-top=-10 flex-shrink=0 background-color="#0000ff"
+      box testId="b" width=100 height=100 box-sizing="border-box" overflow="hidden" border-style="solid" border-width=6 border-radius=20 border-color="#ff0000"
+        box width=88 height=88 flex-shrink=0 background-color="#0000ff"
+      scroll testId="c" width=100 height=100 box-sizing="border-box" border-style="solid" border-width=10 border-color="#ff0000"
+        box width=80 height=300 flex-shrink=0 background-color="#0000ff"
+      box testId="d" width=100 height=100 box-sizing="border-box" overflow-x="clip" border-style="solid" border-width=10 border-color="#ff0000"
+        box width=200 height=40 flex-shrink=0 background-color="#0000ff"
+"##;
+    let (red, blue) = ((255, 0, 0), (0, 0, 255));
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let frame = p.frame();
+        let [a, b, c, d] = ["a", "b", "c", "d"].map(|id| rect(&mut p, id));
+        for (at, want, what) in [
+            ((a.0 + 50.0, a.1 + 5.0), red, "a: top border"),
+            ((a.0 + 50.0, a.1 + 50.0), blue, "a: inside"),
+            ((b.0 + 8.0, b.1 + 8.0), red, "b: inner corner"),
+            ((b.0 + 50.0, b.1 + 50.0), blue, "b: inside"),
+            ((c.0 + 50.0, c.1 + 95.0), red, "c: bottom border"),
+            ((c.0 + 50.0, c.1 + 50.0), blue, "c: inside"),
+            ((d.0 + 95.0, d.1 + 30.0), red, "d: right border"),
+            ((d.0 + 50.0, d.1 + 30.0), blue, "d: inside"),
+        ] {
+            assert_eq!(px(&frame, at.0, at.1), want, "{what} ({choice:?})");
+        }
+        // The border is the box's, not the clipped child's.
+        let child = Some(view(&p, "a-child"));
+        assert_ne!(p.hit(a.0 + 50.0, a.1 + 5.0), child, "{choice:?}");
+        assert_eq!(p.hit(a.0 + 50.0, a.1 + 50.0), child, "{choice:?}");
+    }
+}
+
 #[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
     for choice in painters() {

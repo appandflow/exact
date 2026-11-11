@@ -1,6 +1,7 @@
 # The painting host clips `overflow` at the border box, so clipped content paints over the box's own border
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The painter clips a box's children at its padding box with the padding box's radii (`overflow_clip` in `host/linux/src/paint/field.rs`), so the border paints over them; LLP 1001 says so (llp 1fa1e1d4).
 **Systems:** host/linux/src/paint.rs, LLP 1001
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

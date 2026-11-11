@@ -826,7 +826,7 @@ impl<'a> Replay<'a> {
                             );
                         }
                     }
-                    if let Some(shape) = field::overflow_clip(&g.outer, n.axes) {
+                    if let Some(shape) = field::overflow_clip(&g.outer, n.paint.widths, n.axes) {
                         painter.backend.push_clip(&shape, parent);
                         clips.push(clip);
                         let own = bbox(parent, shape.rect);

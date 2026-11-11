@@ -337,21 +337,7 @@ impl BoxPaint {
                 [w[0] + p[0], w[1] + p[1], w[2] + p[2], w[3] + p[3]]
             }
         };
-        let (x, y, w, h) = outer.rect;
-        let [t, r, b, l] = inset;
-        let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
-        Some(
-            Shape::elliptical(
-                (x + l, y + t, (w - l - r).max(0.0), (h - t - b).max(0.0)),
-                [
-                    less(outer.radii[0], l, t),
-                    less(outer.radii[1], r, t),
-                    less(outer.radii[2], r, b),
-                    less(outer.radii[3], l, b),
-                ],
-            )
-            .with_corners(outer.corners),
-        )
+        Some(field::inset_sides(&outer, inset))
     }
     /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
     /// list's first on top (LLP 1077 D4).
@@ -1245,7 +1231,7 @@ impl Painter {
         // Children: clipped by this box when its overflow is not visible,
         // moved by its scroll offset when it scrolls.
         let (ox, oy) = effective_overflow(node);
-        let clip = field::overflow_clip(&surface.outer, (ox, oy));
+        let clip = field::overflow_clip(&surface.outer, paint.widths, (ox, oy));
         let clips = clip.is_some();
         let mut child_rect = clip_rect;
         if let Some(clip) = clip {
