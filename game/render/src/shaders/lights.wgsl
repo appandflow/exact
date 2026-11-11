@@ -35,9 +35,13 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, metallic:
 // A clearcoat and a sheen over the base lobe (`MaterialData::clearcoat`,
 // `sheen_color`), compiled only into the model pipelines that draw them
 // (`MODEL_LAYERED`); elsewhere `layered_brdf` is `brdf`. The model shader sets
-// `surface_layer` before it lights a fragment.
+// `surface_layer` before it lights a fragment: the coat's normal is the
+// geometric one, since no coat normal map applies (KHR_materials_clearcoat,
+// "Clearcoat": the base's normal map does not reach the coat).
 override LAYERED: bool = false;
-struct SurfaceLayer { coat: f32, coat_roughness: f32, sheen_roughness: f32, sheen: vec3<f32> }
+struct SurfaceLayer {
+    coat: f32, coat_roughness: f32, sheen_roughness: f32, sheen: vec3<f32>, normal: vec3<f32>,
+}
 var<private> surface_layer: SurfaceLayer;
 // KHR_materials_clearcoat, "Layering": the coat's Fresnel at NdotV with F0 0.04
 // (ior 1.5), which weights the coat and attenuates the layers under it.
@@ -61,15 +65,16 @@ fn sheen_lambda(cos_theta: f32, alpha: f32) -> f32 {
     return exp(2.0 * sheen_l(0.5, alpha) - sheen_l(1.0 - cos_theta, alpha));
 }
 // The sheen's directional albedo E(NdotV), which KHR_materials_sheen leaves to a
-// table: the curve fit three.js's IBLSheenBRDF uses (Estevez and Kulla,
-// "Production Friendly Microfacet Sheen BRDF", 2017).
+// table: ln E fitted by least squares (weighted by E²) to this lobe's albedo,
+// integrated numerically for roughness 0.07 to 1 and NdotV 0.02 to 1, as a
+// quadratic in NdotV whose coefficients are cubics in 1 / roughness. Within
+// 0.04 of the integral for NdotV ≥ 0.15, 0.09 nearer grazing.
 fn sheen_albedo(nv: f32, roughness: f32) -> f32 {
-    let r2 = roughness * roughness;
-    let low = roughness < 0.25;
-    let a = select(-8.48 * r2 + 14.3 * roughness - 9.95, -339.2 * r2 + 161.4 * roughness - 25.9, low);
-    let b = select(1.97 * r2 - 3.27 * roughness + 0.72, 44.0 * r2 - 23.7 * roughness + 3.26, low);
-    let e = exp(a * nv + b) + select(0.1 * (roughness - 0.25), 0.0, low);
-    return clamp(e, 0.0, 1.0);
+    let x = 1.0 / roughness;
+    let c0 = -0.16762 + x * (0.02951 + x * (0.0052 - 0.00044 * x));
+    let c1 = 0.42056 + x * (-2.67688 + x * (0.29206 - 0.00684 * x));
+    let c2 = -0.97888 + x * (1.56655 + x * (-0.20615 - 0.02498 * x));
+    return min(exp(c0 + nv * (c1 + nv * c2)), 1.0);
 }
 // The base lobe under a sheen, then under a clearcoat, lit from `l`.
 fn layered_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, metallic: f32,
@@ -93,15 +98,19 @@ fn layered_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, m
     let tallest = max(surface_layer.sheen.r, max(surface_layer.sheen.g, surface_layer.sheen.b));
     let scaling = shading(1.0 - tallest * sheen_albedo(nv, surface_layer.sheen_roughness));
     // KHR_materials_clearcoat, "Clearcoat BRDF": GGX with the coat's roughness and
-    // the height-correlated Smith visibility of `brdf`; "Layering":
-    // mix(material, clearcoat_brdf, clearcoat × fresnel).
+    // the height-correlated Smith visibility of `brdf`, about the coat's normal;
+    // "Layering": mix(material, clearcoat_brdf, clearcoat × fresnel).
+    let nc = surface_layer.normal;
+    let cl = max(dot(nc, l), 0.0001);
+    let cv = max(dot(nc, v), 0.0001);
+    let ch = max(dot(nc, h), 0.0);
     let a = surface_layer.coat_roughness * surface_layer.coat_roughness;
     let a2 = a * a;
-    let d0 = nh * nh * (a2 - 1.0) + 1.0;
-    let gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
-    let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
-    let coat = min(a2 / (PI * d0 * d0) * 0.5 / max(gv + gl, 0.00001), SHADING_LIMIT) * max(dot(n, l), 0.0);
-    let fc = surface_layer.coat * coat_fresnel(nv);
+    let d0 = ch * ch * (a2 - 1.0) + 1.0;
+    let gv = cl * sqrt(cv * cv * (1.0 - a2) + a2);
+    let gl = cv * sqrt(cl * cl * (1.0 - a2) + a2);
+    let coat = min(a2 / (PI * d0 * d0) * 0.5 / max(gv + gl, 0.00001), SHADING_LIMIT) * max(dot(nc, l), 0.0);
+    let fc = surface_layer.coat * coat_fresnel(cv);
     return (lobe * scaling + sheen * shading(f32(dot(n, l) > 0.0))) * shading(1.0 - fc) + vec3<shading>(shading(coat * fc));
 }
 fn light_f(at: u32) -> f32 { return bitcast<f32>(light_words[at]); }

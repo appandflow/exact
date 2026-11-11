@@ -707,9 +707,10 @@ pub(crate) struct ModelPipelines {
     pub cache: Option<wgpu::PipelineCache>,
     pub material: wgpu::BindGroupLayout,
     pub instance: wgpu::BindGroupLayout,
-    pub forward: std::sync::Arc<[OnceLock<wgpu::RenderPipeline>; MODEL_GENERAL]>,
+    /// `MODEL_GENERAL` slots, on the heap: built on the stack they overflow a test thread's.
+    pub forward: std::sync::Arc<[OnceLock<wgpu::RenderPipeline>]>,
     /// By class; a layered class's 2048 above its unlayered twin's.
-    pub fallback: [OnceLock<wgpu::RenderPipeline>; 4096],
+    pub fallback: Box<[OnceLock<wgpu::RenderPipeline>]>,
     #[cfg(not(target_arch = "wasm32"))]
     workers: Specializations,
     pub camera_depth: [OnceLock<wgpu::RenderPipeline>; 16],
@@ -823,8 +824,8 @@ impl Pipelines {
                 cache: self.cache.handle.clone(),
                 material,
                 instance,
-                forward: std::sync::Arc::new(std::array::from_fn(|_| OnceLock::new())),
-                fallback: std::array::from_fn(|_| OnceLock::new()),
+                forward: (0..MODEL_GENERAL).map(|_| OnceLock::new()).collect(),
+                fallback: (0..4096).map(|_| OnceLock::new()).collect(),
                 #[cfg(not(target_arch = "wasm32"))]
                 workers: Specializations::default(),
                 camera_depth: std::array::from_fn(|_| OnceLock::new()),
@@ -877,15 +878,16 @@ impl Pipelines {
         }
         {
             let class = key & (4 | 8 | 16 | 64 | PREPASS | MODEL_DIRECT | MODEL_LAYERED);
-            let slot = |class: usize| class & 2047 | usize::from(class & MODEL_LAYERED != 0) << 11;
+            let fallback_index =
+                |class: usize| class & 2047 | usize::from(class & MODEL_LAYERED != 0) << 11;
             #[cfg(target_arch = "wasm32")]
-            let first = family.fallback[slot(class)].get().is_none();
+            let first = family.fallback[fallback_index(class)].get().is_none();
             // Uniform-driven opaque and coverage programs handle live settings.
             // The opaque fallback must retain early depth while a worker specializes it.
-            let coverage =
-                family.fallback[slot(class)].get_or_init(|| make(class | MODEL_GENERAL | 3, false));
+            let coverage = family.fallback[fallback_index(class)]
+                .get_or_init(|| make(class | MODEL_GENERAL | 3, false));
             let opaque = (class & 8 == 0).then(|| {
-                family.fallback[slot(class | 32)]
+                family.fallback[fallback_index(class | 32)]
                     .get_or_init(|| make(class | MODEL_GENERAL | 3 | 32, false))
             });
             let fallback = if key & 32 != 0 {
@@ -1363,14 +1365,14 @@ struct Attempt {
 struct Specializations(std::sync::Mutex<Workers>);
 #[cfg(not(target_arch = "wasm32"))]
 struct Workers {
-    attempts: [Attempt; MODEL_GENERAL],
+    attempts: Box<[Attempt]>,
     handles: Vec<(usize, std::thread::JoinHandle<()>)>,
 }
 #[cfg(not(target_arch = "wasm32"))]
 impl Default for Specializations {
     fn default() -> Self {
         Self(std::sync::Mutex::new(Workers {
-            attempts: [Attempt::default(); MODEL_GENERAL],
+            attempts: vec![Attempt::default(); MODEL_GENERAL].into_boxed_slice(),
             handles: Vec::new(),
         }))
     }

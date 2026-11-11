@@ -963,7 +963,7 @@ fn a_new_local_resolution_replaces_the_layers() {
 /// (`MaterialData::unlit`, issue #100): a colour of its base plus its
 /// emission, which lights and the view change when it is lit. With them
 /// (issue #98), a rough red base: plain (1), under a clear coat (2) or with a
-/// sheen (3).
+/// sheen (3); or a black base emitting red, plain (4) or under a coat (5).
 #[derive(Default, Args)]
 struct Quad {
     mode: u32,
@@ -1013,11 +1013,20 @@ impl Game for UnlitQuad {
                         }
                     } else {
                         MaterialData {
-                            base_color: [0.5, 0.02, 0.02, 1.],
+                            base_color: if args.layers < 4 {
+                                [0.5, 0.02, 0.02, 1.]
+                            } else {
+                                [0., 0., 0., 1.]
+                            },
+                            emissive: if args.layers < 4 {
+                                [0.; 3]
+                            } else {
+                                [0.8, 0., 0.]
+                            },
                             metallic: 0.,
                             roughness: 1.,
                             alpha_mode: mode,
-                            clearcoat: if args.layers == 2 { 1. } else { 0. },
+                            clearcoat: if matches!(args.layers, 2 | 5) { 1. } else { 0. },
                             clearcoat_roughness: 0.05,
                             sheen_color: if args.layers == 3 { [1.; 3] } else { [0.; 3] },
                             sheen_roughness: 0.5,
@@ -1145,13 +1154,13 @@ fn quad_centre(gpu: &Gpu, [mode, light, view]: [u32; 3], unlit: bool, layers: u3
         shader_generation: 0,
         headroom: 1.0,
     };
-    let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+    let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());
     pixels.at(32, 32)
 }
 
-/// A clear coat adds a sharp highlight over a rough base, and a sheen light at
-/// grazing angles (`MaterialData::clearcoat`, `sheen_color`; issue #98).
+/// A clear coat adds a sharp highlight over a rough base and darkens emission
+/// under it, and a sheen adds light at grazing angles (`MaterialData::clearcoat`, `sheen_color`; issue #98).
 #[test]
 fn a_clear_coat_and_a_sheen_add_their_lobes_to_a_rough_base() {
     let Some(gpu) = gpu() else { return };
@@ -1166,4 +1175,8 @@ fn a_clear_coat_and_a_sheen_add_their_lobes_to_a_rough_base() {
         sheen > grazing.saturating_add(20),
         "sheen: {grazing} -> {sheen}"
     );
+    // The coat's Fresnel darkens emission under it, at a grazing view most.
+    let red = |layers: u32| quad_centre(&gpu, [0, 0, 2], false, layers)[0];
+    let (bare, coated) = (red(4), red(5));
+    assert!(coated + 10 < bare, "emission: {bare} -> {coated}");
 }

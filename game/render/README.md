@@ -539,16 +539,19 @@ SSAO, a screen effect, still darkens an opaque unlit surface.
 material, and `sheen_color` and `sheen_roughness` a sheen under it, as glTF's
 `KHR_materials_clearcoat` and `KHR_materials_sheen` (and three.js's
 `MeshPhysicalMaterial`) define them; all four default to zero, which is no
-layer. The coat is a second GGX lobe with F0 0.04 at its own roughness; its
-Fresnel at the view angle weights it and attenuates everything under it. The
-sheen is a Charlie lobe (roughness squared, Charlie visibility), and the base
-under it is scaled by one less the sheen's brightest channel times its
-directional albedo. Both reach the sun, the fill, local lights and the
-environment: the coat reflects the prefiltered environment at its roughness,
-the sheen its diffuse irradiance. Toon (matte) models draw neither. The bake
-reads both extensions' factors; a model that uses either extension's textures
+layer. The coat is a second GGX lobe with F0 0.04 at its own roughness, about
+the geometric normal (a base normal map does not reach it); its Fresnel at the
+view angle weights it and attenuates everything under it, emission included.
+The sheen is a Charlie lobe (roughness squared, Charlie visibility), and the
+base under it is scaled by one less the sheen's brightest channel times the
+lobe's directional albedo, a fit to its numerical integral. Both reach the
+sun, the fill, local lights and the environment: the coat reflects the
+prefiltered environment at its roughness, the sheen its diffuse irradiance.
+Toon (matte) models and unlit materials draw neither. The bake reads both
+extensions' factors; a model that uses either extension's textures
 (`clearcoatTexture`, `clearcoatRoughnessTexture`, `clearcoatNormalTexture`,
-`sheenColorTexture`, `sheenRoughnessTexture`) is refused by name.
+`sheenColorTexture`, `sheenRoughnessTexture`) is refused by name, and so is one
+that lists either extension as required, which the glTF reader does not accept.
 
 A material with either layer draws in a *layered* pipeline, a variant key bit
 (`MODEL_LAYERED`) beside the others above, made on first use like them and with

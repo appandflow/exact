@@ -52,16 +52,18 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
 // 1 - max3(sheenColor) E(NdotV) (KHR_materials_sheen, "Albedo-scaling technique").
 fn layered_ambient(n:vec3<f32>, v:vec3<f32>, lobe:vec3<shading>) -> vec3<shading> {
     let nv=max(dot(n,v),0.0001);
+    let nc=surface_layer.normal;
+    let cv=max(dot(nc,v),0.0001);
     let strength=shading(frame.zenith_ambient.w);
     let albedo=sheen_albedo(nv,surface_layer.sheen_roughness);
     let e=select(irradiance(n),max(sh(0u),vec3<shading>(0.0)),UNIFORM_AMBIENT);
     let sheen=e*vec3<shading>(surface_layer.sheen)*shading(albedo)*strength;
     let tallest=max(surface_layer.sheen.r,max(surface_layer.sheen.g,surface_layer.sheen.b));
-    let ab=environment_brdf(shading(surface_layer.coat_roughness),shading(nv));
-    let direction=select(reflect(-v,n),vec3(0.0,1.0,0.0),UNIFORM_AMBIENT);
+    let ab=environment_brdf(shading(surface_layer.coat_roughness),shading(cv));
+    let direction=select(reflect(-v,nc),vec3(0.0,1.0,0.0),UNIFORM_AMBIENT);
     let radiance=vec3<shading>(textureSampleLevel(environment_radiance,environment_sampler,direction,surface_layer.coat_roughness*ENVIRONMENT_LODS).rgb);
     let coat=radiance*(shading(0.04)*ab.x+ab.y)*strength*shading(surface_layer.coat);
-    let fc=surface_layer.coat*coat_fresnel(nv);
+    let fc=surface_layer.coat*coat_fresnel(cv);
     return (lobe*shading(1.0-tallest*albedo)+sheen)*shading(1.0-fc)+coat;
 }
 // An unlit material (`MaterialData::unlit`): its base and emission, which no
@@ -100,12 +102,16 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     // The colour in `shading` (frame.wgsl): f16 where the device has it.
     let albedo=vec3<shading>(base.rgb);
     var environment=ambient(n,v,albedo,metallic,roughness);
+    var emitted=vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission);
     if LAYERED && !MATTE {
         // The roughness floors keep the coat's GGX peak and the sheen's 1/alpha finite.
-        surface_layer=SurfaceLayer(clamp(baked.coat.x,0.0,1.0),clamp(baked.coat.y,0.045,1.0),clamp(baked.coat.z,0.07,1.0),max(baked.sheen.rgb,vec3(0.0)));
+        let coat_normal=normalize(input.normal)*select(-1.0,1.0,front);
+        surface_layer=SurfaceLayer(clamp(baked.coat.x,0.0,1.0),clamp(baked.coat.y,0.045,1.0),clamp(baked.coat.z,0.07,1.0),max(baked.sheen.rgb,vec3(0.0)),coat_normal);
         environment=layered_ambient(n,v,environment);
+        // KHR_materials_clearcoat, "Emission": the coat darkens what the base emits.
+        emitted*=shading(1.0-surface_layer.coat*coat_fresnel(max(dot(coat_normal,v),0.0001)));
     }
-    var color=environment*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
+    var color=environment*shading(ao)+emitted+vec3<shading>(input.glow.xyz);
     if frame.sun_direction_illuminance.w>0.0 {
         color+=layered_brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility*water_caustics(input.world));
     }

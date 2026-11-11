@@ -126,6 +126,12 @@ fn clearcoat_and_sheen_bake_their_factors_and_refuse_their_textures() {
             "{error}"
         );
     }
+    for extension in ["KHR_materials_clearcoat", "KHR_materials_sheen"] {
+        let mut required = v.clone();
+        required["extensionsRequired"] = json!([extension]);
+        let error = bake(required).unwrap_err();
+        assert!(error.contains(extension), "{error}");
+    }
 }
 #[test]
 fn permitted_extensions_are_baked_per_texture() {
