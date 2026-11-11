@@ -1,6 +1,7 @@
 # Apple Canvas 2D draws a camera photo unrotated: its image decode ignores EXIF orientation
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Canvas image handles decode at full size with EXIF orientation applied to pixels and reported dimensions.
 **Systems:** host/apple/Sources/ExactSurfaces/Canvas2DImage.swift, Canvas 2D images (LLP 1056 D9)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

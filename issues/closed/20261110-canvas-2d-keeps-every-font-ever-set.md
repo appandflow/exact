@@ -1,6 +1,7 @@
 # Apple Canvas 2D keeps every font a list ever set, and a recorded canvas copies them all each frame
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Canvas fonts live with replay state and kept lists, and the measurement cache holds at most 256 entries.
 **Systems:** host/apple/Sources/ExactSurfaces/Canvas2DImage.swift, host/apple/Sources/ExactSurfaces/Canvas2DText.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
