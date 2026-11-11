@@ -1,6 +1,7 @@
 # A shadowed local light's first shadow layer draws the wrong casters from a draw group of 961 instances or more
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Local shadow culls keep every visible caster in large draw groups without camera depth sorting.
 **Systems:** game/render/src/renderer/local.rs, game/render/src/cull.rs, game/render/src/shaders/cull.wgsl
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

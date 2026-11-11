@@ -1,6 +1,6 @@
 //! Local light shadows: the frame's plan, its depth layers and their culls.
 use super::*;
-use crate::cull::{Cull, KEEP_ALL};
+use crate::cull::{Cull, KEEP_ALL, UNSORTED};
 
 /// A cull over up to four local shadow views and the scene groups over its lists.
 pub(crate) struct LocalCull {
@@ -104,7 +104,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .iter()
             .any(|l| !l.cull.groups.is_empty() && l.cull.stale())
     }
-    /// Upload the main setup's words, with each group's view flags, to each local cull.
+    /// Reuse the main setup with local view flags and no camera depth sorting.
     pub(super) fn local_setups(&mut self, words: &[u32], items: u32, records: u32, skins: u32) {
         for local in &mut self.local_culls {
             if local.cull.groups.is_empty() {
@@ -113,9 +113,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             local.cull.begin_setup();
             local.cull.words.extend_from_slice(words);
             for (index, group) in local.cull.groups.iter().enumerate() {
-                let at = index * crate::cull::GROUP_WORDS + 7;
-                local.cull.words[at] =
-                    (local.cull.words[at] & !(15 | crate::cull::OUTLINE)) | (group.flags & 15);
+                let at = index * crate::cull::GROUP_WORDS;
+                local.cull.words[at + 7] =
+                    (local.cull.words[at + 7] & !(15 | crate::cull::OUTLINE)) | (group.flags & 15);
+                local.cull.words[at + 13] = UNSORTED;
             }
             local
                 .cull
