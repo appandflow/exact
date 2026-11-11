@@ -604,7 +604,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, `component`, or `members`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `atom`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, `component`, or `members`, found {}",
                         describe(other)
                     ),
                     );

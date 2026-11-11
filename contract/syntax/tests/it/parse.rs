@@ -353,6 +353,21 @@ fn rejections_carry_stable_ids_and_spans() {
 }
 
 #[test]
+fn unknown_declarations_name_atom_among_expected_forms() {
+    let err = parse("banana\ncomponent App\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(err.id, "syntax-expected-declaration");
+    assert_eq!((err.span.line, err.span.col), (1, 1));
+    assert_eq!(
+        err.message,
+        concat!(
+            "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `atom`, ",
+            "`keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, ",
+            "`component`, or `members`, found `banana`"
+        )
+    );
+}
+
+#[test]
 fn an_unexpected_character_is_named_whole_and_spans_its_bytes() {
     for (c, len) in [("@", 1), ("é", 2), ("—", 3), ("🙂", 4)] {
         let src = format!("component A\n  view\n    text {c} x\n");

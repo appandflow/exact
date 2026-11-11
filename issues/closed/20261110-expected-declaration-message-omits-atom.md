@@ -1,6 +1,7 @@
 # The refusal of an unknown top-level word lists the declarations a file may hold and leaves out `atom`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The expected-declaration diagnostic lists atom beside decoration among the accepted top-level declarations.
 **Systems:** contract/syntax/src/parser.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
