@@ -155,7 +155,7 @@ impl Namespace {
                 let path = directory.join(filename);
                 let existed = path.exists();
                 let mut file = options.open(path).map_err(|e| e.to_string())?;
-                match file.try_lock() {
+                match crate::try_lock(&file) {
                     Ok(()) => {}
                     Err(std::fs::TryLockError::WouldBlock) => return Ok(None),
                     Err(error) => return Err(error.to_string()),
