@@ -433,8 +433,9 @@ contact edges in the order they happened (`PointerEdge`: `id`, `phase`, `positio
 is not an edge. A down and up in one tick are two edges, and the contact stays in
 `pointers()` with `down: false` for that tick only. A blur cancels every contact. Input
 applied while the game is paused leaves no edge, so a finger lifted during a pause never
-reads as a tap. A save holds the contacts down with their origins and no edges. Each
-finger holds the die under it:
+reads as a tap; nor does an Up or a blur then, so a hold ends when its contact is no
+longer down in `pointers()`, not at an edge. A save holds the contacts down with their
+origins and no edges. Each finger holds the die under it:
 
 ```rust
 use exact_game::*;
@@ -452,8 +453,11 @@ fn tick(w: &mut World, input: &Input, _: &()) {
             }
         }
     }
+    // A finger no longer down lets go, though it lifted during a pause.
+    let down = |id| input.pointers().iter().any(|p| p.id == id && p.down);
+    w.resource_mut::<Grabs>().0.retain(|g| down(g.finger));
     let grabs = w.resource::<Grabs>().0.clone();
-    for p in input.pointers().iter().filter(|p| p.down) {
+    for p in input.pointers() {
         if let Some(g) = grabs.iter().find(|g| g.finger == p.id) {
             drag_to(w, g.die, input.viewport(), p.position);
         }

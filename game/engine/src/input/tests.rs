@@ -724,3 +724,9 @@ fn queued_ui_contact_continues_identically_in_a_fresh_simulation() {
         assert_eq!(sim.save().unwrap(), restored.save().unwrap());
     }
 }
+#[test]
+#[should_panic(expected = "an action needs a name")]
+fn an_unnamed_action_is_refused_at_declaration() {
+    // A control of no name would be indistinguishable from a raw pointer contact.
+    let _ = Actions::new().button("", &[]);
+}

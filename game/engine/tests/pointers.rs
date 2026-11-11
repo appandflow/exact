@@ -12,7 +12,7 @@ struct Seen {
 #[derive(Default, Resource)]
 struct Log(Vec<Seen>);
 #[derive(Default, Args)]
-struct Options {
+pub struct Options {
     #[live]
     paused: bool,
 }
@@ -274,28 +274,37 @@ fn save_and_restore_keep_active_origins_without_stale_edges() {
     restored.advance(5000., Clock::Seekable);
     restored.restore(&saved).unwrap();
     assert_eq!(restored.save().unwrap(), saved);
-    for (game, epoch) in [(&mut s, TICK), (&mut restored, 5000.)] {
+    // The restored game's first advance sets its new epoch and runs no tick.
+    restored.advance(5000. + TICK, Clock::Seekable);
+    let mut tails = Vec::new();
+    for (game, epoch) in [(&mut s, 0.), (&mut restored, 5000.)] {
         let before = game.world().resource::<Log>().0.len();
-        game.advance(epoch + TICK, Clock::Seekable);
         game.advance(epoch + 2. * TICK, Clock::Seekable);
         touch(game, 2, PointerPhase::Up, 35., epoch + 2. * TICK + 10.);
         game.advance(epoch + 3. * TICK, Clock::Seekable);
-        let log = &game.world().resource::<Log>().0[before..];
-        let (last, held) = log.split_last().unwrap();
-        assert!(!held.is_empty());
-        for next in held {
-            assert!(next.edges.is_empty(), "no edge is replayed");
-            assert_eq!(
-                next.pointers,
-                [
-                    contact(1, 10., 10., true, 0.),
-                    contact(2, 20., 30., true, 0.)
-                ]
-            );
-        }
+        let log = game.world().resource::<Log>().0[before..].to_vec();
+        let [held, last] = &log[..] else {
+            panic!("two ticks ran, not {}", log.len());
+        };
+        assert!(held.edges.is_empty(), "no edge is replayed");
+        assert_eq!(
+            held.pointers,
+            [
+                contact(1, 10., 10., true, 0.),
+                contact(2, 20., 30., true, 0.)
+            ]
+        );
         assert_eq!(edges(last), [(2, PointerPhase::Up)]);
+        assert_eq!(last.edges[0].world_us, 210_000);
         assert_eq!(last.pointers[1], contact(2, 20., 35., false, 0.));
+        tails.push(
+            log.iter()
+                .map(|t| (t.tick, t.pointers.clone(), t.edges.clone()))
+                .collect::<Vec<_>>(),
+        );
     }
+    assert_eq!(tails[0], tails[1]);
+    assert_eq!(s.save().unwrap(), restored.save().unwrap());
 }
 #[test]
 fn paused_input_causes_no_delayed_tap() {
@@ -357,12 +366,12 @@ fn mouse_hover_and_secondary_buttons_keep_the_primary_pointer() {
 mod grab {
     use exact_game::*;
     #[derive(Clone, Default, Data)]
-    struct Grab {
+    pub struct Grab {
         finger: u64,
         die: Entity,
     }
     #[derive(Default, Resource)]
-    struct Grabs(Vec<Grab>);
+    pub struct Grabs(pub Vec<Grab>);
     pub struct Dice;
     fn die_under(w: &World, _viewport: Vec2, at: Vec2) -> Option<Entity> {
         ["a", "b", "c"]
@@ -376,14 +385,17 @@ mod grab {
     impl Game for Dice {
         const ID: &'static str = "grab";
         const HZ: u32 = 10;
-        type Args = ();
-        fn setup(w: &mut World, _: &()) {
+        type Args = super::Options;
+        fn setup(w: &mut World, _: &super::Options) {
             w.insert_resource(Grabs::default());
             for (name, x) in [("a", 0.), ("b", 100.), ("c", 200.)] {
                 w.spawn_named(name, (Transform::at(x, 0., 0.),));
             }
         }
-        fn tick(w: &mut World, input: &Input, _: &()) {
+        fn paused(args: &super::Options) -> bool {
+            args.paused
+        }
+        fn tick(w: &mut World, input: &Input, _: &super::Options) {
             for e in input.pointer_events() {
                 w.resource_mut::<Grabs>().0.retain(|g| g.finger != e.id);
                 if e.phase == PointerPhase::Down {
@@ -392,8 +404,11 @@ mod grab {
                     }
                 }
             }
+            // A finger no longer down lets go, though it lifted during a pause.
+            let down = |id| input.pointers().iter().any(|p| p.id == id && p.down);
+            w.resource_mut::<Grabs>().0.retain(|g| down(g.finger));
             let grabs = w.resource::<Grabs>().0.clone();
-            for p in input.pointers().iter().filter(|p| p.down) {
+            for p in input.pointers() {
                 if let Some(g) = grabs.iter().find(|g| g.finger == p.id) {
                     drag_to(w, g.die, input.viewport(), p.position);
                 }
@@ -403,7 +418,7 @@ mod grab {
 }
 #[test]
 fn each_finger_holds_the_die_under_it() {
-    let mut s = Sim::<grab::Dice>::new(()).unwrap();
+    let mut s = Sim::<grab::Dice>::new(Options::default()).unwrap();
     s.advance(0., Clock::Seekable);
     let x = |s: &Sim<grab::Dice>, name: &str| s.get::<Transform>(name).unwrap().position.x;
     s.input(event(1, PointerPhase::Down, 2., 0, 10.));
@@ -419,4 +434,25 @@ fn each_finger_holds_the_die_under_it() {
     s.input(event(1, PointerPhase::Move, 120., 0, 240.));
     s.advance(300., Clock::Seekable);
     assert_eq!((x(&s, "a"), x(&s, "b"), x(&s, "c")), (40., 120., 300.));
+    // Finger 1 lifts and its id lands again on no die: it holds nothing.
+    s.input(event(1, PointerPhase::Up, 120., 0, 310.));
+    s.input(event(1, PointerPhase::Down, 160., 0, 320.));
+    s.input(event(1, PointerPhase::Move, 170., 0, 330.));
+    s.advance(400., Clock::Seekable);
+    assert_eq!(x(&s, "b"), 120.);
+    s.input(event(1, PointerPhase::Up, 170., 0, 410.));
+    s.input(event(1, PointerPhase::Down, 118., 0, 420.));
+    s.advance(500., Clock::Seekable);
+    assert_eq!(s.world().resource::<grab::Grabs>().0.len(), 2);
+    // Both fingers lift while the game is paused: neither holds a die after.
+    s.bind(&[Value::Bool(true)], None).unwrap();
+    s.input(event(1, PointerPhase::Up, 118., 0, 510.));
+    s.input(InputEvent::Blur {
+        at_ms: 520.,
+        player: 0,
+    });
+    s.advance(600., Clock::Seekable);
+    s.bind(&[Value::Bool(false)], None).unwrap();
+    s.advance(700., Clock::Seekable);
+    assert!(s.world().resource::<grab::Grabs>().0.is_empty());
 }

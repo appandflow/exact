@@ -172,6 +172,8 @@ impl Actions {
         Self::default()
     }
     fn add(&mut self, a: Action) {
+        // An unnamed action would read as a raw pointer contact (`Contact::action`).
+        assert!(!a.name.is_empty(), "an action needs a name");
         assert!(
             !self.entries.iter().any(|old| old.name == a.name),
             "duplicate action `{}`",
