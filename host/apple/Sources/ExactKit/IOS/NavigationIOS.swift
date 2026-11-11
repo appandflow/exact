@@ -566,6 +566,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             accessoryView?.addSubview(picture)
             accessorySnapshot = picture
         }
+        // A pop the app follows before UIKit ends it (`followDecidedPop`) is no longer the top, and
+        // the zoom's tail still draws it. Its picture is added outside the tail's animation, which
+        // would otherwise grow it from nothing while the route shows blank.
+        if let leaving = decidedPop, batch.ops.contains(where: { $0.op == .destroy && $0.id == leaving.node.id }) {
+            UIView.performWithoutAnimation { leaving.freeze() }
+        }
         guard let top = navigation?.topViewController as? RouteController else { return }
         if batch.ops.contains(where: { $0.op == .destroy && $0.id == top.node.id }) {
             top.freeze()

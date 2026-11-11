@@ -136,6 +136,23 @@ final class NavigationPopIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [8], "the pop's end adds no Back")
     }
 
+    /// The app followed the zoom's pop before UIKit ended it, which still draws Zoomed for the tail:
+    /// Zoomed keeps its picture, at its full size. A swipe's pop is followed inside UIKit's animation.
+    func testAFollowedZoomPopKeepsTheRoutesPictureForTheTail() throws {
+        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
+        let s = try stack("zoom-tail-picture")
+        zoomed(s)
+        let route = try XCTUnwrap(s.nav.topViewController)
+        s.session.presenter.onPress = { _ in self.backFromZoomed(s) }
+        s.nav.popViewController(animated: true)
+        until("UIKit starts the pop") { s.session.presenter.navigation.decidedPop != nil }
+        let before = route.view.subviews
+        UIView.animate(withDuration: 0.5) { s.session.presenter.navigation.followDecidedPop() }
+        let picture = try XCTUnwrap(route.view.subviews.first { !before.contains($0) }, "Zoomed's picture")
+        XCTAssertEqual(picture.frame, route.view.bounds)
+        until("the pop ends") { s.nav.transitionCoordinator == nil }
+    }
+
     /// An interactive pop of Log, noted as a zoom's. UIKit runs a route with a `preferredTransition`
     /// by its own zoom, past the test's interaction, and only a finger drives that: so Log takes
     /// one once its pop is under way, and the coordinator is the live one, cancelled or finished.
