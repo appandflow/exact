@@ -951,6 +951,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
         }
 
+        /// Nearest logical collection snap position, or NaN when absent.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_snap(rt: u32, view: u32, proposed: f64, port: f64, maximum: f64, distance: f64) -> f64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_snap(view, proposed, port, maximum, distance), |_| f64::NAN)
+        }
+
         /// Copy logical text without materializing native views. Input is
         /// two concatenated UTF-8 row keys; first_len == 0 means all text.
         #[no_mangle]

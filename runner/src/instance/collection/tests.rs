@@ -14,6 +14,8 @@ mod position;
 mod rekey;
 #[path = "smooth_tests.rs"]
 mod smooth;
+#[path = "snap_tests.rs"]
+mod snap;
 #[path = "text_tests.rs"]
 mod text;
 

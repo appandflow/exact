@@ -647,6 +647,9 @@ const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t 
 void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
+/* Read a local row-root snap without mounting views; NaN when absent.
+ * distance is the nearest mounted target's distance, infinity when absent. */
+double exact_collection_snap(ExactRuntime rt, uint32_t view, double proposed, double port, double maximum, double distance);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);
