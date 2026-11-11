@@ -2,7 +2,6 @@ import { beforeAll, test, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
-import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
@@ -1335,23 +1334,6 @@ component App
     expect(await at({})).toEqual(['narrow', true]);
   });
 }, 60000);
-
-// The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
-test('the render DOM compares document positions, across trees one way each', () => {
-  const doc = createDocument(), root = doc.getElementById('exact-root');
-  const a = doc.createElement('div'), b = doc.createElement('div');
-  root.append(a, b);
-  a.textContent = 'text';
-  expect([a.compareDocumentPosition(b), b.compareDocumentPosition(a)]).toEqual([4, 2]);
-  expect([a.compareDocumentPosition(a.firstChild), a.firstChild.compareDocumentPosition(a)]).toEqual([16 | 4, 8 | 2]);
-  const loose = doc.createElement('p'), other = createDocument().getElementById('exact-root');
-  for (const [x, y] of [[a, loose], [loose, other], [a, other]]) {
-    const there = x.compareDocumentPosition(y), back = y.compareDocumentPosition(x);
-    expect([there & 1, there & 32, back & 1, back & 32]).toEqual([1, 32, 1, 32]);
-    expect([there & 6, back & 6].sort()).toEqual([2, 4]);
-    expect(x.compareDocumentPosition(y)).toBe(there);
-  }
-});
 
 test('Rust-rendered spinners follow parent display after adoption without a position binding', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');

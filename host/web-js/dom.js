@@ -108,6 +108,10 @@ class Element extends Node {
   // Read only (symbols.js `tinted`): the class attribute's names.
   get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
+  get rel() { return this.getAttribute('rel') ?? ''; }
+  set rel(v) { this.setAttribute('rel', v); }
+  get alt() { return this.getAttribute('alt') ?? ''; }
+  set alt(v) { this.setAttribute('alt', v); }
   html(inheritedFont = 16) {
     // Symbol images need a real natural size before adoption: the element's
     // font size, from its static class or live inline row, else inherited.

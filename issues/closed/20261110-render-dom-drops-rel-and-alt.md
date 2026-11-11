@@ -1,6 +1,7 @@
 # A page rendered under Bun loses the `rel` of a bound link and the `alt` of a bound symbol, and the adopted link then keeps `target="_blank"` for an app path
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Bun render DOM reflects rel and alt, so adopted bound links clear automatic targets for app paths and unnamed symbols are decorative from first paint.
 **Systems:** host/web-js/dom.js, host/web-js/rt.js, host/web-js/symbols.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
