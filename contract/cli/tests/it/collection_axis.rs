@@ -17,6 +17,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         "list virtualized=true display=\"flex\" flex-direction=\"row\" height=132 overflow-x=\"scroll\"",
         "list virtualized=true display=\"flex\" height=132 padding-top=8 padding-bottom=8 justify-content=\"flex-start\" flex-wrap=\"nowrap\"",
         "list virtualized=true display=\"flex\" height=132 padding-left=16 padding-right=\"env(safe-area-inset-right)\"",
+        "list virtualized=true display=\"flex\" height=132 gap=8",
         "list virtualized=true display=\"block\" height=132 estimated-item-height=40",
     ] {
         contract::compile(&source(list)).unwrap_or_else(|e| panic!("{list}: {e}"));
@@ -55,7 +56,11 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
             "lower-collection-flow",
         ),
         (
-            "list virtualized=true display=\"flex\" height=132 gap=8",
+            "list virtualized=true display=\"flex\" height=132 gap=(4 * 2)",
+            "lower-collection-flow",
+        ),
+        (
+            "list virtualized=true display=\"block\" height=132 gap=8",
             "lower-collection-flow",
         ),
         (
@@ -219,6 +224,42 @@ fn a_row_list_is_horizontal_its_wrappers_are_flex_items_and_its_spacers_widths()
 }
 
 #[test]
+fn a_row_list_with_a_gap_lays_its_cards_where_css_does() {
+    let mut r = boot(&format!("{STRIP} gap=14"));
+    let c = r.collections().pop().unwrap();
+    // 1,000 cards of 100 and the 999 gaps between them.
+    assert_eq!(c.total_extent, 1000.0 * 114.0 - 14.0);
+    report(&mut r, 50_000.0, |_| 100.0);
+    let c = r.collections().pop().unwrap();
+    let first = &c.rows[0];
+    assert_eq!(first.start, first.index as f64 * 114.0);
+    assert_eq!(first.size, 100.0);
+    assert_eq!(c.total_extent, 1000.0 * 114.0 - 14.0);
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(390.0, 844.0))
+        .unwrap();
+    let k = r.kernel();
+    let list = k.node(c.view).unwrap();
+    // The spacer and the list's own gap after it bring the first card to
+    // its start; each card is a gap past the one before.
+    let spacer = k.node(list.children()[0]).unwrap();
+    assert_eq!(spacer.frame.width as f64 + 14.0, first.start);
+    let (a, b) = (
+        k.node(c.rows[0].view).unwrap(),
+        k.node(c.rows[1].view).unwrap(),
+    );
+    assert_eq!(a.frame.x as f64 - list.frame.x as f64, first.start);
+    assert_eq!(b.frame.x - a.frame.x, 114.0);
+    let last = k.node(*list.children().last().unwrap()).unwrap();
+    assert_eq!(
+        (last.frame.x + last.frame.width) as f64 - list.frame.x as f64,
+        c.total_extent,
+        "the trailing spacer ends where the last card would"
+    );
+}
+
+#[test]
 fn a_row_list_anchors_first_measurements_and_lets_a_remeasured_card_move_the_strip() {
     // @ref LLP 1070 Q3 (a).
     let left_of_view = |r: &Runner<Rows>, offset: f64| {
@@ -256,4 +297,26 @@ fn a_row_list_anchors_first_measurements_and_lets_a_remeasured_card_move_the_str
             assert_eq!(corrected, Some(50_100.0), "{list}");
         }
     }
+}
+
+#[test]
+fn a_gapped_row_lists_scroll_into_view_aligns_the_card_not_its_gap() {
+    let source = format!(
+        "component App\n  resource rows = rows() as shape number[]\n  action go\n    scrollIntoView(\"strip\", 10, block=\"end\", inline=\"end\")\n  view\n    column width=390\n      button \"go\" press=go testId=\"go\"\n      {STRIP} gap=14 id=\"strip\" testId=\"strip\"\n        for x in rows key=x\n          text `${{x}}` width=100 testId=`card-${{x}}`\n"
+    );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        Rows,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    report(&mut r, 0.0, |_| 100.0);
+    let go = r.kernel().find_by_test_id("go")[0];
+    let id = r.kernel().node_by_key(go).unwrap().id;
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    let c = r.collections().pop().unwrap();
+    // Card 10 starts at 10 × 114 and ends 100 later, at the port's end.
+    assert_eq!(c.correction.map(|c| c.offset), Some(1140.0 + 100.0 - 390.0));
 }

@@ -35,6 +35,16 @@ fn a_reach_margin_is_a_list_option() {
     assert!(js.contains("reach:\"0px 200%\""), "{js}");
 }
 
+/// list.js reads a row list's `gap` from its options.
+#[test]
+fn a_row_lists_gap_is_a_list_option() {
+    let source = "component App\n  view\n    list virtualized=true display=\"flex\" height=132 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=80 gap=14\n      for x in [1, 2] key=x\n        text `${x}` width=80\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("gap:14,"), "{js}");
+}
+
 /// @ref LLP 1010 §6.11 — list.js reads `keep-mounted` again at each update.
 #[test]
 fn keep_mounted_is_a_list_option_read_again() {

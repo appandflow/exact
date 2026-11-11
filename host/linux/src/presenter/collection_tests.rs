@@ -1032,6 +1032,34 @@ fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
     assert_eq!(virtualized, eager);
 }
 
+#[test]
+fn horizontal_card_boxes_with_a_gap_match_the_eager_strip() {
+    let boxes = |attrs: &str, left: f32| {
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0").replace("rows()", "rows(0, 200)"));
+        settle(&mut p);
+        let view = named(&p, "strip");
+        p.wheel(view, left, 0.).unwrap();
+        settle(&mut p);
+        let at = p.scroll_of(view).0;
+        let shown = (0..200)
+            .filter_map(|n| {
+                let key = *p.host.kernel().find_by_test_id(&format!("c-{n}")).first()?;
+                let id = p.host.kernel().node_by_key(key)?.id;
+                let b = p.box_of(id)?;
+                (b.rect.0 + b.rect.2 > 0. && b.rect.0 < 400.).then_some((n, b.rect))
+            })
+            .collect::<Vec<_>>();
+        (at, shown)
+    };
+    // At a card's middle, and past the end, where the port stops at the last card.
+    for left in [3_000., 100_000.] {
+        let eager = boxes("gap=10", left);
+        let virtualized = boxes("virtualized=true estimated-item-width=94 gap=10", left);
+        assert!(eager.1.len() > 3, "{left}");
+        assert_eq!(virtualized, eager, "{left}");
+    }
+}
+
 fn nested(strip_attrs: &str) -> Presenter<Rows> {
     boot_source(&format!(
         r#"component App
@@ -1371,4 +1399,40 @@ fn the_readers_drag_after_a_keyed_requests_jump_ends_it_where_the_reader_is() {
         into_view(&p)
     );
     assert_eq!(p.scroll_of(feed).1, at + 50.);
+}
+
+#[test]
+fn a_snapping_strips_rests_match_the_eager_strip() {
+    let rests = |attrs: &str, left: f32| {
+        let card = r#"scroll-snap-align="center" flex-shrink=0"#;
+        let source = strip(&format!(r#"{attrs} scroll-snap-type="x mandatory""#), card)
+            .replace("rows()", "rows(0, 200)");
+        let mut p = boot_source(&source);
+        settle(&mut p);
+        let view = named(&p, "strip");
+        p.wheel(view, left, 0.).unwrap();
+        settle(&mut p);
+        let words = p.reader_snaps(&[view], 1.);
+        let mut rests: Vec<f32> = (0..words[1] as usize)
+            .map(|k| f32::from_bits(words[2 + 3 * k] as u32))
+            .collect();
+        rests.sort_by(f32::total_cmp);
+        (p.scroll_of(view).0, rests)
+    };
+    for left in [0., 940.] {
+        let eager = rests("gap=10", left);
+        let virtualized = rests("virtualized=true estimated-item-width=94 gap=10", left);
+        let shown: Vec<f32> = eager
+            .1
+            .iter()
+            .copied()
+            .filter(|r| virtualized.1.contains(r))
+            .collect();
+        assert_eq!(virtualized.0, eager.0, "{left}");
+        assert!(shown.len() >= 3, "{left}: {eager:?} {virtualized:?}");
+        assert_eq!(
+            shown, virtualized.1,
+            "{left}: every mounted card rests where it does in the eager strip"
+        );
+    }
 }

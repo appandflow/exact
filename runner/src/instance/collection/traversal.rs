@@ -289,7 +289,7 @@ impl Tree {
                     root: first_root_bounded(&row.row.roots, &mut roots, max_traversal)?,
                     index: row.position,
                     start: c.index.prefix(row.position).unwrap(),
-                    size: c.index.height(row.position).unwrap(),
+                    size: c.index.height(row.position).unwrap() - c.gap,
                     epoch: row.epoch,
                     measured: c.index.is_measured_at(row.position),
                 });

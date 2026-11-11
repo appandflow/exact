@@ -480,7 +480,7 @@ impl super::Collection {
                     root: super::super::first_root(&row.row.roots).expect("a row has a root"),
                     index: row.position,
                     start: self.index.prefix(row.position).unwrap(),
-                    size: self.index.height(row.position).unwrap(),
+                    size: self.index.height(row.position).unwrap() - self.gap,
                     epoch: row.epoch,
                     measured: self.index.is_measured_at(row.position),
                 })

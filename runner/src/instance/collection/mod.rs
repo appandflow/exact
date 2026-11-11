@@ -160,7 +160,11 @@ pub(crate) struct Collection {
     axis: ListAxis,
     region: RegionsId,
     index: SizeIndex,
+    /// A row's estimated extent, its `gap` after it included.
     estimated_height: f64,
+    /// The list's `gap` along its axis, fixed at creation: each row's extent
+    /// in the index counts it after the row.
+    gap: f64,
     bootstrap_rows: usize,
     /// The list's literal size along its axis, when it declares one.
     declared_port: Option<f64>,
@@ -346,6 +350,8 @@ impl Collection {
         // The list's own literal size on each axis (`height=399`), which
         // bounds the rows its first frame needs: [vertical, horizontal].
         let mut declared: [Option<f64>; 2] = [None, None];
+        // `row-gap` and `column-gap`: [vertical, horizontal].
+        let mut gaps = [0.0; 2];
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
             if binding.kind == BindingKind::Style {
                 use exact_kernel::StyleId;
@@ -360,6 +366,21 @@ impl Collection {
                     if let Value::Number(n) = u.eval(binding.expr, frames)? {
                         if n.is_finite() && n > 0.0 {
                             declared[slot] = Some(declared[slot].map_or(n, |d: f64| d.min(n)));
+                        }
+                    }
+                }
+            }
+            if binding.kind == BindingKind::Style {
+                use exact_kernel::StyleId;
+                let slot = match binding.id {
+                    id if id == StyleId::RowGap as u16 => Some(0),
+                    id if id == StyleId::ColumnGap as u16 => Some(1),
+                    _ => None,
+                };
+                if let Some(slot) = slot {
+                    if let Value::Number(n) = u.eval(binding.expr, frames)? {
+                        if n.is_finite() && n > 0.0 {
+                            gaps[slot] = n;
                         }
                     }
                 }
@@ -447,10 +468,18 @@ impl Collection {
         let inner = traversal::validate_nesting(plan, u.sites, region)?;
         let reuse = reuse::Reuse::new(plan, u.sites, region);
         let nested = inner.is_some();
-        let port = declared[match axis {
+        let main = match axis {
             ListAxis::Vertical => 0,
             ListAxis::Horizontal => 1,
-        }];
+        };
+        let port = declared[main];
+        // A vertical list is a block, where CSS lays out no gap.
+        let gap = if axis == ListAxis::Horizontal {
+            gaps[main]
+        } else {
+            0.0
+        };
+        let estimated_height = estimated_height + gap;
         // A list's reads of its own options are its structure, as a region's
         // subject is: a trap here still poisons (LLP 1017.003 D3).
         let mut manual = false;
@@ -472,8 +501,13 @@ impl Collection {
             view,
             axis,
             region,
-            index: SizeIndex::new(estimated_height).map_err(index_error)?,
+            index: {
+                let mut index = SizeIndex::new(estimated_height).map_err(index_error)?;
+                index.set_gap(gap);
+                index
+            },
             estimated_height,
+            gap,
             // The provisional extent ([`set_bootstrap_extent`]), capped at
             // sixteen rows, unless the list says how many (`initial-item-count`).
             // Actual nested-scrollport feedback determines the real window.
@@ -1236,7 +1270,7 @@ impl Collection {
             {
                 return Ok(None);
             }
-            max_value = max_value.max(m.size);
+            max_value = max_value.max(m.size + self.gap);
         }
         let changed_width = self
             .geometry
@@ -1263,7 +1297,10 @@ impl Collection {
             // cloning/scanning the N-row index or allocating for equal samples.
             for measurement in &feedback.measurements {
                 let position = self.mounted[by_view[&measurement.view]].position;
-                preview.set_height(position, self.index.denoised(position, measurement.size));
+                preview.set_height(
+                    position,
+                    self.index.denoised(position, measurement.size + self.gap),
+                );
             }
         }
         let extent = preview.total_height();
@@ -1285,6 +1322,9 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        for m in &mut feedback.measurements {
+            m.size += self.gap;
+        }
         let waited = self.request_waits();
         self.animating = fill.animating;
         // A report gives where the port is, unless the host animates.

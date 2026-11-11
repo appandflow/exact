@@ -478,8 +478,11 @@ impl Lowerer<'_> {
                     };
                     matches!(&a.value, Expr::Str(s, _) if if a.name == main { s == "scroll" || s == "auto" } else { s == "hidden" })
                 }
+                // A row list's gap is CSS's between its items, which the
+                // index counts after each row; a vertical list is a block,
+                // where CSS lays out no gap.
                 "gap" | "row-gap" | "column-gap" if container => {
-                    numeric_literal(&a.value) == Some(0.0)
+                    numeric_literal(&a.value).is_some_and(|v| v == 0.0 || horizontal && v > 0.0)
                 }
                 "flex-direction" | "flex-wrap" | "grid-template-rows" | "grid-template-columns"
                     if container =>
@@ -494,6 +497,18 @@ impl Lowerer<'_> {
             {
                 // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
                 return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
+            }
+            if !allowed && matches!(a.name.as_str(), "gap" | "row-gap" | "column-gap") {
+                let reason = if horizontal {
+                    "a virtualized row list's gap is a literal nonnegative number: the list reads it once, when it is created"
+                } else {
+                    "a vertical virtualized list is a block, where CSS lays out no gap: space rows with a `margin-bottom` on the row root"
+                };
+                return err(
+                    "lower-collection-flow",
+                    format!("`{}`: {reason}", a.name),
+                    a.span,
+                );
             }
             if !allowed {
                 return err("lower-collection-flow", format!("`{}` is not supported on this virtual collection flow root; absolute/overlapping rows and alternate container layouts are not windowed", a.name), a.span);
