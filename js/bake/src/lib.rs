@@ -132,59 +132,7 @@ struct Composer<'a> {
 /// A composed source, as `contract::bake` takes it.
 struct Composed(Box<dyn DataSource>);
 
-impl DataSource for Composed {
-    fn query(
-        &mut self,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_plan::Value, exact_runner::DataError> {
-        self.0.query(source, args)
-    }
-    fn answer(
-        &mut self,
-        store: &mut exact_runner::Store,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
-        self.0.answer(store, source, args)
-    }
-    fn answer_for(
-        &mut self,
-        target: exact_runner::Target,
-        store: &mut exact_runner::Store,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
-        self.0.answer_for(target, store, source, args)
-    }
-    fn overlay(
-        &mut self,
-        source: &str,
-        args: &[exact_plan::Value],
-        answer: &exact_plan::Value,
-        writes: &[exact_runner::Write<'_>],
-    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
-        self.0.overlay(source, args, answer, writes)
-    }
-    fn app_id(&self) -> &str {
-        self.0.app_id()
-    }
-    fn grants(&self) -> &str {
-        self.0.grants()
-    }
-    fn revision(&self) -> Option<&str> {
-        self.0.revision()
-    }
-    fn bind(&mut self, plan: &exact_plan::Plan) {
-        self.0.bind(plan)
-    }
-    fn ready(&self) -> bool {
-        self.0.ready()
-    }
-    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
-        self.0.canvas_surfaces()
-    }
-}
+mod composed;
 
 fn mixed_grants<'a>(
     javascript: &serde_json::Value,
