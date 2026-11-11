@@ -758,9 +758,9 @@ names no take; `:focus-within` remains out.
   by tag — under the existing `device.notifications` grant. Consumers: the Habits
   app's reminders (x2apps habits F13) and Dash's price alerts, both faked as
   in-app banners. Unblocks a reminder that reaches the person outside the window.
-  Take: none offered. Still refused: push delivery from a server, actions and
-  replies on a notification, badges, repeating schedules, and a readable
-  permission fact.
+  Take: none offered. Still refused: push delivery from a server (a visible
+  push on iOS and iPadOS admitted 2026-11-11, below), actions and replies on
+  a notification, badges, repeating schedules, and a readable permission fact.
   **Expanded (Charlie, 2026-10-11, notification click ruling; LLP 1114.001 D1):**
   a plain click on a local notification may open its `navigate=` location
   through the existing router (a warm `navigate` event, a cold launch location).
@@ -776,7 +776,8 @@ names no take; `:focus-within` remains out.
   the extension redraws it). Consumer: Interview's AI answer being written,
   which only its server can advance. Unblocks a Live Activity that stays true
   while its app is suspended. Still refused: push-to-start, remote
-  notifications, and everything the click ruling left refused. Take: none
+  notifications (a visible push admitted 2026-11-11, below; a data-only push
+  stays refused), and everything the click ruling left refused. Take: none
   named; the ruling stands as its own waiver.
   **Expanded (Charlie, 2026-10-18, "recs work, go for it", on LLP 1133.002
   §12 question 6):** a readable permission fact for geolocation,
@@ -794,8 +795,35 @@ names no take; `:focus-within` remains out.
   and the clone's notifications without app Swift. Take: waived: no doing-list
   item is a fair trade; the move is the roster's own wave-1 item (LLP 1133.000
   §5), and geolocation's matching move was waived (2026-10-18, above). Still
-  refused: push delivery, repeating schedules, and actions and replies until
+  refused: push delivery (a visible push on iOS and iPadOS admitted
+  2026-11-11, below), repeating schedules, and actions and replies until
   stage 2's ruling.
+  **Expanded (Charlie, 2026-11-11, expo/exact#127, after a three-seat panel
+  unanimous on direction; LLP 1133.004 §9):** a visible push on iOS and iPadOS.
+  Admitted: a package of its own, `@exact/push`, whose `subscribePush()` asks
+  for notification permission while `prompt` and answers the APNs device token,
+  and whose `pushSubscription()` reads the token and its rotation, registering
+  once per launch while permission is granted; the app sends it to its own
+  server, which sends to APNs, and exact2 sends nothing and relays nothing (LLP
+  1030.000 D6). Its grant, `device.push`, needs `device.notifications` beside it
+  and signs `aps-environment` by the signing profile (`development` on a
+  simulator and under a development profile, `production` otherwise). The system
+  shows the push, with the app in front too, and its tap opens the payload's
+  `navigate` location through the router as an untrusted deep link; nothing else
+  in a push's payload is read, and no app code runs when it arrives. An app with
+  Live Activities may register for remote notifications when it grants
+  `device.push`. Consumer: expo/exact#127's app, whose own server sends, with
+  Live Activities beside. Unblocks a notification from the app's own server, and
+  push beside Live Activities without a local patch. Take: none named; the
+  ruling stands as its own waiver. Built: the `device.push` grant and its
+  entitlement, a push's tap opening its `navigate` location, and registration
+  beside Live Activities under the grant. Not built yet: `@exact/push` itself,
+  so no app registers or receives a token through Exact; push on macOS (the row
+  is omitted there), on Android (after local notifications), and on the web
+  (Declarative Web Push or a host worker). Nothing is claimed for a device until
+  a run on one. Still refused: push-to-start; a data-only push as a wake's
+  trigger (`content-available`, the `remote-notification` background mode); a
+  notification service extension; an event raised by a push.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -1142,7 +1170,8 @@ reading. Nothing that isn't HTML is added by it.
   next chance, and a photo that finishes uploading after the person has
   left the app. Take: none named. Still refused (LLP 1133.017 §13): a
   runner in a service worker on the web, and with it periodic sync and
-  background fetch there; push and a data-only push's wake; wakes for an
+  background fetch there; a data-only push's wake (a visible push is the
+  notifications entry's, 2026-11-11); wakes for an
   app that is not running on macOS, Linux and Windows; Android's
   long-running workers and foreground services beyond a person-started
   transfer's; resuming an interrupted upload on Android; an app's own
