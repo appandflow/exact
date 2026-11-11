@@ -45,7 +45,9 @@ A simulator run should build Duo Lab for an iPhone, drive it with `--chrome plat
 
 ## Direction
 
-Decide what six tabs are in a compact width and build it: four stacks and a More item that lists the remaining authored tabs, each row pressing its tab, or the authored tablist left showing, as under `appearance="none"`, when the tabs do not fit the bar.
+Make UIKit's More item work (Claude, 2026-11-11; three models asked separately each chose it; no person has ruled). A hand-built app with six tabs on an iPhone shows four and More, so the authored tablist in the bar's place would be a tell, and it stays what `appearance="none"` asks for.
+
+The delegate lets `moreNavigationController` be selected, and a row of its list presses its authored tab, so the router still owns the selection. `customizableViewControllers` is empty: More shows no Edit, and the written order stands. The compiler sets no limit on root tabs. The fix shows Duo Lab's Combos and Keyboard reached through More, on a simulator, or says under what it did not run that this is unseen.
 
 ## Related
 

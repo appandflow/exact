@@ -54,9 +54,10 @@ At `dd6f5dcd`, a temporary test in `contract/cli/tests` compiled each form (the 
 
 Pass the check the parent's literal `display` and `flex-direction`, as `parent_bounded_column` is passed (`values::bounded_column` reads them), and treat a flex row or a grid as not stacking. On the scroll, read `flex-grow` and `flex-basis` as `flex_bounds` reads `flex`, and count `position="absolute"` with both vertical insets, and `aspect-ratio` beside a width, as bounds. Leave a computed `display` or position to the bake's measured `bake-scroll-unbounded`, and reword LLP 1017.000's sentence to match.
 
+A `scroll` with no attributes in a `column` with a literal height compiles too (Claude, 2026-11-11; three models asked separately each chose it; no person has ruled). The kernel and Chrome both give it the column's height, because a scroll container's automatic minimum size is zero (CSS Flexbox 1 §4.5) and a flex item shrinks by default, so the refusal's message is false of it. The refusal stays for a column with no bound the compiler can see. `shrinking_scroll` takes a `scroll` that writes no `min-height` as it takes `min-height=0` (one that does not shrink still fails it), and a test of the bare form goes beside `a_zero_minimum_scroller_can_shrink_under_a_bounded_column` (`contract/cli/tests/it/styles.rs`).
+
 ## Related
 
 - The sibling refusal `lower-zero-size` already counts an absolutely positioned box's insets (`contract/lower/src/controls.rs:1126-1136`).
 - `lower-collection-unbounded` (`contract/lower/src/collection.rs:150-158`) reads the same spellings: `list virtualized=true flex-grow=1 flex-basis=0` in a `column height=400` is refused where `flex=1` compiles.
-- A `scroll` with no attributes in a `column` with a height is refused too, and both the kernel and Chrome give it the column's height (a scroll container's automatic minimum size is zero, CSS Flexbox 1 §4.5). `shrinking_scroll` accepts it only with `min-height=0` written, and `a_zero_minimum_scroller_can_shrink_under_a_bounded_column` (`contract/cli/tests/it/styles.rs`) pins that spelling, so whether the bare form compiles is a decision for the fix.
 - `contract/cli/tests/it/collection_bounds.rs:217,241` and `contract/cli/tests/it/styles.rs:1243` assert the refusal only where nothing bounds the scroll. No issue, `QUEUE.md` entry or `docs/agent-pitfalls.md` entry names these forms.
