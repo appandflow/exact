@@ -1460,10 +1460,10 @@ export * from "./roster.js"; // the roster's pure entries
 let Texts = [];
 export function strings(tables) { Texts = tables; }
 /** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
- * subtag prefix a table is named for, without case, else the base. */
+ * subtag prefix a table is named for, without case, else the base. A render has no launch locale: the base (LLP 1060 D4). */
 export function locale() {
   let tag = Texts[0]?.[0] ?? "";
-  try { tag = reportPlace().split("\0")[0]; } catch {}
+  if (!globalThis.__exactRender) try { tag = reportPlace().split("\0")[0]; } catch {}
   for (;;) {
     const t = Texts.find(r => r[0].toLowerCase() === tag.toLowerCase());
     if (t) return t[0];
@@ -1484,13 +1484,15 @@ export function text(name, key, pairs, emit) {
 /** The resolved table sets the document's `lang` and `dir` (LLP 1060, ruled). */
 let LocaleSlot = null;
 /** `exactTime.resolvedLocale`: the table the strings read, "" with none (runner/src/runner/time.rs). */
-export const resolvedLocale = () => LocaleSlot ? (table(LocaleSlot()) ?? Texts[0])[0] : "";
+export const resolvedLocale = () => resolvedLanguage()?.[0] ?? "";
+/** The resolved table's `[lang, dir]`, which a rendered page carries (render.mjs), or null with no table. */
+export const resolvedLanguage = () => { const t = LocaleSlot && (table(LocaleSlot()) ?? Texts[0]); return t ? [t[0], t[1] ? "rtl" : "ltr"] : null; };
 export function language(slot) {
   LocaleSlot = slot;
   // Set the locale slot and refresh exactTime in one commit, as the host's first set_place does
   commit(() => { W(slot, locale()); for (const r of Resources) if (r.source === "exactTime") R(r); }, "place");
   if (typeof document !== "object" || !document.documentElement) return;
-  effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
+  effect(() => { [document.documentElement.lang, document.documentElement.dir] = resolvedLanguage(); });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
 export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file

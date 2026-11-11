@@ -1,6 +1,7 @@
 # A page rendered under Bun is always `dir="ltr"`, and reads the strings table the manifest's `lang` names instead of the base
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A render under Bun has no launch locale and reads the base table, and its head writes the resolved table's `lang` and `dir` (the manifest's `lang` and `ltr` for a plan with no table), as the native render host does.
 **Systems:** host/web-js/render.mjs, host/web-js/dom.js, host/web-js/rt.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

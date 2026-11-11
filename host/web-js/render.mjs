@@ -164,8 +164,10 @@ export function renderer(dist, { closed = false } = {}) {
   // The build's preloads are before its sheet; after it, `host.web.head`'s entries are the app's, left as written.
   const sheetAt = seen.indexOf('<style>', stop), early = sheetAt < 0 || sheetAt > root ? root : sheetAt;
   const viewportMeta = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
-  // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
-  const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  // A page's `lang` and `dir` are the strings table the render resolved (LLP 1060 D4: `__start`'s `language`); with no
+  // table, the shell's `lang`, which the build wrote from the manifest's (LLP 1115.000 D4.6), and `ltr` (page.rs `lang_attr`).
+  const shellLang = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  const htmlTag = language => language ? `<html lang="${esc(language[0])}" dir="${language[1]}">` : `<html lang="${shellLang}" dir="ltr">`;
   // A fixed `userInterfaceStyle` (the shell's `<meta name="color-scheme">`, look.mjs) is the system scheme a page renders in.
   const fixedScheme = /<meta name="color-scheme" content="(light|dark)">/.exec(seen)?.[1];
   // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
@@ -173,7 +175,7 @@ export function renderer(dist, { closed = false } = {}) {
   const rules = existsSync(resolve(dist, '.gen/page-style.json')) ? JSON.parse(readFileSync(resolve(dist, '.gen/page-style.json'), 'utf8')) : null;
   const sheet = rules ? /<style>[\s\S]*?<\/style>\n?/ : /(?!)/;
   // A rendered page paints without the runtime, which only adopts it, so its preloads are low priority (page.rs `push_low`).
-  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
+  const headOf = (preload, language) => shell.slice(0, title).replace(/<html[^>]*>/, () => htmlTag(language)) + `<script>${capture}</script>\n`
     + shell.slice(stop, early).replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '')
     + shell.slice(early, root).replace(sheet, '');
   const preloads = (shell.slice(stop, early).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
@@ -209,7 +211,9 @@ export function renderer(dist, { closed = false } = {}) {
     };
     const ctx = vm.createContext({
       document, location,
-      navigator: { onLine: true, language },
+      // The locale a runner has before a host reports the reader's (runner/src/time.rs), as `exactTime` answers in a
+      // render: the page is not the reader's, and its strings read the base (rt.js `locale`).
+      navigator: { onLine: true, language: 'en-US' },
       getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
@@ -255,7 +259,7 @@ export function renderer(dist, { closed = false } = {}) {
     // The capture script imports the entry by the policy; an interaction
     // page drops the head's modulepreloads, and an undeclared one adds them
     // after its head once its render chose `eager` (page.rs `head_js`).
-    const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred');
+    const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred', info.language);
     return { ...info, location, head, dispose: made.dispose, async finish(deadline = DEADLINE) {
       try {
         const out = await ctx.__render(deadline, info.canSetStatus !== false);
@@ -276,7 +280,7 @@ export function renderer(dist, { closed = false } = {}) {
           + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entryEnd)}`;
         // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
         // marks it before the body and names them after the head's fields, as page.rs does.
-        const whole = late ? headOf(true) : head;
+        const whole = late ? headOf(true, info.language) : head;
         const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
         const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
         makeAhead();
