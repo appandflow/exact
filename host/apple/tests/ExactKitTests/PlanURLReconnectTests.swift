@@ -169,7 +169,8 @@ final class PlanURLReconnectTests: XCTestCase {
         settle { host.applied.count == 1 && server.opened(in: server.epoch) == 1 }
         XCTAssertEqual(shown, [])
 
-        server.push(["error": "app.contract:41:7 unknown attribute `colour`\n 41 |   box colour=1"])
+        // The compiler names the file by its whole path; the pill has two lines.
+        server.push(["error": "/Users/someone/apps/todo/app.contract:41:7 unknown attribute `colour`\n 41 |   box colour=1"])
         settle { host.connection?.refused != nil }
         XCTAssertEqual(shown, [.refused("app.contract:41:7 unknown attribute `colour`")])
         XCTAssertEqual(host.applied.count, 1, "the last good plan stays")
@@ -179,12 +180,21 @@ final class PlanURLReconnectTests: XCTestCase {
         XCTAssertNil(host.connection?.refused)
         XCTAssertEqual(shown, [.refused("app.contract:41:7 unknown attribute `colour`"), nil])
 
+        // Repaired back to the plan that runs: the same generation again clears it.
+        server.push(["error": "app.contract:2:1 expected a view"])
+        settle { host.connection?.refused != nil }
+        _ = server.publish(program: Self.program, plan: Data("plan two".utf8))
+        settle { host.connection?.refused == nil }
+        XCTAssertEqual(host.applied.count, 2, "nothing is applied twice")
+
         server.push(["rebuilt": 1])
         settle { host.connection?.terminal != nil }
         server.push(["error": "app.contract:1:1 expected a component"])
         settle { host.connection?.refused != nil }
         XCTAssertEqual(host.connection?.notice, .stale)
-        XCTAssertEqual(shown, [.refused("app.contract:41:7 unknown attribute `colour`"), nil, .stale])
+        XCTAssertEqual(shown, [.refused("app.contract:41:7 unknown attribute `colour`"), nil, .refused("app.contract:2:1 expected a view"), nil, .stale])
+        XCTAssertEqual(PlanURL.brief("error: could not compile `caltrain-data`"), "error: could not compile `caltrain-data`")
+        XCTAssertEqual(PlanURL.brief(""), "the save did not build")
     }
 
     /// The pin `revision` replayed on stream `nonce`: a pin frame the host

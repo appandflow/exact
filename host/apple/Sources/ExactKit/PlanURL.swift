@@ -722,7 +722,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         }
         // Subscribe before payloads finish: hello repairs an edit between
         // discovery and the stream opening, including an asset-only edit.
-        guard currentGeneration() != identity else { pending = nil; return }
+        guard currentGeneration() != identity else { refused = nil; pending = nil; return }
         fetchGeneration(plan: plan, assets: assets, module: module, rust: rustModule, identity: identity, generation: generation)
     }
 
@@ -746,7 +746,6 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             if completed == cards.count {
                 stopped = true
                 pending = nil
-                if currentGeneration() == identity { refused = nil } // the source is what runs again
                 if currentGeneration() != identity {
                     let javascriptIndex = 1 + assets.count
                     let rustIndex = javascriptIndex + (module.isEmpty ? 0 : 2)
@@ -806,6 +805,14 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             }
         }
         pump()
+    }
+
+    /// An error's first line as the pill has room for it: a leading file's
+    /// directory dropped, so the line and what is wrong there are what show.
+    static func brief(_ error: String) -> String {
+        guard let line = error.split(whereSeparator: \.isNewline).first.map(String.init) else { return "the save did not build" }
+        guard line.hasPrefix("/"), let colon = line.firstIndex(of: ":"), let slash = line[..<colon].lastIndex(of: "/") else { return line }
+        return String(line[line.index(after: slash)...])
     }
 
     private static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
@@ -963,7 +970,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             return
         }
         if let error = frame["error"] as? String {
-            refused = error.split(whereSeparator: \.isNewline).first.map(String.init) ?? "the save did not build"
+            refused = PlanURL.brief(error)
             status("dev: \(error)")
             return
         }
@@ -982,7 +989,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         }
         if frame["ready"] as? Bool == false { return }
         guard let revision = PlanURL.revision(frame), observe(revision) else { return }
-        if currentGeneration() == revision.identity { settle(); return }
+        // The source is what runs again: a save that was refused has been repaired.
+        if currentGeneration() == revision.identity { refused = nil; settle(); return }
         guard pending != revision,
               let path = frame["envelope"] as? String, let url = URL(string: path, relativeTo: page)?.absoluteURL,
               PlanURL.sameOrigin(url, page) else { return }

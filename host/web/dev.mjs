@@ -230,7 +230,7 @@ applyShaderTreeChange(app, resolve(dist,'shaders'), candidate => { for (const [n
 const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
-const push = (data) => { if (data.error) failedPhase(data.error); for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+const push = (data) => { if (data.error) { failedPhase(data.error); push.refused = true; } else if (data.generation) push.refused = false; for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
 // The live table (LLP 1121 stage 4): a value-only design edit publishes no
 // plan; its batch goes to every build, and its snapshot is kept for a build
 // that connects (or missed a batch) until the next plan.
@@ -926,9 +926,9 @@ function produceRustNow() {
           if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
           rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
           if(!reply.ok){early?.phase('rust','failed');console.error(reply.error);push({error:reply.error});}
-          // The reply follows the pointer's rename; the directory watch would
-          // see it a filesystem event later and then finds it current.
-          else try{readRustGeneration();early?.phase('rust','ready');contractReady();}catch(error){console.error(error.message);push({error:error.message});}
+          // The reply follows the pointer's rename; the directory watch would see it a filesystem event later and then finds it current.
+          // A repair that makes the running generation again publishes nothing new: it is announced once more, so a client showing the save's error takes it down (LLP 1159.001).
+          else try{readRustGeneration();early?.phase('rust','ready');contractReady();if(push.refused&&current)push(announcement());}catch(error){console.error(error.message);push({error:error.message});}
           if(rustDirty && rebuildOn.rust==='save') rustPending = true;
           drainBuilds();
         } catch(error){failed(error);return;}
