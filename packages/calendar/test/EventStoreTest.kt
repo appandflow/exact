@@ -11,6 +11,7 @@ import android.os.Looper
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Instances
 import dev.exact.canvas.ExtensionContext
+import dev.exact.canvas.ExtensionInvokeTest.Host
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -30,7 +31,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowContentResolver
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31], manifest = Config.NONE)
+@Config(sdk = [31], manifest = Config.NONE, shadows = [Host::class])
 class EventStoreTest {
     private val originalZone = TimeZone.getDefault()
     private val provider = Provider()

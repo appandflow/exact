@@ -1,6 +1,7 @@
 # Android's background sync keeps session-clock times across launches, so a backoff is measured from the wrong zero and `lastRun` is no date
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android stores background registration, retry and last-run times as epoch milliseconds, so backoffs keep their deadlines across launches.
 **Systems:** packages/background/android/Background.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

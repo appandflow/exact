@@ -10,6 +10,7 @@ android {
     sourceSets {
         getByName("test").kotlin.directories.addAll(listOf(
             "../../../packages/alarms/android", "../../../packages/alarms/test",
+            "../../../packages/background/android", "../../../packages/background/test",
             "../../../packages/calendar/android", "../../../packages/calendar/test",
             "../../../packages/contacts/android",
         ))

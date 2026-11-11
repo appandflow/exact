@@ -3,6 +3,7 @@ package dev.exact.canvas
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import dev.exact.canvas.ExtensionInvokeTest.Host
 import exact.calendar.CalendarModule
 import exact.contacts.ContactsModule
 import org.json.JSONObject
@@ -15,7 +16,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31], manifest = Config.NONE)
+@Config(sdk = [31], manifest = Config.NONE, shadows = [Host::class])
 class ContactsCalendarStatusTest {
     @Test fun contactsStatusAloneFollowsSettingsOnForeground() {
         followsSettings("contacts", "contactsStatus", Manifest.permission.READ_CONTACTS, ::ContactsModule)
@@ -49,7 +50,7 @@ class ContactsCalendarStatusTest {
         assertEquals("none", shown.getString("access"))
 
         val topics = ArrayList<String>()
-        Native.onChanged = { topic ->
+        Host.onChanged = { topic ->
             topics += topic
             if (topic == "$name.$status") read()
         }
@@ -69,7 +70,7 @@ class ContactsCalendarStatusTest {
                 assertTrue("no list was read", topics.all { it == "$name.$status" })
             }
         } finally {
-            Native.onChanged = {}
+            Host.onChanged = {}
         }
     }
 }
