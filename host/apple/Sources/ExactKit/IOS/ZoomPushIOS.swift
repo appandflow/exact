@@ -44,5 +44,19 @@ extension NavigationHost {
             }.min(by: { $0.id < $1.id })
         })
     }
+
+    /// The zoom's swipe back is decided as the finger lifts, and UIKit ends it most of a second later, after
+    /// its tail. The app follows it at the lift, as it follows the Back button at once, so the tab bar's
+    /// accessory a pushed route hid returns with the tail and not after it.
+    func followZoomSwipe(_ transition: UIViewControllerTransitionCoordinator) {
+        guard #available(iOS 18.0, *), let source = transition.viewController(forKey: .from) as? RouteController,
+              source.preferredTransition != nil else { return }
+        transition.notifyWhenInteractionChanges { [weak self, weak source] context in
+            guard let self, let source, !context.isCancelled, source.key == selectedKey, source.search == nil,
+                  !presenter.modals.inTransition, presenter.views[source.node.id] === source.node else { return }
+            followedPop = source
+            goBack()
+        }
+    }
 }
 #endif

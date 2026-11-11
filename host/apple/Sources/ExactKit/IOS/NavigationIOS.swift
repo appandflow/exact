@@ -501,6 +501,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
     private(set) var pendingSync = false
+    /// A zoom swipe back the app followed as the finger lifted (`followZoomSwipe`), until UIKit ends it.
+    weak var followedPop: RouteController?
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
     private weak var pendingPress: PressHandoff?
     /// A sync was deferred (a transition ran, or there was no window yet)
@@ -583,6 +585,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             accessorySnapshot?.removeFromSuperview()
             accessoryView?.addSubview(picture)
             accessorySnapshot = picture
+        }
+        // The zoom's tail still draws a followed pop's route through portals: its picture goes in outside
+        // the tail's animation, which would otherwise grow it from nothing.
+        if let leaving = followedPop, batch.ops.contains(where: { $0.op == .destroy && $0.id == leaving.node.id }) {
+            UIView.performWithoutAnimation { leaving.freeze() }
         }
         guard let top = navigation?.topViewController as? RouteController else { return }
         if batch.ops.contains(where: { $0.op == .destroy && $0.id == top.node.id }) {
@@ -1259,6 +1266,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let swipe: Swipe? = transition.initiallyInteractive
             ? (transition.viewController(forKey: .from) as? RouteController).map { ($0.node, $0.key, navigationController.viewControllers.count + 1) }
             : nil
+        if transition.initiallyInteractive { followZoomSwipe(transition) }
         transition.animate(alongsideTransition: nil) { [weak self, weak navigationController] context in
             guard let self, let navigationController else { return }
             transitionEnded(navigationController, swipe: swipe, cancelled: context.isCancelled)
@@ -1381,6 +1389,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let moved = controllers.values.contains { $0.key == selectedKey && $0.navigationController.map { $0 !== navigationController } == true }
             guard !moved, let top = selectedKey, let root = shownKeys.first, top != root else { return }
             if shownKeys.firstIndex(of: top) == 1, back != nil { goBack() } else { goBack(from: top, to: root) }
+            return
+        }
+        if followedPop != nil {
+            followedPop = nil
+            lastTransition = "completed"
             return
         }
         let sourceKey = source.flatMap { presenter.views[$0.node.id] === $0.node ? $0.key : nil }
