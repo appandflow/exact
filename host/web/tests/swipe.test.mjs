@@ -92,6 +92,49 @@ const contacts = page => page.evaluate(() => [...exact.contacts]);
 const operations = page => page.evaluate(() => calls.map(r => r.op));
 const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
 
+for (const ancestor of ['height', 'transform']) for (const end of ['release', 'capture loss', 'cancellation']) {
+  check(`a deferred ${ancestor} drag keeps the touch until its own ${end}`, async () => {
+    const page = await open(ancestor), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    try {
+      await page.evaluate(() => {
+        window.captureLosses = [];
+        document.getElementById('handle').addEventListener('lostpointercapture', e => captureLosses.push(e.target.id));
+      });
+      const cdp = await page.context().newCDPSession(page);
+      const touch = (type, y) => cdp.send('Input.dispatchTouchEvent', {
+        type, touchPoints: y === undefined ? [] : [{ x: 250, y }],
+      });
+      await touch('touchStart', 180);
+      const pending = await contacts(page);
+      expect(pending.map(([, state]) => state)).toEqual(['pending']);
+      const pointer = pending[0][0];
+      for (const y of [160, 140, 120, 100, 80]) await touch('touchMove', y);
+      expect(await page.evaluate(() => captureLosses)).toEqual(['row']);
+      expect(await operations(page)).not.toContain('cancel');
+      const shown = await page.evaluate(ancestor => {
+        const style = getComputedStyle(document.getElementById('target'));
+        return Number.parseFloat(ancestor === 'height' ? style.height : style.translate.split(' ')[1]);
+      }, ancestor);
+      if (ancestor === 'height') expect(shown).toBeGreaterThan(100);
+      else expect(shown).toBeLessThan(0);
+      if (end === 'capture loss') {
+        await page.evaluate(pointer => document.getElementById('handle').releasePointerCapture(pointer), pointer);
+        await touch('touchMove', 60);
+      } else if (end === 'cancellation') await touch('touchCancel');
+      if (end !== 'cancellation') await touch('touchEnd');
+      const ops = await operations(page);
+      expect(ops.filter(op => op.endsWith('begin'))).toEqual([ancestor + '-begin']);
+      expect(ops.filter(op => op === (ancestor === 'height' ? 'move' : 'transform-move')).length).toBeGreaterThan(1);
+      expect(ops.filter(op => op.endsWith('action'))).toEqual(end === 'release' ? [ancestor + '-action'] : []);
+      expect(ops.filter(op => op === 'cancel')).toHaveLength(end === 'release' ? 0 : ancestor === 'height' ? 1 : 2);
+      expect(await page.evaluate(pointer => document.getElementById('handle').hasPointerCapture(pointer), pointer)).toBe(false);
+      expect(await contacts(page)).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.context().close(); }
+  });
+}
+
 for (const ancestor of ['pan', 'height', 'transform']) {
   for (const end of ['outside release', 'outside cancellation', 'buttonless move']) {
     check(`a ${ancestor} waiting for a swipe ends on ${end}`, async () => {

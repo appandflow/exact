@@ -800,6 +800,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       on('pointermove',move);
       const finish=e=>{
         const d=drag;if(!d||!d.pointers.has(e.pointerId))return;
+        if(e.type==='lostpointercapture'&&e.target!==el)return;
         if(e.type!=='pointerup'||!d.pair){stop();return;}
         d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
         if(d.pointers.size>1) {
@@ -902,6 +903,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       on('pointermove',move);
       const finish=e=>{
         if(!drag||drag.pointer!==e.pointerId) return;
+        if(e.type==='lostpointercapture'&&e.target!==el)return;
         if(e.type!=='pointerup'||!drag.h) { stop(); return; }
         if(!move(e)) return;
         const d=drag; drag=null; active.delete(id); suppressClick=true;

@@ -1,6 +1,7 @@
 # On touch, a height or transform drag that waited for an inner swipe cancels itself when it takes the capture
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Height and transform drags ignore a child's capture loss and retain the touch until their own release or cancellation.
 **Systems:** host/web/motion-glue.js (both web targets load it)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
