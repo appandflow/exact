@@ -1,6 +1,7 @@
 # The runner journals a persisted state over its size limit again at every commit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Unchanged oversized persisted values are reported once per slot while the store retains its last accepted value.
 **Systems:** `runner/src/runner/persist.rs`
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

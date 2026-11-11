@@ -570,15 +570,15 @@ component App
   replaces the initializer's. A missing one keeps the initializer's, and so does
   one of another shape (the state's type changed since), which `logs` names
   (`persisted state units: the stored value does not fit string: …`).
-- After every commit that stands, the store holds the state's value: the page's
+- After a commit changes the state, a value within the limit is saved to the page's
   `localStorage` (`exact.state.<name>`), the app's `UserDefaults` domain on Apple
-  (never the Keychain), a file under the app's data directory on Linux. The key
+  (never the Keychain), or a file under the app's data directory on Linux. The key
   is the state's name, so renaming the state forgets what was kept.
 - Small settings only: a number, string or bool, or an option or list of one, at
-  most 16 KB as JSON (a longer value is not kept, and `logs` says so). `persist`
-  on a record, a list of records or a state holding an action is
-  `type-persist-type`: keep app data in a source. A child component's state is
-  `type-persist-child`; a derive, `syntax-persist-derive`.
+  most 16 KB as JSON. A longer value leaves the last stored value intact, and
+  `logs` reports it once until it changes. `persist` on a record, a list of records
+  or a state holding an action is `type-persist-type`: keep app data in a source.
+  A child component's state is `type-persist-child`; a derive, `syntax-persist-derive`.
 - Each authored test starts from an empty store, and its `reload` reads back what
   it kept. A drive with `--storage <name>` keeps persisted state in that store
   between drives (on the web, the next one passes `--keep-storage`; on a native host

@@ -486,6 +486,8 @@ pub struct Runner<D: DataSource> {
     /// Durable client state (LLP 1018 D1): the host's snapshot, and the
     /// writes since for the host to persist.
     store: Store,
+    /// Last oversized JSON reported for each persisted slot, until its value changes.
+    persist_oversized: std::collections::BTreeMap<usize, String>,
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
@@ -880,6 +882,7 @@ impl<D: DataSource> Runner<D> {
             reconciling: Vec::new(),
             refused_unsent: Vec::new(),
             store,
+            persist_oversized: Default::default(),
             entropy_readers: Vec::new(),
             store_readers,
             stale: Vec::new(),
