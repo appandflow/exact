@@ -257,8 +257,15 @@ owed serial.
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
 then query sockets. The result owns its markers so component writes can follow.
+Model redelivery in the same tick resamples the pose and preserves playback state.
 Reverse one-shots start at their end; saved playback state keeps a completed
-controller from restarting after restore.
+controller from restarting after restore. A marker at the starting position fires
+on the first playback step and on Animator transitions that restart playback.
+Transitions between loops retain phase and do not repeat the departure marker,
+including after a pause or restore.
+Later steps emit markers as playback crosses them, including loop boundaries.
+Paused states, zero-weight layers and incoming states at half fade weight or less
+emit no markers.
 
 Attach `animation::Layers(vec![animation::Layer::new(Animation::play("hit").once())
 .additive().weight(0.5).mask(["spine"])])` beside the base `Animation`, `Blend`

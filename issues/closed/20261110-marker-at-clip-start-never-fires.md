@@ -1,6 +1,7 @@
 # A marker on a clip's first instant never fires for a one-shot, and a loop skips it on the first pass
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Starting markers fire on first playback for clips, layers and blends and on Animator restarts; phase-preserving transitions do not repeat them, and same-tick model redelivery preserves layer playback.
 **Systems:** game/engine/src/animation.rs, game/engine/src/animation/layers.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
