@@ -24,6 +24,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// A file's scope by local name: each name a `use` of the file may write,
+/// with every meaning it has there (its namespace and program-unique name).
+type ByLocal = HashMap<String, Vec<(Kind, String)>>;
+
 pub(crate) struct Sources {
     paths: Vec<PathBuf>,
     /// Where each source came from, by source id (LLP 1091 D10).
@@ -804,8 +808,9 @@ impl Loader<'_> {
         }
         let unique = self.unique_names();
         let mut scopes: Vec<Option<Scope>> = (0..self.units.len()).map(|_| None).collect();
+        let mut by_local: Vec<Option<ByLocal>> = (0..self.units.len()).map(|_| None).collect();
         for index in 0..self.units.len() {
-            self.scope_of(index, &unique, &mut scopes)
+            self.scope_of(index, &unique, &mut scopes, &mut by_local)
                 .map_err(|e| vec![e])?;
         }
         let mut scopes: Vec<Scope> = scopes
@@ -1065,13 +1070,14 @@ impl Loader<'_> {
         index: usize,
         unique: &[HashMap<(Kind, String), String>],
         scopes: &mut [Option<Scope>],
+        by_local: &mut [Option<ByLocal>],
     ) -> Result<(), CompileError> {
         if scopes[index].is_some() {
             return Ok(());
         }
         let targets = self.units[index].targets.clone();
         for &target in &targets {
-            self.scope_of(target, unique, scopes)?;
+            self.scope_of(target, unique, scopes, by_local)?;
         }
         let mut names = unique[index].clone();
         let unit = &self.units[index];
@@ -1079,13 +1085,14 @@ impl Loader<'_> {
             let from = scopes[target]
                 .as_ref()
                 .expect("a used file is scoped before its user");
+            let index_of_from = by_local[target]
+                .as_ref()
+                .expect("a used file is indexed with its scope");
             for n in &u.names {
-                let found: Vec<_> = from
-                    .names
-                    .iter()
-                    .filter(|((_, local), _)| *local == n.name)
-                    .map(|((kind, _), to)| (*kind, to.clone()))
-                    .collect();
+                let found: Vec<_> = index_of_from
+                    .get(n.name.as_str())
+                    .cloned()
+                    .unwrap_or_default();
                 if found.is_empty() {
                     return Err(unknown(u, n, from));
                 }
@@ -1164,6 +1171,15 @@ impl Loader<'_> {
                 }
             }
         }
+        // Preserve namespace order when one spelling has several meanings.
+        let mut local: ByLocal = HashMap::new();
+        for ((kind, name), to) in &names {
+            local
+                .entry(name.clone())
+                .or_default()
+                .push((*kind, to.clone()));
+        }
+        by_local[index] = Some(local);
         scopes[index] = Some(Scope {
             names,
             elsewhere: HashMap::new(),

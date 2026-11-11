@@ -156,3 +156,33 @@ fn resource_clock_advice_grows_with_derives() {
         source
     });
 }
+
+#[test]
+fn imported_names_grow_with_the_scope() {
+    let dir = std::env::temp_dir().join(format!("contract-import-growth-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut paths = Vec::new();
+    for count in [500, 2000] {
+        let shapes = (0..count)
+            .map(|i| format!("shape S{i}\n  id: string\n"))
+            .collect::<String>();
+        let names = (0..count).map(|i| format!("S{i}")).collect::<Vec<_>>();
+        std::fs::write(dir.join(format!("shapes{count}.contract")), shapes).unwrap();
+        let path = dir.join(format!("app{count}.contract"));
+        std::fs::write(&path, format!(
+            "use {} from \"./shapes{count}.contract\"\ncomponent App\n  state s: option<S0> = none\n  view\n    text \"imports\"\n",
+            names.join(", ")
+        )).unwrap();
+        paths.push(path);
+    }
+    let mut best = [Duration::MAX; 2];
+    for _ in 0..3 {
+        for (i, path) in paths.iter().enumerate() {
+            best[i] = best[i].min(timed(path).0);
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let ratio = best[1].as_secs_f64() / best[0].as_secs_f64();
+    eprintln!("import scopes: {best:?}, {ratio:.2}x");
+    assert!(ratio < 7.0, "4x the imports took {ratio:.2}x the CPU time");
+}
