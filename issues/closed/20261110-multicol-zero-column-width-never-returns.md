@@ -1,6 +1,7 @@
 # `column-width: 0` with `column-gap: 0` gives 4,294,967,295 columns, and layout does not return
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The kernel clamps a used `column-width` to at least 1px, as CSS Multi-column Layout 1 §3.1 says, so the count is bounded by the box's width.
 **Systems:** kernel/src/fragment.rs, kernel/src/fragment/cut.rs, vendor/taffy (patch 27)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

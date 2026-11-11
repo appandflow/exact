@@ -132,6 +132,7 @@ mod module_wakes;
 mod modules;
 mod motion;
 mod motion_feel;
+mod multicol_width;
 mod mutation;
 mod names;
 mod native_buttons;

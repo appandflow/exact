@@ -197,8 +197,11 @@ pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Mult
     let cut = arena.frag.multicol.get(&slot);
     Some(taffy::Multicol {
         count: (s.column_count != 0).then_some(s.column_count),
+        // "Used values will be clamped to a minimum of 1px" (CSS Multi-column
+        // Layout 1 §3.1): a width of zero beside a zero gap made the count
+        // u32::MAX, and the cut ran that many times.
         width: match s.rare.column_width.resolve(arena.env()) {
-            Dimension::Points(w) => Some(w.max(0.0)),
+            Dimension::Points(w) => Some(w.max(1.0)),
             _ => None,
         },
         // Across, in whole columns under a terminal's space rule.
