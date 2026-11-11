@@ -57,6 +57,41 @@ export const androidBuild = (app, bin = null) => [...linuxBuild(app, bin), '--ta
 
 export const androidSdk = (env = process.env) => env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT
   ?? resolve(homedir(), process.platform === 'darwin' ? 'Library/Android/sdk' : 'Android/Sdk');
+/** SDK packages from the APK's Gradle declaration, also used by `exact setup`. */
+export function androidSdkPackages(gradle = readFileSync(resolve(import.meta.dir, '../host/android/app/build.gradle.kts'), 'utf8')) {
+  const sdk = /compileSdk\s*\{\s*version\s*=\s*release\((\d+)\)\s*\{\s*minorApiLevel\s*=\s*(\d+)/.exec(gradle);
+  const tools = /buildToolsVersion\s*=\s*"([\d.]+)"/.exec(gradle);
+  if (!sdk || !tools) throw new Error('cannot read compileSdk and buildToolsVersion from host/android/app/build.gradle.kts');
+  const platform = `${sdk[1]}${Number(sdk[2]) ? `.${sdk[2]}` : ''}`;
+  return [
+    { name: 'Android SDK platform', version: platform, id: `platforms;android-${platform}`, path: `platforms/android-${platform}/android.jar` },
+    { name: 'Android build-tools', version: tools[1], id: `build-tools;${tools[1]}`, path: `build-tools/${tools[1]}/source.properties` },
+  ];
+}
+
+/** Gradle's JDK: JAVA_HOME, else Android Studio's on macOS. */
+export function androidJavaEnv(env = process.env, platform = process.platform, studio = '/Applications/Android Studio.app/Contents/jbr/Contents/Home') {
+  const home = env.JAVA_HOME?.replaceAll('"', '') || (platform === 'darwin' && existsSync(resolve(studio, 'bin/java')) ? studio : null);
+  if (!home) return null;
+  const java = resolve(home, 'bin', platform === 'win32' ? 'java.exe' : 'java');
+  const checked = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeout: 5000 });
+  const major = /version "(\d+)/.exec(`${checked.stderr ?? ''}${checked.stdout ?? ''}`)?.[1];
+  return checked.status === 0 && Number(major) >= 17 ? { ...env, JAVA_HOME: home } : null;
+}
+
+function sdkManager(env, platform) {
+  const root = resolve(androidSdk(env), 'cmdline-tools'), suffix = platform === 'win32' ? '.bat' : '';
+  const versions = existsSync(root) ? readdirSync(root).filter(v => v !== 'latest').sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
+  return ['latest', ...versions].map(v => resolve(root, v, `bin/sdkmanager${suffix}`)).find(existsSync)
+    ?? Bun.which(`sdkmanager${suffix}`, { PATH: env.PATH ?? '' }) ?? 'sdkmanager';
+}
+
+/** A command to run by hand: PowerShell on Windows, POSIX shells elsewhere. Setup never launches it. */
+export function androidSdkFix(env = process.env, packages = androidSdkPackages(), platform = process.platform) {
+  const windows = platform === 'win32', quoted = windows ? s => `'${String(s).replaceAll("'", "''")}'` : quote;
+  return `${windows ? '& ' : ''}${[sdkManager(env, platform), `--sdk_root=${androidSdk(env)}`, ...packages.map(p => p.id)].map(quoted).join(' ')}`;
+}
+
 const adb = (env = process.env) => {
   const tool = resolve(androidSdk(env), 'platform-tools/adb');
   return existsSync(tool) ? tool : 'adb';
@@ -434,9 +469,10 @@ export function jvmOptions(value = '', name = 'the JVM options') {
 
 /** Gradle in the reader with `args`, under `options` (its `env` names the JDK): whether it succeeded. A Gradle that
  * could not be started is said so. */
-export function runGradle(args, options, platform = process.platform) {
-  const [command, ...prefix] = gradleWrapper(platform, options.env);
-  const gradle = spawnSync(command, [...prefix, ...args], { cwd: READER, stdio: 'inherit', ...options });
+export function runGradle(args, options, platform = process.platform, { studio, run = spawnSync } = {}) {
+  const env = androidJavaEnv(options.env, platform, studio) ?? options.env;
+  const [command, ...prefix] = gradleWrapper(platform, env);
+  const gradle = run(command, [...prefix, ...args], { cwd: READER, stdio: 'inherit', ...options, env });
   if (gradle.error) console.error(`could not start Gradle (${command}): ${gradle.error.message}`);
   return gradle.status === 0;
 }

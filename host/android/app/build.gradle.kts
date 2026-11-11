@@ -42,6 +42,7 @@ android {
         ndkVersion = file("$path/source.properties").readLines().first { it.startsWith("Pkg.Revision") }.substringAfter("=").trim()
     }
     compileSdk { version = release(37) { minorApiLevel = 2 } }
+    buildToolsVersion = "37.0.0"
     defaultConfig {
         // An Android package name's segments are Java identifiers: a manifest id's `-` becomes `_`.
         applicationId = (identity["id"] as String).replace('-', '_')

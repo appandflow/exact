@@ -191,6 +191,24 @@ test("the Android build finds the NDK's tools for a Mac, Linux and Windows host"
   } finally { rmSync(ndk, { recursive: true, force: true }); }
 });
 
+test.skipIf(process.platform === 'win32')('Gradle keeps its given environment with PATH javac and no JAVA_HOME or Studio', async () => {
+  const { androidJavaEnv, runGradle } = await import('./agent-android.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-java-'));
+  try {
+    const bin = resolve(dir, 'bin'), studio = resolve(dir, 'absent-studio');
+    mkdirSync(bin);
+    for (const tool of ['java', 'javac']) writeFileSync(resolve(bin, tool), '#!/bin/sh\necho \'openjdk version "21.0.1"\' >&2\n', { mode: 0o755 });
+    const env = { PATH: bin, GRADLE_OPTS: '-Xmx128m' }, calls = [];
+    expect(Bun.which('javac', { PATH: env.PATH })).toBe(resolve(bin, 'javac'));
+    for (const platform of ['darwin', 'linux']) {
+      expect(androidJavaEnv(env, platform, studio)).toBeNull();
+      expect(runGradle(['--version'], { env }, platform, { studio, run: (...args) => { calls.push(args); return { status: 0 }; } })).toBe(true);
+      expect(calls.at(-1)[2].env).toBe(env);
+      expect(calls.at(-1)[2].env).toEqual({ PATH: bin, GRADLE_OPTS: '-Xmx128m' });
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // The APK's Gradle step: `gradlew` where a POSIX shell runs it, the wrapper jar under the JDK on Windows, and a Gradle
 // that could not start said so rather than ending the build silently.
 test('the Android build starts Gradle on every host, and says when it could not', async () => {

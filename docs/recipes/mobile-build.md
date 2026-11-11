@@ -51,18 +51,15 @@ EXACT_UPDATE_TRUST=production bun exact.mjs android --release --json
 
 It installs when an adb device is ready (`ANDROID_SERIAL` selects one); with none,
 it only builds. If modules name Maven libraries, use `--write-locks` once and keep
-the generated lock/verification files; subsequent builds verify them.
+the lock/verification files. Missing locks refuse before Rust compiles and name
+the app-local command to write them.
 
-|Artifact (apps outside Exact)|Location|
-|---|---|
-|iOS `.app`|`target/clients/<source-key>/<bundle-id>/<destination>/<rust-target>/<composition>/production/standalone/<display name>.app`|
-|Unsigned `.ipa`|the `--archive` path, relative to the working directory|
-|Android APK|`target/android/app/outputs/apk/release/app-release.apk`|
-
-Read JSON's absolute `path`.
+Read JSON's absolute `path`; `--archive` paths are relative to the working directory.
 
 Check setup: `bun <exact2>/scripts/exact.mjs setup --check`.
 Apple: Mac, Xcode/iOS SDK 27.1+, target Rust std/Hermes; simulator runtime to run.
-Android: SDK platform 37.2 (`ANDROID_HOME`), platform-tools, NDK, JDK 17+
-(`JAVA_HOME`), `aarch64-linux-android` Rust std/Hermes. Install Xcode/SDKs before
-`setup`, which installs supported missing dependencies.
+Android: platform-tools, NDK, JDK 17+ (`JAVA_HOME` or Android Studio's on macOS),
+`aarch64-linux-android` Rust std/Hermes. Setup reports the platform and build-tools
+Gradle declares and names their `sdkmanager` install commands; run those yourself.
+Without an SDK directory, the general report omits these rows; an Android report
+still shows them. Install Xcode and Android command-line tools before setup.

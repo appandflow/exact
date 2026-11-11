@@ -1349,3 +1349,47 @@ test('add installs a standard package by pathFrom from an outside app with an ab
   assert.equal(fromRepo.status, 0, fromRepo.stdout + fromRepo.stderr);
   assert.equal(fromRepo.stdout.trim().split('\n').at(-1), `For Android, after importing the package, run: in '${root}': bun scripts/agent-android.mjs build 'shop' --apk --write-locks, with EXACT_APP_DIR set to '${realpathSync(app)}'`);
 }));
+
+test.skipIf(process.platform === 'win32')('setup reports Gradle SDK packages and their install commands without running sdkmanager', async () => {
+  const { sdkReport, platformRowNames } = await import('./exact.mjs');
+  const { androidJavaEnv, androidSdkPackages, androidSdkFix } = await import('./agent-android.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-sdk-'));
+  try {
+    const sdk = resolve(root, 'SDK with spaces'), jdk = resolve(root, 'JDK with spaces');
+    mkdirSync(resolve(jdk, 'bin'), { recursive: true });
+    writeFileSync(resolve(jdk, 'bin/java'), '#!/bin/sh\necho \'openjdk version "21.0.1"\' >&2\n', { mode: 0o755 });
+    const tool = resolve(sdk, 'cmdline-tools/19.0/bin/sdkmanager');
+    mkdirSync(dirname(tool), { recursive: true });
+    writeFileSync(tool, '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+    const env = { ...process.env, ANDROID_HOME: sdk, JAVA_HOME: jdk }, packages = androidSdkPackages();
+    assert.deepEqual(androidSdkPackages('compileSdk { version = release(42) { minorApiLevel = 3 } }\nbuildToolsVersion = "41.0.2"').map(p => p.id), ['platforms;android-42.3', 'build-tools;41.0.2']);
+    assert.throws(() => androidSdkPackages(''), /cannot read/);
+    const rows = () => sdkReport(env, { only: 'android' }).filter(r => r.name.startsWith('Android'));
+    assert.deepEqual(rows().map(r => [r.name, r.ok, r.want]), packages.map(p => [p.name, false, p.version]));
+    for (const [i, row] of rows().entries()) {
+      assert.equal(row.fix, `'${tool}' '--sdk_root=${sdk}' '${packages[i].id}'`);
+      mkdirSync(dirname(resolve(sdk, packages[i].path)), { recursive: true });
+      writeFileSync(resolve(sdk, packages[i].path), 'installed');
+    }
+    assert.ok(rows().every(r => r.ok));
+    assert.ok(!sdkReport(env, { only: 'web' }).some(r => r.name.startsWith('Android')));
+    assert.ok(!platformRowNames('web').some(name => name.startsWith('Android')));
+    assert.equal(androidJavaEnv(env, 'linux').JAVA_HOME, jdk);
+    assert.equal(androidJavaEnv({ PATH: '', JAVA_HOME: resolve(root, 'missing-jdk') }, 'linux'), null);
+    assert.equal(androidJavaEnv({ PATH: '' }, 'darwin', jdk).JAVA_HOME, jdk);
+    assert.equal(androidJavaEnv({ PATH: '' }, 'linux', jdk), null, 'Studio is a macOS fallback');
+    writeFileSync(resolve(jdk, 'bin/java'), '#!/bin/sh\necho \'openjdk version "16.0.1"\' >&2\n', { mode: 0o755 });
+    assert.equal(androidJavaEnv({ PATH: '' }, 'darwin', jdk), null, 'Studio needs JDK 17 or newer');
+    rmSync(tool);
+    const pathTool = resolve(root, 'sdkmanager');
+    writeFileSync(pathTool, '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+    assert.ok(androidSdkFix({ ...env, PATH: root }).startsWith(`'${pathTool}' `), 'PATH-only command-line tools are found');
+    assert.equal(androidSdkFix({ ...env, PATH: '' }, packages), `'sdkmanager' '--sdk_root=${sdk}' ${packages.map(p => `'${p.id}'`).join(' ')}`);
+    assert.equal(androidSdkFix({ ...env, PATH: '', ANDROID_HOME: "C:/SDK's folder" }, packages, 'win32'),
+      `& 'sdkmanager' '--sdk_root=C:/SDK''s folder' ${packages.map(p => `'${p.id}'`).join(' ')}`);
+    const absentEnv = { ...env, ANDROID_HOME: resolve(root, 'absent') };
+    const absent = sdkReport(absentEnv, { only: 'android' });
+    assert.ok(packages.every(p => absent.some(r => r.name === p.name && !r.ok)));
+    assert.ok(!sdkReport(absentEnv).some(r => packages.some(p => p.name === r.name)), 'without an SDK the general report omits its packages');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);

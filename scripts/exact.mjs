@@ -58,7 +58,7 @@ const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
 const { chromium } = await import('./agent-launch.mjs');
-const { androidLockCommand, androidSdk } = await import('./agent-android.mjs');
+const { androidLockCommand, androidSdk, androidSdkPackages, androidSdkFix } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
@@ -501,15 +501,16 @@ export function setup({check = false} = {}) {
  * iOS its target's Rust std. */
 export function platformRowNames(platform, { os = process.platform, cpu = process.arch, device = false } = {}) {
   const host = `Hermes bundle (${hermesTarget(os, cpu)})`, ios = device ? 'aarch64-apple-ios' : appleCrossTargets(os, cpu)[0]?.target;
-  return ['rustup', 'Rust', ...({
+  const rows = platform === 'android' ? androidSdkPackages().map(p => p.name) : ({
     web: ['Bun', 'node_modules', 'Chrome'],
     ios: ['Xcode', 'iOS SDK', `Hermes bundle (${ios})`, `Rust ${ios}`],
     macos: ['Xcode', host],
     linux: [host],
-  }[platform] ?? [])];
+  }[platform] ?? []);
+  return ['rustup', 'Rust', ...rows];
 }
 /** The rows of `rows` a platform's build reads (`device`: an iOS build for a phone, whose Hermes bundle is the device's),
- * and for Android the two its toolchain needs: the Rust target and the NDK (scripts/agent-android.mjs finds it, or says
+ * and for Android its Rust target, NDK and Hermes bundle (scripts/agent-android.mjs finds them, or says
  * what to install). */
 export async function platformReport(platform, rows, { device = false } = {}) {
   const own = rows.filter(row => platformRowNames(platform, { device }).includes(row.name));
@@ -631,6 +632,12 @@ export function sdkReport(env = process.env, { only = null, device = false } = {
     const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);
     rows.push(row(`Hermes bundle (${target})`, cross.ok ? 'verified by hermes-lean-sys' : 'not installed or invalid',
       'the pinned Ibex release', cross.ok, cross.fix, `${destination} TypeScript`));
+  }
+  if (only === 'android' || (!only && existsSync(androidSdk(env)))) for (const pkg of androidSdkPackages()) {
+    if (want(pkg.name)) {
+      const installed = existsSync(resolve(androidSdk(env), pkg.path));
+      rows.push(row(pkg.name, installed ? pkg.version : '', pkg.version, installed, androidSdkFix(env, [pkg]), 'Android'));
+    }
   }
   // Android, where its SDK is (LLP 1107), in the whole report: what `bun exact.mjs android` needs besides it
   // (`platformReport` checks the same for a first Android build).
