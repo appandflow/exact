@@ -816,8 +816,15 @@ pub fn write_development_artifacts(plan: &exact_plan::Plan) -> Result<(), String
 fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), String> {
     let receipt: Value =
         serde_json::from_slice(bytes).map_err(|e| format!("publisher receipt is not JSON: {e}"))?;
-    let envelope =
+    let mut envelope =
         Envelope::parse(&serde_json::to_vec(&receipt["envelope"]).map_err(|e| e.to_string())?)?;
+    if envelope.index.is_some() {
+        // The record carries the asset index as JSON; its blob is that
+        // value's canonical bytes, which the signed head names by digest.
+        let index = exact_update::canonical_bytes(&receipt["assets"].to_string())
+            .map_err(|e| format!("publisher receipt's asset index: {e}"))?;
+        envelope.read_index(&index)?;
+    }
     let baked = Baked::from_compat(&compat.to_json(), plan)?;
     envelope.verify(&baked.embedded.verification_keys)?;
     if envelope.app_id != baked.embedded.app_id
@@ -842,7 +849,7 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
         return Err("publisher receipt does not name the exact embedded plan bytes".into());
     }
     let mut named = envelope
-        .assets
+        .assets()?
         .iter()
         .map(|a| json!({"name":a.name,"sha256":a.sha256,"bytes":a.bytes}))
         .collect::<Vec<_>>();

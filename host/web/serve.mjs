@@ -15,7 +15,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { withLock } from './build-lock.mjs';
-import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
+import { canonicalBytes, readAssetIndex } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
 import { acceptsHTML, appDocumentPath, prefersMarkdown, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
@@ -28,7 +28,7 @@ import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerati
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
   ...Object.keys(webHostFiles()).map(name => '/' + name),
-  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
+  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/assets.json', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file the web build writes (LLP 1030 D1), read by Apple's CDN over HTTPS.
@@ -131,17 +131,17 @@ function* devGenerationRead(cache, pathname) {
     const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
     if (!match) return null;
     const name = staticRelative(decodeURIComponent(match[3]));
-    if (!['app.plan', 'app.plan.map.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    if (!['app.plan', 'app.plan.map.json', 'assets.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     const prefix = `${match[1]}/${match[2]}`;
     const raw = (yield { op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
     if (raw === null) return null;
     const envelopeBytes = Buffer.from(raw, 'base64');
     const envelope = JSON.parse(envelopeBytes.toString('utf8'));
-    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
-    if (name === 'exact.json') return { name, body: envelopeBytes };
+    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null; if (name === 'exact.json') return { name, body: envelopeBytes };
     const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
     const rustCard = Object.values(envelope.rust ?? {}).flatMap(v => [v.receipt, v.module]).find(card => card.url?.endsWith('/' + name) || card.url === name);
-    const card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
+    let card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : name === 'assets.json' ? envelope.assets : moduleKey ? envelope.module?.[moduleKey] : rustCard;
+    if (!card && envelope.assets) { const index = (yield { op: 'get', root: resolve(cache), path: `${prefix}/assets.json` }); card = index !== null && readAssetIndex(envelope.assets, Buffer.from(index, 'base64')).find((asset) => asset.name === name); }
     if (!card) return null;
     const value = (yield { op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
     if (value === null) return null;
@@ -1033,15 +1033,6 @@ export function listAssets(dir, rust = false, extraTrees = []) {
   return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 }
 
-/** Named snapshot plans share the asset roster's authenticated bytes. */
-export function entryPlans(assets) {
-  const plans = Object.fromEntries(assets.flatMap(card => {
-    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
-    return kind ? [[kind, card]] : [];
-  }));
-  return Object.keys(plans).length ? { plans } : {};
-}
-
 /** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
  * JSON of its plan, asset, module and Rust cards, each by its name, digest
  * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
@@ -1069,7 +1060,6 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
-    ...entryPlans(assets),
     ...live,
   };
 }

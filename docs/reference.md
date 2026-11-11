@@ -592,7 +592,7 @@ Caltrain and Shelf need no shared secrets. See LLP 1126.001 WP16 and §5 Q5.
 
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
-The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
+The bake writes `plans/<kind>.plan` beside `app.plan`. The asset index's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
 Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
@@ -1227,6 +1227,18 @@ the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree
 (also `web`, `ios`, and `linux`; Linux polls the same URL after first pixel).
 The Go/custom-client sequence
 is in LLP 1030.000 §7.
+
+A native client finds a generation through its envelope, `exact.json`: a
+pointer card of at most 64 KiB that names the plan, and names the asset
+cards' file, `assets.json`, by URL, SHA-256, byte length and card count. The
+asset index holds one card per asset (name, URL, SHA-256, length) and the
+entry plans' `plans` map, at most 4 MiB, about 20,000 cards; its card URLs
+resolve against the index's own URL. The web build prints both sizes against
+their bounds with the asset count (`exact.json 0.6 KiB of 64.0 KiB, assets.json
+101.2 KiB of 4096.0 KiB for 537 assets`); a build, a dev generation or a
+publish whose file would pass its bound is refused with the same numbers.
+Every client checks the index against the envelope's card before it reads a
+card, and a signed head covers the index through its digest.
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the

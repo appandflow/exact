@@ -72,9 +72,9 @@ test('publisher companion acquisition binds exact local bytes and isolates concu
     mkdirSync(releases,{recursive:true});mkdirSync(blobs,{recursive:true});
     const assets=[['rust/app.module.json',Buffer.from('{}')],['rust/app.module.wasm',Buffer.from('wasm')]].map(([name,bytes])=>{
       const card=rustCard(name,bytes);writeFileSync(resolve(blobs,card.sha256),bytes);
-      return {name,bytes:card.bytes,sha256:card.sha256,url:`../../blobs/${card.sha256}`};
+      return {name,bytes:card.bytes,sha256:card.sha256,url:`./${card.sha256}`};
     });
-    const record=resolve(releases,'1.json');writeFileSync(record,JSON.stringify({envelope:{assets}}));
+    const record=resolve(releases,'1.json');writeFileSync(record,JSON.stringify({envelope:{},assets:{assets}}));
     const app={manifest:{rust:true}};
     const env={EXACT_UPDATE_RECEIPT:record,EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(root,'bake')};
     const a=prepareRustBundle(app,'ios','aarch64-apple-ios',env);

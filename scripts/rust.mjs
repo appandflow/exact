@@ -36,7 +36,7 @@ export function prepareRustBundle(app, platform, target, env) {
   if (env.EXACT_RUST_BUNDLE) return env.EXACT_RUST_BUNDLE;
   if (!env.EXACT_UPDATE_RECEIPT) return null;
   const recordPath=resolve(env.EXACT_UPDATE_RECEIPT), record=JSON.parse(readFileSync(recordPath));
-  const head=record.envelope, cards=head?.assets?.filter(a=>a.name.startsWith('rust/')) ?? [];
+  const head=record.envelope, cards=record.assets?.assets?.filter(a=>a.name.startsWith('rust/')) ?? [];
   if (!cards.length) return null;
   const mode=rustPolicy(app.manifest,platform,env.EXACT_UPDATE_TRUST==='production'?'prod':'dev');
   const filename=mode==='tiered'?'app.module.bin':mode==='wasm'?'app.module.wasm':target.includes('apple')?'app.module.dylib':target.includes('windows')?'app.module.dll':'app.module.so';
@@ -45,7 +45,7 @@ export function prepareRustBundle(app, platform, target, env) {
   const destination=mkdtempSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-rust-`));
   try {
   for(const card of cards) {
-    if(!/^[0-9a-f]{64}$/.test(card.sha256)||!Number.isSafeInteger(card.bytes)||card.bytes<0||card.bytes>32*1024*1024||card.url!==`../../blobs/${card.sha256}`)throw new Error('invalid Rust companion blob card');
+    if(!/^[0-9a-f]{64}$/.test(card.sha256)||!Number.isSafeInteger(card.bytes)||card.bytes<0||card.bytes>32*1024*1024||card.url!==`./${card.sha256}`)throw new Error('invalid Rust companion blob card');
     let bytes;
     if(dirname(recordPath).endsWith('/releases')) {
       const blob=resolve(dirname(recordPath),'../../../blobs',card.sha256);

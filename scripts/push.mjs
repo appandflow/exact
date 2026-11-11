@@ -35,7 +35,7 @@ import { homedir } from 'node:os';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Refusal, refuse, loadSigner } from './deploy-signing.mjs';
-import { channelOf, defaultRelease, inspectHead, publishStream } from './deploy.mjs';
+import { admitHead, channelOf, defaultRelease, publishStream } from './deploy.mjs';
 import { classifyArtifacts, cohortReceipt, readBuilds, resolveApp } from './app.mjs';
 import { buildRust, rustBundle, RustBaker } from './rust.mjs';
 import { blobPath, channelOrigin, openOrigin, sha256, streamPath, validateChannel } from './origin.mjs';
@@ -76,8 +76,8 @@ async function streams(origin, app, channel, env) {
     const found = await origin.head(stream);
     if (!found) continue;
     // Apps share a channel's directory on an origin; another app's stream is not ours.
-    try { if (JSON.parse(found.bytes).app?.id !== app.id) continue; } catch { /* inspectHead says why */ }
-    const admission = inspectHead(found, app, stream);
+    try { if (JSON.parse(found.bytes).app?.id !== app.id) continue; } catch { /* admitHead says why */ }
+    const admission = await admitHead(origin, found, app, stream);
     if (!admission.usable || !admission.authenticated) refuse(`${streamPath(stream)}: the head is not admissible (${admission.problem ?? 'unauthenticated'}); run deploy`);
     const cohort = admission.head.cohort;
     if (cohort?.version !== 1 || cohort.compat?.id !== compatibilityId) refuse(`${streamPath(stream)}: the head carries no cohort receipt; run deploy`);

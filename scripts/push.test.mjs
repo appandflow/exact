@@ -36,7 +36,7 @@ function harness(classify=()=>({bundle:true}), runtime=4, {bake, cohortRuntime=4
     cohortReceipt:()=>cohort,classifyArtifacts:classify,
     openOrigin:mock(spec=>({writable:true,list:async path=>{destinations.push({origin:spec,path});return []},describe:()=>spec})),
     channelOrigin,sha256:()=> 'digest',blobPath:x=>x,streamPath:()=> 'stream',
-    defaultRelease:()=> 'r-fixture',inspectHead(){throw Error('unexpected head')},
+    defaultRelease:()=> 'r-fixture',admitHead(){throw Error('unexpected head')},
     requireReleasePins(){}, // the release pins' gate (game/inputs.mjs), not what this seals
     async publishStream({build,row}){
       expect(build.trust).toBe('production');calls.push('publish');published.push(build);rows.push(row);

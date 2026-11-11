@@ -866,7 +866,7 @@ mod tests {
           "plan": { "kernelSchema": "00", "bytes": 12, "url": "./a\u002eplan", "sha256": "abcd", "formatVersion": 2, "compression": "none" },
           "exact": 1,
           "app": { "name": "Example", "id": "com.example", "subtitle": "future" },
-          "assets": [{ "name": "mark.png", "url": "./mark.png" }],
+          "assets": { "url": "./assets.json", "sha256": "abcd", "bytes": 120, "count": 1 },
           "seq": 41,
           "events": "./__dev",
           "future": { "enabled": true }
