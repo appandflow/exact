@@ -1,6 +1,7 @@
 # On the GPU replayer a canvas that clips each frame without `save` gains a clip layer a frame, about 1 MiB a frame on a phone's full screen
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The vello replayer skips a clip whose path is already in force and folds a rectangle into the rectangle its save level opened last, so a draw that clips every frame without `save` keeps one clip layer.
 **Systems:** canvas/vello/src/replay.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
