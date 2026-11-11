@@ -1929,10 +1929,12 @@ never Now Playing; an iOS media-session claimant requires `"playback"` itself.
 Under either playback value the session is held
 only while something has sound: the sound arm and a canvas's audio once they
 start, a `video` or `audio` while it has a source and is not muted, and a
-media-session claimant (`metadata=`, which Now Playing needs). When the last
-of those is muted or gone, the session goes back to ambient, which mixes with
-other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
-paused podcast resumes, once no player is left. Either playback value can
+media-session claimant (`metadata=`, which Now Playing needs). With no capture,
+speech or call claim, muting or removing the last of those returns the session
+to ambient, which mixes with other apps' audio, as Bluesky's player does on
+re-mute; it is given up, so a paused podcast resumes, once no player is left.
+A call keeps its category, mode and options when a sound or player ends, and
+leaves activation to the system. Either playback value can
 continue in the background with `"audio"` in `host.ios.backgroundModes`.
 Before a GPU module makes a surface, the host sets a session that nothing
 holds to ambient, without activating it: a module's output that opens before
@@ -1966,8 +1968,8 @@ an engine that does not start or raises), the app keeps running silent: the
 line `sound: the output did not open: <why>` is journaled (and printed),
 `state.sounds.output` is `{state: "failed", error, skipped}`, the voices
 are skipped, and the first voice a second or more later tries again. A
-failed output gives the audio session back, so a `"playback"` app does not
-leave other apps' audio paused. An interruption that ends with
+failed output gives its hold on the audio session back, so it does not keep
+other apps' audio paused. An interruption that ends with
 `shouldResume` restarts the engine (a failure fails the same way); one
 without it (the person started other audio) is left to the next voice. An
 engine the system stopped (a route or format change, a media services reset)

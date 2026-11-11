@@ -1,6 +1,7 @@
 # A sound or player that ends during a call takes the call's audio session back to ambient and deactivates it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Sound and player releases preserve a held call's audio category, mode, options and system-owned activation.
 **Systems:** host/apple/Sources/ExactKit/AudioSession.swift, packages/calls
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
