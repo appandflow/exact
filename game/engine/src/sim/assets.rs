@@ -17,7 +17,13 @@ impl<G: Game> Sim<G> {
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
             crate::sprite::texture_names_changed(&self.world, &mut self.asset_sprite_names);
-        if revision != self.asset_mesh_revision || sprites_changed {
+        // Present rewrites overrides every boundary: compare the names they hold.
+        let overrides = override_textures(&self.world);
+        let overrides_changed = overrides != self.asset_override_names;
+        if overrides_changed {
+            self.asset_override_names = overrides;
+        }
+        if revision != self.asset_mesh_revision || sprites_changed || overrides_changed {
             let names: Vec<_> = self
                 .world
                 .query::<&crate::Mesh>()
@@ -34,6 +40,11 @@ impl<G: Game> Sim<G> {
                         .query::<&crate::Sprite>()
                         .iter()
                         .map(|(_, s)| (s.texture.clone(), ".tex")),
+                )
+                .chain(
+                    self.asset_override_names
+                        .iter()
+                        .map(|n| (n.clone(), ".tex")),
                 )
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
@@ -327,3 +338,15 @@ impl<G: Game> Sim<G> {
     }
 }
 
+/// The texture names `MaterialOverrides` show, sorted and once each.
+fn override_textures(w: &crate::World) -> Vec<String> {
+    let mut names: Vec<String> = w
+        .query::<&crate::MaterialOverrides>()
+        .iter()
+        .flat_map(|(_, o)| o.0.iter())
+        .flat_map(|o| o.textures.names().into_iter().flatten().map(str::to_owned))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}

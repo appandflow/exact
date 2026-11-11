@@ -610,6 +610,7 @@ impl Default for NodeMaterial {
 pub struct NodeMaterials(pub Vec<NodeMaterial>);
 
 /// One model material's look on one instance: see `MaterialOverrides`.
+/// Name the fields you set and end with `..Default::default()`.
 #[derive(Clone, Debug, Default, PartialEq, crate::Data)]
 pub struct MaterialOverride {
     /// The model's material index (the glTF material's index in its file).
@@ -619,11 +620,48 @@ pub struct MaterialOverride {
     pub color: Option<[f32; 4]>,
     /// Linear emission added wherever the material draws.
     pub emissive: [f32; 3],
+    /// Replaces the material's textures on this instance: one model per shape,
+    /// its skin chosen per instance. Each named `.tex` asset is requested while
+    /// an instance names it and released when none does. Until all of an
+    /// instance's named textures can draw, it keeps the textures it drew before
+    /// (the model's own the first time), so it never draws blank.
+    pub textures: TextureSlots,
+}
+/// Texture names replacing a model material's own, by slot; `None` keeps the
+/// material's. A slot the material samples no texture in stays untextured,
+/// and the material's UV transforms apply to the replacement.
+#[derive(Clone, Debug, Default, PartialEq, crate::Data)]
+pub struct TextureSlots {
+    /// Base colour (sRGB).
+    pub base_color: Option<String>,
+    /// Tangent-space normal map.
+    pub normal: Option<String>,
+    /// glTF metallic-roughness: roughness in G, metallic in B.
+    pub metallic_roughness: Option<String>,
+    /// Ambient occlusion in R.
+    pub occlusion: Option<String>,
+    /// Emission (sRGB).
+    pub emissive: Option<String>,
+}
+impl TextureSlots {
+    /// The names in the order of `asset::MaterialData`'s texture fields: base
+    /// colour, normal, metallic-roughness, emissive, occlusion.
+    pub fn names(&self) -> [Option<&str>; 5] {
+        [
+            &self.base_color,
+            &self.normal,
+            &self.metallic_roughness,
+            &self.emissive,
+            &self.occlusion,
+        ]
+        .map(Option::as_deref)
+    }
 }
 /// Per-material looks of a model instance: one soldier model in every team's
 /// armour colour, one crop model in each mutation's look. Every part with that
-/// material changes, merged or not, and instances with different overrides still
-/// draw together. Applies before `NodeMaterials`, under the entity's `Material`.
+/// material changes, merged or not, and instances with different colours still
+/// draw together, as do instances with the same textures. Applies before
+/// `NodeMaterials`, under the entity's `Material`.
 /// Presentation state: write it from `Game::present`; never saved or hashed.
 #[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
 pub struct MaterialOverrides(pub Vec<MaterialOverride>);

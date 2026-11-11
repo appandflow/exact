@@ -192,6 +192,8 @@ pub struct Sim<G: Game> {
     asset_sprite_names: Vec<(crate::Entity, String)>,
     // What the renderer draws (`hold_assets`): presentation residency only.
     held: std::collections::BTreeSet<String>,
+    // The textures `MaterialOverrides` named at the last asset pass.
+    asset_override_names: Vec<String>,
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
@@ -393,6 +395,7 @@ impl<G: Game> Sim<G> {
             asset_mesh_revision: u64::MAX,
             asset_sprite_names: Vec::new(),
             held: Default::default(),
+            asset_override_names: Vec::new(),
             defer_assets: false,
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,

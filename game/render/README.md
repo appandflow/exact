@@ -669,10 +669,19 @@ fragment shader that wants it calls `faded(slot, pixel)` (fade.wgsl, in
 `MaterialOverrides` replaces a model material's base colour factor, zero channels
 included (and adds emission), on one instance: it becomes that material's records'
 tint with a flag that drops the authored factor, so instances in different colours
-still share their batches.
+still share their batches. Its `textures` replace the textures in the slots the
+material samples: the material drawn with them is a renderer material of its own, one
+bind group per (material, texture set), made when the set's textures are resident, so
+instances with the same set batch together. An instance keeps drawing the set it drew
+before (the model's own the first time), on the model it drew it on when its shape
+changed too, until every texture of its new set is
+resident, so a skin never draws with mixed maps; the feed watches the names it waits
+for and rebuilds when one arrives.
+A variant is reclaimed with its material or when one of its textures retires.
 
 When an entity's `Mesh` names a model that cannot draw yet, the feed keeps drawing the
-rigid model (no skin, no animated parts) that entity drew at its last rebuild until the named one can; if the named one fails, the old one stays.
+rigid model (no skin, no animated parts) that entity drew at its last rebuild, with the
+textures it drew, until the named one can; if the named one fails, the old one stays.
 The record is keyed by the full entity id, survives a restore, and is dropped when the
 entity stops drawing; the entity's `ModelLod` levels, which belong to the new model,
 are not drawn meanwhile (its `hide` distance still applies). Bounds, culling and shadows follow the

@@ -848,6 +848,7 @@ fn mutation(
         material: 0,
         color: Some([color[0], color[1], color[2], 1.0]),
         emissive,
+        ..MaterialOverride::default()
     })
 }
 

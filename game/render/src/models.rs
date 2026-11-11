@@ -90,6 +90,7 @@ mod merge;
 mod poses;
 pub(crate) use poses::Moved;
 mod textures;
+mod variants;
 use textures::upload_texture;
 pub(crate) use textures::Texture;
 struct PoseHistory {
@@ -131,6 +132,8 @@ pub(crate) struct Models {
     pub(crate) custom: std::collections::BTreeSet<MaterialId>,
     /// The feed's looks for the next `set_draw_instances`, part starts relative.
     pub(crate) pending_looks: (Vec<u32>, Vec<PartLook>),
+    /// Materials drawn with an instance's textures (`MaterialOverride::textures`).
+    pub(crate) variants: variants::Variants,
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -598,6 +601,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 .flat_map(|(_, m)| m.materials.iter())
                 .map(|id| self.models.materials[id.0].bytes)
                 .sum::<u64>()
+            + variants::unused_bytes(
+                &self.models.variants,
+                &self.models.materials,
+                &self.models.records,
+            )
             + self
                 .models
                 .textures
@@ -663,12 +671,18 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .values()
             .flat_map(|m| m.meshes.iter().map(|id| id.0))
             .collect();
-        let materials: std::collections::BTreeSet<_> = self
+        let mut materials: std::collections::BTreeSet<_> = self
             .models
             .loaded
             .values()
             .flat_map(|m| m.materials.iter().map(|id| id.0))
             .collect();
+        variants::retain(
+            &mut self.models.variants,
+            &mut materials,
+            &self.models.textures,
+            &self.models.records,
+        );
         for (i, m) in self.meshes.iter_mut().enumerate() {
             if m.asset && !meshes.contains(&i) {
                 m.indices = 0..0;

@@ -468,7 +468,12 @@ The stock renderer draws these built-in presentation components without a shader
 moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacity`
 (dithered coverage fading, multiplied down the Parent chain; it never reveals a child
 of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
-for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
+for models, `NodeMaterials`/`MaterialOverrides`. `MaterialOverride.textures` (a
+`TextureSlots` of base colour, normal, metallic-roughness, occlusion and emissive
+names) replaces a material's textures on one instance, so one model per shape takes
+every skin: each named `.tex` is requested while an instance names it and released when
+none draws it, and until all of an instance's named textures can draw, it keeps the ones
+it drew before (the model's own the first time). `World::drawn(e)` is the displayed
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
 and gameplay use the simulated pose.
 
