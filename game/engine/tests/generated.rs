@@ -255,6 +255,31 @@ fn a_model_of_another_record_is_refused_by_name() {
     );
 }
 
+/// The shading fields are written as one optional field, only when one
+/// differs from its default: a material without them keeps its bytes (the
+/// record keeps its number, and the baked fixture
+/// `bake/tests/fixtures/crate.model` and the generated identity above still
+/// match), and one with them round-trips and hashes apart.
+#[test]
+fn the_material_record_writes_its_shading_only_when_it_is_not_the_default() {
+    use exact_game::asset::MaterialData;
+    use exact_game::{bin, hash};
+    let lit = MaterialData::default();
+    let unlit = MaterialData {
+        unlit: true,
+        ..Default::default()
+    };
+    let bytes = bin::to_vec(&lit);
+    assert!(!bytes.windows(7).any(|w| w == b"shading"));
+    let back: MaterialData = bin::from_slice(&bin::to_vec(&unlit)).unwrap();
+    assert!(back.unlit);
+    assert_ne!(hash::of(&lit), hash::of(&unlit));
+    // A stale value never survives a read of a record without shading.
+    let mut dirty = unlit.clone();
+    bin::read_into(&bytes, &mut dirty).unwrap();
+    assert!(!dirty.unlit);
+}
+
 /// A complete record (a tuning table's JSON) names every material field, as the
 /// derive's records must; only the name may be absent. A short record and
 /// trailing input are refused.

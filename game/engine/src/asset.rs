@@ -52,12 +52,15 @@ pub struct MeshOutline {
     pub normals: Vec<f32>,
     pub reach: Vec<f32>,
 }
-/// One material of a model. Its record (model record 2, [`MODEL_RECORD`]) is
-/// the derive's field-named record plus `name`, written first and only when
-/// it is not empty: an absent name is an unnamed material. So a model with
-/// no names, as every generated one has, keeps its bytes and its identity in
-/// saves. The rule is this record's: the derive drops no field by its value,
-/// since the hash does not name fields and two dropped fields would collide.
+/// One material of a model. Its record ([`MODEL_RECORD`]) is the derive's
+/// field-named record plus two optional fields: `name`, written first and only
+/// when it is not empty (an absent name is an unnamed material), and
+/// `shading`, written last and only when one of the shading fields below
+/// differs from its default (an absent one is the default lit material). So a
+/// model with no names and the default shading, as every generated one has,
+/// keeps its bytes and its identity in saves. The rule is this record's: the
+/// derive drops no field by its value, since the hash does not name fields and
+/// two dropped fields would collide; `shading` writes all of its fields or none.
 ///
 /// ```compile_fail
 /// use exact_game::*;
@@ -89,6 +92,9 @@ pub struct MaterialData {
     pub alpha_mode: AlphaMode,
     pub alpha_cutoff: f32,
     pub double_sided: bool,
+    /// The colour is `base + emission` alone, with no light, environment or
+    /// rim (glTF's `KHR_materials_unlit`); fog and fading still apply.
+    pub unlit: bool,
 }
 impl Default for MaterialData {
     fn default() -> Self {
@@ -110,11 +116,30 @@ impl Default for MaterialData {
             alpha_mode: AlphaMode::Opaque,
             alpha_cutoff: 0.5,
             double_sided: false,
+            unlit: false,
         }
     }
 }
-/// The derive's encoding of every field but `name`, which the record rule
-/// above writes; the field list is the struct's, in its order.
+/// The record's optional `shading` field: every shading field, written
+/// together so that no two materials share one hash stream.
+#[derive(Data, Default, Clone, Copy)]
+struct Shading {
+    unlit: bool,
+}
+impl Shading {
+    fn of(m: &MaterialData) -> Self {
+        Self { unlit: m.unlit }
+    }
+    fn assign(self, m: &mut MaterialData) {
+        m.unlit = self.unlit;
+    }
+    /// Bitwise, so that a negative zero is written and read back.
+    fn is_default(self) -> bool {
+        crate::bin::to_vec(&self) == crate::bin::to_vec(&Self::default())
+    }
+}
+/// The derive's encoding of every field but `name` and the shading fields,
+/// which the record rule above writes; the field list is the struct's, in its order.
 macro_rules! material_record {
     ($($field:ident),* $(,)?) => {
         impl Data for MaterialData {
@@ -129,11 +154,17 @@ macro_rules! material_record {
                     w.field(stringify!($field));
                     Data::write(&self.$field, w);
                 )*
+                let shading = Shading::of(self);
+                if !shading.is_default() {
+                    w.field("shading");
+                    shading.write(w);
+                }
                 w.end_struct();
             }
             fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
                 // The record's rule, not a patch: no name read is no name.
                 self.name.clear();
+                Shading::default().assign(self);
                 let fields = [$(stringify!($field)),*];
                 let mut seen = [false; [$(stringify!($field)),*].len()];
                 r.begin_struct()?;
@@ -143,6 +174,11 @@ macro_rules! material_record {
                     }
                     match field.as_str() {
                         "name" => self.name.read(r).map_err(|e| e.at("name"))?,
+                        "shading" => {
+                            let mut shading = Shading::default();
+                            shading.read(r).map_err(|e| e.at("shading"))?;
+                            shading.assign(self);
+                        }
                         $(stringify!($field) => Data::read(&mut self.$field, r)
                             .map_err(|e| e.at(stringify!($field)))?,)*
                         _ => r.skip().map_err(|e| e.at(&field))?,
@@ -942,7 +978,9 @@ impl crate::Mesh {
     }
 }
 
-/// The baked `.model` file's record: material names (record 2). A file is
+/// The baked `.model` file's record: material names (record 2). A material's
+/// optional `shading` field, absent at its defaults, needs no new record: a
+/// file without it reads as it was baked. A file is
 /// [`MODEL_MAGIC`], this number as one byte, then the model in the engine's
 /// codec ([`encode_model`]).
 pub const MODEL_RECORD: u8 = 2;

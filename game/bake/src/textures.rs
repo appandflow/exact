@@ -30,14 +30,23 @@ pub fn materials(
             continue;
         }
         let pbr = material.pbr_metallic_roughness();
+        // KHR_materials_unlit: the base colour, alpha and sidedness apply, and
+        // every other property, related to light or colour, is ignored
+        // (KHR_materials_unlit's README, Khronos glTF extensions registry).
+        let unlit = material.unlit();
         let mut m = MaterialData {
             name,
             base_color: pbr.base_color_factor(),
             metallic: pbr.metallic_factor(),
             roughness: pbr.roughness_factor(),
-            emissive: material
-                .emissive_factor()
-                .map(|v| v * material.emissive_strength().unwrap_or(1.0)),
+            emissive: if unlit {
+                [0.0; 3]
+            } else {
+                material
+                    .emissive_factor()
+                    .map(|v| v * material.emissive_strength().unwrap_or(1.0))
+            },
+            unlit,
             alpha_mode: match material.alpha_mode() {
                 gltf::material::AlphaMode::Opaque => AlphaMode::Opaque,
                 gltf::material::AlphaMode::Mask => AlphaMode::Mask,
@@ -66,7 +75,9 @@ pub fn materials(
             &raw["occlusionTexture"],
         ];
         for (slot, texture) in textures.into_iter().enumerate() {
-            let Some(texture) = texture else { continue };
+            let Some(texture) = texture.filter(|_| slot == 0 || !unlit) else {
+                continue;
+            };
             let ext = &infos[slot]["extensions"]["KHR_texture_transform"];
             let coord = ext["texCoord"]
                 .as_u64()

@@ -897,7 +897,7 @@ fn baked(m: &MaterialData) -> Vec<f32> {
             AlphaMode::Blend => 2.,
         },
         m.rim,
-        0.,
+        f32::from(u8::from(m.unlit)),
         0.,
     ]);
     for uv in m.uv_transforms {

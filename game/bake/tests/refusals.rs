@@ -55,14 +55,36 @@ fn bake(value: serde_json::Value) -> Result<exact_game::asset::Model, String> {
 #[test]
 fn unsupported_features_refuse_by_name() {
     let mut v = source();
-    v["extensionsUsed"] = json!(["KHR_materials_unlit"]);
-    assert!(bake(v).unwrap_err().contains("KHR_materials_unlit"));
+    v["extensionsUsed"] = json!(["KHR_materials_transmission"]);
+    assert!(bake(v).unwrap_err().contains("KHR_materials_transmission"));
     let mut v = source();
     v["meshes"][0]["primitives"][0]["targets"] = json!([{"POSITION":0}]);
     assert!(bake(v).unwrap_err().contains("morph targets"));
     let mut v = source();
     v["accessors"][0]["sparse"] = json!({"count":1,"indices":{"bufferView":3,"componentType":5123},"values":{"bufferView":0}});
     assert!(bake(v).unwrap_err().contains("sparse accessor"));
+}
+/// KHR_materials_unlit keeps the base colour, its texture and alpha, and
+/// ignores every other property: no emission, and no other texture is baked.
+#[test]
+fn an_unlit_material_bakes_its_base_colour_alone() {
+    let mut v = source();
+    v["extensionsUsed"] = json!(["KHR_materials_unlit"]);
+    v["materials"][0]["emissiveFactor"] = json!([0.2, 0.3, 0.4]);
+    v["materials"][0]["emissiveTexture"] =
+        v["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"].clone();
+    v["materials"][0]["alphaMode"] = json!("BLEND");
+    let lit = bake(v.clone()).unwrap();
+    assert!(!lit.materials[0].unlit && lit.materials[0].emissive_texture.is_some());
+    v["materials"][0]["extensions"] = json!({"KHR_materials_unlit":{}});
+    let m = bake(v).unwrap();
+    let material = &m.materials[0];
+    assert!(material.unlit);
+    assert_eq!(material.emissive, [0.; 3]);
+    assert_eq!(material.alpha_mode, exact_game::asset::AlphaMode::Blend);
+    assert_eq!(material.base_color_texture, Some(0));
+    assert_eq!(material.emissive_texture, None);
+    assert_eq!(m.textures.len(), 1);
 }
 #[test]
 fn permitted_extensions_are_baked_per_texture() {

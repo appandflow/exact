@@ -43,12 +43,26 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     if length2 < 1e-16 { return n; }
     return normalize((t*sampled.x+b*sampled.y)*baked.surface.z*inverseSqrt(length2)+n*sampled.z);
 }
+// An unlit material (`MaterialData::unlit`): its base and emission, which no
+// light, environment or rim changes; fog and fading still apply.
+@diagnostic(off, derivative_uniformity)
+fn model_unlit(input:ModelVarying, base:vec4<f32>) -> vec4<f32> {
+    var emission=vec3(1.0);
+    if MODEL_TEXTURES { emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)).rgb; }
+    if MODEL_DISCARD && baked.flags.x==1.0 && base.a < baked.emission_cutoff.w { discard; }
+    var color=vec3<shading>(base.rgb)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
+    if FOG { color=shaded_fog(color,input.world); }
+    var alpha=1.0;
+    if MODEL_DISCARD && baked.flags.x==2.0 { alpha=base.a*(1.0-fade_of(input.slot)); }
+    return vec4(vec3<f32>(color),alpha);
+}
 @diagnostic(off, derivative_uniformity)
 fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     if DEPTH_PREPASS && input.clip.z >= 1.0 { discard; }
     // Opaque materials fade by dither; blended ones multiply alpha below.
     if MODEL_DISCARD && baked.flags.x!=2.0 && faded(input.slot,input.clip.xy) { discard; }
     let base=model_base(input);
+    if baked.flags.z > 0.0 { return model_unlit(input,base); }
     var mr=vec4(1.0);
     var emission=vec3(1.0);
     var ao=1.0;

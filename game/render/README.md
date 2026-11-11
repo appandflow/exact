@@ -519,6 +519,20 @@ attachment or pass boundary. Device timing is still required on Adreno 620 and i
 these are work counts, not a GPU-time claim.
 
 
+### Unlit materials
+
+`MaterialData.unlit` draws a model material without light: its colour is
+`base + emission`, where `base` is the base colour factor times its texture, the
+vertex colour and the instance tint, and `emission` the emissive factor times its
+texture and `Glow`. Ambient and image-based light, the sun, the fill, local
+lights and rim do not reach it; fog and fading still do, and it is opaque, masked
+or blended as its `alpha_mode` says (three.js's `MeshBasicMaterial`). The bake
+maps glTF's `KHR_materials_unlit` to it, keeping the base colour, its texture,
+alpha and sidedness and, as the extension says, ignoring every other property:
+the emission is zero and no other texture is baked. The flag is a word of the
+material's uniform, read once per fragment, so no pipeline is added for it.
+SSAO, a screen effect, still darkens an opaque unlit surface.
+
 ### Environment lighting
 
 Ambient light is image-based, from the procedural sky (`Environment.zenith`,
