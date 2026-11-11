@@ -1,6 +1,7 @@
 # The Rust render host folds a text that has a `:hover` look, so the look never paints
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both document projections keep a text with state looks in its own box, using the shared folding rule.
 **Systems:** host/web/src/document.rs, host/web/src/element.rs, kernel/src/node.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
