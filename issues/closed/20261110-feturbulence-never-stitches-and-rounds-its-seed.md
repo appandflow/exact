@@ -1,6 +1,7 @@
 # `feTurbulence` with `stitchTiles="stitch"` does not stitch, and a fractional `seed` picks another pattern than Chrome's
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** feTurbulence wraps lattice coordinates before masking and truncates fractional seeds toward zero.
 **Systems:** host/svg-raster/src/filter/noise.rs (Apple's SVG island module, the Linux host)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
