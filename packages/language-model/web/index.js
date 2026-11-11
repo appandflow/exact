@@ -313,7 +313,13 @@ export function implementation({ changed, agent, now, foreground, log, invoke })
     if (r.state !== 'generating') return;
     const s = r.session;
     let session;
-    try { session = await platform(s); } catch (e) { s.turns.push(r.turn); end(r, 'failed', errorOf(e)); return; }
+    try { session = await platform(s); } catch (e) {
+      if (r.state === 'generating') { s.turns.push(r.turn); end(r, 'failed', errorOf(e)); }
+      return;
+    }
+    // A response that ended during an await before admission has freed the session for its next call; admitting its
+    // input would take the session back with no end left to free it. Each await before `admitInput` is checked.
+    if (r.state !== 'generating') return;
     r.controller = new AbortController();
     const options = { signal: r.controller.signal };
     if (r.schema) Object.assign(options, { responseConstraint: r.schema, omitResponseConstraintInput: r.omit });
@@ -322,7 +328,7 @@ export function implementation({ changed, agent, now, foreground, log, invoke })
     let extra;
     const measure = session.measureContextUsage ?? session.measureInputUsage;
     if (measure) try { extra = await measure.call(session, input, options); } catch {}
-    if (!admitInput(r, extra)) return;
+    if (r.state !== 'generating' || !admitInput(r, extra)) return;
     try {
       if (r.overflowed) session = await platform(s);
       for (;;) {

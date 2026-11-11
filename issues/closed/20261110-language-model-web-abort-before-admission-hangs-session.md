@@ -1,6 +1,7 @@
 # On the web, aborting a language-model response before its input is admitted hangs the session
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `beginBrowser` returns without admitting the input when the response ended while the browser's session was built or the input measured, so an aborted or cancelled response no longer holds the session.
 **Systems:** packages/language-model/web/index.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
