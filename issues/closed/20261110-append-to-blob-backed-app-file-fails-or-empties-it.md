@@ -1,6 +1,7 @@
 # On the web, `appendFile` to a picked, downloaded or copied-in app file fails, and an empty append empties it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web appendFile concatenates Blob-backed contents atomically, preserving their media type and existing bytes on an empty append.
 **Systems:** host/web/storage-fs.js (`write`), host/web/picker-glue.js (both web targets load them)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
@@ -61,8 +62,8 @@ succeeded. Not run: a module inside a built app.
 
 ## Direction
 
-When the previous contents are a Blob, store `new Blob([previous.contents, copied])`: it needs no read inside
-the transaction and keeps the file backed by the browser's own.
+When the previous contents are a Blob, store `new Blob([previous.contents, copied], { type: previous.contents.type })`:
+it needs no read inside the transaction and preserves the file's media type.
 
 ## Related
 

@@ -203,10 +203,14 @@ export function createFileStore(appId) {
       if (previous && previous.kind !== 'file') throw failure('write needs a regular file', 'EISDIR');
       let contents = copied;
       if (append && previous) {
-        const joined = new Uint8Array(previous.contents.byteLength + copied.byteLength);
-        joined.set(new Uint8Array(previous.contents));
-        joined.set(new Uint8Array(copied), previous.contents.byteLength);
-        contents = joined.buffer;
+        if (previous.contents instanceof Blob) {
+          contents = new Blob([previous.contents, copied], { type: previous.contents.type });
+        } else {
+          const joined = new Uint8Array(previous.contents.byteLength + copied.byteLength);
+          joined.set(new Uint8Array(previous.contents));
+          joined.set(new Uint8Array(copied), previous.contents.byteLength);
+          contents = joined.buffer;
+        }
       }
       changes.put({ path, kind: 'file', contents, modifiedMs: now() });
       if (!previous) changes.touch(parentOf(path));
