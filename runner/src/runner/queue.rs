@@ -443,7 +443,7 @@ impl<D: DataSource> Runner<D> {
             // A native module's send (LLP 1133.002 D13): the runner's substitute.
             self.module_send(target, source, args)
         } else {
-            let answer = self.data.answer_for(target, &mut self.store, source, args);
+            let answer = self.answer_mutation(target, source, args);
             self.refuse_locked(answer)
         };
         // What its source staged on sockets goes out only with an answer

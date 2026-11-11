@@ -1301,9 +1301,7 @@ impl<D: DataSource> Runner<D> {
         } else if self.plan.module_named(&p.source).is_some() {
             self.module_parse(p.target, ty, &p.source, outcome)
         } else {
-            let parsed =
-                self.data
-                    .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+            let parsed = self.parse_frame(&p, message, outcome);
             self.refuse_locked(parsed)
         };
         // What the turn of a reply to a request with effects wrote stands,

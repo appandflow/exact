@@ -33,6 +33,7 @@ mod reach_margin;
 mod reorder_codec;
 mod replay;
 mod router;
+mod rust_sockets;
 mod secret_state;
 mod sockets;
 mod stream_mapper;

@@ -1551,7 +1551,8 @@ of them, wait; one more ends the stream. The web's wasm host maps each message
 now and refuses a promise. An `http:`/`https:` URL is read as server-sent
 events under `net.fetch`; a `ws:`/`wss:` URL is a WebSocket under
 `net.websocket` alone. Except for TypeScript sources on the web JS target and
-native hosts, described below, sockets are receive-only. An event is
+native hosts, described below, and Rust sources on native hosts ("Rust data
+sources", "A two-way socket"), sockets are receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
@@ -3015,6 +3016,55 @@ generates the module bindings. For a build script,
 pass to `contract::rust`; the names are compiler metadata, outside the binary
 plan. Both map scoped names such as `Point__exact` to `PointExact`.
 `Value::Number`, `Value::str`, `Value::Bool` and `Value::list` are the rest.
+
+### A two-way socket
+
+On native hosts a Rust source sends on a WebSocket with TypeScript's rules
+(LLP 1016.003). Answer `Answer::Later(Request::socket(url))` for a `ws:` or
+`wss:` URL under a `net.websocket` grant. Its `parse` is the mapper: it gets
+an `Outcome::Message` whose `event` is `open`, then one for each frame in
+order (text in `data`, a binary frame in `binary`), then `Outcome::Closed {
+code, reason, was_clean }`. While it answers `open` or a frame,
+`store.socket()` is that socket's handle; keep it to send from a mutation:
+
+```rust
+fn answer(&mut self, store: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    match source {
+        "book" => Ok(Answer::Later(Request::socket("wss://stream.example/ws"))),
+        "subscribe" => {
+            let socket = self.book.ok_or(DataError::Unavailable("the book is not open".into()))?;
+            socket.send_text(store, r#"{"method":"SUBSCRIBE","params":["depth.SOL_USDC"]}"#)?;
+            Ok(Answer::Now(Value::Bool(true)))
+        }
+        _ => Err(DataError::UnknownSource(source.into())),
+    }
+}
+fn parse(&mut self, store: &mut Store, _: &str, _: &[Value], outcome: Outcome) -> Result<Answer, DataError> {
+    match outcome {
+        Outcome::Message(m) if m.event == "open" => {
+            let socket = store.socket().expect("a socket's mapper has its handle");
+            self.book = Some(socket);
+            socket.send_text(store, r#"{"method":"SUBSCRIBE","params":["trade.SOL_USDC"]}"#)?;
+            Ok(Answer::Now(Value::str("open")))
+        }
+        Outcome::Message(m) => Ok(Answer::Now(Value::str(&m.data))),
+        Outcome::Closed { code, .. } => Ok(Answer::Now(Value::str(&format!("closed {code}")))),
+        other => Err(DataError::Unavailable(other.summary())),
+    }
+}
+```
+
+`Socket` has `send_text`, `send_binary`, `close(store, code, reason)`,
+`buffered_amount` and `is_open`. A mutation's `answer` may send on any open
+socket of the app's resources, and must then answer `Answer::Now`; a mapper
+sends only on its own socket. What either stages goes once its commit
+stands. A refusal is an `Err` whose text names the DOM exception a
+TypeScript handle would throw: `InvalidStateError` for a socket not open, a
+handle from before the resource was asked again, or a send from a resource's
+answer; `QuotaExceededError` past 256 operations or 1 MiB a call, which
+fails a mapper's frame even when it ignores the error. The web refuses a
+Rust socket request by name, and a worker-placed source's socket only
+listens.
 
 ### Where data lives: app storage, not secrets
 
