@@ -592,9 +592,9 @@
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = Array.from(new global.Headers(init && init.headers).entries());
     // A BufferSource body goes as its bytes, in base64 beside the text body
-    // (LLP 1069.002 D4: `readFile`'s bytes as an upload's body). Anything
-    // else is a string, as before.
+    // (LLP 1069.002 D4); the host accepts a whole body, so streams refuse.
     var raw = init ? init.body : undefined, bytes = null;
+    if (binary.isReadableStream(raw)) return Promise.reject(new TypeError("fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first"));
     // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
     if (raw != null && (method === "GET" || method === "HEAD"))
       return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));

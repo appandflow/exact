@@ -1,6 +1,7 @@
 # On Hermes, a `ReadableStream` given to `new Response` or to `fetch` as a body becomes the text `[object ReadableStream]`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Response consumes ReadableStream byte chunks, and fetch rejects stream request bodies before sending.
 **Systems:** js/src/binary.js (`Response`), js/src/prelude.js (`request`), js/src/streams.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

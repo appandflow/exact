@@ -63,17 +63,24 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// constructor, `Response.json`, `Response.redirect`), a reply's `clone()`,
 /// `statusText` and `bodyUsed`, and a body read once, which an older prelude
 /// would make with no status and no body, refuse, or answer `undefined`.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 7;
+/// 8: `Response` consumes a `ReadableStream` body and `fetch` refuses one,
+/// where older preludes stringify the stream.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 8;
 
 /// What each runtime past the first added that a bundle names to use (see
 /// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
 /// or, for 5's abort changes, what makes an abort signal. `mode` and
 /// `access` are left out of 6's: they would match far more than D6a. 7's are
 /// the `Response` itself and what it newly has, however a bundle reaches them
-/// (`globalThis.Response`, a `clone` taken apart and called through `.call`);
-/// `structuredClone` names none of them.
-const RUNTIME_OPTIONS: [(u32, &str); 18] = [
-    (7, "Response"),
+/// (`globalThis.Response`, a `clone` taken apart and called through `.call`).
+/// `Response` now needs 8, as do constructors whose readable side can become
+/// a request body. `structuredClone` names none of them.
+const RUNTIME_OPTIONS: [(u32, &str); 22] = [
+    (8, "Response"),
+    (8, "ReadableStream"),
+    (8, "TransformStream"),
+    (8, "CompressionStream"),
+    (8, "DecompressionStream"),
     (7, "clone"),
     (7, "statusText"),
     (7, "bodyUsed"),

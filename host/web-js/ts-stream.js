@@ -7,6 +7,7 @@ import { rt } from './rt-link.js'; // (rt.js's own, as a lazy chunk takes them: 
 const { clock, journal } = rt;
 import { failureCode, failureReason } from './shape.js';
 import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
+import { refuseStreamBody } from './uploads.js';
 
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a
@@ -19,8 +20,10 @@ function request(input, init, redirect) {
   // `exactBodyFrom` (LLP 1108 D6 R2): read as the stream opens (http-body.js).
   const bodyFrom = init.exactBodyFrom === undefined ? undefined : init.exactBodyFrom, refusal = bodyFrom === undefined ? null : bodyFromRefusal(input, init);
   if (refusal) throw new TypeError(refusal);
-  // A BufferSource body goes as its bytes, copied now, as Hermes sends one (an upload's); anything else as its text.
-  const body = init.body, raw = body == null ? undefined : body instanceof ArrayBuffer ? new Uint8Array(body.slice(0))
+  // The transport takes a complete body, as Hermes's does.
+  const body = init.body;
+  refuseStreamBody(body);
+  const raw = body == null ? undefined : body instanceof ArrayBuffer ? new Uint8Array(body.slice(0))
     : ArrayBuffer.isView(body) ? new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)) : new TextEncoder().encode(String(body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
   // The caller's signal, as Fetch picks it (`init.signal` over the Request's)

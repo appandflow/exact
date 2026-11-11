@@ -914,9 +914,9 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
         6
     );
     assert_eq!(needs(b"(await fs.lstat(p)).isSymbolicLink"), 6);
-    assert_eq!(needs(b"return new Response(body, {status: 201})"), 7);
-    assert_eq!(needs(b"return new globalThis.Response(body)"), 7);
-    assert_eq!(needs(b"return Response.redirect(u, 303)"), 7);
+    assert_eq!(needs(b"return new Response(body, {status: 201})"), 8);
+    assert_eq!(needs(b"return new globalThis.Response(body)"), 8);
+    assert_eq!(needs(b"return Response.redirect(u, 303)"), 8);
     assert_eq!(needs(b"const copy = (await fetch(u)).clone()"), 7);
     assert_eq!(needs(b"const copy = r.clone.call(r)"), 7);
     assert_eq!(needs(b"const {clone: copy} = r; return copy.call(r)"), 7);
@@ -927,6 +927,23 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
         needs(b"return Response.json({a: 1})"),
         super::TYPESCRIPT_RUNTIME
     );
+}
+
+#[test]
+fn stream_bodies_require_a_runtime_that_reads_or_refuses_them() {
+    for bundle in [
+        "new Response(stream).arrayBuffer()",
+        "fetch(url, {method: 'POST', body: new ReadableStream(source)})",
+        "fetch(url, {method: 'POST', body: new CompressionStream('gzip').readable})",
+        "fetch(url, {method: 'POST', body: new DecompressionStream('gzip').readable})",
+        "fetch(url, {method: 'POST', body: new TransformStream().readable})",
+    ] {
+        assert_eq!(
+            super::typescript_runtime_of(bundle.as_bytes()),
+            8,
+            "{bundle}"
+        );
+    }
 }
 
 /// A module client with a store pins its compiled module into the id:

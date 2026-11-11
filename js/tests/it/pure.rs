@@ -114,6 +114,67 @@ try {
 "#;
 
 #[test]
+fn readable_stream_bodies_are_collected_by_responses() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamBody() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module.query("streamBody", &[]).unwrap().as_str().unwrap(),
+        r#"{"viaResponse":"hello","magic":[31,139],"unpacked":"hello"}"#
+    );
+}
+
+#[test]
+fn readable_stream_bodies_and_chunks_use_intrinsic_brands() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamBodyBrands() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module
+            .query("streamBodyBrands", &[])
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        r#"{"chunks":["TypeError","TypeError",[1,2],[3,4]],"bodies":["A",["B","B"],["B","B"]]}"#
+    );
+}
+
+#[test]
+fn readable_stream_request_bodies_refuse_before_a_request_is_sent() {
+    use exact_runner::{Answer, Store};
+    let grants = "";
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        grants,
+    )
+    .unwrap();
+    module.bind(&contract::compile("component App\n  resource value = streamUpload() as shape string\n  view\n    text value\n").unwrap());
+    let mut store = Store::new(grants, Vec::<(String, Vec<u8>)>::new());
+    let answer = module.answer(&mut store, "streamUpload", &[]).unwrap();
+    let Answer::Now(value) = answer else {
+        panic!("a ReadableStream body must be refused, got {answer:?}");
+    };
+    let results: Vec<String> = serde_json::from_str(value.as_str().unwrap()).unwrap();
+    assert_eq!(results.len(), 6);
+    for text in results {
+        assert!(
+            text.starts_with("TypeError: fetch: ReadableStream"),
+            "{text}"
+        );
+        assert!(text.ends_with("locked=false; stringified=false"), "{text}");
+    }
+}
+
+#[test]
 fn large_native_strings_preserve_json_semantics_and_call_ownership() {
     use exact_js::{from_json, to_json, Shape};
     use exact_plan::Value;

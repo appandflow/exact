@@ -139,6 +139,9 @@ test('the JS target refuses an upload where Hermes does, in its words', async ()
   writeFileSync(resolve(dir, 'source.js'), `export const appId = 'test.upload'; export const grants = '';
 import { fetch } from './ts-fetch.js';
 const url = 'https://example.test/upload', exactStream = e => e.type, post = { method: 'POST', exactStream };
+export const bodies = Array.from({ length: 4 }, () => new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1])); c.close(); } }));
+export let stringified = false;
+for (const body of bodies) body.toString = () => { stringified = true; throw new Error('the stream was stringified'); };
 const inits = [
   [url, { ...post, exactUploadProgress: 'yes' }],
   [url, { method: 'POST', exactUploadProgress: true }],
@@ -149,6 +152,10 @@ const inits = [
   [url, { ...post, exactTimeout: 30000 }],
   [url, { ...post, exactUploadProgress: true, exactTimeout: 0 }],
   ['exact-native:', { ...post, exactUploadProgress: true }],
+  [url, { ...post, body: bodies[0] }],
+  [url, { ...post, body: bodies[1], duplex: 'half' }],
+  [url, { ...post, body: bodies[2], exactUploadProgress: true }],
+  [url, { ...post, body: bodies[3], exactUploadProgress: true, duplex: 'half' }],
 ];
 export function answer(name, args) { return fetch(...inits[args[0]]); }
 `);
@@ -165,9 +172,11 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
     const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
     ts.install(data);
     const said = [];
-    for (let i = 0; i < 9; i++) {
-      const r = data.answer('upload', [i], new Map());
-      said.push(r.stream ? (await r.stream(() => {}, new AbortController())).error : await r.promise.then(() => 'answered', e => e.name + ': ' + e.message));
+    for (let i = 0; i < 13; i++) {
+      try {
+        const r = data.answer('upload', [i], new Map());
+        said.push(r.stream ? (await r.stream(() => {}, new AbortController())).error : await r.promise.then(() => 'answered', e => e.name + ': ' + e.message));
+      } catch (e) { said.push(e.name + ': ' + e.message); }
     }
     expect(said).toEqual([
       'exactUploadProgress is true or false',
@@ -179,7 +188,14 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
       'TypeError: exactTimeout: a stream has no timeout',
       'exactTimeout must be an integer number of milliseconds from 1 to 3600000',
       'exactUploadProgress: an upload is an http: or https: request',
+      'fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first',
+      'fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first',
+      'TypeError: fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first',
+      'TypeError: fetch: ReadableStream request bodies are unavailable; collect the bytes with new Response(body).arrayBuffer() first',
     ]);
+    const source = await import(pathToFileURL(resolve(dir, 'source.js')).href);
+    expect(source.stringified).toBe(false);
+    expect(source.bodies.map(body => body.locked)).toEqual([false, false, false, false]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
