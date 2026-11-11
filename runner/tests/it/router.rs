@@ -203,6 +203,42 @@ fn only_a_navigation_assigned_to_the_router_scrolls() {
     assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "moves", 2)]);
 }
 
+/// A table counts its locations without the `notfound` row; a push of the
+/// one location it declares is no new visit.
+#[test]
+fn a_table_of_one_location_says_so() {
+    let route = |name: &str, pattern: &str, notfound: bool| Route {
+        name: name.into(),
+        pattern: pattern.into(),
+        parent: None,
+        tab: false,
+        notfound,
+    };
+    let one = |routes: Vec<Route>| boot(fixture::plan(&Table { routes }), "/").route_one_location();
+    assert!(one(vec![route("home", "/", false)]));
+    assert!(!one(vec![
+        route("home", "/", false),
+        route("add", "/add", false)
+    ]));
+    assert!(one(vec![
+        route("home", "/", false),
+        route("notfound", "", true)
+    ]));
+    assert!(!boot(fixture::plan(&table()), "/").route_one_location());
+    let mut r = boot(
+        fixture::plan(&Table {
+            routes: vec![route("home", "/", false)],
+        }),
+        "/",
+    );
+    act(&mut r, "push", "/");
+    assert_eq!(
+        nav(&r).tabs[0].stack.len(),
+        1,
+        "a push of the one location is no visit"
+    );
+}
+
 #[test]
 fn launch_fallback_is_journaled_and_notfound_preserves_the_location() {
     let mut table = table();

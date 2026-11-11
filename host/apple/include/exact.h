@@ -539,6 +539,10 @@ uint32_t exact_protocol_location_of(ExactRuntime rt, size_t len);
 /* LLP 1038 §7: 1 when the input location names a declared route (a followed
  * link to it navigates in the app), else 0. */
 uint32_t exact_route_matches(ExactRuntime rt, size_t len);
+/* LLP 1115.000 D5.1: 1 when the route table declares one location (a
+ * single route besides notfound, the root `/`), so a route is pushed above
+ * it only by another query or an unmatched location, else 0. Not a batch. */
+uint32_t exact_route_one_location(ExactRuntime rt);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes

@@ -87,6 +87,9 @@ pub trait Routing {
     fn ahead(&self) -> Option<&str>;
     /// Whether `location` names a declared route pattern (LLP 1038 §7).
     fn matches_pattern(&self, location: &str) -> bool;
+    /// Whether the table declares one location: a single route besides
+    /// `notfound`, which is then the root `/` (`Table::check`).
+    fn one_location(&self) -> bool;
     /// Set what `sharedFiles` answers for a share's token (LLP 1133.024 D3);
     /// false when it already answers that.
     fn share(&self, token: &str, files: Value) -> bool;
@@ -811,6 +814,10 @@ impl Routing for RouterContext {
     fn matches_pattern(&self, location: &str) -> bool {
         self.table.matches_pattern(location).is_some()
     }
+
+    fn one_location(&self) -> bool {
+        self.table.routes.iter().filter(|r| !r.notfound).count() == 1
+    }
 }
 
 impl<D: DataSource> Runner<D> {
@@ -983,6 +990,16 @@ impl<D: DataSource> Runner<D> {
         self.router
             .as_ref()
             .is_some_and(|r| r.matches_pattern(location))
+    }
+
+    /// Whether the route table declares one location besides `notfound`
+    /// (which the compiler writes for most apps, LLP 1116.009 D2). A push of
+    /// the location on top is no new visit (LLP 1038), so only a push of it
+    /// with another query, or of a location nothing matches, puts a route
+    /// above the root. `false` without a router. The Mac's toolbar shows no
+    /// Back for such an app until one does (LLP 1115.000 D5.1).
+    pub fn route_one_location(&self) -> bool {
+        self.router.as_ref().is_some_and(|r| r.one_location())
     }
 
     /// The canonical location of a retained visit, or `None` when it is

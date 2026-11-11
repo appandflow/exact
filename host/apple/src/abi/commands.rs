@@ -83,6 +83,16 @@ impl<D: DataSource> Bridge<D> {
         )
     }
 
+    /// `exact_route_one_location`: whether the plan's route table declares
+    /// one location besides `notfound` (LLP 1115.000 D5.1).
+    pub fn route_one_location(&self) -> u32 {
+        u32::from(
+            self.host
+                .as_ref()
+                .is_some_and(|h| h.runner().route_one_location()),
+        )
+    }
+
     /// `exact_module_invoke`: a package's call of the app's handler,
     /// `{"extension", "handle", "handler", "args"}` in the input buffer.
     /// `reply(ctx, answer, len)` is called once with the runner's JSON, now

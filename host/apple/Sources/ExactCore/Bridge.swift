@@ -674,6 +674,11 @@ package final class Runtime {
     package func routeMatches(_ location: String) -> Bool {
         return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
     }
+    /// Whether the route table declares one location besides `notfound` (LLP 1115.000 D5.1);
+    /// `nil` while the runtime is busy.
+    package func routeOneLocation() -> Bool? {
+        on(busy: nil) { exact_route_one_location(rt) != 0 }
+    }
     /// The location of the visit beneath the route keyed `key` on its stack,
     /// `nil` for a stack's root or a key that names no visit (LLP 1115 D5).
     package func locationBeneath(_ key: String) -> String? {

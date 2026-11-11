@@ -567,6 +567,62 @@ final class BackSessionMacTests: XCTestCase {
         }
     }
 
+    /// An app whose routes declare one location (#105) has nowhere to go
+    /// back to: no chevron at `/`, and with no header to project, no
+    /// toolbar. A push of that location with a query gives it a Back, and
+    /// the toolbar that came with it stays when Back takes it away, so the
+    /// title bar changes once. An app with a second route keeps Back at its
+    /// root, disabled (`testAVisitWithNoAuthoredControlGoesBackByNavigateOrTheRunnersBack`).
+    func testAnAppWithOneLocationHasNoBackUntilSomethingIsPushed() throws {
+        _ = NSApplication.shared
+        let source = """
+        routes nav
+          home "/"
+
+        component App
+          action more
+            nav = push(nav, "/?page=2")
+          view
+            main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+              for e in stack(nav) key=e.id
+                column navigationKey=`${e.id}` position="absolute" inset=0
+                  text e.url
+                  button press=more testId="more"
+                    text "More"
+
+        """
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+        let view = ExactView(session: session)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = view
+        let content = try XCTUnwrap(window.contentView).frame.size
+        let p = session.presenter
+        XCTAssertTrue(p.navigation.oneLocation)
+        XCTAssertTrue(view.attachWindowToolbar(to: window))
+        XCTAssertNil(window.toolbar, "one location and no header: no toolbar, no chevron")
+        XCTAssertFalse(p.navigation.backInToolbar)
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
+        XCTAssertNotNil(p.navigation.pushedRoute, "the query's visit is pushed")
+        let toolbar = try XCTUnwrap(window.toolbar, "a push gives the stack a Back")
+        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier])
+        XCTAssertTrue(p.toolbar.backItem.isEnabled)
+        let pushed = try XCTUnwrap(window.contentView).frame.size
+        XCTAssertEqual(pushed, content, "the content keeps its size as the toolbar comes")
+        XCTAssertTrue(p.navigation.goBack())
+        XCTAssertNil(p.navigation.pushedRoute)
+        XCTAssertTrue(window.toolbar === toolbar, "the toolbar stays at the root")
+        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [], "with no chevron in it")
+        XCTAssertEqual(window.contentView?.frame.size, pushed)
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
+        XCTAssertTrue(window.toolbar === toolbar, "and the next push keeps it")
+        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier])
+        view.detachWindowToolbar()
+    }
+
     /// LLP 1115.000 D5.5: Forward goes where Back left, by Go ▸ Forward ⌘],
     /// the two-finger swipe the other way, and the mouse's forward button;
     /// the mouse's back button goes Back. Each button steps at its release,

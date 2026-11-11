@@ -81,6 +81,13 @@ extension NavigationHost {
     /// `navigationBack`, named or empty).
     var hasStack: Bool { !presenter.carrying("navigationBack").isEmpty }
 
+    /// Whether the stack has anywhere Back could go: its route table
+    /// declares more than one location, or a route is pushed. A one-screen
+    /// app has no chevron, as a hand-built one has none, until something
+    /// pushes onto its stack (its one location with another query, or a
+    /// location nothing matches); its toolbar is not held for Back until then.
+    var backPossible: Bool { !oneLocation || pushedRoute != nil }
+
     /// Whether the window's toolbar shows the chevron: the selected route,
     /// pushed or the first of its stack, did not ask for a screen with no
     /// bar (`navigationBar="none"`, LLP 1115.000 D5.2). At the root of a
@@ -93,8 +100,9 @@ extension NavigationHost {
     /// Q10) the chevron comes with a push inside the detail and goes with
     /// it, as SwiftUI's does: a list beside its detail has no Back to show,
     /// and a chevron that is never enabled is not in a hand-built window.
+    /// Nor is one in an app with nowhere to go back to (`backPossible`).
     var backInToolbar: Bool {
-        guard hasStack else { return false }
+        guard hasStack, backPossible else { return false }
         guard let selection, selection.stack.indices.contains(selection.at) else { return true }
         guard presenter.views[selection.stack[selection.at]]?.props["navigationBar"] != "none" else { return false }
         return !split.active || pushedRoute != nil
