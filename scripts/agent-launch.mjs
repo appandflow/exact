@@ -207,7 +207,7 @@ export function resolveDevice(host, flags, appId) {
  * to the next as the app keeps them from one launch to the next (`--reset-storage` empties it, `--storage <name>`
  * names another). On the web a named store is a Chrome profile emptied each drive, so a web drive names its own. */
 export function defaultStore(host, flags) {
-  return flags.storage ?? (['ios', 'macos', 'mac', 'linux'].includes(host) && !flags.url ? 'default' : undefined);
+  return flags.storage ?? (['ios', 'macos', 'mac', 'linux', 'android', 'windows'].includes(host) && !flags.url ? 'default' : undefined);
 }
 /** Says, at the first drive from the app's directory `dir` on `device` that keeps `defaultStore`, that it is kept.
  * A drive that compares starts empty and a plain one does not, so a plain drive can show what an earlier one stored

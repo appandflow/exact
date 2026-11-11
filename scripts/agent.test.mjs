@@ -609,8 +609,11 @@ test('a native named store is kept unless the drive resets it, under its lock; a
     let env = null, lock = null;
     const injected = { open: async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; }, driveServer: async () => null,
       exclusiveNativeStore: async (key, launch) => { lock = key; return launch(); }, resolveDevice: () => 'a device' };
-    assert.equal(await main(['ios', '--reset-storage', 'state'], injected), 0);
-    assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1']);
+    for (const host of ['ios', 'macos', 'linux', 'android', 'windows']) {
+      lock = env = null;
+      assert.equal(await main([host, '--reset-storage', 'state'], injected), 0);
+      assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1'], host);
+    }
     await assert.rejects(main(['web', '--reset-storage', 'state'], injected), /need --storage <name>/);
   } finally { [console.log, console.error] = quiet; }
 });
