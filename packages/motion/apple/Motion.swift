@@ -391,9 +391,8 @@ public final class MotionModule: ExactPackage {
                     "rotationRate": ["alpha": rate[2] * deg, "beta": rate[0] * deg, "gamma": rate[1] * deg],
                     "interval": 1000 / 60.0] as [String: Any]
         default:
-            // Device Orientation's Z-X'-Y'' angles from Core Motion's attitude.
-            let a = m.attitude
-            return ["alpha": a.yaw * deg, "beta": a.pitch * deg, "gamma": a.roll * deg, "absolute": false, "apple": NSNull()] as [String: Any]
+            let angles = orientation(quaternion)
+            return ["alpha": angles[0], "beta": angles[1], "gamma": angles[2], "absolute": false, "apple": NSNull()] as [String: Any]
         }
     }
 
@@ -450,3 +449,33 @@ public final class MotionModule: ExactPackage {
     }
 }
 #endif
+
+extension MotionModule {
+    /// Device Orientation's alpha, beta and gamma in degrees, in the W3C's ranges ([0, 360), [−180, 180),
+    /// [−90, 90)), from the quaternion [x, y, z, w] that turns the device frame into the Earth frame: Chromium's
+    /// computation from the rotation matrix, as `Motion.kt` makes it on Android. `CMAttitude`'s `yaw`, `pitch` and
+    /// `roll` are the same rotations in Core Motion's ranges (pitch in [−90°, 90°]), and its `rotationMatrix` is
+    /// this matrix transposed, in single precision.
+    static func orientation(_ q: [Double]) -> [Double] {
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
+        let m = [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+                 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+                 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]
+        let sinBeta = min(1, max(-1, m[7]))
+        var alpha: Double, beta: Double, gamma: Double
+        if m[8] > 0 {
+            alpha = atan2(-m[1], m[4]); beta = asin(sinBeta); gamma = atan2(-m[6], m[8])
+        } else if m[8] < 0 {
+            alpha = atan2(m[1], -m[4]); beta = -asin(sinBeta); beta += beta >= 0 ? -.pi : .pi; gamma = atan2(m[6], -m[8])
+        } else if m[6] > 0 {
+            alpha = atan2(-m[1], m[4]); beta = asin(sinBeta); gamma = -.pi / 2
+        } else if m[6] < 0 {
+            alpha = atan2(m[1], -m[4]); beta = -asin(sinBeta); beta += beta >= 0 ? -.pi : .pi; gamma = -.pi / 2
+        } else {
+            alpha = atan2(m[3], m[0]); beta = m[7] > 0 ? .pi / 2 : -.pi / 2; gamma = 0
+        }
+        if alpha < 0 { alpha += 2 * .pi }
+        let deg = 180 / Double.pi
+        return [alpha * deg, beta * deg, gamma * deg]
+    }
+}

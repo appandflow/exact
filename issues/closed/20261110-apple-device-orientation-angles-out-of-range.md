@@ -1,6 +1,7 @@
 # Apple's `deviceOrientation` answers Core Motion's Euler angles, outside the W3C's ranges
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple computes alpha, beta and gamma from the attitude quaternion as Chromium and `Motion.kt` do, so they fall in the W3C ranges, instead of answering Core Motion's yaw, pitch and roll.
 **Systems:** packages/motion/apple/Motion.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
