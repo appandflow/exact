@@ -90,9 +90,12 @@ may therefore differ for identical Ogg sources. The proof's exact execution-inpu
 digest includes those bytes and their manifest digests; portable `sourceInputs`
 identifies the authored sound source instead.
 
-The digest manifest protects authored files from replacement or pruning. Obsolete
-list-form manifests refuse with instructions to remove the manifest and its generated
-outputs, then rebake; there is no ownership guess based on a filename.
+The digest manifest protects authored files from replacement or pruning. Before
+writing outputs it records both the current and pending digests, so an interrupted
+bake can resume. A successful bake keeps only the final digests. Bakes of the same
+game hold an exclusive lock through the manifest read, output writes and pruning.
+Obsolete list-form manifests refuse with instructions to remove the manifest and
+its generated outputs, then rebake; there is no ownership guess based on a filename.
 
 `cargo run -p exact-game-bake --locked --offline -- --art /path/to/game` runs that
 same owned-output bake without compiling a generated GPU module. The scoped game test

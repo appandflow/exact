@@ -1,6 +1,7 @@
 # An art bake that stops between its outputs and its manifest is refused by every later bake as an authored-asset collision
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Art bakes record current and pending output digests before writing and serialize concurrent bakes, so interrupted bakes can resume without adopting authored assets.
 **Systems:** game/bake/src/lib.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
