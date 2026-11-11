@@ -1,6 +1,7 @@
 # `contract verify` reports a divergence for any app that scrolls a list row into view, so `verify` fails on the chat-thread recipe
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The semantics excludes runner-consumed list-row scrolls from host commands while preserving element scrolls, so contract verify agrees on the chat-thread recipe.
 **Systems:** semantics/Contract/Runtime.lean (`hostCommands`), semantics/difftest/src/observe.rs, runner/src/runner/commit.rs, semantics/README.md, docs/recipes/chat-thread.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

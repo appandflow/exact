@@ -886,12 +886,13 @@ def Config.armNexts (p : Program) (c : Config) : Config :=
 /-- At most this many sends wait per mutation (the runner's `QUEUE_BOUND`). -/
 def queueBound : Nat := 64
 
-/-- The commands a commit tells a host: all but `setMode`, which the
-runner takes out and applies itself in the commit (LLP 1121 D5; the
-runner's `take_set_modes`). The window's mode only selects presentation,
-which the semantics does not evaluate. -/
+/-- The runner consumes `setMode` and the seven-argument row form of
+`scrollIntoView` in the commit (LLP 1121 D5; LLP 1070.000 §12–13).
+Their presentation and layout effects are outside the semantics.
+The four-argument element form of `scrollIntoView` reaches the host. -/
 def hostCommands (cs : List (String × List Value)) : List (String × List Value) :=
-  cs.filter (·.1 != "setMode")
+  cs.filter fun (name, args) =>
+    name != "setMode" && !(name == "scrollIntoView" && args.length == 7)
 
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
