@@ -541,14 +541,26 @@ final class NativeListNavigationIOSTests: XCTestCase {
 
     func testAnIdleFollowEndReaderAtTheStartUsesTheNewNativeTitleInset() throws {
         let (session, _, route, node) = try nativeList(initialTop: 0, followEnd: true)
+        let p = session.presenter
         let collection = try XCTUnwrap(node.scrollView)
         let header = try XCTUnwrap(route.lifted)
-        let heading = try XCTUnwrap(session.presenter.views.values.first { $0.props["accessibilityHeadingLevel"] != nil && $0.isDescendant(of: header) })
+        let heading = try XCTUnwrap(p.views.values.first { $0.props["accessibilityHeadingLevel"] != nil && $0.isDescendant(of: header) })
         XCTAssertEqual(collection.contentOffset.y + node.scrollTopInset(collection), 0, accuracy: 0.5)
+        var nested = 0
+        p.onCovers = { _ in
+            guard nested == 0 else { return }
+            nested += 1
+            XCTAssertFalse(p.applying)
+            XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never)
+            XCTAssertEqual(collection.contentOffset.y + node.scrollTopInset(collection), 0, accuracy: 0.5,
+                           "covers reach the runtime after the reader uses the new title inset")
+            p.apply(wireBatch([["op": "props", "id": node.id + 2, "set": ["testId": "nested-row"]]]))
+        }
+        defer { p.onCovers = nil }
         collection.contentOffset.y = -collection.adjustedContentInset.top + 0.000001
-        session.presenter.apply(wireBatch([["op": "props", "id": heading.id, "set": ["accessibilityHeadingLevel": "2"]]]))
+        p.apply(wireBatch([["op": "props", "id": heading.id, "set": ["accessibilityHeadingLevel": "2"]]]))
+        XCTAssertEqual(nested, 1)
         collection.layoutIfNeeded()
-        spin(0.2)
         XCTAssertEqual(collection.contentOffset.y + node.scrollTopInset(collection), 0, accuracy: 0.5, "resting at the start does not replay the former title's raw offset")
         XCTAssertEqual(collection.contentOffset.y, -collection.adjustedContentInset.top, accuracy: 0.5)
     }

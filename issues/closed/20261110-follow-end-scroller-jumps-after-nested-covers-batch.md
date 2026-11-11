@@ -1,6 +1,7 @@
 # iOS: a batch applied from another batch's closing work sends a scrolled-up `scrollFollowEnd` scroller to its end
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** UIKit restores captured scroll positions after navigation layout and collection insets settle, before deferred callbacks or navigation retirement can apply another batch.
 **Systems:** host/apple/Sources/ExactKit/IOS/PresenterIOS.swift, host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift, host/apple/Sources/ExactKit/IOS/NavigationCoversIOS.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -1402,10 +1402,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
         if !covers.isEmpty || !delivered.isEmpty {
-            let cleared = Set(covers.keys).union(delivered.keys).filter { presenter.views[$0] != nil }
             covers = [:]
-            delivered = [:]
-            if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) }
+            presenter.afterBatch { [weak self] in self?.deliverCovers() }
         }
         primaryNavigation?.delegate = nil
         primaryNavigation?.willMove(toParent: nil)
