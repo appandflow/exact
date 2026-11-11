@@ -385,6 +385,44 @@ fn a_phones_locale_is_its_format_locale_too() {
     );
 }
 
+/// Under the agent the drive's place stands whatever the phone's language
+/// (`EXACT_AGENT_LOCALE`, as on iOS and the web), and a date control shows
+/// its value as HTML writes it, not in the phone's words.
+#[test]
+fn under_the_agent_the_drives_place_stands_over_the_phones() {
+    let source = "component App\n  view\n    row\n      input type=\"date\" value=\"2026-10-16\" testId=\"day\"\n";
+    let mut p = boot(source);
+    p.agent = true;
+    let launched = exact_runner::time::Place {
+        locale: "en-US".into(),
+        format_locale: "en-GB".into(),
+        seed: 1.0,
+        ..Default::default()
+    };
+    assert!(p.set_place(&launched).is_none());
+    let size = |p: &Presenter<()>| {
+        p.host()
+            .kernel()
+            .node_by_key(p.host().kernel().find_by_test_id("day")[0])
+            .unwrap()
+            .frame
+            .width
+    };
+    let iso = size(&p);
+    let french = Device {
+        locale: "fr-FR".into(),
+        dates: US_DATES.into(),
+        ..phone()
+    };
+    assert!(p.set_device(&french).is_none());
+    let place = p.host().runner().place();
+    assert_eq!(
+        (place.locale.as_str(), place.format_locale.as_str()),
+        ("en-US", "en-GB")
+    );
+    assert_eq!(size(&p), iso);
+}
+
 /// A page symbol is drawn in its `color`, inherited here from a custom button
 /// or a box, as Apple and the web draw one (LLP 1081 §4), not in the accent.
 #[test]
