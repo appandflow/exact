@@ -182,6 +182,25 @@ fn a_leader_that_exits_first_leaves_no_group_behind() {
     );
 }
 
+#[test]
+fn a_group_gone_after_its_signal_ends_the_stream_before_the_grace() {
+    let (core, woke, _) = core("process.spawn /bin/sh");
+    // The leader exits and its member holds no pipe, so the signal that
+    // ends the group is the last thing the supervisor sees of it.
+    let mut body = sh("sleep 60 >/dev/null 2>&1 & exit 0");
+    body["forceKillAfter"] = 10_000.into();
+    let start = Instant::now();
+    core.run(request(1, body, true), None).unwrap();
+    let out = collect(&core, &woke, ended);
+    let took = start.elapsed();
+    let leader = spawned_pid(&out);
+    assert!(!os::group_alive(leader), "the group outlived the stream");
+    assert!(
+        took < Duration::from_secs(5),
+        "the stream waited out the grace: {took:?}"
+    );
+}
+
 /// Rewrite every entry of the record at `path` with `change`.
 fn edit_record(path: &std::path::Path, change: impl Fn(&mut serde_json::Value)) {
     let mut entries: Vec<serde_json::Value> =

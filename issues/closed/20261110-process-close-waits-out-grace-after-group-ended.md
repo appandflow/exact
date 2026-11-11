@@ -1,6 +1,7 @@
 # A child's `close` and its stream's end wait out `exactForceKillAfter` after its group has ended
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** While a closed incarnation's group lives and its escalation is pending, the supervisor looks at the group every 10 ms, so the incarnation ends as soon as the group has.
 **Systems:** host/apple/src/executor_process_supervise.rs, host/apple/src/executor_process_clock.rs, desktop processes (LLP 1133.007)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

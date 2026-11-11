@@ -16,6 +16,10 @@ use serde_json::json;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// How often a closed incarnation whose group lives looks at it again.
+const GROUP_POLL: Duration = Duration::from_millis(10);
 
 /// What a supervisor sees of its child: output, its exit, a pipe at end of
 /// file (`None` for both at once), or its stdin queue drained below the
@@ -470,7 +474,13 @@ impl<'a> Supervisor<'a> {
             .flatten()
             .reduce(f64::min);
             self.clock.wait_for(self.waiter, deadline);
-            let input = match self.rx.recv_timeout(self.clock.timeout(deadline)) {
+            let mut wait = self.clock.timeout(deadline);
+            if closed {
+                // Its group is alive and its escalation pending. The group's
+                // end sends no input, so look at it again in short steps.
+                wait = wait.min(GROUP_POLL);
+            }
+            let input = match self.rx.recv_timeout(wait) {
                 Ok(input) => input,
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => Input::Release,
