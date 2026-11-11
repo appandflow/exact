@@ -1,6 +1,7 @@
 # A page streamed to a browser has no hero image preload; the same page buffered has one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Streamed and buffered JavaScript pages share hero selection, preload the chosen image before the root, and mark it at high priority.
 **Systems:** host/render/src/direct.rs, host/render/src/page.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -1229,7 +1229,7 @@ fn document<D: DataSource + 'static>(
             let late = |activate: exact_plan::ActivatePolicy| {
                 !preload && crate::page::activate_js(activate) != "interaction"
             };
-            if let Some((rendered, body)) = crate::direct::render_js(
+            if let Some(page) = crate::direct::render_js(
                 &shared.plan,
                 &data,
                 viewport,
@@ -1243,7 +1243,7 @@ fn document<D: DataSource + 'static>(
                 &mut send,
             )? {
                 streamed_body = true;
-                return Ok((rendered, head.clone() + &body));
+                return Ok((page.rendered, head.clone() + &page.body));
             }
             // The direct writer requires a kernel; do not settle without one again.
             projection = Projection::Kernel;

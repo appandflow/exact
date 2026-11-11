@@ -307,7 +307,7 @@ export function renderer(dist, { closed = false } = {}) {
  * largest paint: it is fetched at high priority and preloaded ahead of the document, as web.dev's LCP guidance has a
  * hero image (HTML's `fetchpriority` and `<link rel="preload" as="image">`). A page whose first image is a lazy row's
  * opens with a list, and has none. The first shown: a route the stack covers is `inert` and hidden, and what it holds
- * is not the page's. Writes the priority into `out.root`; returns the preload link (host/render/src/page.rs `hero_image`). */
+ * is not the page's. Writes the priority into `out.root`; returns the preload link (host/web/src/document_before.rs). */
 function heroImage(out) {
   const tags = /<(\/?)([a-zA-Z][\w-]*)([^>]*)>/g, covered = [];
   for (let m; (m = tags.exec(out.root));) {

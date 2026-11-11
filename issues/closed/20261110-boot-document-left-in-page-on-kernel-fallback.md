@@ -1,6 +1,7 @@
 # A `paint=boot` page keeps its boot document when the settled page needs a kernel
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Kernel fallback replaces the boot document without repeating its head; cached pages contain only the settled document.
 **Systems:** host/render/src/direct.rs, host/render/src/serve.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

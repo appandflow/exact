@@ -427,113 +427,82 @@ pub(crate) fn body_js(
     late: bool,
     marked: bool,
 ) -> String {
+    body_after_boot_js(shell, js, rendered, late, marked, None)
+}
+
+pub(crate) fn body_after_boot_js(
+    shell: &str,
+    js: &Js,
+    rendered: &Rendered,
+    late: bool,
+    marked: bool,
+    boot: Option<&crate::direct::Boot>,
+) -> String {
     let document = &rendered.document;
+    let mut html = std::borrow::Cow::Borrowed(document.root.as_str());
+    if let Some(at) = document
+        .hero_image
+        .as_ref()
+        .and_then(|image| image.priority_at)
+    {
+        html.to_mut().insert_str(at, " fetchpriority=\"high\"");
+    }
     let mut root = String::with_capacity(document.root.len());
     if rendered.runtime_form {
-        root.push_str(&document.root);
+        root.push_str(&html);
     } else {
-        for_runtime(&mut root, &document.root, &js.classes);
+        for_runtime(&mut root, &html, &js.classes);
     }
     // The tokens `render.mjs` reads: the document, then the shell from its root.
     let style = js.rules.as_ref().map(|rules| {
         let have = crate::page_style::tokens(&(root.clone() + &shell[js.at.root..]));
         crate::page_style::select(rules, &have)
     });
-    let hero = hero_image(&mut root);
-    let mut out = body_open_js(
-        shell,
-        js,
-        &rendered.head,
-        document.scroll_document,
-        late,
-        marked,
-        style.as_deref().map_or(Sheet::Whole, Sheet::Own),
+    let mut out = boot.map_or_else(
+        || {
+            body_open_js(
+                shell,
+                js,
+                &rendered.head,
+                document.scroll_document,
+                late,
+                marked,
+                style.as_deref().map_or(Sheet::Whole, Sheet::Own),
+            )
+        },
+        |boot| boot.open(shell, js, document, late),
     );
-    // Before the root's open tag, which `body_open_js` ends with.
-    if let Some(link) = hero {
-        out.insert_str(out.len() - (js.at.root_open - js.at.root), &link);
-    }
+    preload_image(&mut out, shell, document.hero_image.as_ref());
     out.reserve(root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
     out.push_str(&root);
-    out.push_str(&body_close_js(
+    let close = body_close_js(
         shell,
         js,
         &rendered.digest,
         rendered.activate,
         &rendered.wake,
         &rendered.checkpoint,
-    ));
+    );
+    out.push_str(&crate::direct::close_after_boot(close, boot.is_some()));
     out
 }
 
-/// A page's first shown image, when it loads with the page (no `for`
-/// repeats it, LLP 1048.007 D5), is likely its largest paint: it is fetched
-/// at high priority and preloaded ahead of the document, as `render.mjs`
-/// `heroImage` does. A route the stack covers is `inert` and hidden, and
-/// what it holds is not the page's. Writes the priority into `root`;
-/// returns the preload.
-fn hero_image(root: &mut String) -> Option<String> {
-    const VOID: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
-        "track", "wbr",
-    ];
-    let mut covered: Vec<bool> = Vec::new();
-    let mut from = 0;
-    while let Some(at) = root[from..].find('<').map(|i| from + i) {
-        let end = at + root[at..].find('>')?;
-        from = end;
-        let inner = &root[at + 1..end];
-        let (close, inner) = match inner.strip_prefix('/') {
-            Some(rest) => (true, rest),
-            None => (false, inner),
-        };
-        let name_len = inner
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
-            .unwrap_or(inner.len());
-        if name_len == 0 || !inner.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            continue;
-        }
-        let name = inner[..name_len].to_ascii_lowercase();
-        let attrs = &inner[name_len..];
-        if close {
-            covered.pop();
-            continue;
-        }
-        if name == "img" {
-            let Some(src) = attrs
-                .split_once(" src=\"")
-                .and_then(|(_, rest)| rest.split_once('"'))
-                .map(|(src, _)| src)
-            else {
-                continue;
-            };
-            if covered.contains(&true) || src.starts_with("data:") {
-                continue;
-            }
-            if attrs.contains(" loading=\"lazy\"") {
-                return None;
-            }
-            let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
-            root.insert_str(at + 4, " fetchpriority=\"high\"");
-            return Some(link);
-        }
-        if VOID.contains(&name.as_str()) || attrs.ends_with('/') {
-            continue;
-        }
-        // A style's or a script's text is not markup.
-        if name == "style" || name == "script" {
-            if let Some(i) = root[from..].find(&format!("</{name}")) {
-                from += i;
-            }
-        }
-        let inert = attrs
-            .match_indices(" inert")
-            .any(|(i, m)| matches!(attrs[i + m.len()..].chars().next(), None | Some(' ' | '=')));
-        covered.push(
-            inert || attrs.contains("visibility:hidden") || attrs.contains("visibility: hidden"),
-        );
+/// Insert the hero's preload before the root's opening tag.
+pub(crate) fn preload_image(
+    open: &mut String,
+    shell: &str,
+    hero: Option<&exact_web::document::HeroImage>,
+) {
+    if let Some(hero) = hero {
+        let src = hero
+            .src
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;");
+        let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
+        open.insert_str(open.len() - root_open(shell).len(), &link);
     }
-    None
 }
 
 /// Which sheet a page's rest carries when the build analyzed the shell's
@@ -1032,6 +1001,7 @@ mod tests {
                 head: Default::default(),
                 keyframes: String::new(),
                 scroll_document: true,
+                hero_image: None,
             },
             head: String::new(),
             checkpoint: "{}".into(),
@@ -1110,6 +1080,7 @@ mod tests {
                     head: Default::default(),
                     keyframes: String::new(),
                     scroll_document: false,
+                    hero_image: None,
                 },
                 head: String::new(),
                 checkpoint: "{}".into(),
