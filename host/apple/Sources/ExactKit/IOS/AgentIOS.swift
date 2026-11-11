@@ -1451,7 +1451,10 @@ extension Agent {
     /// The system appearance (LLP 1061 D5): the window scene's trait, which
     /// the window's own style — the app's `setScheme` — overrides, as the
     /// Settings switch sits beneath an app's choice.
+    /// An app whose Info.plist fixes `UIUserInterfaceStyle` (the manifest's
+    /// `userInterfaceStyle`) ignores it, as it ignores the device's switch.
     func systemScheme(dark: Bool) {
+        guard !["Light", "Dark"].contains(Bundle.main.object(forInfoDictionaryKey: "UIUserInterfaceStyle") as? String ?? "") else { return }
         guard let window = session.presenter.viewport.window else { return }
         window.windowScene?.traitOverrides.userInterfaceStyle = dark ? .dark : .light
         window.updateTraitsIfNeeded()

@@ -474,3 +474,21 @@ test('source identities match Cargo roots for Windows canonical drive and UNC pa
     assert.equal(sourcePath(canonical, 'darwin'), canonical);
   }
 });
+
+test('`userInterfaceStyle` takes Expo\'s three values, refusing others by name, and fixes the Apple binaries\' metadata', async () => {
+  const { readManifest, nativeManifestMetadata } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-style-'));
+  const read = (style) => {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Style', app: { id: 'dev.exact.style', name: 'Style' }, ...(style === undefined ? {} : { userInterfaceStyle: style }) }));
+    return readManifest(dir, 'style');
+  };
+  try {
+    for (const style of ['light', 'dark']) {
+      for (const platform of ['ios', 'macos']) assert.equal(nativeManifestMetadata(read(style), platform).userInterfaceStyle, style);
+      for (const platform of ['android', 'linux', 'windows']) assert.equal(nativeManifestMetadata(read(style), platform).userInterfaceStyle, undefined);
+    }
+    // `automatic` is the default: a binary built with it is the one built without the key.
+    assert.deepEqual(nativeManifestMetadata(read('automatic'), 'ios'), nativeManifestMetadata(read(undefined), 'ios'));
+    assert.throws(() => read('Dark'), /userInterfaceStyle: "Dark" is not one of "automatic", "light", "dark"/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

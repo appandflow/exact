@@ -54,7 +54,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { backgroundKeys, localNetworking, nfcKeys, startLocation, transportSecurity, updateActivation } from './plist.mjs';
+import { backgroundKeys, interfaceStyle, localNetworking, nfcKeys, startLocation, transportSecurity, updateActivation } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
 import { appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { auditLaunchParts, launchModules, launchServices, serviceArgs, writeLaunchParts } from './launch-parts.mjs';
@@ -476,7 +476,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
-  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
+  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation), interfaceStyle(app));
   return plistFile(dict);
 };
 
@@ -561,7 +561,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
   ...startLocation(app),
-  ...updateActivation(app),
+  ...updateActivation(app), ...interfaceStyle(app, true),
   ...openingLinks(app, 'macos', development, distributed), ...shortcutKeys(app, 'macos'),
   ...(app.manifest.host?.macos?.oneTimeCodeAutofill === 'marked' ? { NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true } : {}),
 });

@@ -1314,13 +1314,21 @@ extension Agent {
     /// returns to `system` later shows the Mac's own again. Every session
     /// tells its runner, as for any other preference.
     func systemScheme(dark: Bool) {
-        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let following = Agent.followsSystem
         Agent.systemAppearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         if following { NSApp.appearance = Agent.systemAppearance }
         DisplayPreferences.changed()
     }
+    /// Whether the app shows the system appearance: it sets none of its
+    /// own, or the agent's stands in it. Never under a fixed
+    /// `userInterfaceStyle`, which the agent's switch does not move, as the
+    /// Mac's does not; AppKit hands out one object per named appearance, so
+    /// identity alone would take the fixed one for the agent's.
+    static var followsSystem: Bool {
+        ExactEnv.fixedAppearance == nil && (NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance)
+    }
     var systemDark: Bool {
-        (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        (ExactEnv.fixedAppearance ?? Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     /// The agent's system appearance, the whole process's; `nil` follows the
     /// Mac. Under the agent it is set at launch (`launchAppearance`): its
@@ -1339,7 +1347,7 @@ extension Agent {
     /// system appearance, so views redraw and platform colours resolve as
     /// Increase Contrast shows them.
     func systemContrast(more: Bool) {
-        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let following = Agent.followsSystem
         let dark = systemDark
         let name: NSAppearance.Name = dark ? (more ? .accessibilityHighContrastDarkAqua : .darkAqua) : (more ? .accessibilityHighContrastAqua : .aqua)
         Agent.systemAppearance = NSAppearance(named: name)

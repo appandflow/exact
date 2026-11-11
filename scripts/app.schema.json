@@ -241,6 +241,10 @@
         "portrait-secondary"
       ]
     },
+    "userInterfaceStyle": {
+      "description": "The app's appearance from launch, as the device's appearance would be (Expo's key): automatic (the default) follows the device; light or dark fixes it on iOS and tvOS (Info.plist's UIUserInterfaceStyle), macOS (the application's appearance, set before the first window) and the web (the page's color-scheme). A color-scheme a node sets still wins in its subtree. Android, Linux and Windows follow the device.",
+      "enum": ["automatic", "light", "dark"]
+    },
     "theme_color": { "type": "string" },
     "background_color_dark": {
       "type": "string",

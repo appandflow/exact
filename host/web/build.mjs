@@ -40,7 +40,7 @@ import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
-import { withLook } from './look.mjs';
+import { interfaceStyle, withInterfaceStyle, withLook } from './look.mjs';
 import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, hostingNotes, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 import { foreignBeside } from './generations.mjs';
 
@@ -236,7 +236,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
 // The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
-writeFileSync(resolve(stage, 'index.html'), withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')));
+writeFileSync(resolve(stage, 'index.html'), withInterfaceStyle(withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')), interfaceStyle(app.manifest)));
 // A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
 // host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
 // ships it false, so the minifier drops the agent's paths from a release.
@@ -395,10 +395,12 @@ const pageNative = app.modules.web;
 // the app paints its own, and the canvas beyond it is the browser's for the
 // page's colour scheme, as on the JS target (a launch white kept under an
 // app that chose dark showed beside its root; Markdown's conformance).
-const launchLight = app.manifest.background_color, launchDark = app.manifest.background_color_dark;
+// A fixed `userInterfaceStyle` takes its side alone, as the iOS launch screen does.
 const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
+const launchLight = app.manifest.background_color, launchDark = interfaceStyle(app.manifest) === 'light' ? null : hex(app.manifest.background_color_dark);
 const launchHtml = 'html:has(#exact-root:empty)';
-const launchCss = hex(launchLight) ? `${launchHtml}{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){${launchHtml}{background-color:${launchDark}}}` : ''}` : '';
+const launchCss = !hex(launchLight) ? '' : interfaceStyle(app.manifest) === 'dark' ? `${launchHtml}{background-color:${launchDark ?? launchLight}}`
+  : `${launchHtml}{background-color:${launchLight}}${launchDark ? `@media (prefers-color-scheme:dark){${launchHtml}{background-color:${launchDark}}}` : ''}`;
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)

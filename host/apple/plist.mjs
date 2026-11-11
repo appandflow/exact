@@ -34,6 +34,13 @@ export const startLocation = ({ manifest: { start_url: at }, origin: declared })
   return url.origin === origin && place !== '/' ? { ExactStartURL: place } : {};
 };
 
+/** The manifest's `userInterfaceStyle` (Expo's key): a fixed `light` or `dark` is UIKit's `UIUserInterfaceStyle`,
+ * which the launch screen, every window and the system's own chrome take as the device's appearance; `automatic` or
+ * none writes nothing. AppKit has no key that fixes dark (`NSRequiresAquaSystemAppearance` fixes only light), so the
+ * Mac's row is Exact's `ExactUserInterfaceStyle`, which ExactMac sets as `NSApp.appearance` before its first window. */
+export const interfaceStyle = ({ manifest: { userInterfaceStyle: style } }, mac = false) =>
+  style === 'light' || style === 'dark' ? (mac ? { ExactUserInterfaceStyle: style } : { UIUserInterfaceStyle: style === 'dark' ? 'Dark' : 'Light' }) : {};
+
 /** When a downloaded update applies and how often the app checks (`deploy.activate`, `deploy.check.interval`). */
 export const updateActivation = (app) => ({ ...(app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}),
   ...(app.manifest.deploy?.check?.interval != null ? { ExactUpdateCheckInterval: app.manifest.deploy.check.interval } : {}) });

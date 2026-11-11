@@ -28,7 +28,7 @@ import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev, withRuntimeStamp } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { settingLines } from '../../js/bake/src/__exact_env.mjs';
-import { withLook } from '../web/look.mjs';
+import { colorSchemeMeta, interfaceStyle, withInterfaceStyle, withLook } from '../web/look.mjs';
 import { beside as besideDist } from '../web/beside.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -832,7 +832,8 @@ if (how !== 'none' || markdownReaders) await bundle({ entrypoints: [resolve(gen,
 // The web host's base stylesheet, as its build writes it (comments out).
 // Whitespace before a `:` stays: in a selector it is a descendant's pseudo-class.
 // In the build's look (LLP 1115.000 D4 part B; host/web/look.mjs): the shell's own sheet, or the neutral one after it.
-const shell = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'));
+// A fixed `userInterfaceStyle` is the root's `color-scheme` there, and the head's meta below.
+const shell = withInterfaceStyle(withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')), interfaceStyle(manifest));
 const base = shell.match(/<style>([\s\S]*?)<\/style>/)[1]
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};,>])\s*/g, '$1').replace(/:\s+/g, ':').replace(/;}/g, '}');
 // LLP 1116 D8: the app's first manifest icon, else the shell's default one.
@@ -859,7 +860,7 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <base href="/">
 <title>${manifest.name}</title>
 <meta name="viewport" content="${viewport}">
-${icon}
+${colorSchemeMeta(interfaceStyle(manifest))}${icon}
 ${preloads}<style>${base}${css}</style>
 ${webHead(manifest)}<div id="exact-root"${manifest.audio_session ? ` data-audio-session="${manifest.audio_session}"` : ''}></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}

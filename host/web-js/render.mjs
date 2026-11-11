@@ -111,6 +111,8 @@ export function renderer(dist, { closed = false } = {}) {
   const viewportMeta = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
   const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  // A fixed `userInterfaceStyle` (the shell's `<meta name="color-scheme">`, look.mjs) is the system scheme a page renders in.
+  const fixedScheme = /<meta name="color-scheme" content="(light|dark)">/.exec(shell)?.[1];
   // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
   // its render, and the head sent before the render carries none (page-style.mjs, LLP 1048.007 D4).
   const rules = existsSync(resolve(dist, '.gen/page-style.json')) ? JSON.parse(readFileSync(resolve(dist, '.gen/page-style.json'), 'utf8')) : null;
@@ -191,7 +193,7 @@ export function renderer(dist, { closed = false } = {}) {
     Object.assign(made.location, { pathname: url.pathname, search: url.search, href: url.href });
     Object.assign(made.ctx, { innerWidth: viewport.width, innerHeight: viewport.height });
     made.prefers.clear();
-    for (const [on, query] of [[viewport.dark, '(prefers-color-scheme:dark)'], [viewport.reducedMotion, '(prefers-reduced-motion:reduce)'], [viewport.reducedTransparency, '(prefers-reduced-transparency:reduce)']]) if (on) made.prefers.add(query);
+    for (const [on, query] of [[fixedScheme ? fixedScheme === 'dark' : viewport.dark, '(prefers-color-scheme:dark)'], [viewport.reducedMotion, '(prefers-reduced-motion:reduce)'], [viewport.reducedTransparency, '(prefers-reduced-transparency:reduce)']]) if (on) made.prefers.add(query);
     let info;
     try { info = await ctx.__start(); } catch (error) { made.dispose(); throw error; }
     // The capture script imports the entry by the policy; an interaction

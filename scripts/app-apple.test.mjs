@@ -421,6 +421,22 @@ test('a manifest `start_url` other than the root bakes `ExactStartURL` on iOS an
   }
 });
 
+test('`userInterfaceStyle` writes UIUserInterfaceStyle on iOS and tvOS and ExactUserInterfaceStyle on macOS; `automatic` writes neither', () => {
+  const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
+  for (const [style, ui] of [['dark', 'Dark'], ['light', 'Light']]) {
+    for (const plist of [infoPlist(app({ userInterfaceStyle: style }), false), infoPlist(app({ userInterfaceStyle: style }), false, { tv: true })]) {
+      assert.ok(plist.includes(`<key>UIUserInterfaceStyle</key><string>${ui}</string>`), style);
+      assert.doesNotMatch(plist, /ExactUserInterfaceStyle/);
+    }
+    const mac = macInfoPlist(app({ userInterfaceStyle: style }));
+    assert.ok(mac.includes(`<key>ExactUserInterfaceStyle</key><string>${style}</string>`), style);
+    assert.doesNotMatch(mac, /UIUserInterfaceStyle|NSRequiresAquaSystemAppearance/);
+  }
+  for (const manifest of [{}, { userInterfaceStyle: 'automatic' }]) {
+    for (const plist of [infoPlist(app(manifest), false), macInfoPlist(app(manifest))]) assert.doesNotMatch(plist, /UserInterfaceStyle/);
+  }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });

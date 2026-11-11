@@ -5096,6 +5096,14 @@ Recipe:
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
+An app that is always one scheme says `"userInterfaceStyle": "light"` or `"dark"` in
+`app.json` (`automatic`, the default, follows the device). It is the app's appearance from
+launch, as the device's would be: the launch screen, the first frame, sheets, alerts and the
+keyboard are in it, `prefers-color-scheme` reads it, `setScheme("system")` returns to it, and
+a drive's `prefer prefers-color-scheme` leaves it. A node's `color-scheme` still wins in its
+subtree. iOS and tvOS write `UIUserInterfaceStyle`; macOS sets the application's appearance
+before its first window; the web page declares it in its `color-scheme` and `<meta
+name="color-scheme">` before the first paint. Android, Linux and Windows follow the device.
 `status-bar-style="light-content"` (light text, for a dark surface),
 `"dark-content"` or `"auto"` on any node, bound to state, sets an iOS phone's
 status bar: of what the bar sits over, the declaration painted on top wins, and
