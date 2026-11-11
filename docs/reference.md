@@ -819,6 +819,16 @@ build (a build stamp, a channel name) goes in such a tree under `Resources/`:
 it is copied before the bundle is sealed, so it is inside the seal. Only code
 goes under `Helpers/`, where `codesign` refuses a file that is not.
 
+`host.ios.resources` (iOS, iPadOS and tvOS) takes the same entries for files a data
+module reads: `to` is under `Resources/`, and the tree lands in the bundle's
+`ExactResources/` folder, which holds nothing else and is what `bundle:/` names there,
+so `fs.read bundle:/<to>` (`fs.read bundle:/Resources/server` for the entry
+above) reads it on both hosts. A tree holds no links (`bundle:` follows none)
+and no Mach-O code; changing it requires a new binary, never an update. The
+app reads it, not its extensions: a widget's refresh keeps only `fs.read app:/`
+grants, so its `bundle:` read is refused as ungranted (an `Error`, code
+`denied`), and a widget extension's process has no `bundle:` root besides.
+
 A helper that needs a hardened-runtime exception (a JavaScript runtime's JIT,
 say) declares it as a grant beside the app's others, naming the exception and
 the one executable it is for, by its path under `Contents` (LLP 1069.008 D9):
@@ -1950,7 +1960,17 @@ group whose leader is still running; with the leader gone it ends the group
 only when the app led its own session, so a Mac app launched from the Finder
 (session 1) or from a terminal leaves that group's survivors running. `storage.fs`
 reads and writes `home:/…` (the user's home, under a grant narrower than
-`home:/`) and reads `bundle:/…` (the app bundle, read-only), following no
+`home:/`) and reads `bundle:/…` (the app bundle, read-only: on macOS its
+`Contents`; on iOS, iPadOS and tvOS a folder holding only the trees
+`host.ios.resources` declares, so `fs.read bundle:/<to>` reads the
+same tree on both, and an iOS or tvOS build refuses a `bundle:/Resources/…`
+line that reaches no tree either platform declares or the Mac build writes; a
+line on the Mac's `Contents` (`bundle:/Info.plist`) builds, and its read on iOS
+fails with the filesystem's not-found (an `Error`, code `ENOENT`) beside
+declared trees. Where no root is installed (nothing declared, Linux,
+Android), a `bundle:` read rejects with `NotSupportedError`, and so does a
+`home:` read on iOS, iPadOS and tvOS, which have no home directory; `home:` is
+macOS's and Linux's), following no
 link below either root, nor below a native `fs.read` or `fs.write`
 directory (one is refused, as under `app:/`); a native line is reached
 through a system link such as macOS's `/var` but not through one the user

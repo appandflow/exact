@@ -10,7 +10,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { verifyBakeFiles } from '../../scripts/app.mjs';
 import { webRefusal, browserEntitlements } from './documents.mjs';
 import { listAssets } from '../web/serve.mjs';
-import { appIcon, buildInfo, iosAssets, appleAssets, copyMacResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
+import { appIcon, buildInfo, iosAssets, appleAssets, copyNativeResources, IOS_RESOURCE_ROOT, iosBundleGrants, iosExecutableRefusal, shareIosResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
 import { allows, profile, identity, embeddedProfile } from './devices.mjs';
 import { grantEntitlements } from './presence.mjs';
 import { placeLibrary } from '../../scripts/package-libraries.mjs';
@@ -133,7 +133,7 @@ export function assembleMac({intents, shared, library, serviceDylibs, macWidgets
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
       // Preserve the GPU artifact signatures that the baked receipt names.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...serviceDylibs.map(svc => svc.load)]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
-      copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
+      copyNativeResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
       // A package's framework (LLP 1154 D3), where the executable's run path finds it, signed before the bundle.
       if (library) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', placeLibrary(library, resolve(contents, 'Frameworks'))], { stdio: 'ignore' });
       if (shared) {
@@ -166,6 +166,8 @@ export function assembleMac({intents, shared, library, serviceDylibs, macWidgets
 export function assembleIOS({intents, shared, library, serviceDylibs, triple, app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm = null}, {runApple, appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements, appClip, stripForDistribution}) {
   // The bundle, assembled from scratch (new inodes, see above), with the app's assets (a phone reads no other
   // machine's paths); ad-hoc signed for a simulator, signed with the team's identity, profile, and entitlements for a phone.
+  iosBundleGrants(app.manifest, bakedCompat.inputs?.grantCeiling);
+  iosExecutableRefusal(app.manifest, paths.executable);
   const bundle = resolve(binDir, basename(paths.bundle));
   // An archive's frameworks' dSYMs, laid out as an Xcode archive's `dSYMs`; the app's own is `<name>.dSYM` (build.mjs).
   const symbols = ipa ? `${ipa.replace(/\.ipa$/, '')}.dSYMs` : null, frameworkSaved = new Map();
@@ -179,6 +181,8 @@ export function assembleIOS({intents, shared, library, serviceDylibs, triple, ap
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
+  // `host.ios.resources`, before anything is signed: `bundle:/` (LLP 1133.007 D6).
+  copyNativeResources(app, resolve(bundle, IOS_RESOURCE_ROOT), buildReceipt.binary.metadata.nativeResources ?? [], 'ios');
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true, ['typescript']));
   const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], ...(tv ? {} : { expectedLaunchImage: buildReceipt.binary.metadata.launchImage ?? null }), launch: buildReceipt.graph.launchBackground });
   const stamp = { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) };
@@ -205,11 +209,14 @@ export function assembleIOS({intents, shared, library, serviceDylibs, triple, ap
     writeFileSync(resolve(path, 'Info.plist'), plist);
     writeUsageStrings(appleReach, path);
     copyAppleStaticTrees(paths.capture, path);
+    shareIosResources(app.manifest, bundle, path);
     if (existsSync(resolve(bundle, 'Assets.car'))) copyFileSync(resolve(bundle, 'Assets.car'), resolve(path, 'Assets.car'));
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) cpSync(resolve(bundle, 'Frameworks', f), resolve(path, 'Frameworks', f), { recursive: true });
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(path, svgFilterLibraryName));
   };
   const clip = tv ? null : appClip(app);
+  // The clip's bundle gets the resources folder too; the sample host's executable is `ExactHostIOS`.
+  if (clip) iosExecutableRefusal(app.manifest, clip.executable, 'host.ios.appClip.name');
   const bundles = [[bundle, 'app']];
   if (clip) {
     const clipBundle = resolve(bundle, 'AppClips', `${clip.executable}.app`);

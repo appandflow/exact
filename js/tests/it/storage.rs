@@ -10,7 +10,7 @@ use std::{
 };
 pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
 pub(crate) const APP: &str = "dev.exact.storage-test";
-pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n";
 pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"
@@ -37,6 +37,9 @@ component App
     )
     .unwrap()
 }
+/// The `home:` and `bundle:` roots are the process's: a test that names them,
+/// or reads a path under them, takes this first.
+pub(crate) static NAMESPACES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) struct Root(pub(crate) PathBuf);
 impl Root {
     pub(crate) fn new() -> Self {
@@ -1037,6 +1040,8 @@ fn storage_refusals_carry_a_stable_code() {
     // test in this binary may set the home directory.) Unix only: Windows's
     // `home:` and `bundle:` are LLP 1133.007 stage 3, not absent (§8), and
     // its unbuilt path answers otherwise.
+    #[cfg(unix)]
+    let _namespaces = NAMESPACES.lock().unwrap_or_else(|e| e.into_inner());
     #[cfg(unix)]
     assert_eq!(
         call(&mut m, &mut s, "absent-namespace", ""),

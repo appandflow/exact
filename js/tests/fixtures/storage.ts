@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
@@ -304,6 +304,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
   if (op === "library") {
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
+  }
+  // A file the app ships, under `bundle:` (LLP 1133.007 D6).
+  if (op === "bundle-read") {
+    try { return {text: String.fromCharCode(...new Uint8Array(await storage.fs.readFile("bundle:/Resources/shipped/hello.txt")))}; }
+    catch (e:any) { return {text: e.name + " " + e.code}; }
   }
   // A host with no `bundle:` directory (LLP 1133.007 D6).
   if (op === "absent-namespace") {

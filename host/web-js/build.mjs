@@ -1,6 +1,7 @@
 import { asyncContext, bundleOptions, developmentLocalNetwork, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
 import { bakeWatchEnv, hatchWords, injectedProfiles, moduleDirectory, resolveApp, webAppManifest } from '../../scripts/app.mjs';
 import { webHead } from '../../scripts/web-head.mjs';
+import { fileIdentity, resourceIdentities } from '../apple/assets.mjs';
 import { launchModules } from '../../scripts/launch-modules.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -342,10 +343,12 @@ async function typecheck(checking) {
   // it is no source, and the stage is inside it (review r4a 2).
   const output = realpathSync(out);
   const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, mountDir(name, path)]);
+  // A declared resource tree is no source, known by identity (js/bake's `sources`, by the same rule).
+  const resources = resourceIdentities(appDir, manifest);
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
-      if ((manifest.host?.macos?.resources ?? []).some(resource => path === resolve(appDir, resource.from))) continue;
+      if (resources.size && resources.has(fileIdentity(path))) continue;
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;

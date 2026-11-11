@@ -699,6 +699,28 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
         .collect())
 }
 
+/// Which file a path is, read without following a link at its end: its
+/// device and inode, else (where there are none) its canonical path. Two
+/// directories are never one identity, whatever their names; one name the
+/// volume resolves in another case or normalization is the same.
+#[cfg(unix)]
+type Identity = (u64, u64);
+#[cfg(not(unix))]
+type Identity = PathBuf;
+
+#[cfg(unix)]
+fn identity(path: &Path) -> Option<Identity> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path)
+        .ok()
+        .map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(path: &Path) -> Option<Identity> {
+    path.canonicalize().ok()
+}
+
 /// Capture the app-local source graph, and the directories the manifest
 /// mounts beside it. Packages are captured by the configuration: their
 /// declarations for the type check (`typescript.mjs` `stagePackages`; LLP
@@ -707,16 +729,22 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
     let manifest = root.join("app.json");
-    let native: Vec<PathBuf> = if manifest.exists() {
+    let native: Vec<Identity> = if manifest.exists() {
         let json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(manifest).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
-        json.pointer("/host/macos/resources")
-            .and_then(|v| v.as_array())
+        // The trees `host.macos.resources` and `host.ios.resources` copy
+        // into a bundle are no source (`resourceIdentities` in
+        // host/apple/assets.mjs, the web build's, reads the same two keys),
+        // known by identity: a `from` spelt in another case or Unicode
+        // normalization than the directory, which the volume resolves to it,
+        // is that directory.
+        ["/host/macos/resources", "/host/ios/resources"]
             .into_iter()
+            .filter_map(|key| json.pointer(key).and_then(|v| v.as_array()))
             .flatten()
             .filter_map(|v| v.get("from").and_then(|v| v.as_str()))
-            .map(|p| root.join(p))
+            .filter_map(|p| identity(&root.join(p)))
             .collect()
     } else {
         Vec::new()
@@ -728,7 +756,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
         total: &mut usize,
         mounts: &[(String, PathBuf)],
         prefix: &Path,
-        native: &[PathBuf],
+        native: &[Identity],
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -755,7 +783,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             let path = entry.path();
-            if native.contains(&path) {
+            if !native.is_empty() && identity(&path).is_some_and(|id| native.contains(&id)) {
                 continue;
             }
             let relative = path.strip_prefix(root).unwrap();

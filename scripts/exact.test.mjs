@@ -458,7 +458,7 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
 
 test('native resource trees keep scoped names, executable modes, links and files above the bake cap', () => inDir(dir => {
   const { chmodSync, ftruncateSync, closeSync, openSync, readFileSync, readlinkSync, statSync } = require('node:fs');
-  const { copyMacResources, macResourceInventory } = require('../host/apple/assets.mjs');
+  const { copyNativeResources, nativeResourceInventory } = require('../host/apple/assets.mjs');
   const { readManifest, pendingBuildInputs } = require('./app.mjs');
   const manifest = { name: 'Resources', app: { id: 'test.resources', name: 'Resources' }, host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } };
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
@@ -470,50 +470,148 @@ test('native resource trees keep scoped names, executable modes, links and files
   const fd = openSync(resolve(dir, 'server/large.bin'), 'w'); ftruncateSync(fd, 65 * 1024 * 1024); closeSync(fd);
   const app = { dir, manifest: readManifest(dir, 'resources') };
   const contents = resolve(dir, 'Fixture.app/Contents'); mkdirSync(contents, { recursive: true });
-  const before = macResourceInventory(app);
-  copyMacResources(app, contents);
+  const before = nativeResourceInventory(app);
+  copyNativeResources(app, contents);
   assert.equal(statSync(resolve(contents, 'Resources/server/helper')).mode & 0o777, 0o755);
   assert.equal(readlinkSync(resolve(contents, 'Resources/server/helper-link')), 'helper');
   assert.equal(spawnSync(resolve(contents, 'Resources/server/helper-link'), [], { encoding: 'utf8' }).stdout, 'helper ran\n');
   assert.equal(readFileSync(resolve(contents, 'Resources/server/node_modules/@scope/a package/index.js'), 'utf8'), 'module.exports = 42;\n');
-  const copied = macResourceInventory({ dir: resolve(contents, 'Resources'), manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } });
+  const copied = nativeResourceInventory({ dir: resolve(contents, 'Resources'), manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } });
   assert.deepEqual(copied, before);
   const build = { binary: { nativeResourceApp: app, metadata: { nativeResources: before }, inputs: [], directories: [], missing: [] } };
   assert.deepEqual(pendingBuildInputs(build), []);
   chmodSync(resolve(dir, 'server/helper'), 0o744);
-  assert.throws(() => copyMacResources(app, resolve(dir, 'changed'), before), /changed after the binary receipt/);
+  assert.throws(() => copyNativeResources(app, resolve(dir, 'changed'), before), /changed after the binary receipt/);
   assert.deepEqual(pendingBuildInputs(build), ['host.macos.resources']);
 }));
 
 test('native resource mappings refuse traversal, overlapping assets and escaping links', () => inDir(dir => {
-  const { macResourceMappings, macResourceInventory, copyMacResources } = require('../host/apple/assets.mjs');
+  const { nativeResourceMappings, nativeResourceInventory, copyNativeResources } = require('../host/apple/assets.mjs');
   const manifest = resources => ({ host: { macos: { resources } } });
   for (const from of ['../server', '/server', 'assets', 'target/server', 'server/../other'])
-    assert.throws(() => macResourceMappings(manifest([{ from, to: 'Resources/server' }])));
+    assert.throws(() => nativeResourceMappings(manifest([{ from, to: 'Resources/server' }])));
   for (const to of ['../escape', 'MacOS/ExactMac', 'Resources/assets/anything', 'Resources/receipt.json'])
-    assert.throws(() => macResourceMappings(manifest([{ from: 'server', to }])));
-  assert.throws(() => macResourceMappings(manifest([{ from: 'server', to: 'Resources/server' }, { from: 'server/child', to: 'Helpers/child' }])));
+    assert.throws(() => nativeResourceMappings(manifest([{ from: 'server', to }])));
+  assert.throws(() => nativeResourceMappings(manifest([{ from: 'server', to: 'Resources/server' }, { from: 'server/child', to: 'Helpers/child' }])));
   mkdirSync(resolve(dir, 'server'));
   writeFileSync(resolve(dir, 'outside'), 'outside');
   symlinkSync('../outside', resolve(dir, 'server/link'));
   const app = { dir, manifest: manifest([{ from: 'server', to: 'Resources/server' }]) };
-  assert.throws(() => macResourceInventory(app), /escapes/);
+  assert.throws(() => nativeResourceInventory(app), /escapes/);
   // A file that is not code, placed under Contents/Helpers outside a nested bundle, is refused when the resources are
   // gathered, not at the final codesign; a helper app's own plist is its bundle's (LLP 1156.004 D2).
   mkdirSync(resolve(dir, 'helpers/Inner.app/Contents/MacOS'), { recursive: true });
   writeFileSync(resolve(dir, 'helpers/Inner.app/Contents/Info.plist'), '<plist/>');
   writeFileSync(resolve(dir, 'helpers/Inner.app/Contents/MacOS/Inner'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]));
-  assert.equal(macResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }).length, 6);
+  assert.equal(nativeResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }).length, 6);
   writeFileSync(resolve(dir, 'helpers/config.json'), '{}');
-  assert.throws(() => macResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }), /helpers\/config\.json is not code.*Resources\//);
+  assert.throws(() => nativeResourceInventory({ dir, manifest: manifest([{ from: 'helpers', to: 'Helpers/kit' }]) }), /helpers\/config\.json is not code.*Resources\//);
   rmSync(resolve(dir, 'server/link'));
   mkdirSync(resolve(dir, 'bundle/Resources'), { recursive: true });
   symlinkSync(resolve(dir, 'server'), resolve(dir, 'bundle/Resources/server'));
-  assert.throws(() => copyMacResources(app, resolve(dir, 'bundle')), /already exists/);
+  assert.throws(() => copyNativeResources(app, resolve(dir, 'bundle')), /already exists/);
+}));
+
+test('iOS resource trees are copied alone under bundle/, at the path their to names, and an edit asks for a new binary', () => inDir(dir => {
+  const { readFileSync, readdirSync, statSync, chmodSync } = require('node:fs');
+  const { copyNativeResources, nativeResourceInventory, IOS_RESOURCE_ROOT } = require('../host/apple/assets.mjs');
+  const { readManifest, pendingBuildInputs } = require('./app.mjs');
+  const tree = [{ from: 'shipped', to: 'Resources/shipped' }];
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Shipped', app: { id: 'test.shipped', name: 'Shipped' }, host: { ios: { resources: tree }, macos: { resources: tree } } }));
+  mkdirSync(resolve(dir, 'shipped/cities'), { recursive: true });
+  writeFileSync(resolve(dir, 'shipped/cities/list.json'), '["Oslo"]');
+  chmodSync(resolve(dir, 'shipped/cities/list.json'), 0o640);
+  const app = { dir, manifest: readManifest(dir, 'shipped') };
+  const bundle = resolve(dir, 'Shipped.app'); mkdirSync(bundle);
+  writeFileSync(resolve(bundle, 'Info.plist'), '<plist/>');
+  // An app named "bundle" has its executable there, which the folder no longer meets.
+  writeFileSync(resolve(bundle, 'bundle'), 'executable');
+  const before = nativeResourceInventory(app, null, 'ios');
+  copyNativeResources(app, resolve(bundle, IOS_RESOURCE_ROOT), before, 'ios');
+  // `to` under bundle/, as under the Mac's Contents: `bundle:/<to>` on both (the runtime's reading is host/apple/tests/it/bundle_root.rs).
+  assert.equal(readFileSync(resolve(bundle, IOS_RESOURCE_ROOT, 'Resources/shipped/cities/list.json'), 'utf8'), '["Oslo"]');
+  assert.equal(statSync(resolve(bundle, IOS_RESOURCE_ROOT, 'Resources/shipped/cities/list.json')).mode & 0o777, 0o640);
+  assert.deepEqual(readdirSync(resolve(bundle, IOS_RESOURCE_ROOT)), ['Resources']);
+  assert.deepEqual(readdirSync(resolve(bundle, IOS_RESOURCE_ROOT, 'Resources')), ['shipped']);
+  const build = { binary: { nativeResourceApp: { dir, manifest: app.manifest, platform: 'ios' }, metadata: { nativeResources: before }, inputs: [], directories: [], missing: [] } };
+  assert.deepEqual(pendingBuildInputs(build), []);
+  writeFileSync(resolve(dir, 'shipped/cities/list.json'), '["Oslo","Bergen"]');
+  assert.deepEqual(pendingBuildInputs(build), ['host.ios.resources']);
+  // Nothing declared: no bundle/ folder, so the host names no bundle: root.
+  const none = { dir, manifest: { host: {} } }, bare = resolve(dir, 'Bare.app'); mkdirSync(bare);
+  copyNativeResources(none, resolve(bare, IOS_RESOURCE_ROOT), [], 'ios');
+  assert.equal(existsSync(resolve(bare, IOS_RESOURCE_ROOT)), false);
+}));
+
+test('iOS resource trees refuse code, links and a place outside Resources/; the build refuses a bundle: line no tree serves', () => inDir(dir => {
+  const { nativeResourceMappings, nativeResourceInventory, iosBundleGrants } = require('../host/apple/assets.mjs');
+  const manifest = resources => ({ host: { ios: { resources } } });
+  for (const to of ['Helpers/server', 'Frameworks/server', '../escape', '/abs', 'Resources', 'Resources/a/../b'])
+    assert.throws(() => nativeResourceMappings(manifest([{ from: 'server', to }]), 'ios'), /host\.ios\.resources/);
+  assert.throws(() => nativeResourceMappings(manifest([{ from: 'server', to: 'Resources/a' }, { from: 'other', to: 'Resources/a/b' }]), 'ios'), /must not overlap/);
+  mkdirSync(resolve(dir, 'server'));
+  writeFileSync(resolve(dir, 'server/data.json'), '{}');
+  const app = { dir, manifest: manifest([{ from: 'server', to: 'Resources/server' }]) };
+  assert.equal(nativeResourceInventory(app, null, 'ios').length, 2);
+  symlinkSync('data.json', resolve(dir, 'server/link'));
+  assert.throws(() => nativeResourceInventory(app, null, 'ios'), /server\/link is a link, and bundle: follows none/);
+  rmSync(resolve(dir, 'server/link'));
+  writeFileSync(resolve(dir, 'server/tool'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]));
+  assert.throws(() => nativeResourceInventory(app, null, 'ios'), /server\/tool is Mach-O code/);
+  // A read line under a declared tree, or above one, is served; any other bundle: line is refused at build.
+  iosBundleGrants(app.manifest, 'fs.read bundle:/Resources/server\nfs.read bundle:/Resources\nfs.read app:/data\nnet.fetch https://x.test');
+  // By whole names, empty ones dropped, as the grant parser reads them; a quoted target too.
+  iosBundleGrants(app.manifest, 'fs.read bundle://Resources//server/\nfs.read "bundle:/Resources/server/a b"');
+  assert.throws(() => iosBundleGrants(app.manifest, 'fs.read bundle:/Resources/serverx'), /serverx/);
+  assert.throws(() => iosBundleGrants(app.manifest, 'fs.read bundle:/resources/server'), /resources\/server/);
+  assert.throws(() => iosBundleGrants(app.manifest, 'fs.read bundle:/Resources/other'), /`fs\.read bundle:\/Resources\/other`: on iOS and tvOS, bundle:\/ holds only.*bundle:\/Resources\/server.*host\.ios\.resources/);
+  assert.throws(() => iosBundleGrants({ host: {} }, 'fs.read bundle:/Resources/server'), /none declared/);
+  // The grants are every host's: a line on the Mac's Contents, what the Mac build writes, or a tree only the Mac
+  // declares is left to fail at run time on iOS, as a home: line is.
+  const mac = { host: { ...app.manifest.host, macos: { resources: [{ from: 'kit', to: 'Helpers/kit' }, { from: 'mac', to: 'Resources/maconly' }] } } };
+  iosBundleGrants(mac, 'fs.read bundle:/Info.plist\nfs.read bundle:/Helpers/kit\nfs.read bundle:/Resources/maconly/x\nfs.read bundle:/Resources/receipt.json\nfs.read bundle:/');
+  // Every name the Mac build writes under Contents/Resources, a widget app's plans among them, and a usage string's .lproj.
+  const { MAC_RESOURCES_WRITTEN } = require('../host/apple/assets.mjs');
+  iosBundleGrants(app.manifest, ['plans', 'typescript', 'rust', 'activities', 'Metadata.appintents', 'en.lproj'].map(n => `fs.read bundle:/Resources/${n}`).join('\n'));
+  // ...which the Mac's packaging names from that one list: each name it writes under `resources` is on it.
+  const { readFileSync } = require('node:fs');
+  const packaging = ['bundle.mjs', 'intents.mjs'].map(f => readFileSync(resolve(__dirname, '../host/apple', f), 'utf8')).join('\n');
+  const written = [...packaging.matchAll(/resolve\(resources, '([^']+)'\)/g)].map(m => m[1]);
+  assert.ok(written.length >= 2, 'the packaging names what it writes');
+  for (const name of [...written, 'Assets.car']) assert.ok(MAC_RESOURCES_WRITTEN.includes(name), `the Mac writes Resources/${name}`);
+  assert.match(packaging, /copyAppleStaticTrees\(paths\.capture, resources\)/);
+  assert.throws(() => nativeResourceMappings({ host: { macos: { resources: [{ from: 'server', to: 'Resources/plans' }] } } }), /host\.macos\.resources\.to/);
+  // An executable named as the folder, or as what every bundle holds, is refused, ignoring case; any other name is not.
+  const { iosExecutableRefusal } = require('../host/apple/assets.mjs');
+  assert.throws(() => iosExecutableRefusal(app.manifest, 'exactresources'), /app\.name "exactresources".*"ExactResources"/);
+  assert.throws(() => iosExecutableRefusal(app.manifest, 'ExactResources', 'host.ios.appClip.name'), /host\.ios\.appClip\.name "ExactResources"/);
+  assert.throws(() => iosExecutableRefusal({ host: {} }, 'frameworks'), /"Frameworks"/);
+  iosExecutableRefusal({ host: {} }, 'ExactResources');
+  for (const name of ['Bundle', 'bundle', 'Deck', 'Shipped']) iosExecutableRefusal(app.manifest, name);
+  // A bundle beside the app's gets the folder when trees are declared, never an executable an app named so leaves there.
+  const { shareIosResources, IOS_RESOURCE_ROOT } = require('../host/apple/assets.mjs');
+  for (const [name, manifest, shared] of [['named', { host: {} }, false], ['declared', app.manifest, true]]) {
+    const main = resolve(dir, `${name}.app`), clip = resolve(main, 'AppClips/Lite.app');
+    mkdirSync(clip, { recursive: true });
+    if (shared) mkdirSync(resolve(main, IOS_RESOURCE_ROOT, 'Resources/server'), { recursive: true });
+    else writeFileSync(resolve(main, IOS_RESOURCE_ROOT), 'the executable of an app named ExactResources');
+    shareIosResources(manifest, main, clip);
+    assert.equal(existsSync(resolve(clip, IOS_RESOURCE_ROOT, 'Resources/server')), shared, name);
+    if (!shared) assert.equal(existsSync(resolve(clip, IOS_RESOURCE_ROOT)), false);
+  }
+  // Neither platform's trees are TypeScript sources (host/web-js/build.mjs's capture; js/bake's reads the same keys),
+  // known by identity: a sibling directory never is one, and a name the volume resolves to the tree is.
+  const { fileIdentity, resourceIdentities } = require('../host/apple/assets.mjs');
+  mkdirSync(resolve(dir, 'kept')); mkdirSync(resolve(dir, 'other'));
+  const ids = resourceIdentities(dir, { host: { ios: { resources: [{ from: 'kept', to: 'Resources/kept' }] }, macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } });
+  assert.deepEqual([...ids].sort(), [fileIdentity(resolve(dir, 'kept')), fileIdentity(resolve(dir, 'server'))].sort());
+  assert.equal(ids.has(fileIdentity(resolve(dir, 'other'))), false);
+  assert.notEqual(fileIdentity(resolve(dir, 'kept')), fileIdentity(resolve(dir, 'other')));
+  if (existsSync(resolve(dir, 'KEPT'))) assert.equal(ids.has(fileIdentity(resolve(dir, 'KEPT'))), true, 'this volume ignores case');
 }));
 
 test.skipIf(process.platform !== 'darwin')('native resources sign and execute a Mach-O helper with its dylib in the assembled bundle', () => inDir(dir => {
-  const { copyMacResources } = require('../host/apple/assets.mjs');
+  const { copyNativeResources } = require('../host/apple/assets.mjs');
   mkdirSync(resolve(dir, 'server'), { recursive: true });
   writeFileSync(resolve(dir, 'lib.c'), 'int answer(void) { return 42; }\n');
   writeFileSync(resolve(dir, 'main.c'), '#include <stdio.h>\nextern int answer(void); int main(void) { if(answer()!=42) return 1; puts("helper ran"); return 0; }\n');
@@ -525,7 +623,7 @@ test.skipIf(process.platform !== 'darwin')('native resources sign and execute a 
   writeFileSync(resolve(contents, 'Info.plist'), plist('ExactMac'));
   writeFileSync(resolve(dir, 'host.c'), 'int main(void) { return 0; }\n');
   command('cc', [resolve(dir, 'host.c'), '-o', resolve(contents, 'MacOS/ExactMac')]);
-  copyMacResources({ dir, manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } }, contents);
+  copyNativeResources({ dir, manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } }, contents);
   for (const path of signingOrder(app)) command('codesign', ['--force', '--sign', '-', '--timestamp=none', path]);
   command('codesign', ['--verify', '--deep', '--strict', app]);
   assert.equal(command(resolve(contents, 'Resources/server/helper'), []).stdout, 'helper ran\n');

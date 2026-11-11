@@ -56,7 +56,7 @@ import { associatedDomains, entitlementValue, grantEntitlements, macPresence, ma
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, interfaceStyle, localNetworking, modulePlist, nfcKeys, startLocation, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
-import { appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
+import { APPLE_STATIC_TREES, appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyNativeResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { auditLaunchParts, launchModules, launchServices, serviceArgs, writeLaunchParts } from './launch-parts.mjs';
 import { keptModules } from './modules.mjs';
 import { appleLinkArgs, embedLibrary, prepareLibrary, xcframeworkSlice } from '../../scripts/package-libraries.mjs';
@@ -273,7 +273,7 @@ export function assertAppleIdentity(app, executable, compatibilityId, shared = n
 /** Copy the app-visible static trees into a private Apple package stage.
  * Every leaf goes through the web host's no-symlink policy; `trees` maps an
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
-export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans'], ['typescript', 'typescript'], ['activities', 'activities']]) {
+export function copyAppleStaticTrees(source, target, trees = APPLE_STATIC_TREES.map(tree => [tree, tree])) {
   for (const [from, to] of trees) {
     copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }

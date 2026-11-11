@@ -2,7 +2,7 @@ import { compilerPaths, unitDepInfo, cargoBakeInputs, sourcePath } from './cargo
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
-import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
+import { nativeResourceMappings, nativeResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
 // package.workspace uses that workspace's lock and target. Outside it (weird-castle:
@@ -638,7 +638,7 @@ export function readManifest(dir, name) {
       : p).filter((p) => !/^host\.web\.head(\[|: )/.test(p)).concat(webHeadProblems(parsed));
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...shareTargetProblems(parsed), ...protocolHandlerProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
-  macResourceMappings(parsed);
+  nativeResourceMappings(parsed); nativeResourceMappings(parsed, 'ios');
   return { host: {}, deploy: {}, ...parsed };
 }
 
@@ -1153,7 +1153,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
         'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json']) add(resolve(ROOT, path));
     }
   }
-  const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
+  const nativeResources = ['macos', 'ios'].includes(platform) ? nativeResourceInventory(app, null, platform) : []; // `host.<platform>.resources` (iOS's serve tvOS): an edit is a new binary
   const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, manifest: { host: app.manifest.host } } : null;
   const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(assetCatalogApp, assetCatalogApp.platform) : [];
   if (assetCatalogApp) for (const path of [resolve(app.dir, platform, 'modules'), resolve(app.dir, 'modules/apple')]) {
@@ -1170,7 +1170,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
   hashes.save();
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest,platform}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 // The permanent companion inode owns exclusion; the JSON claim is only its diagnostic record.
@@ -1403,7 +1403,7 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 export function pendingBuildInputs(build) {
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
-  try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
+  const resources=build.binary.nativeResourceApp, resourceKey=`host.${resources?.platform ?? 'macos'}.resources`; try {if(resources && canonicalBuild(nativeResourceInventory(resources, null, resources.platform)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push(resourceKey);} catch {changed.push(resourceKey);}
   for(const file of build.binary.inputs) {
     try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}

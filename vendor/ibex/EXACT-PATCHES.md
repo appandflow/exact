@@ -474,7 +474,10 @@ reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 shutdown releases them all. The process lines are exact2's own and never
 reach `grant.rs`. Bionic's `faccessat` refuses every flag, so on Android
 `crate::AT_EACCESS` is none and `access` checks its leaf without
-`AT_SYMLINK_NOFOLLOW`, after the `fstatat` that found it no link. Replay on a refresh.
+`AT_SYMLINK_NOFOLLOW`, after the `fstatat` that found it no link. On iOS and
+tvOS the host roots `bundle:` at a folder holding only the app's declared
+resource trees and leaves `home:` unset (`fs_namespaces_tests.rs` checks
+that a root of that shape confines its paths). Replay on a refresh.
 
 ## Local patch 25, a database file held by one SQLite library at a time
 

@@ -676,6 +676,19 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "resources": {
+              "description": "Resource trees a data module reads through `bundle:/` (LLP 1133.007 D6), on iOS, iPadOS and tvOS: copied, modes kept, into the bundle's `ExactResources/` folder before it is signed, which then holds them and nothing else. Read only, through `fs.read bundle:/<to>` (`fs.read bundle:/Resources/data-files`), the line the Mac's `host.macos.resources` takes for the same `to`. A tree holds no links and no Mach-O code; changing it requires a new binary, never an update.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["from", "to"],
+                "additionalProperties": false,
+                "properties": {
+                  "from": { "type": "string", "description": "Separate directory relative to app.json, for example data-files. Not assets, source or output roots." },
+                  "to": { "type": "string", "description": "Private destination under Resources/, for example Resources/data-files: `bundle:/Resources/data-files`, as on the Mac." }
+                }
+              }
+            },
             "webBrowser": {
               "type": "boolean",
               "description": "Opt in to Apple's managed default-browser role for the iOS app. Requires http and https in protocol_handlers and Apple's approval of com.apple.developer.web-browser in its provisioning profile. Extensions, App Clips and tvOS never inherit this role. distribution_only on the pair also limits the entitlement to distributed builds. Absent or false: no browser entitlement and no HTTP/HTTPS registration on iOS."
