@@ -219,15 +219,21 @@ fn pick(a: f64, b: f64, max: bool) -> f64 {
     }
 }
 
+/// The largest length a calculation's result is censored to, as Chrome's
+/// layout holds it (2^25 px): §10.9.2 leaves the largest value to the
+/// context, and one whose sums stay finite keeps a frame and a radius sum
+/// (two `calc(infinity * 1px)` lengths) finite.
+pub(crate) const LARGEST: f64 = 33_554_432.0;
+
 /// A top-level calculation's result as the `f32` a length holds, censored
-/// as §10.9.2 has it: NaN is 0, an infinity or a value past what an `f32`
-/// holds is the largest it does, and `-0` is `0`. The arithmetic before it
-/// is `f64`; this is the final conversion to layout precision.
+/// as §10.9.2 has it: NaN is 0, an infinity or a value past [`LARGEST`] is
+/// it, and `-0` is `0`. The arithmetic before it is `f64`; this is the final
+/// conversion to layout precision.
 pub(crate) fn narrow(v: f64) -> f32 {
     if v.is_nan() {
         0.0
     } else {
-        v.clamp(-f64::from(f32::MAX), f64::from(f32::MAX)) as f32 + 0.0
+        v.clamp(-LARGEST, LARGEST) as f32 + 0.0
     }
 }
 

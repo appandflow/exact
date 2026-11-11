@@ -1173,6 +1173,36 @@ fn percentage_radius_paints_an_ellipse_in_a_nonsquare_box() {
     }
 }
 
+/// An infinite radius is a pill, as Chrome draws `calc(infinity * 1px)`,
+/// Tailwind's `rounded-full`, and a length near `f32::MAX`: the overlap
+/// rule's sums stay finite, so the corners are not squared off.
+#[test]
+fn an_infinite_radius_paints_a_pill() {
+    for radius in [r#""calc(infinity * 1px)""#, r#""3e38px""#, "9999"] {
+        let source = format!(
+            r##"component Rounded
+  view
+    view width=200 height=150 background-color="#ffffff"
+      view width=100 height=40 border-radius={radius} background-color="#2468ac"
+"##
+        );
+        for choice in painters() {
+            let mut p = compiled(&source, 1.0, choice);
+            let frame = p.frame();
+            assert_eq!(
+                px(&frame, 50.0, 20.0),
+                (36, 104, 172),
+                "{radius}: {choice:?}"
+            );
+            assert_eq!(
+                px(&frame, 2.0, 2.0),
+                (255, 255, 255),
+                "{radius}: a pill's corner shows the page, {choice:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn disabled_fields_keep_authored_placeholder_ink() {
     for appearance in ["auto", "none"] {

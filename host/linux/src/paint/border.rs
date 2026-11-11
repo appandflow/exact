@@ -83,17 +83,27 @@ const K: f32 = 0.552_284_8;
 /// two neighbours from overlapping an edge. Radii are (horizontal,
 /// vertical), top-left, top-right, bottom-right, bottom-left.
 pub fn reduced(radii: [(f32, f32); 4], w: f32, h: f32) -> [(f32, f32); 4] {
+    // In `f64`: two radii near `f32::MAX` (a `3e38px` pill) sum past what an
+    // `f32` holds, and an infinite sum made the factor 0, every corner square.
+    let sum = |a: f32, b: f32| f64::from(a) + f64::from(b);
     let sums = [
-        (radii[0].0 + radii[1].0, w),
-        (radii[3].0 + radii[2].0, w),
-        (radii[0].1 + radii[3].1, h),
-        (radii[1].1 + radii[2].1, h),
+        (sum(radii[0].0, radii[1].0), w),
+        (sum(radii[3].0, radii[2].0), w),
+        (sum(radii[0].1, radii[3].1), h),
+        (sum(radii[1].1, radii[2].1), h),
     ];
     let factor = sums
         .iter()
         .filter(|(sum, _)| *sum > 0.0)
-        .fold(1.0_f32, |f, (sum, edge)| f.min(edge.max(0.0) / sum));
-    radii.map(|(x, y)| ((x * factor).max(0.0), (y * factor).max(0.0)))
+        .fold(1.0_f64, |f, (sum, edge)| {
+            f.min(f64::from(edge.max(0.0)) / sum)
+        });
+    radii.map(|(x, y)| {
+        (
+            (f64::from(x) * factor).max(0.0) as f32,
+            (f64::from(y) * factor).max(0.0) as f32,
+        )
+    })
 }
 
 fn normalized_radii(radii: [(f32, f32); 4], w: f32, h: f32) -> [(f32, f32); 4] {

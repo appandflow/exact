@@ -1,6 +1,7 @@
 # `border-radius: calc(infinity * 1px)` draws square corners on the painted hosts: an infinite length is held as `f32::MAX`, and two of them sum to infinity
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A censored length is Chrome's largest, 2^25 px, so sums of such lengths stay finite, and the painters' radius reduction sums in `f64`, so a pill written as `calc(infinity * 1px)` or `3e38px` draws as one.
 **Systems:** kernel/src/style/calc/mod.rs, host/linux/src/paint/border.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

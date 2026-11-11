@@ -666,18 +666,19 @@ fn a_subtraction_that_opens_a_sum_is_written_after_its_pixels() {
 /// No number is past a calculation's range (CSS Values 4 §5, §9.1): an
 /// infinity, from the keyword or a division by zero, and a NaN are values
 /// inside a tree (§10.9.2), and only the top-level result is censored —
-/// NaN to 0, an infinity to the largest length — then clamped to the row.
+/// NaN to 0, an infinity to the largest length, Chrome's 2^25 px — then
+/// clamped to the row.
 #[test]
 fn infinities_and_nan_stay_inside_and_are_censored_at_the_top() {
     let env = Env::new(0.0, 0.0, 0.0, 0.0);
     for (value, basis, points) in [
-        ("calc(infinity * 1px)", 100.0, f32::MAX),
+        ("calc(infinity * 1px)", 100.0, 33_554_432.0),
         ("calc(-infinity * 1px)", 100.0, 0.0),
         ("calc(NaN * 1px)", 100.0, 0.0),
         ("min(1px / 0, 50%)", 100.0, 50.0),
         ("calc(1e38px - 1e38px + 20px)", 100.0, 20.0),
         ("calc(1e300 * 1e300 * 0 * 1px + 20px)", 100.0, 0.0),
-        ("max(10%, 1e39px)", 100.0, f32::MAX),
+        ("max(10%, 1e39px)", 100.0, 33_554_432.0),
         (
             "calc(2 * pi * 1px)",
             100.0,
@@ -694,7 +695,7 @@ fn infinities_and_nan_stay_inside_and_are_censored_at_the_top() {
         "calc(env(safe-area-inset-top) + 340282346638528859811704183484516925440px)",
     )
     .unwrap();
-    assert_eq!(d.at_basis(&large, 100.0), f32::MAX);
+    assert_eq!(d.at_basis(&large, 100.0), 33_554_432.0);
     // The text of a tree holding one reads back as it
     let d = text(StyleId::MarginTop, "min(infinity * 1px, 10% + NaN * 1px)").unwrap();
     assert_eq!(css(d), "min(infinity * 1px, 10% + (NaN * 1px))");
@@ -1298,9 +1299,10 @@ fn segment_edges_stay_wide_until_the_whole_calculation_resolves() {
                 "calc(env(viewport-segment-{end} 1 0) - env(viewport-segment-{start} 1 0))"
             );
             let d = text(StyleId::MarginLeft, &value).unwrap();
+            // A width past the largest length is censored to it (2^25 px).
             assert_eq!(
                 d.at_basis(&env, 0.),
-                size,
+                size.min(33_554_432.),
                 "{value}; origin={origin}, size={size}"
             );
         }
