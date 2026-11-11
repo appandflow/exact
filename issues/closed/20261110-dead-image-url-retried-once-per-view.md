@@ -1,6 +1,7 @@
 # A failing image URL shown by N images is retried 6N times, and each image's `error` waits for all of them
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A shared download retry counts for every view joining it on screen, so repeated images exhaust one retry ladder.
 **Systems:** host/linux/src/image.rs (remote images on the painting host: Linux, Windows, Android)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
