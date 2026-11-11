@@ -689,7 +689,7 @@ class Natives(
                     // A lent view holds the last source's frame until this one's first.
                     if (sources.containsKey(view)) e.stale = true
                     sources[view] = src
-                    when (val s = Sources.video(src, assets) { Native.appFile(it)?.let(::File) }) {
+                    when (val s = Sources.video(src, assets) { Native.appFile(it)?.let(::File)?.takeIf { f -> Files.regular(f) } }) {
                         is Source.Remote -> p.source(Uri.parse(s.url))
                         is Source.Local -> p.source(Uri.fromFile(s.file))
                         is Source.Refused -> { android.util.Log.w("exact", "video ${e.id}: ${s.why}"); p.source(null) }

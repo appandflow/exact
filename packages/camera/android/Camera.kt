@@ -226,7 +226,7 @@ class CameraModule(context: ExtensionContext) : ExactExtension(context) {
         file.parentFile?.mkdirs()
         if (context.agent) {
             val bytes = agentBytes() ?: return reply(error("UnknownError"))
-            file.writeBytes(bytes)
+            try { dev.exact.canvas.Files.write(file, bytes) } catch (e: java.io.IOException) { return reply(error("UnknownError")) }
             say("took $path (${bytes.size} bytes, the agent's picture)")
             disclose(path, entry.id, bytes)
             return reply(photo(path, file))

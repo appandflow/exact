@@ -121,9 +121,9 @@ macro_rules! canvas_jni_extensions {
             $crate::canvas::jni::jni_extensions::now()
         }
 
-        /// The file an `app:/` path names (`ExtensionContext.file`, LLP
-        /// 1133.009 D10 item 4), or null: a regular file reached through no
-        /// symbolic link (`picker::file`), as `readFile` reads it.
+        /// The place an `app:/` path names (`ExtensionContext.file`, LLP
+        /// 1133.009 D10 item 4), or null (`picker::place`): reached through
+        /// no symbolic link, and absent where nothing is there yet.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_appFile(
             env: *mut JNIEnv,
@@ -131,7 +131,7 @@ macro_rules! canvas_jni_extensions {
             path: jstring,
         ) -> jstring {
             let path = $crate::canvas::field::text(env, path);
-            match $crate::picker::file(&path) {
+            match $crate::picker::place(&path) {
                 Some(file) => $crate::canvas::field::java(env, &file.to_string_lossy()),
                 None => std::ptr::null_mut(),
             }

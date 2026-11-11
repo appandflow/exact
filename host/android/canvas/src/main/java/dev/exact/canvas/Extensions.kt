@@ -179,14 +179,24 @@ class ExtensionContext internal constructor(val application: Context, private va
      * D12 item 2). */
     val audioFocus: AudioFocus get() = AudioFocus
 
-    /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
-     * scratch tree under the agent. Admission checked the path against the calling source's grants; null unless it is a
-     * regular file reached through no symbolic link. */
-    fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
+    /** Where an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's scratch tree
+     * under the agent. Admission checked the path against the calling source's grants. Each of the three answers null
+     * where a part of the path is a symbolic link, and is reached through none when it answers; nothing inside a
+     * directory is checked, so a module empties one with [Files.removeTree], never [java.io.File.deleteRecursively]. */
+    private fun place(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
+
+    /** A file for the module to write ([place]): a regular file, or nothing there yet; null for a directory. */
+    fun file(path: String): java.io.File? = place(path)?.takeUnless { it.isDirectory }
+
+    /** A file for the module to read ([place]): a regular file, else null. */
+    fun fileToRead(path: String): java.io.File? = place(path)?.takeIf { Files.regular(it) }
+
+    /** A directory for the module to fill or empty ([place]): a directory, or nothing there yet; null for a file. */
+    fun directory(path: String): java.io.File? = place(path)?.takeUnless { it.isFile }
 
     /** A content URI for the file an admitted `app:/` path names, which an intent may carry with a read grant
      * (`FLAG_GRANT_READ_URI_PERMISSION`), or null when it names none ([Files], LLP 1133.024 D22 item 2). */
-    fun contentUri(path: String): android.net.Uri? = file(path)?.let { Files.uri(application, it) }
+    fun contentUri(path: String): android.net.Uri? = fileToRead(path)?.let { Files.uri(application, it) }
 
     /** Whether the activity is resumed: a prompt shows only over a resumed activity (LLP 1133.010 D8). */
     val resumed: Boolean get() = Extensions.resumedNow

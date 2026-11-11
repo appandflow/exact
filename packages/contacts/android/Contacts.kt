@@ -233,7 +233,7 @@ class ContactsModule(context: ExtensionContext) : ExactExtension(context) {
                 val file = context.file(path) ?: return@forEachIndexed
                 try {
                     file.parentFile?.mkdirs()
-                    file.writeBytes(bytes)
+                    dev.exact.canvas.Files.write(file, bytes)
                     paths.put(path)
                 } catch (e: java.io.IOException) { say("icon $path: $e") }
             }
@@ -242,7 +242,7 @@ class ContactsModule(context: ExtensionContext) : ExactExtension(context) {
         return out
     }
 
-    private fun remove(dir: String) { context.file("$dir/x")?.parentFile?.deleteRecursively() }
+    private fun remove(dir: String) { context.directory(dir)?.let { dev.exact.canvas.Files.removeTree(it) } }
 
     private fun emptyStoreIcons() {
         remove("app:/tmp/contacts")
