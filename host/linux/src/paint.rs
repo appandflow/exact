@@ -193,6 +193,13 @@ struct BoxGeometry {
     // sums them: flowed text is measured and painted around the same bits.
     inset: (f32, f32),
 }
+impl BoxGeometry {
+    /// The content box on the content edge's curve: where a picture or a
+    /// canvas's bitmap is clipped, inside the border (CSS Backgrounds 3 §5.3).
+    fn content_edge(&self) -> Shape {
+        self.outer.within(self.content)
+    }
+}
 fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     (
         frame.x - offset.0,
@@ -1128,11 +1135,10 @@ impl Painter {
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
                 self.row_refuse();
+                let clips = [geometry.content_edge()];
                 if self.window_canvas == Some(node.id) {
-                    self.backend
-                        .split_window_canvas(content, &[Shape::rect(content), outer], ts);
+                    self.backend.split_window_canvas(content, &clips, ts);
                 } else if let Some(c) = self.canvases.get(&node.id) {
-                    let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
                 } else {
                     self.native(node, content, &outer, ts);
@@ -1157,9 +1163,10 @@ impl Painter {
                     };
                     self.symbol(node, content, ink, ts);
                 } else {
-                    self.row_slot(node.id, content, outer, ts);
+                    let edge = geometry.content_edge();
+                    self.row_slot(node.id, content, edge, ts);
                     self.backend.slot_begin(node.id);
-                    self.picture(walk, node, content, outer, ts);
+                    self.picture(walk, node, content, edge, ts);
                     self.backend.slot_end();
                 }
             }

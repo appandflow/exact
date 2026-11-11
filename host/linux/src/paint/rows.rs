@@ -90,8 +90,8 @@ struct Row {
 }
 
 /// A picture a backend may keep apart from its row ([`Backend::slot_begin`]):
-/// the image node, its content box, its outer shape and the transform it
-/// was drawn in.
+/// the image node, its content box, the content edge's curve it is clipped
+/// to and the transform it was drawn in.
 type Slot = (ViewId, Rect4, Shape, Transform);
 
 /// A row being recorded.
@@ -398,19 +398,20 @@ impl Painter {
     }
 
     /// Note a picture's slot while a row records.
-    pub(super) fn row_slot(&mut self, id: ViewId, content: Rect4, outer: Shape, ts: Transform) {
+    pub(super) fn row_slot(&mut self, id: ViewId, content: Rect4, edge: Shape, ts: Transform) {
         if let Some(c) = &mut self.rows.recording {
-            c.slots.push((id, content, outer, ts));
+            c.slots.push((id, content, edge, ts));
         }
     }
 
-    /// An image node's picture in its content box, once it has arrived.
+    /// An image node's picture in its content box, clipped to `edge`, the
+    /// content edge's curve, once it has arrived.
     pub(super) fn picture(
         &mut self,
         walk: &Walk<'_, '_>,
         node: &NodeRef<'_>,
         content: Rect4,
-        outer: Shape,
+        edge: Shape,
         ts: Transform,
     ) {
         let Some(img) = walk.scene.images.get(&node.id) else {
@@ -421,13 +422,7 @@ impl Painter {
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);
-            self.backend.image(
-                img,
-                img.placed(dst),
-                &[Shape::rect(content), outer],
-                ts,
-                tint,
-            );
+            self.backend.image(img, img.placed(dst), &[edge], ts, tint);
         }
     }
 
@@ -450,14 +445,14 @@ impl Painter {
             };
             changed.push((i, *slot));
         }
-        for (_, (id, content, outer, ts)) in &changed {
+        for (_, (id, content, edge, ts)) in &changed {
             let Some(node) = walk.scene.kernel.node(*id) else {
                 return false;
             };
             if !self.backend.slot_again(rid, *id) {
                 return false;
             }
-            self.picture(walk, &node, *content, *outer, *ts);
+            self.picture(walk, &node, *content, *edge, *ts);
             self.backend.slot_end();
             counters::add(Counter::ImagePatches, 1);
         }

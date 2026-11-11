@@ -79,6 +79,28 @@ pub type Ring = ((Rect4, [(f32, f32); 4]), (Rect4, [(f32, f32); 4]));
 /// Circle-to-cubic control distance for a quarter arc.
 const K: f32 = 0.552_284_8;
 
+impl Shape {
+    /// This curve carried in to `inner`, a box within it: each radius less
+    /// the insets beside it, as CSS draws the padding and content edges
+    /// (CSS Backgrounds 3 §5.3). A zero radius stays zero.
+    pub fn within(&self, inner: Rect4) -> Shape {
+        let (x, y, w, h) = self.rect;
+        let l = (inner.0 - x).max(0.0);
+        let t = (inner.1 - y).max(0.0);
+        let r = (x + w - inner.0 - inner.2).max(0.0);
+        let b = (y + h - inner.1 - inner.3).max(0.0);
+        let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
+        let [tl, tr, br, bl] = self.radii;
+        let radii = [
+            less(tl, l, t),
+            less(tr, r, t),
+            less(br, r, b),
+            less(bl, l, b),
+        ];
+        Shape::elliptical(inner, radii).with_corners(self.corners)
+    }
+}
+
 /// CSS's radius reduction: every corner scaled by the one factor that keeps
 /// two neighbours from overlapping an edge. Radii are (horizontal,
 /// vertical), top-left, top-right, bottom-right, bottom-left.

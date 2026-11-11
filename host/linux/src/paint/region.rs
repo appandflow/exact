@@ -797,13 +797,9 @@ impl<'a> Replay<'a> {
                         Payload::Empty => {}
                         Payload::Image(image, fit, tint) => {
                             if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
-                                painter.backend.image(
-                                    image,
-                                    image.placed(dst),
-                                    &[Shape::rect(g.content), g.outer],
-                                    parent,
-                                    *tint,
-                                );
+                                let clips = [g.content_edge()];
+                                let placed = image.placed(dst);
+                                painter.backend.image(image, placed, &clips, parent, *tint);
                             }
                         }
                         Payload::Svg(s) => {

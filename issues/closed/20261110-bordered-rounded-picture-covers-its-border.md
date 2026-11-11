@@ -1,6 +1,7 @@
 # A rounded picture with a border paints over its own border on the painting host
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The painter clips a picture and a 2D canvas's bitmap to the content box on the content edge's curve (`BoxGeometry::content_edge`), so they end at the border's inner curve.
 **Systems:** host/linux/src/paint/rows.rs, host/linux/src/paint.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
