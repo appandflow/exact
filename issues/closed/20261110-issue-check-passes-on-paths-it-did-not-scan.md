@@ -1,6 +1,7 @@
 # `issue.mjs check <path>` passes without reading a path it does not recognise
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Named paths are normalized and read regardless of Git tracking; invalid or unreadable paths exit 2.
 **Systems:** scripts/issue.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

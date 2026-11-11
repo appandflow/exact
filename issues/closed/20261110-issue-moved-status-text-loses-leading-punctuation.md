@@ -1,6 +1,7 @@
 # `issue.mjs` drops the leading punctuation of Status text it says it moves verbatim
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Moved status qualifiers retain leading punctuation, line breaks and indentation; hyphenated words remain intact.
 **Systems:** scripts/issue.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
