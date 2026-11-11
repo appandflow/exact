@@ -175,6 +175,10 @@ fn imported_names_grow_with_the_scope() {
         )).unwrap();
         paths.push(path);
     }
+    scope_growth(&dir, &paths);
+}
+
+fn scope_growth(dir: &Path, paths: &[std::path::PathBuf]) {
     let mut best = [Duration::MAX; 2];
     for _ in 0..3 {
         for (i, path) in paths.iter().enumerate() {
@@ -183,6 +187,33 @@ fn imported_names_grow_with_the_scope() {
     }
     std::fs::remove_dir_all(dir).unwrap();
     let ratio = best[1].as_secs_f64() / best[0].as_secs_f64();
-    eprintln!("import scopes: {best:?}, {ratio:.2}x");
-    assert!(ratio < 7.0, "4x the imports took {ratio:.2}x the CPU time");
+    eprintln!("scopes: {best:?}, {ratio:.2}x");
+    assert!(
+        ratio < 7.0,
+        "4x the declarations took {ratio:.2}x the CPU time"
+    );
+}
+
+#[test]
+fn file_scopes_share_the_programs_names() {
+    let dir = std::env::temp_dir().join(format!("contract-files-growth-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut paths = Vec::new();
+    for count in [10, 40] {
+        let mut source = String::new();
+        for i in 0..count {
+            source.push_str(&format!("use S{i}_0 from \"./s{i}.contract\"\n"));
+            let shapes = (0..50)
+                .map(|j| format!("shape S{i}_{j}\n  id: string\n"))
+                .collect::<String>();
+            std::fs::write(dir.join(format!("s{i}.contract")), shapes).unwrap();
+        }
+        source.push_str(
+            "component App\n  state s: option<S0_0> = none\n  view\n    text \"files\"\n",
+        );
+        let path = dir.join(format!("app{count}.contract"));
+        std::fs::write(&path, source).unwrap();
+        paths.push(path);
+    }
+    scope_growth(&dir, &paths);
 }

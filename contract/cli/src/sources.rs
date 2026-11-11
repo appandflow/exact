@@ -22,6 +22,7 @@ use contract_syntax::{File, NameSpans, Span, UseDecl, UseName};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 /// A file's scope by local name: each name a `use` of the file may write,
@@ -817,7 +818,7 @@ impl Loader<'_> {
             .into_iter()
             .map(|s| s.expect("every unit is scoped"))
             .collect();
-        let elsewhere = self.declared_elsewhere(&unique);
+        let elsewhere = Arc::new(self.declared_elsewhere(&unique));
         self.declared = self
             .units
             .iter()
@@ -830,27 +831,54 @@ impl Loader<'_> {
         // Every file's references to names it does not see, refused together.
         let mut missing = Vec::new();
         let mut refused: Vec<CompileError> = Vec::new();
-        let shape_owners: Vec<(usize, Vec<String>, String)> = self
-            .units
-            .iter()
-            .enumerate()
-            .flat_map(|(index, unit)| {
-                let path = &self.sources.paths[index];
-                let shown = path
-                    .strip_prefix(self.app_root)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string();
-                let unique = &unique;
-                unit.file.shapes.iter().map(move |s| {
-                    let generated = unique[index]
-                        .get(&(Kind::Call, s.name.clone()))
-                        .cloned()
-                        .unwrap_or_else(|| s.name.clone());
-                    (index, vec![s.name.clone(), generated], shown.clone())
+        let mut foreign_shapes: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+        for (index, unit) in self.units.iter().enumerate() {
+            let path = &self.sources.paths[index];
+            let shown = path
+                .strip_prefix(self.app_root)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            for s in &unit.file.shapes {
+                let generated = unique[index]
+                    .get(&(Kind::Call, s.name.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| s.name.clone());
+                for name in [s.name.clone(), generated] {
+                    let owners = foreign_shapes.entry(name).or_default();
+                    owners.push((index, shown.clone()));
+                }
+            }
+        }
+        let foreign_shapes = Arc::new(foreign_shapes);
+        let unique_of = &unique;
+        let shapes: Arc<HashSet<String>> = Arc::new(
+            self.units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .shapes
+                        .iter()
+                        .filter_map(move |s| unique_of[u].get(&(Kind::Call, s.name.clone())))
                 })
-            })
-            .collect();
+                .cloned()
+                .collect(),
+        );
+        let modules: Arc<HashSet<String>> = Arc::new(
+            self.units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .modules
+                        .iter()
+                        .filter_map(move |m| unique_of[u].get(&(Kind::Call, m.name.clone())))
+                })
+                .cloned()
+                .collect(),
+        );
+        let builtin_types = Arc::new(builtin_types());
         // @ref LLP 1121 D3 — the design's duration and easing tokens are
         // written into each motion row before scoping reads an animation's
         // keyframes name (the root's design, the app's).
@@ -864,24 +892,12 @@ impl Loader<'_> {
         self.units = units;
         for (index, unit) in self.units.iter_mut().enumerate() {
             let scope = &mut scopes[index];
-            scope.elsewhere = elsewhere
-                .iter()
-                .filter(|(key, e)| e.unit != index && !scope.names.contains_key(*key))
-                .map(|(key, e)| (key.clone(), e.clone()))
-                .collect();
-            // Every other file's shape this file does not see as a shape, by
-            // its declared and its generated name.
-            scope.foreign_shapes = shape_owners
-                .iter()
-                .filter(|(owner, _, _)| *owner != index)
-                .flat_map(|(_, names, file)| names.iter().map(move |n| (n.clone(), file.clone())))
-                .filter(|(n, _)| {
-                    !scope
-                        .names
-                        .get(&(Kind::Call, n.clone()))
-                        .is_some_and(|to| scope.shapes.contains(to))
-                })
-                .collect();
+            scope.unit = index;
+            scope.elsewhere = Arc::clone(&elsewhere);
+            scope.foreign_shapes = Arc::clone(&foreign_shapes);
+            scope.shapes = Arc::clone(&shapes);
+            scope.modules = Arc::clone(&modules);
+            scope.builtin_types = Arc::clone(&builtin_types);
             let mut aliases: Vec<_> = scope
                 .names
                 .iter()
@@ -906,7 +922,10 @@ impl Loader<'_> {
                 let found: Vec<_> = misses
                     .into_iter()
                     .map(|m| {
-                        let e = scope.elsewhere[&(m.kind, m.name.clone())].clone();
+                        let e = scope
+                            .elsewhere(m.kind, &m.name)
+                            .expect("a missing name is another file's")
+                            .clone();
                         (m, e)
                     })
                     .collect();
@@ -1180,37 +1199,12 @@ impl Loader<'_> {
                 .push((*kind, to.clone()));
         }
         by_local[index] = Some(local);
+        // The program-wide tables (what is declared elsewhere, the shapes,
+        // the modules, the compiler's types) are set by `scope`, shared.
         scopes[index] = Some(Scope {
             names,
-            elsewhere: HashMap::new(),
             // The roster plus the intrinsics (`pending`, `failed`, `path`, `t`).
             roster: Some(compiler_call),
-            builtin_types: builtin_types(),
-            foreign_shapes: HashMap::new(),
-            shapes: self
-                .units
-                .iter()
-                .enumerate()
-                .flat_map(|(u, unit)| {
-                    unit.file
-                        .shapes
-                        .iter()
-                        .filter_map(move |s| unique[u].get(&(Kind::Call, s.name.clone())))
-                })
-                .cloned()
-                .collect(),
-            modules: self
-                .units
-                .iter()
-                .enumerate()
-                .flat_map(|(u, unit)| {
-                    unit.file
-                        .modules
-                        .iter()
-                        .filter_map(move |m| unique[u].get(&(Kind::Call, m.name.clone())))
-                })
-                .cloned()
-                .collect(),
             ..Scope::default()
         });
         Ok(())

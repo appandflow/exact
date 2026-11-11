@@ -8,7 +8,8 @@ use crate::ast::*;
 use crate::parser::SyntaxError;
 use crate::Span;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Status intrinsics resolve their target before looking up a function.
 pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure", "current"];
@@ -80,10 +81,13 @@ pub struct Scope {
     /// Each name this file may write, by namespace, to the program-unique
     /// name of the declaration it means: its own declarations and its uses.
     pub names: HashMap<(Kind, String), String>,
-    /// Names other loaded files declare that this file does not see, to the
-    /// file that declares them, so a reference to one is refused with the
-    /// `use` that would bring it rather than resolved behind the author's back.
-    pub elsewhere: HashMap<(Kind, String), Elsewhere>,
+    /// The loader's index of this file, excluded from shared refusal lookups.
+    pub unit: usize,
+    /// Every declared name, to the first file that declares it, shared by
+    /// every file's scope. A name another file declares and this file does
+    /// not see ([`Scope::elsewhere`]) is refused with the `use` that would
+    /// bring it rather than resolved behind the author's back.
+    pub elsewhere: Arc<HashMap<(Kind, String), Elsewhere>>,
     /// Every reference [`rescope`] met to a name in `elsewhere`, in order:
     /// the loader refuses them together, naming each `use` line the file
     /// lacks, so one compile shows them all (rules: every failure in one run).
@@ -97,23 +101,52 @@ pub struct Scope {
     /// The types the compiler declares (`PointerEvent`, `Geometry`, …):
     /// every file sees them, so another file's `fn` of the name is never
     /// what a type means.
-    pub builtin_types: std::collections::HashSet<String>,
+    pub builtin_types: Arc<HashSet<String>>,
     /// The program-unique names that are shapes, not `fn`s: a call of a
     /// shape named `path` is the router's `path()`, as the checker reads it.
-    pub shapes: std::collections::HashSet<String>,
-    /// Shapes other files declare that this file does not see as shapes:
-    /// a written type of one of these names is refused even when this file
-    /// has a `fn` of the name, which is no type.
-    pub foreign_shapes: std::collections::HashMap<String, String>,
+    pub shapes: Arc<HashSet<String>>,
+    /// Every file's shapes, by their declared and their generated name, to
+    /// the files that declare them (the loader's index and the path a
+    /// refusal shows), in the loader's order, shared by every file's scope.
+    /// A shape another file declares that this file does not see as a shape
+    /// ([`Scope::foreign_shape`]) is refused as a written type even when
+    /// this file has a `fn` of the name, which is no type.
+    pub foreign_shapes: Arc<HashMap<String, Vec<(usize, String)>>>,
     /// The program-unique names that are native modules' sources and sends
     /// (LLP 1133.001): a resource or a `send` naming one in scope takes its
     /// name, where a data source's name is left as written.
-    pub modules: std::collections::HashSet<String>,
+    pub modules: Arc<HashSet<String>>,
 }
 
 impl Scope {
     fn get(&self, kind: Kind, name: &str) -> Option<&str> {
         self.names.get(&(kind, name.to_owned())).map(String::as_str)
+    }
+
+    /// The declaration of a name another loaded file declares and this file
+    /// does not see.
+    pub fn elsewhere(&self, kind: Kind, name: &str) -> Option<&Elsewhere> {
+        let key = (kind, name.to_owned());
+        self.elsewhere
+            .get(&key)
+            .filter(|e| e.unit != self.unit && !self.names.contains_key(&key))
+    }
+
+    /// The file that declares a shape of `name` this file does not see as a
+    /// shape, the last in the loader's order of the files other than this one.
+    pub fn foreign_shape(&self, name: &str) -> Option<&str> {
+        if self
+            .get(Kind::Call, name)
+            .is_some_and(|to| self.shapes.contains(to))
+        {
+            return None;
+        }
+        self.foreign_shapes
+            .get(name)?
+            .iter()
+            .rev()
+            .find(|(owner, _)| *owner != self.unit)
+            .map(|(_, file)| file.as_str())
     }
 
     /// The program-unique name `name` means here; `Ok(None)` for a name no
@@ -124,7 +157,7 @@ impl Scope {
         if let Some(to) = self.get(kind, name) {
             return Ok(Some(to));
         }
-        if self.elsewhere.contains_key(&(kind, name.to_owned())) {
+        if self.elsewhere(kind, name).is_some() {
             self.missing.borrow_mut().push(Missing {
                 kind,
                 name: name.to_owned(),
@@ -508,7 +541,7 @@ impl Rewriter<'_> {
                 // A `fn` of the name here, which is no type: another file's
                 // shape of the name is not reachable past it by a `use`.
                 Some(_) => {
-                    if let Some(file) = self.scope.foreign_shapes.get(name.as_str()) {
+                    if let Some(file) = self.scope.foreign_shape(name) {
                         self.scope.refused.borrow_mut().push(SyntaxError {
                             id: "contract-use-missing",
                             message: format!(
