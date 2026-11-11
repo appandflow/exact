@@ -1,6 +1,7 @@
 # On the web, `applyConstraints` to another camera is lost when the track is idle
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A move opens the camera moved to even while the track is idle, so the answer names it and the next lease reopens it; an idle track closes it again at once.
 **Systems:** packages/media-capture/web/video.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
