@@ -336,6 +336,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 return exact_gpu::AssetChanges::default();
             }
         }
+        if let Some(sim) = &mut self.sim {
+            // What the renderer draws stays resident: a model an entity keeps
+            // drawing until the one its Mesh names can draw.
+            match &self.render {
+                Some((_, feed)) => sim.hold_assets(feed.drawn_assets()),
+                None => sim.hold_assets(&Default::default()),
+            }
+        }
         let requests = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
         let retired = self
             .sim

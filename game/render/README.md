@@ -670,6 +670,16 @@ fragment shader that wants it calls `faded(slot, pixel)` (fade.wgsl, in
 included (and adds emission), on one instance: it becomes that material's records'
 tint with a flag that drops the authored factor, so instances in different colours
 still share their batches.
+
+When an entity's `Mesh` names a model that cannot draw yet, the feed keeps drawing the
+rigid model (no skin, no animated parts) that entity drew at its last rebuild until the named one can; if the named one fails, the old one stays.
+The record is keyed by the full entity id, survives a restore, and is dropped when the
+entity stops drawing; the entity's `ModelLod` levels, which belong to the new model,
+are not drawn meanwhile (its `hide` distance still applies). Bounds, culling and shadows follow the
+records, so they are the drawn model's; picking, layout and physics are the
+simulation's and never see it. The feed reports what it draws, fallbacks included, and
+the surface passes that set to `Sim::hold_assets` before each asset pass, so a model or
+texture still drawn is not retired; once the new look draws, the old one retires.
 Present rebuilds these every tick; the feed compares each entity's content, so
 unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity's
 records and part looks in place in the instance buffer, without a rebatch. Only a

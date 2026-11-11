@@ -421,9 +421,16 @@ with `p.cosmetic_model(name, || model)` for every name a `Mesh` shows, at every 
 The closure runs only when the name is not resident. A cosmetic model is never declared,
 saved or hashed: `w.model(name)` stays `None`, its textures are requested as a generated
 model's are, and load order never reaches a tick. It retires, freeing its CPU and GPU
-memory, when no `Mesh` shows it. Rebuilds and restores keep it resident, and the present that follows registers what the new world
+memory, when no `Mesh` shows it and the renderer no longer draws it. Rebuilds and
+restores keep it resident, and the present that follows registers what the new world
 shows. A name is immutable while registered and may take new content once it retired;
 a declared, generated or delivered model's name is refused.
+
+Until a model a `Mesh` names can draw, the stock renderer keeps drawing the rigid model
+that entity drew before (keyed by the full entity id), so a swapped skin never shows
+blank, and keeps it if the new one fails; no game code reads readiness. A skinned or
+animated model draws nothing until its own arrives, as does an entity that drew nothing
+before.
 
 ## Settling and data formats
 

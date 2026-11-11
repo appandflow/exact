@@ -220,7 +220,8 @@ impl<'w> Present<'w> {
     /// It is presentation residency, never simulation state: it is not declared,
     /// has no save identity and is not hashed, so `World::model(name)` stays
     /// `None` and load order never reaches a tick. It retires, freeing its CPU
-    /// and GPU memory, when no `Mesh` shows it. It survives a rebuild and a restore, and the present that follows
+    /// and GPU memory, when no `Mesh` shows it and the renderer no longer draws
+    /// it. It survives a rebuild and a restore, and the present that follows
     /// either registers again what the new world shows. A name is immutable
     /// while registered (its build does not run), and may take new content once
     /// it retired. A declared, generated or delivered model's name is refused.

@@ -20,6 +20,19 @@ pub(super) struct Assets {
     ranges: BTreeMap<u32, Range>,
     digests: BTreeMap<u32, u64>,
     structure: Option<Structure>,
+    // What each drawn entity drew at the last rebuild, and the models that is.
+    shown: BTreeMap<u32, Shown>,
+    held: std::collections::BTreeSet<String>,
+}
+/// What an entity draws: its `Mesh`'s model once that can draw, until then
+/// the rigid model it drew before (a skin swapped to a model still in flight).
+#[derive(Clone, PartialEq)]
+struct Shown {
+    entity: exact_game::Entity,
+    model: String,
+    // Drawing a prior model in place of the `Mesh`'s: the `ModelLod` levels,
+    // which belong to the new model, are not drawn meanwhile.
+    fallback: bool,
 }
 struct Structure {
     models: Vec<(exact_game::Entity, String)>,
@@ -37,6 +50,36 @@ impl Assets {
         self.structure = None;
         self.records.clear();
         self.entities.clear();
+        // `shown` and `held` stay: a restore or a paranoid sample keeps entity
+        // ids, so an entity keeps its look across it, and the next rebuild
+        // drops the records of entities that no longer draw.
+    }
+    /// The models drawn at the last rebuild, fallbacks included: what the
+    /// engine keeps resident for this renderer (`Sim::hold_assets`).
+    pub fn held(&self) -> &std::collections::BTreeSet<String> {
+        &self.held
+    }
+    /// What `entity`, whose `Mesh` names `wanted`, draws now.
+    fn resolve(&self, r: &impl Writes, entity: exact_game::Entity, wanted: &str) -> Shown {
+        let (model, fallback) = match self.shown.get(&entity.index()) {
+            Some(prior)
+                if prior.entity == entity
+                    && prior.model != wanted
+                    && r.model(wanted).is_none()
+                    && r.model(&prior.model).is_some_and(|d| rigid(&d)) =>
+            {
+                (prior.model.clone(), true)
+            }
+            _ => (wanted.to_owned(), false),
+        };
+        Shown {
+            entity,
+            model,
+            fallback,
+        }
+    }
+    fn hold(&mut self) {
+        self.held = self.shown.values().map(|s| s.model.clone()).collect();
     }
 
     // `drawn` is the feed's current Mesh+Transform query, with effective
@@ -109,9 +152,15 @@ impl Assets {
         for group in self.groups.values_mut() {
             group.clear();
         }
+        let mut shown = BTreeMap::new();
         for (entity, name) in &structure.models {
-            self.entity(w, r, *entity, name)?;
+            let next = self.resolve(r, *entity, name);
+            if self.entity(w, r, &next)? {
+                shown.insert(entity.index(), next);
+            }
         }
+        self.shown = shown;
+        self.hold();
         self.digests = look_digests(w);
         r.part_looks(&self.part_bases, &self.part_looks);
         r.levels(&self.levels, &self.lods);
@@ -237,6 +286,9 @@ impl Assets {
             retained
         });
         self.digests = digests;
+        let ranges = &self.ranges;
+        self.shown.retain(|slot, _| ranges.contains_key(slot));
+        self.hold();
         true
     }
 
@@ -273,8 +325,9 @@ impl Assets {
             let Some(Mesh::Asset(name)) = w.get::<Mesh>(entity).as_deref().cloned() else {
                 return Ok(false);
             };
+            let next = self.resolve(r, entity, &name);
             let mut fresh = Assets::default();
-            fresh.entity(w, r, entity, &name)?;
+            fresh.entity(w, r, &next)?;
             let same = fresh.records.len() == count
                 && fresh.part_looks.len() == part_count
                 && fresh
@@ -307,6 +360,10 @@ impl Assets {
                 old.glow = new.glow;
             }
             self.part_looks[part_first..part_first + part_count].copy_from_slice(&fresh.part_looks);
+            if self.shown.get(&slot) != Some(&next) {
+                self.shown.insert(slot, next);
+                self.hold();
+            }
             r.patch_looks(
                 first,
                 &self.records[first..first + count],
@@ -317,14 +374,15 @@ impl Assets {
         self.digests = digests;
         Ok(true)
     }
-    /// One model entity's records (every level), looks, levels and groups.
+    /// One model entity's records (every level), looks, levels and groups;
+    /// whether it drew anything.
     fn entity(
         &mut self,
         w: &World,
         r: &mut impl Writes,
-        entity: exact_game::Entity,
-        name: &str,
-    ) -> Result<(), RenderError> {
+        shown: &Shown,
+    ) -> Result<bool, RenderError> {
+        let (entity, name) = (shown.entity, shown.model.as_str());
         let part_first = self.part_looks.len();
         let looks = w.get::<exact_game::NodeMaterials>(entity);
         let overrides = w.get::<exact_game::MaterialOverrides>(entity);
@@ -336,13 +394,19 @@ impl Assets {
             crate::lod::validate(lod)
                 .map_err(|e| RenderError::scene(format!("entity {}: {e}", entity.index())))?;
         }
-        let count = 1 + lod.as_ref().map_or(0, |l| l.levels.len());
+        // A prior model standing in draws without the new model's levels; its
+        // `hide` distance still applies.
+        let levels = match &lod {
+            Some(lod) if !shown.fallback => &lod.levels[..],
+            _ => &[],
+        };
+        let count = 1 + levels.len();
         let first = self.records.len();
         let mut present = 0u8;
         let mut drawn = false;
         for level in 0..count {
-            let model = match (&lod, level) {
-                (Some(lod), 1..) => lod.levels[level - 1].model.as_str(),
+            let model = match level {
+                1.. => levels[level - 1].model.as_str(),
                 _ => name,
             };
             let Some(draws) = r.model(model) else {
@@ -469,7 +533,7 @@ impl Assets {
         }
         if let (Some(lod), true) = (&lod, drawn) {
             let mut starts = [0.; crate::lod::MAX_LEVELS];
-            for (start, l) in starts[1..].iter_mut().zip(&lod.levels) {
+            for (start, l) in starts[1..].iter_mut().zip(levels) {
                 *start = l.distance;
             }
             self.lods.push(crate::lod::Lod {
@@ -495,8 +559,18 @@ impl Assets {
                 },
             );
         }
-        Ok(())
+        Ok(drawn)
     }
+}
+
+/// A model without skins or animated parts, whose records draw for any
+/// entity: what an entity may keep drawing in place of a model in flight.
+fn rigid(draws: &crate::models::Draws<'_>) -> bool {
+    draws
+        .nodes
+        .iter()
+        .chain(draws.merged)
+        .all(|n| n.3.is_none())
 }
 
 #[cfg(test)]

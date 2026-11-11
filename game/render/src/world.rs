@@ -576,6 +576,11 @@ impl Feed {
     ) -> Result<(), RenderError> {
         self.feed_to(world, renderer)
     }
+    /// The models this feed last drew, a model kept in place of one in flight
+    /// included; the surface passes them to `Sim::hold_assets`.
+    pub fn drawn_assets(&self) -> &std::collections::BTreeSet<String> {
+        self.assets.held()
+    }
     /// Each primitive shape's mesh, named, for the look frame's draw listing.
     pub(crate) fn shape_names(&self) -> Vec<(MeshId, String)> {
         (self.shapes.iter())

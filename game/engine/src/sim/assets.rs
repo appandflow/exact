@@ -44,6 +44,7 @@ impl<G: Game> Sim<G> {
             roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
             roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
             roots.extend(self.world.assets.declared.iter().cloned());
+            roots.extend(self.held.iter().cloned());
             if let Some(level) = G::LEVEL {
                 roots.insert(level.name.into());
             }
@@ -82,6 +83,15 @@ impl<G: Game> Sim<G> {
         });
         assets.requested.extend(names.iter().cloned());
         names
+    }
+    /// Renderer-only: the assets the renderer draws, including a model an
+    /// entity keeps drawing until the one its `Mesh` names can draw. They stay
+    /// resident while held; a change takes effect at the next `take_assets`.
+    pub fn hold_assets(&mut self, names: &std::collections::BTreeSet<String>) {
+        if *names != self.held {
+            self.held = names.clone();
+            self.asset_mesh_revision = u64::MAX;
+        }
     }
     /// Drain names whose last cosmetic mesh reference disappeared.
     pub fn take_retired_assets(&mut self) -> Vec<String> {

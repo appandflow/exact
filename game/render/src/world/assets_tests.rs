@@ -10,6 +10,7 @@ struct Recording {
     custom: std::collections::BTreeSet<MaterialId>,
     revision: u64,
     lookups: Cell<usize>,
+    absent: Vec<&'static str>,
 }
 impl Default for Recording {
     fn default() -> Self {
@@ -30,13 +31,14 @@ impl Default for Recording {
             custom: Default::default(),
             revision: 1,
             lookups: Cell::new(0),
+            absent: vec!["missing"],
         }
     }
 }
 impl Writes for Recording {
     fn model(&self, name: &str) -> Option<crate::models::Draws<'_>> {
         self.lookups.set(self.lookups.get() + 1);
-        (name != "missing").then_some(crate::models::Draws {
+        (!self.absent.contains(&name)).then_some(crate::models::Draws {
             nodes: &self.nodes,
             names: &self.names,
             merged: &self.nodes,
@@ -244,4 +246,87 @@ fn sparse_model_removals_keep_entity_order_across_unloaded_models() {
     assert!(assets.records.is_empty());
     assert!(assets.entities.is_empty());
     assert!(assets.ranges.is_empty());
+}
+
+/// A `Mesh` swapped to a model still in flight keeps drawing the rigid model
+/// the entity drew before, and the feed holds it until the new one draws.
+#[test]
+fn a_swapped_mesh_draws_its_prior_rigid_model_until_the_new_one_can() {
+    let mut w = World::new(60, 0);
+    let die = w.spawn((Transform::default(), Mesh::asset("model")));
+    let (mut assets, mut r) = (Assets::default(), Recording::default());
+    r.nodes[0].3 = None;
+    r.absent.push("walnut");
+    feed(&mut assets, &w, &mut r);
+    let before = format!("{:?}", assets.records);
+    assert!(!assets.records.is_empty());
+    w.insert(die, Mesh::asset("walnut"));
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(format!("{:?}", assets.records), before);
+    assert_eq!(assets.held().iter().collect::<Vec<_>>(), ["model"]);
+    // A restore or paranoid sample resets the feed; the entity keeps its look.
+    assets.reset();
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(format!("{:?}", assets.records), before);
+    // Another swap before the first lands still shows the model last drawn.
+    w.insert(die, Mesh::asset("missing"));
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(format!("{:?}", assets.records), before);
+    w.insert(die, Mesh::asset("walnut"));
+    feed(&mut assets, &w, &mut r);
+    // It lands: the renderer's model revision moves, and the entity draws it.
+    r.absent.retain(|n| *n != "walnut");
+    r.revision += 1;
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(assets.held().iter().collect::<Vec<_>>(), ["walnut"]);
+    assert_eq!(assets.shown[&die.index()].model, "walnut");
+    // A new entity has nothing to fall back to, and a skinned model never
+    // stands in for another: both draw nothing until theirs lands.
+    let fresh = w.spawn((Transform::default(), Mesh::asset("missing")));
+    r.nodes[0].3 = Some(2);
+    r.revision += 1;
+    w.insert(die, Mesh::asset("missing"));
+    feed(&mut assets, &w, &mut r);
+    assert!(assets.records.is_empty());
+    assert!(assets.held().is_empty());
+    assert!(!assets.shown.contains_key(&fresh.index()));
+}
+
+/// While an entity draws a prior model in place of its `Mesh`'s, its
+/// `ModelLod` levels (the new model's) are not drawn: one look at any distance
+/// up to `hide`.
+#[test]
+fn a_fallback_draws_without_the_new_models_levels() {
+    let mut w = World::new(60, 0);
+    let die = w.spawn((Transform::default(), Mesh::asset("model")));
+    let (mut assets, mut r) = (Assets::default(), Recording::default());
+    r.nodes[0].3 = None;
+    r.absent.push("walnut");
+    feed(&mut assets, &w, &mut r);
+    w.insert(
+        die,
+        exact_game::ModelLod {
+            levels: vec![exact_game::LodLevel {
+                distance: 10.,
+                model: "coarse".into(),
+            }],
+            hide: Some(20.),
+        },
+    );
+    w.insert(die, Mesh::asset("walnut"));
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(assets.records.len(), 2, "the prior model's two nodes only");
+    // One level, the stand-in, which still hides past 20 m.
+    assert_eq!(
+        assets
+            .lods
+            .iter()
+            .map(|l| (l.levels, l.hide))
+            .collect::<Vec<_>>(),
+        [(1, 20.)]
+    );
+    r.absent.clear();
+    r.revision += 1;
+    feed(&mut assets, &w, &mut r);
+    assert_eq!(assets.records.len(), 4, "walnut and its coarse level");
 }
