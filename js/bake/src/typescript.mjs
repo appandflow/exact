@@ -335,6 +335,13 @@ export function stagePackages(stage) {
   const roots=capturedOrigins(stage);
   const staged=new Map(), files=new Map(), queue=[];
   let total=0;
+  // Over the cap, the error names the largest packages, each with the captured file whose imports reached it.
+  const tooLarge=()=>{
+    const mib=bytes=>`${(bytes/(1<<20)).toFixed(1)} MiB`;
+    const largest=[...staged.values()].sort((a,b)=>b.bytes-a.bytes).slice(0,3)
+      .map(p=>`${p.name} ${mib(p.bytes)} (${p.via ? `through ${p.via}, ` : ''}from ${p.source})`);
+    return new Error(`package declarations exceed 64 MiB: ${largest.join(', ')}. The type check stages the declarations of every package a .ts or .js file in the app folder imports, whether or not app.ts reaches the file; a folder that is not the app's (a web page's source) belongs outside the app folder, or in a folder at its root whose name starts with a dot`);
+  };
   // Where `name`, needed by a file in `dir` on disk, is found and placed.
   const find=(name,dir,root,owner)=>{
     for (let at=dir;;) {
@@ -349,7 +356,8 @@ export function stagePackages(stage) {
       at=up;
     }
   };
-  const need=(text,dir,root,owner)=>{
+  // `source`: the captured file whose imports led here, as the app names it.
+  const need=(text,dir,root,owner,source)=>{
     for (const [, , spec] of text.matchAll(SPECIFIER)) {
       const name=packageName(spec);
       if (!name) continue;
@@ -359,8 +367,8 @@ export function stagePackages(stage) {
         const known=staged.get(found.place)?.real;
         if (known && known!==found.real) throw new Error(`package declarations: two copies of ${wanted} (${known}, ${found.real}); install one`);
         if (known) continue;
-        staged.set(found.place,found);
-        copy(found.real,found.place,{at:found.place,from:found.real,installed:found.installed,modules:found.modules});
+        staged.set(found.place,Object.assign(found,{name:wanted,via:owner?.name,source,bytes:0}));
+        copy(found.real,found.place,{at:found.place,from:found.real,installed:found.installed,modules:found.modules,name:wanted,source,staged:found});
       }
     }
   };
@@ -373,10 +381,11 @@ export function stagePackages(stage) {
       else if (kind?.isFile() && (name==='package.json' || DECLARATION.test(name))) {
         const bytes=DECLARATION.test(name) ? unreferenced(readFileSync(path)) : readFileSync(path);
         total+=bytes.length;
-        if (total>64<<20) throw new Error('package declarations exceed 64 MiB');
+        owner.staged.bytes+=bytes.length;
+        if (total>64<<20) throw tooLarge();
         // Recorded where it is installed: a link retargeted is a change there.
         files.set(join(place,name),[join(owner.installed,relative(owner.from,path)),bytes]);
-        if (DECLARATION.test(name)) queue.push([bytes.toString('utf8'),dirname(realpathSync(path)),null,owner]);
+        if (DECLARATION.test(name)) queue.push([bytes.toString('utf8'),dirname(realpathSync(path)),null,owner,owner.source]);
       }
     }
   };
@@ -390,7 +399,7 @@ export function stagePackages(stage) {
       else if (entry.isDirectory()) sources(path);
       else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(entry.name) && !entry.name.startsWith('__exact_') && path!==resolve(stage,'app.js')) {
         const root=roots.find(([at])=>within(path,at));
-        need(readFileSync(path,'utf8'),dirname(resolve(root[1],relative(root[0],path))),root,null);
+        need(readFileSync(path,'utf8'),dirname(resolve(root[1],relative(root[0],path))),root,null,slash(relative(stage,path)));
       }
     }
   };

@@ -817,6 +817,22 @@ export const answer: Answer = (name) => sources[name]();
 }, 30_000);
 
 
+test('package declarations over the cap are named by package, size and the captured file that reached them', async () => {
+  const { stagePackages } = await import('../../js/bake/src/typescript.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-declarations-cap-')), app = resolve(dir, 'app'), stage = resolve(dir, 'stage');
+  const write = (path, text) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
+  try {
+    // A web page's source beside app.ts imports a package whose declarations import a heavy one.
+    write(resolve(app, 'node_modules/diagram/package.json'), '{"name":"diagram","version":"1.0.0","types":"index.d.ts"}');
+    write(resolve(app, 'node_modules/diagram/index.d.ts'), "export * from 'heavy';\n");
+    write(resolve(app, 'node_modules/heavy/package.json'), '{"name":"heavy","version":"1.0.0","types":"index.d.ts"}');
+    write(resolve(app, 'node_modules/heavy/index.d.ts'), 'export type Heavy = 1;\n'.repeat(3 << 20));
+    for (const root of [app, stage]) write(resolve(root, 'page/main.ts'), "import { Heavy } from 'diagram';\nexport const h: Heavy = 1;\n");
+    write(resolve(stage, '__exact_paths.json'), JSON.stringify({ app, mounts: [] }));
+    expect(() => stagePackages(stage)).toThrow(/^package declarations exceed 64 MiB: heavy 69\.0 MiB \(through diagram, from page\/main\.ts\), diagram 0\.0 MiB \(from page\/main\.ts\)\. .*whose name starts with a dot$/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('compiler reuse is invalidated by dependency manifests and the workspace lockfile', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-compiler-fresh-'));
   const product = resolve(dir, 'compiler'), crate = resolve(dir, 'dep'), source = resolve(crate, 'src/lib.rs');
