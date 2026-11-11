@@ -1,6 +1,7 @@
 # A painted button's leading symbol stays on the left in a right-to-left direction
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Painted buttons resolve leading and trailing symbol positions using the button's inherited direction.
 **Systems:** host/linux/src/paint/button.rs (the painting host: Linux, Windows, Android)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

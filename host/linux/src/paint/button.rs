@@ -854,14 +854,15 @@ impl Painter {
                 by + if leading { 0.0 } else { text_room + layout.gap },
             )
         } else {
+            let symbol_left = leading != (rows.button.direction == exact_kernel::Direction::Rtl);
             (
-                bx + if leading {
+                bx + if symbol_left {
                     layout.symbol + layout.gap
                 } else {
                     0.0
                 },
                 by + (ch - layout.text.1) / 2.0,
-                bx + if leading {
+                bx + if symbol_left {
                     0.0
                 } else {
                     layout.text.0 + layout.gap
