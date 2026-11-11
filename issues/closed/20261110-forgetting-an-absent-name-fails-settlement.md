@@ -1,6 +1,7 @@
 # Two store readers that each forget a name the store does not keep fail every commit with `Cycle`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Forgetting an absent name preserves the store revision and lets readers settle; host removals and presence changes are retained.
 **Systems:** runner/src/store.rs, runner/src/runner/settlement.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
