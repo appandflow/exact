@@ -1,6 +1,7 @@
 # A session made where a destroyed one was allocated is not asked before leaving the app, and its launch route is journaled as a navigation
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each session owns its leave and share-inbox observers and navigation history, so address reuse cannot suppress registration or inherit another session's routes.
 **Systems:** host/apple/Sources/ExactKit/Leave.swift, NavigationMarks.swift, ShareReceive.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

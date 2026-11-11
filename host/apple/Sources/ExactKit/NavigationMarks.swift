@@ -17,8 +17,6 @@ final class NavigationMarks: NSObject {
     static let shared = NavigationMarks()
     /// The last input's timestamp, in seconds on the `CACurrentMediaTime` clock.
     private var lastInput: Double?
-    private var seen: [ObjectIdentifier: Set<UInt64>] = [:]
-    private var launched: Set<ObjectIdentifier> = []
     private var pending: Pending?
     /// An evaluation is queued: one per turn, as each reads the ledger on the owner.
     private var evaluateScheduled = false
@@ -86,19 +84,19 @@ final class NavigationMarks: NSObject {
 
     func routerChanged(_ session: ExactSession, payload: [String: Any]) {
         guard let top = (payload["top"] as? NSNumber)?.uint64Value else { return }
-        let key = ObjectIdentifier(session)
         let now = CACurrentMediaTime()
         var fields: [String: Any] = ["route": payload["pattern"] as? String ?? "", "url": payload["url"] as? String ?? "",
                                      "routeParams": payload["params"] as? [String: Any] ?? [:]]
-        let cold = seen[key, default: []].insert(top).inserted
         // The first route is the launch route, which startup metrics cover.
-        if launched.insert(key).inserted {
+        if session.seenNavigationEntries == nil {
+            session.seenNavigationEntries = [top]
             fields["entry"] = Int(top)
             ExactJournal.shared.record("navigation.launch", fields)
             note("launch \(fields["route"] ?? "")")
             return
         }
-        for removed in payload["removed"] as? [NSNumber] ?? [] { seen[key]?.remove(removed.uint64Value) }
+        let cold = session.seenNavigationEntries?.insert(top).inserted == true
+        for removed in payload["removed"] as? [NSNumber] ?? [] { session.seenNavigationEntries?.remove(removed.uint64Value) }
         let start: Double
         if let input = lastInput, input <= now, now - input <= 1.0 {
             start = input

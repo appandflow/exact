@@ -30,7 +30,7 @@ final class NavigationMarksTests: XCTestCase {
     // session tells the marks at every end of work, not only an apply.
 
     func testTTIFollowsATickThatLandsWithNothingToShow() throws {
-        let session = try heldNavigation("/landed", top: 10) { $0.tickInFlight = true }
+        let session = try heldNavigation("/landed") { $0.tickInFlight = true }
         defer { session.destroy() }
         let applied = session.appliedBatches
         session.publishTickForTests(wireBatch([]))
@@ -39,7 +39,7 @@ final class NavigationMarksTests: XCTestCase {
     }
 
     func testTTIFollowsABatchThatSkipsThePass() throws {
-        let session = try heldNavigation("/skipped", top: 20) { $0.tickInFlight = true }
+        let session = try heldNavigation("/skipped") { $0.tickInFlight = true }
         defer { session.destroy() }
         // The hold clears without notice; the empty batch that follows must re-check TTI
         session.tickInFlight = false
@@ -51,7 +51,7 @@ final class NavigationMarksTests: XCTestCase {
 
     func testTTIFollowsAnSVGPictureDone() throws {
         guard SvgFilterGPU.metal != nil, SvgFilterMetal.shared != nil else { throw missing("metal", "no Metal device or SVG filter library") }
-        let session = try heldNavigation("/picture", top: 30) { _ in SvgFilterLive.inFlight += 1 }
+        let session = try heldNavigation("/picture") { _ in SvgFilterLive.inFlight += 1 }
         defer { session.destroy() }
         let picture = SvgFilterLive(layer: CALayer())
         let shape: [String: Any] = ["id": 1, "o": 1, "n": 1, "p": [0, 0, 0, 1, 40, 0, 1, 40, 30, 1, 0, 30, 3], "f": [220, 40, 40, 255],
@@ -69,7 +69,7 @@ final class NavigationMarksTests: XCTestCase {
     }
 
     func testADestroyedSessionHasNoTTI() throws {
-        let session = try heldNavigation("/destroyed", top: 40) { $0.tickInFlight = true }
+        let session = try heldNavigation("/destroyed") { $0.tickInFlight = true }
         session.destroy()
         // A tick that lands after the session is gone, and the evaluation it asks for
         session.publishTickForTests(wireBatch([]))
@@ -79,15 +79,14 @@ final class NavigationMarksTests: XCTestCase {
     }
 
     /// A booted session's cold navigation to `route`, shown, with TTI held by
-    /// what `hold` left outstanding. Each test's `top` is its own, as a
-    /// session's address (which keys what the marks have seen) can be reused.
-    private func heldNavigation(_ route: String, top: UInt64, _ hold: (ExactSession) -> Void) throws -> ExactSession {
+    /// what `hold` left outstanding.
+    private func heldNavigation(_ route: String, _ hold: (ExactSession) -> Void) throws -> ExactSession {
         let session = ExactApp.shared.makeSession(label: "navigation-marks\(route)")
         XCTAssertNil(session.boot(plan: try fixturePlan("HEADLESS"), size: CGSize(width: 400, height: 800)).error)
         let marks = NavigationMarks.shared
-        marks.routerChanged(session, payload: ["top": top, "pattern": "/"])
+        marks.routerChanged(session, payload: ["top": 1, "pattern": "/"])
         hold(session)
-        marks.routerChanged(session, payload: ["top": top + 1, "pattern": route])
+        marks.routerChanged(session, payload: ["top": 2, "pattern": route])
         waitFor("the navigation's first frame") { marks.recent.contains { $0.hasPrefix("cold_ttr \(route) ") } }
         XCTAssertFalse(marks.recent.contains { $0.hasPrefix("tti \(route) ") }, "the work holds TTI")
         return session

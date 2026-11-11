@@ -354,6 +354,8 @@ public final class ExactSession {
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
+    /// Nil until this session's launch route is journaled.
+    var seenNavigationEntries: Set<UInt64>?
     var pendingLaunchLocations: [String] = []
     var heldModuleEvents: [String] = [] // module events before first pixel (SessionActivation.swift)
     var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
@@ -489,6 +491,8 @@ public final class ExactSession {
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
     private var preferenceObservers: [NSObjectProtocol] = [], pageObservers: [NSObjectProtocol] = [], localeObserver: NSObjectProtocol?
+    var leaveObserver: NSObjectProtocol?
+    var shareInboxObserver: NSObjectProtocol?
     #if os(macOS)
     private var colorObserver: NSObjectProtocol?
     #endif
@@ -1477,6 +1481,8 @@ public final class ExactSession {
         finishHold.moved(false) // its work ends with the runtime
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers); localeObserver.map(NotificationCenter.default.removeObserver)
+        leaveObserver.map(NotificationCenter.default.removeObserver)
+        shareInboxObserver.map(NotificationCenter.default.removeObserver)
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
