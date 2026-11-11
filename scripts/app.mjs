@@ -1038,8 +1038,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const hermesLeanRoots = hermesLeanSysRoots(env);
   // Index roots once; each input walks ancestors to the nearest declaring root.
   const rootsAt = (roots) => { const at = new Map(); for (const root of roots) if (!at.has(root.path)) at.set(root.path, root); return at; };
-  // Each installed direct dependency, where it is installed and where its files really are: Bun installs a file:
-  // package as directories of links to its source's files, so a compiler reads them from the source directory.
+  // Each installed direct dependency, where it is installed and where its files really are: Bun links each file of a
+  // file: package outside the app (a compiler reads the source), and copies one inside it into node_modules.
   const dependencies = directDependencies(app.dir).flatMap(({ name, root }) => [realpathSync(root), dirname(realpathSync(resolve(root, 'package.json')))].map(path => ({ path, name }))).sort((a,b) => b.path.length-a.path.length);
   const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
