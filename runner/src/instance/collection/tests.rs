@@ -634,6 +634,7 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
             smooth: false,
         }),
         pending: true,
+        extents: Vec::new(),
     };
     let expected = concat!(
         r#"{"view":1,"axis":"y","revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
@@ -648,6 +649,21 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
     let mut batch = String::from("prefix:");
     snapshot.write_json(&mut batch);
     assert_eq!(batch, format!("prefix:{expected}"));
+    let placed = CollectionSnapshot {
+        extents: vec![RowExtent {
+            index: 7,
+            start: 224.0,
+            size: 32.5,
+        }],
+        ..snapshot.clone()
+    };
+    assert!(
+        placed
+            .json()
+            .contains(r#"],"extents":[[7,224,32.5]],"pending":true,"#),
+        "{}",
+        placed.json()
+    );
 
     let mut initial = snapshot;
     initial.revision = 1;

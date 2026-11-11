@@ -548,15 +548,7 @@ impl<D: DataSource> Presenter<D> {
         } else {
             (port.0, port.2, s.offset.0, s.max.0)
         };
-        let mut rests = Vec::new();
-        for (c, align, stop) in areas {
-            let Some(b) = self.box_of(c) else { continue };
-            let (at, len) = if vertical {
-                (b.rect.1, b.rect.3)
-            } else {
-                (b.rect.0, b.rect.2)
-            };
-            let lo = at - port_at + offset;
+        let rest = |lo: f32, len: f32, align: Align, stop: bool| {
             let wide = len >= port_len;
             let rest = match align {
                 _ if wide => lo,
@@ -570,7 +562,38 @@ impl<D: DataSource> Presenter<D> {
             } else {
                 from
             };
-            rests.push((from, to, stop));
+            (from, to, stop)
+        };
+        let mut rests = Vec::new();
+        let mut placed = Vec::new();
+        for (c, align, stop) in areas {
+            let Some(b) = self.box_of(c) else { continue };
+            let (at, len) = if vertical {
+                (b.rect.1, b.rect.3)
+            } else {
+                (b.rect.0, b.rect.2)
+            };
+            let lo = at - port_at + offset;
+            rests.push(rest(lo, len, align, stop));
+            placed.push((c, lo, len, align, stop));
+        }
+        // A virtualized list's rows past its window rest where its mounted
+        // rows' roots would: the same alignment, and the same place in the row.
+        if let Some(list) = self.host.collection(id).filter(|l| !l.extents.is_empty()) {
+            let model = list.rows.iter().find_map(|row| {
+                let (_, lo, len, align, stop) = *placed.iter().find(|p| p.0 == row.root)?;
+                Some((row, lo, len, align, stop))
+            });
+            if let Some((row, lo, len, align, stop)) = model {
+                for e in &list.extents {
+                    if list.rows.iter().any(|r| r.index == e.index) {
+                        continue;
+                    }
+                    let lo = lo + (e.start - row.start) as f32;
+                    let len = len + (e.size - row.size) as f32;
+                    rests.push(rest(lo, len, align, stop));
+                }
+            }
         }
         Some((if vertical { Y } else { X }, rests))
     }

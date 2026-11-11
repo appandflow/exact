@@ -122,6 +122,14 @@ struct CollectionSnapshot {
         let index: Int
         let size: Double?
         let measured: Bool
+        /// Logical start on the main axis, when the snapshot gives it.
+        var start: Double? = nil
+    }
+    /// A row's place on the main axis, mounted or not.
+    struct Extent {
+        let index: Int
+        let start: Double
+        let size: Double
     }
     struct Correction {
         let sequence: UInt64
@@ -159,6 +167,8 @@ struct CollectionSnapshot {
     /// asked for a row in answer.
     let lastRequest: UInt64
     var underWay: Bool { seeking || waiting }
+    /// A snapping list's rows around its window, mounted or not: where a fling may rest on a row not built yet.
+    let extents: [Extent]
 
     init?(_ value: [String: Any]) {
         guard let view = Self.viewID(value["view"]), let revision = Self.uint(value["revision"]),
@@ -170,7 +180,7 @@ struct CollectionSnapshot {
             guard let id = Self.viewID(item["view"]), let root = Self.viewID(item["root"]),
                   let epoch = Self.uint(item["epoch"]), seen.insert(id).inserted else { return nil }
             rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1,
-                            size: Self.number(item["size"]), measured: item["measured"] as? Bool ?? false))
+                            size: Self.number(item["size"]), measured: item["measured"] as? Bool ?? false, start: Self.number(item["start"])))
         }
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
@@ -188,6 +198,10 @@ struct CollectionSnapshot {
         self.waiting = value["waiting"] as? Bool == true
         self.request = Self.uint(value["request"]) ?? 0
         self.lastRequest = Self.uint(value["lastRequest"]) ?? 0
+        self.extents = (value["extents"] as? [[Any]] ?? []).compactMap { e in
+            guard e.count == 3, let index = Self.uint(e[0]), let start = Self.number(e[1]), let size = Self.number(e[2]) else { return nil }
+            return Extent(index: Int(clamping: index), start: start, size: size)
+        }
     }
     private static func uint(_ value: Any?) -> UInt64? {
         // Integral JSON numbers read directly; a fraction or sign refuses.

@@ -33,7 +33,8 @@ extension NodeView {
         let maximum = max(0, (vertical ? scrollView.contentSize.height : scrollView.contentSize.width) - port)
         let wanted = vertical ? proposed.y : proposed.x
         var positions: [CGFloat] = [], targetPositions: [CGFloat] = [], stops: [CGFloat] = []
-        for (node, rect) in snapAreas(in: scrollView) {
+        let built = snapAreas(in: scrollView)
+        for (node, rect, placed) in built.map({ ($0.0, $0.1, false) }) + unbuiltAreas(built, in: scrollView, vertical: vertical).map({ ($0.0, $0.1, true) }) {
             let align = node.style["scroll_snap_align"]?.string
             let (lo, mid, hi, size) = vertical ? (rect.minY, rect.midY, rect.maxY, rect.height) : (rect.minX, rect.midX, rect.maxX, rect.width)
             // A snap area larger than the viewport can be explored
@@ -47,7 +48,7 @@ extension NodeView {
             let position = min(end, max(start, wanted))
             positions.append(position)
             if node.style["scroll_snap_stop"]?.string == "always" { stops.append(position) }
-            if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
+            if !placed, let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
         }
         let choices = targetPositions.isEmpty ? positions : targetPositions
         var result = proposed
@@ -77,6 +78,24 @@ extension NodeView {
         }
         visit(scrollView)
         return areas
+    }
+
+    /// A virtualized list's rows past its window, where their roots would be: each takes a built row's root (its
+    /// alignment and stop) moved by the difference of the two rows' starts and sizes (`CollectionSnapshot.extents`).
+    private func unbuiltAreas(_ built: [(NodeView, CGRect)], in scrollView: UIScrollView, vertical: Bool) -> [(NodeView, CGRect)] {
+        guard let snapshot = presenter?.collections.entries[id]?.snapshot, !snapshot.extents.isEmpty else { return [] }
+        guard let found = snapshot.rows.lazy.compactMap({ row -> (CollectionSnapshot.Row, NodeView, CGRect)? in
+            guard let area = built.first(where: { $0.0.id == row.root }) else { return nil }
+            return (row, area.0, area.1)
+        }).first, let start = found.0.start, let size = found.0.size else { return [] }
+        let (model, rect) = (found.1, found.2)
+        let mounted = Set(snapshot.rows.map(\.index))
+        return snapshot.extents.filter { !mounted.contains($0.index) }.map { e in
+            let move = CGFloat(e.start - start), grow = CGFloat(e.size - size)
+            let moved = vertical ? CGRect(x: rect.minX, y: rect.minY + move, width: rect.width, height: rect.height + grow)
+                : CGRect(x: rect.minX + move, y: rect.minY, width: rect.width + grow, height: rect.height)
+            return (model, moved)
+        }
     }
 
     /// Whether a drag on this scroller pages as UIKit's `isPagingEnabled` does,

@@ -1429,10 +1429,11 @@ fn a_snapping_strips_rests_match_the_eager_strip() {
             .filter(|r| virtualized.1.contains(r))
             .collect();
         assert_eq!(virtualized.0, eager.0, "{left}");
-        assert!(shown.len() >= 3, "{left}: {eager:?} {virtualized:?}");
+        // The cards past the window rest there too, so a fling reaches them.
+        assert!(shown.len() > 100, "{left}: {eager:?} {virtualized:?}");
         assert_eq!(
             shown, virtualized.1,
-            "{left}: every mounted card rests where it does in the eager strip"
+            "{left}: every card rests where it does in the eager strip"
         );
     }
 }

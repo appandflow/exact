@@ -208,6 +208,19 @@ pub struct CollectionSnapshot {
     /// A limited report left window rows unbuilt or rows past the window
     /// mounted: the host owes another report, even with unchanged facts.
     pub pending: bool,
+    /// A snapping list's rows around its window, mounted or not, where the
+    /// index has them: a host's fling rests on a row it has not built.
+    pub extents: Vec<RowExtent>,
+}
+/// A row's place on the main axis, as [`CollectionRow`]'s `start` and `size`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RowExtent {
+    /// Zero-based logical item position.
+    pub index: usize,
+    /// Logical start on the main axis.
+    pub start: f64,
+    /// Measured size or provisional estimate.
+    pub size: f64,
 }
 /// Malformed or nonfinite host feedback. Stale valid feedback is ignored instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -415,7 +428,25 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
             }
             write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"start\":{},\"size\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, exact_num::Shortest(row.start), exact_num::Shortest(row.size), row.epoch, row.measured).unwrap();
         }
-        write!(out, "],\"pending\":{},\"correction\":", c.pending).unwrap();
+        out.push(']');
+        if !c.extents.is_empty() {
+            out.push_str(",\"extents\":[");
+            for (i, e) in c.extents.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write!(
+                    out,
+                    "[{},{},{}]",
+                    e.index,
+                    exact_num::Shortest(e.start),
+                    exact_num::Shortest(e.size)
+                )
+                .unwrap();
+            }
+            out.push(']');
+        }
+        write!(out, ",\"pending\":{},\"correction\":", c.pending).unwrap();
         if let Some(correction) = c.correction {
             write!(
                 out,
@@ -452,7 +483,29 @@ impl CollectionSnapshot {
     }
 }
 
+/// How many rows past each end of a snapping list's window its snapshot
+/// places: more than a fling's travel on a phone's card rail.
+const EXTENT_BAND: usize = 128;
+
 impl super::Collection {
+    /// [`CollectionSnapshot::extents`]: none unless the list snaps.
+    pub(super) fn extents(&self) -> Vec<RowExtent> {
+        let (Some(first), Some(last)) = (self.mounted.first(), self.mounted.last()) else {
+            return Vec::new();
+        };
+        if !self.snaps {
+            return Vec::new();
+        }
+        let from = first.position.saturating_sub(EXTENT_BAND);
+        let to = (last.position + EXTENT_BAND + 1).min(self.index.len());
+        (from..to)
+            .map(|index| RowExtent {
+                index,
+                start: self.index.prefix(index).unwrap(),
+                size: self.index.height(index).unwrap() - self.gap,
+            })
+            .collect()
+    }
     pub(super) fn snapshot(&self) -> CollectionSnapshot {
         self.snapshot_rows(usize::MAX)
     }
@@ -486,6 +539,7 @@ impl super::Collection {
                 .collect(),
             correction: self.correction,
             pending: self.asks_report(),
+            extents: self.extents(),
         }
     }
 }

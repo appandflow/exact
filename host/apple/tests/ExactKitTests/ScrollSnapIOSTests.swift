@@ -76,6 +76,30 @@ final class ScrollSnapIOSTests: XCTestCase {
         XCTAssertEqual(stopped.snappedOffset(CGPoint(x: 520, y: 0), in: stoppedScroll, from: began, velocity: flick).x, 150, "`always` stops a fling at the first position past where it began")
     }
 
+    func testAVirtualizedListsFlingRestsOnARowItHasNotBuilt() throws {
+        // Three built 150-point cards of twenty, 10 px apart; the snapshot places the other seventeen.
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 300, height: 100)
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "scroll_snap_type": "x mandatory"]]]
+        for i in 0..<3 {
+            ops.append(["op": "create", "id": 10 + i, "kind": "view", "style": ["scroll_snap_align": "center"]])
+            ops.append(["op": "frame", "id": 10 + i, "x": Double(i) * 160, "y": 0.0, "w": 150.0, "h": 100.0])
+        }
+        ops += [["op": "children", "id": 1, "ids": [10, 11, 12]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0],
+                ["op": "content", "id": 1, "w": 3190.0, "h": 100.0]]
+        p.apply(wireBatch(ops))
+        let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+        let rows: [[String: Any]] = (0..<3).map { ["view": 20 + $0, "root": 10 + $0, "epoch": 1, "index": $0, "start": Double($0) * 160, "size": 150.0] }
+        let extents: [[Any]] = (0..<20).map { [$0, Double($0) * 160, 150.0] }
+        let snapshot = try XCTUnwrap(CollectionSnapshot(["view": 1, "revision": 1, "scrollSequence": 1, "totalExtent": 3190.0, "axis": "x", "count": 20, "rows": rows, "extents": extents]))
+        p.collections.entries[1] = CollectionHost.Entry(snapshot)
+        // Card 9's centre at the port's: 9 × 160 + 75 − 150.
+        XCTAssertEqual(node.snappedOffset(CGPoint(x: 1380, y: 0), in: scroll, from: .zero, velocity: CGPoint(x: 5, y: 0)).x, 1365)
+        XCTAssertEqual(node.snappedOffset(CGPoint(x: 140, y: 0), in: scroll).x, 85, "a built card rests as before")
+        XCTAssertFalse(node.pagesByViewport(scroll))
+    }
+
     func testViewportLongAreasThatAlwaysStopPageNatively() throws {
         let pages = (0..<3).map { ("start", Double($0) * 300, 300.0) }
         let (paged, pagedScroll) = try strip(pages, stop: "always")

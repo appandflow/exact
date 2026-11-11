@@ -23,6 +23,7 @@ fn snapshot() -> CollectionSnapshot {
             smooth: false,
         }),
         pending: false,
+        extents: vec![],
     }
 }
 #[test]
