@@ -245,6 +245,15 @@ pub fn buffer_frame(view: u32, take: bool) -> Result<([u32; 3], usize), bool> {
 }
 
 impl Surfaces {
+    /// Every canvas went with the replaced host. The windows stay the
+    /// reader's, by view, until it detaches them: a new canvas at a window's
+    /// view is attached to it.
+    pub(super) fn windows_replaced(&mut self) {
+        for w in self.windows.values_mut() {
+            w.attached = false;
+        }
+    }
+
     /// Attach every window whose canvas exists and has not got it.
     pub(super) fn attach_windows(&mut self) {
         for (view, w) in self.windows.iter_mut() {

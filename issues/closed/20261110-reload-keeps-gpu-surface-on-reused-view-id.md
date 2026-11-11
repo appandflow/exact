@@ -1,6 +1,7 @@
 # A reload or an activated update that renumbers the tree leaves the old GPU surface on another node, and the new canvas cannot publish
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Linux presenter's `replaced()`, which a reload and an activated update both call, retires every GPU surface and the controls bound to them, so each canvas of the new tree makes its own surface and owns its name; on Android the reader's windows stay and are attached to the new canvases.
 **Systems:** host/linux/src/surfaces.rs, host/linux/src/presenter.rs (replaced), host/linux/src/presenter/delivery.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
