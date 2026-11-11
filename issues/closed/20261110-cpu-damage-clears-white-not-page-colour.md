@@ -1,6 +1,7 @@
 # The CPU painter's damage repaint clears to white instead of the page's colour when the frame's size does not round-trip through the scale
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** CPU damage repaints clear to the page colour even when the frame size does not round-trip through its scale.
 **Systems:** host/linux/src/raster.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

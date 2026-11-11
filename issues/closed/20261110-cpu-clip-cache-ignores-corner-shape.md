@@ -1,6 +1,7 @@
 # The CPU painter's kept clip mask ignores `corner-shape`, so a changed corner shape clips with the old outline
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The CPU clip cache includes each corner's shape and rebuilds the mask when it changes.
 **Systems:** host/linux/src/raster.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

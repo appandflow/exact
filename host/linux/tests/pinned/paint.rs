@@ -850,6 +850,53 @@ fn damage_clearing_matches_the_full_masked_viewport() {
 }
 
 #[test]
+fn damage_clearing_preserves_the_page_colour_at_fractional_scales() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::Raster;
+    use tiny_skia::Transform;
+
+    for (width, scale) in [(300.0, 1.0), (440.0, 1.75), (513.0, 1.75), (300.0, 2.625)] {
+        for page in [None, Some([18, 24, 32, 255])] {
+            let mut raster = Raster::new();
+            if let Some(color) = page {
+                raster.page(color);
+            }
+            raster.begin(width, 80.0, scale);
+            let background = raster.finish().unwrap();
+            let page = page.unwrap_or([255; 4]);
+            assert!(background.data().chunks_exact(4).all(|px| px == page));
+
+            let red = [255, 0, 0, 255];
+            raster.begin(width, 80.0, scale);
+            raster.fill(
+                &Shape::rect((0.0, 0.0, width, 80.0)),
+                red,
+                Transform::identity(),
+            );
+            let previous = raster.finish().unwrap();
+            let damage = [(8.0, 8.0, 16.0, 16.0)];
+            assert!(raster.begin_damage(width, 80.0, scale, &previous, &damage));
+            let actual = raster.finish().unwrap();
+            let cleared = (8.0 * scale) as u32..(24.0 * scale) as u32;
+            for y in 0..actual.height() {
+                for x in 0..actual.width() {
+                    let expected = if cleared.contains(&x) && cleared.contains(&y) {
+                        background.pixel(x, y).unwrap()
+                    } else {
+                        previous.pixel(x, y).unwrap()
+                    };
+                    assert_eq!(
+                        actual.pixel(x, y).unwrap(),
+                        expected,
+                        "width={width}, scale={scale}, page={page:?}, pixel=({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
     use exact_linux::paint::{Backend, Shape};
     use exact_linux::raster::{rounded_rect, Raster};

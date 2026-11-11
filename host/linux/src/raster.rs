@@ -42,12 +42,13 @@ use tiny_skia::{
 // One optional CPU coverage mask, never a source, picture or node owner.
 const CLIP_CACHE_BYTES: usize = 1024 * 1024;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 struct ClipKey {
     width: u32,
     height: u32,
     scale: u32,
     shape: [u32; 12],
+    corners: Option<exact_kernel::corner::CornerShape>,
     transform: [u32; 6],
 }
 
@@ -191,6 +192,7 @@ impl Raster {
 
     fn clip_key(&self, shape: &Shape, ts: Transform) -> Option<ClipKey> {
         let bytes = (self.width as usize).checked_mul(self.height as usize)?;
+        let corners = shape.corners;
         let shape = [
             shape.rect.0,
             shape.rect.1,
@@ -221,6 +223,7 @@ impl Raster {
             height: self.height,
             scale: self.scale.to_bits(),
             shape: shape.map(f32::to_bits),
+            corners,
             transform: transform.map(f32::to_bits),
         })
     }
@@ -452,7 +455,7 @@ impl Backend for Raster {
                     self.width as f32 / self.scale,
                     self.height as f32 / self.scale,
                 )),
-                [255; 4],
+                self.page.unwrap_or([255; 4]),
                 Transform::identity(),
             );
         }

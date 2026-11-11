@@ -150,7 +150,7 @@ pub trait Backend {
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
         false
     }
-    /// Begin from an accepted frame, clipped; false leaves a white frame to repaint.
+    /// Begin from an accepted frame, clipped; false leaves a frame cleared by `begin`.
     fn begin_damage(
         &mut self,
         width: f32,
