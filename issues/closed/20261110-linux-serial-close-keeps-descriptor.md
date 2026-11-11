@@ -1,6 +1,7 @@
 # The Linux serial `close` never closes the port's descriptor, so the port cannot be opened again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `close` ends exclusive mode (`TIOCNXCL`) and drops the connection's handle, so the reader thread's is the last and the port opens again.
 **Systems:** packages/serial/linux/lib.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

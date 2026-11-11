@@ -33,7 +33,9 @@ const fixture = join(dir, 'devices.json');
 writeFileSync(fixture, JSON.stringify({ serial: [{ id: 'pty', name: 'Fixture port', path }] }));
 
 const ops = ['clock settle', 'state ports', 'type port pty', 'clock settle', 'tap connect', 'clock settle',
-  ...Array.from({ length: 30 }, () => 'clock +500 real'), 'clock settle', 'state log', 'state conn'];
+  ...Array.from({ length: 30 }, () => 'clock +500 real'), 'clock settle', 'state log', 'state conn',
+  // Disconnect, then Connect again at once: the close released the port, so the second open is not refused as in use.
+  'tap disconnect', 'clock settle', 'tap connect', 'clock settle', 'clock +500 real', 'clock settle', 'state conn'];
 const r = spawnSync('bun', ['scripts/agent.mjs', host, '--json', '--app', 'bench', '--bind', 'serial', '--storage', `serial-pty-${Date.now()}`, '--reset-storage', ...ops],
   { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_DEVICE_FIXTURE: fixture }, maxBuffer: 1 << 28 });
 writer.kill();
@@ -42,11 +44,14 @@ if (replies.length < ops.length) console.log(r.stdout.slice(-2000), r.stderr.sli
 const value = (v) => v?.value ?? v;
 const ports = value(replies[1]) ?? [];
 check('the injected pty is listed beside the Mac\'s own ports', JSON.stringify(ports).includes('Fixture port'), JSON.stringify(ports).slice(0, 300));
-const log = value(replies.at(-2)) ?? {}, conn = value(replies.at(-1)) ?? {};
+const at = ops.indexOf('state conn');
+const log = value(replies[at - 1]) ?? {}, conn = value(replies[at]) ?? {};
+const again = value(replies.at(-1)) ?? {};
 const lines = log.lines ?? [];
 const numbered = lines.map((l) => Number(/^line (\d{5}) /.exec(l.text)?.[1]));
 check('the port opened through the module', conn.open === true, JSON.stringify(conn));
 check(`all ${LINES} lines arrived (${LINES * WIDTH} bytes)`, log.total === LINES, `${log.total} lines kept`);
 check('the lines shown are the last, in order, whole', numbered.length > 0 && numbered.at(-1) === LINES - 1 && numbered.every((n, i) => i === 0 || n === numbered[i - 1] + 1) && lines.every((l) => l.text.length === WIDTH - 2), JSON.stringify(lines.slice(-2)));
+check('after Disconnect, Connect opens the port again', replies.length === ops.length && again.open === true, JSON.stringify(again));
 console.log(`${failed()} failed`);
 process.exit(failed() ? 1 : 0);

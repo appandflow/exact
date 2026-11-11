@@ -51,6 +51,7 @@ mod sys {
     pub const O_NOCTTY: i32 = 0o400;
     pub const O_NONBLOCK: i32 = 0o4000;
     pub const TIOCEXCL: u64 = 0x540C;
+    pub const TIOCNXCL: u64 = 0x540D;
     pub const TIOCMGET: u64 = 0x5415;
     pub const TIOCMBIS: u64 = 0x5416;
     pub const TIOCMBIC: u64 = 0x5417;
@@ -85,6 +86,7 @@ mod sys {
     pub const O_NOCTTY: i32 = 0x20000;
     pub const O_NONBLOCK: i32 = 0x4;
     pub const TIOCEXCL: u64 = 0x2000_740d;
+    pub const TIOCNXCL: u64 = 0x2000_740e;
     pub const TIOCMGET: u64 = 0x4004_746a;
     pub const TIOCMBIS: u64 = 0x8004_746c;
     pub const TIOCMBIC: u64 = 0x8004_746b;
@@ -141,7 +143,8 @@ struct Stream {
 
 struct Connection {
     port: Port,
-    file: Arc<File>,
+    /// None once closed: the reader thread's clone goes with it.
+    file: Option<Arc<File>>,
     options: Json,
     open: bool,
     stream: Arc<(Mutex<Stream>, Condvar)>,
@@ -156,7 +159,9 @@ pub struct Serial {
 }
 
 fn read_text(path: &str) -> Option<String> {
-    std::fs::read_to_string(path).ok().map(|s| s.trim().to_owned())
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_owned())
 }
 
 /// The serial ports sysfs lists: each tty with a device behind it, named by its USB product where it has one.
@@ -173,14 +178,26 @@ fn sysfs_ports() -> Vec<Port> {
         };
         // The USB device is the nearest ancestor with an `idVendor`.
         let usb = real.ancestors().find(|a| a.join("idVendor").exists());
-        let hex = |name: &str| usb.and_then(|u| read_text(&u.join(name).to_string_lossy())).and_then(|v| u64::from_str_radix(&v, 16).ok());
+        let hex = |name: &str| {
+            usb.and_then(|u| read_text(&u.join(name).to_string_lossy()))
+                .and_then(|v| u64::from_str_radix(&v, 16).ok())
+        };
         let product = usb.and_then(|u| read_text(&u.join("product").to_string_lossy()));
         // A legacy 8250 port with no device answering is listed by the kernel too; it has no driver behind it.
-        if usb.is_none() && tty.starts_with("ttyS") && !real.to_string_lossy().contains("serial8250") {
+        if usb.is_none()
+            && tty.starts_with("ttyS")
+            && !real.to_string_lossy().contains("serial8250")
+        {
             continue;
         }
         let path = format!("/dev/{tty}");
-        out.push(Port { id: path.clone(), name: product.unwrap_or_else(|| tty.clone()), path, vendor: hex("idVendor"), product: hex("idProduct") });
+        out.push(Port {
+            id: path.clone(),
+            name: product.unwrap_or_else(|| tty.clone()),
+            path,
+            vendor: hex("idVendor"),
+            product: hex("idProduct"),
+        });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
@@ -222,7 +239,9 @@ fn ports() -> Vec<Port> {
 
 /// Permission probes must not open a tty: opening it can toggle DTR and reset a board.
 fn granted(path: &str) -> bool {
-    let Ok(path) = std::ffi::CString::new(path) else { return false };
+    let Ok(path) = std::ffi::CString::new(path) else {
+        return false;
+    };
     // SAFETY: path is NUL-terminated and access only reads it. R_OK | W_OK.
     unsafe { access(path.as_ptr(), 4 | 2) == 0 }
 }
@@ -237,7 +256,12 @@ fn matches(p: &Port, filters: &Json) -> bool {
         return true;
     };
     filters.iter().any(|f| {
-        f["usbVendorId"].as_u64().is_none_or(|v| Some(v) == p.vendor) && f["usbProductId"].as_u64().is_none_or(|v| Some(v) == p.product)
+        f["usbVendorId"]
+            .as_u64()
+            .is_none_or(|v| Some(v) == p.vendor)
+            && f["usbProductId"]
+                .as_u64()
+                .is_none_or(|v| Some(v) == p.product)
     })
 }
 
@@ -276,7 +300,13 @@ fn configure(fd: i32, options: &Json) -> Result<(), String> {
 }
 
 /// The connection's reader: reads while the undelivered bytes are under `bound`, waiting on the descriptor.
-fn read_loop(file: Arc<File>, stream: Arc<(Mutex<Stream>, Condvar)>, stop: Arc<AtomicBool>, bound: usize, notifier: Notifier) {
+fn read_loop(
+    file: Arc<File>,
+    stream: Arc<(Mutex<Stream>, Condvar)>,
+    stop: Arc<AtomicBool>,
+    bound: usize,
+    notifier: Notifier,
+) {
     let mut buf = vec![0u8; 4096];
     let (lock, room) = &*stream;
     while !stop.load(Ordering::Relaxed) {
@@ -284,10 +314,17 @@ fn read_loop(file: Arc<File>, stream: Arc<(Mutex<Stream>, Condvar)>, stop: Arc<A
             let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
             // Backpressure (D8): nothing more is read until a delivery makes room.
             while s.pending.len() >= bound && !stop.load(Ordering::Relaxed) {
-                s = room.wait_timeout(s, std::time::Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+                s = room
+                    .wait_timeout(s, std::time::Duration::from_millis(100))
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
             }
         }
-        let mut p = PollFd { fd: file.as_raw_fd(), events: 1, revents: 0 };
+        let mut p = PollFd {
+            fd: file.as_raw_fd(),
+            events: 1,
+            revents: 0,
+        };
         // SAFETY: one valid pollfd for the call's duration.
         if unsafe { poll(&mut p, 1, 100) } <= 0 {
             continue;
@@ -301,8 +338,14 @@ fn read_loop(file: Arc<File>, stream: Arc<(Mutex<Stream>, Condvar)>, stop: Arc<A
                 finish(&stream, "NetworkError");
                 break;
             }
-            Ok(n) => lock.lock().unwrap_or_else(|e| e.into_inner()).pending.extend_from_slice(&buf[..n]),
-            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => continue,
+            Ok(n) => lock
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pending
+                .extend_from_slice(&buf[..n]),
+            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
+                continue
+            }
             // EIO or ENXIO: the port went away (D9).
             Err(_) => {
                 finish(&stream, "NetworkError");
@@ -325,9 +368,15 @@ fn base64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            out.push(if i <= c.len() { T[(n >> shift) as usize & 63] as char } else { '=' });
+            out.push(if i <= c.len() {
+                T[(n >> shift) as usize & 63] as char
+            } else {
+                '='
+            });
         }
     }
     out
@@ -362,7 +411,11 @@ impl Serial {
         let Some(port) = ports().into_iter().find(|p| p.id == id) else {
             return json!({ "error": "NotFoundError" });
         };
-        if self.connections.values().any(|c| c.open && c.port.path == port.path) {
+        if self
+            .connections
+            .values()
+            .any(|c| c.open && c.port.path == port.path)
+        {
             return json!({ "error": "InvalidStateError", "message": "already open" });
         }
         if !(args["baudRate"].as_f64().unwrap_or(0.0) > 0.0) {
@@ -374,10 +427,19 @@ impl Serial {
                 options[k] = v.clone();
             }
         }
-        let file = match OpenOptions::new().read(true).write(true).custom_flags(O_NOCTTY | O_NONBLOCK).open(&port.path) {
+        let file = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(O_NOCTTY | O_NONBLOCK)
+            .open(&port.path)
+        {
             Ok(f) => f,
-            Err(e) if e.kind() == ErrorKind::PermissionDenied => return json!({ "error": "NotAllowedError", "message": e.to_string() }),
-            Err(e) if e.raw_os_error() == Some(16) => return json!({ "error": "InvalidStateError", "message": e.to_string() }),
+            Err(e) if e.kind() == ErrorKind::PermissionDenied => {
+                return json!({ "error": "NotAllowedError", "message": e.to_string() })
+            }
+            Err(e) if e.raw_os_error() == Some(16) => {
+                return json!({ "error": "InvalidStateError", "message": e.to_string() })
+            }
             Err(e) => return json!({ "error": "NetworkError", "message": e.to_string() }),
         };
         let fd = file.as_raw_fd();
@@ -387,23 +449,48 @@ impl Serial {
             return json!({ "error": "NetworkError", "message": e });
         }
         let baud = options["baudRate"].as_f64().unwrap_or(9600.0) as usize;
-        let bound = (baud / 10 * 2).max(options["bufferSize"].as_u64().unwrap_or(255) as usize).min(MOST);
+        let bound = (baud / 10 * 2)
+            .max(options["bufferSize"].as_u64().unwrap_or(255) as usize)
+            .min(MOST);
         self.next += 1;
         let handle = format!("serial-{}", self.next);
-        let (file, stream, stop) = (Arc::new(file), Arc::new((Mutex::new(Stream::default()), Condvar::new())), Arc::new(AtomicBool::new(false)));
-        let (f, s, st, notifier) = (file.clone(), stream.clone(), stop.clone(), self.context.notifier());
+        let (file, stream, stop) = (
+            Arc::new(file),
+            Arc::new((Mutex::new(Stream::default()), Condvar::new())),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (f, s, st, notifier) = (
+            file.clone(),
+            stream.clone(),
+            stop.clone(),
+            self.context.notifier(),
+        );
         std::thread::spawn(move || read_loop(f, s, st, bound, notifier));
         if !self.remembered.contains(&port.id) {
             self.remembered.push(port.id.clone());
         }
-        let answer = json!({ "connection": handle, "port": record(&port, true), "options": options });
-        self.connections.insert(handle, Connection { port, file, options, open: true, stream, stop });
+        let answer =
+            json!({ "connection": handle, "port": record(&port, true), "options": options });
+        self.connections.insert(
+            handle,
+            Connection {
+                port,
+                file: Some(file),
+                options,
+                open: true,
+                stream,
+                stop,
+            },
+        );
         self.context.changed("serial.getPorts");
         answer
     }
 
     fn input(&mut self, args: &Json) -> Json {
-        let Some(c) = self.connections.get(args["connection"].as_str().unwrap_or_default()) else {
+        let Some(c) = self
+            .connections
+            .get(args["connection"].as_str().unwrap_or_default())
+        else {
             return json!({ "error": "InvalidStateError", "message": "no such connection" });
         };
         let (lock, room) = &*c.stream;
@@ -421,7 +508,10 @@ impl Serial {
     }
 
     fn connection(&self, args: &Json) -> Result<&Connection, Json> {
-        match self.connections.get(args["connection"].as_str().unwrap_or_default()) {
+        match self
+            .connections
+            .get(args["connection"].as_str().unwrap_or_default())
+        {
             Some(c) if c.open => Ok(c),
             _ => Err(json!({ "error": "InvalidStateError" })),
         }
@@ -434,6 +524,13 @@ impl Serial {
         c.open = false;
         c.stop.store(true, Ordering::Relaxed);
         c.stream.1.notify_all();
+        // Closing the port releases it: exclusive mode ends now, since the
+        // reader thread holds the descriptor until its next poll (100 ms),
+        // and dropping this handle lets that be the last.
+        if let Some(file) = c.file.take() {
+            // SAFETY: no argument.
+            unsafe { ioctl(file.as_raw_fd(), TIOCNXCL) };
+        }
         self.context.changed("serial.serialConnection");
         self.context.changed("serial.serialInput");
         Json::Null
@@ -446,13 +543,24 @@ fn os_error() -> Json {
 
 impl Package for Serial {
     fn new(context: Context) -> Self {
-        Serial { context, connections: BTreeMap::new(), next: 0, remembered: Vec::new() }
+        Serial {
+            context,
+            connections: BTreeMap::new(),
+            next: 0,
+            remembered: Vec::new(),
+        }
     }
 
     fn later(&mut self, name: &str, args: &Json, _preferred: Option<&Json>, reply: Reply) {
         let answer = match name {
-            "serialStatus" => json!({ "available": true, "attachedList": true, "state": "granted" }),
-            "attachedPorts" => json!(ports().iter().filter(|p| matches(p, &args["filters"])).map(|p| record(p, true)).collect::<Vec<_>>()),
+            "serialStatus" => {
+                json!({ "available": true, "attachedList": true, "state": "granted" })
+            }
+            "attachedPorts" => json!(ports()
+                .iter()
+                .filter(|p| matches(p, &args["filters"]))
+                .map(|p| record(p, true))
+                .collect::<Vec<_>>()),
             "getPorts" => {
                 let here = ports();
                 json!(self.remembered.iter().map(|id| match here.iter().find(|p| &p.id == id) {
@@ -463,7 +571,10 @@ impl Package for Serial {
             // The painted presenter draws no chooser yet (D2): the app lists `attachedPorts` itself.
             "requestPort" => json!({ "error": "NotSupportedError" }),
             "open" => self.open(args),
-            "serialConnection" => match self.connections.get(args["connection"].as_str().unwrap_or_default()) {
+            "serialConnection" => match self
+                .connections
+                .get(args["connection"].as_str().unwrap_or_default())
+            {
                 Some(c) => {
                     let gone = c.stream.0.lock().map(|s| s.done).unwrap_or(true);
                     json!({ "open": c.open && !gone, "connected": !gone, "options": c.options })
@@ -471,16 +582,31 @@ impl Package for Serial {
                 None => json!({ "open": false, "connected": false }),
             },
             "serialInput" => self.input(args),
-            "write" => match (self.connection(args), unbase64(args["data"].as_str().unwrap_or_default())) {
+            "write" => match (
+                self.connection(args),
+                unbase64(args["data"].as_str().unwrap_or_default()),
+            ) {
                 (Err(e), _) => e,
                 (_, None) => json!({ "error": "TypeError" }),
-                (Ok(c), Some(bytes)) => {
+                (Ok(Connection { file: None, .. }), _) => json!({ "error": "InvalidStateError" }),
+                (
+                    Ok(Connection {
+                        file: Some(file), ..
+                    }),
+                    Some(bytes),
+                ) => {
+                    let mut file: &File = file;
                     let mut sent = 0;
                     let mut failed = None;
                     while sent < bytes.len() {
-                        match (&*c.file).write(&bytes[sent..]) {
+                        match file.write(&bytes[sent..]) {
                             Ok(n) => sent += n,
-                            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => std::thread::sleep(std::time::Duration::from_millis(1)),
+                            Err(e)
+                                if e.kind() == ErrorKind::WouldBlock
+                                    || e.kind() == ErrorKind::Interrupted =>
+                            {
+                                std::thread::sleep(std::time::Duration::from_millis(1))
+                            }
                             Err(e) => {
                                 failed = Some(e.to_string());
                                 break;
@@ -495,14 +621,26 @@ impl Package for Serial {
             },
             "setSignals" => match self.connection(args) {
                 Err(e) => e,
-                Ok(c) => {
-                    let fd = c.file.as_raw_fd();
+                Ok(Connection { file: None, .. }) => json!({ "error": "InvalidStateError" }),
+                Ok(Connection {
+                    file: Some(file), ..
+                }) => {
+                    let fd = file.as_raw_fd();
                     let mut ok = true;
-                    for (key, bit) in [("dataTerminalReady", TIOCM_DTR), ("requestToSend", TIOCM_RTS)] {
+                    for (key, bit) in [
+                        ("dataTerminalReady", TIOCM_DTR),
+                        ("requestToSend", TIOCM_RTS),
+                    ] {
                         if let Some(on) = args[key].as_bool() {
                             let bits: i32 = bit;
                             // SAFETY: TIOCMBIS and TIOCMBIC read one int through the pointer.
-                            ok &= unsafe { ioctl(fd, if on { TIOCMBIS } else { TIOCMBIC }, &bits as *const i32) } == 0;
+                            ok &= unsafe {
+                                ioctl(
+                                    fd,
+                                    if on { TIOCMBIS } else { TIOCMBIC },
+                                    &bits as *const i32,
+                                )
+                            } == 0;
                         }
                     }
                     if let Some(on) = args["break"].as_bool() {
@@ -510,15 +648,22 @@ impl Package for Serial {
                         ok &= unsafe { ioctl(fd, if on { TIOCSBRK } else { TIOCCBRK }) } == 0;
                     }
                     // A pseudo-terminal carries no modem lines (ENOTTY).
-                    if ok { Json::Null } else { os_error() }
+                    if ok {
+                        Json::Null
+                    } else {
+                        os_error()
+                    }
                 }
             },
             "getSignals" => match self.connection(args) {
                 Err(e) => e,
-                Ok(c) => {
+                Ok(Connection { file: None, .. }) => json!({ "error": "InvalidStateError" }),
+                Ok(Connection {
+                    file: Some(file), ..
+                }) => {
                     let mut bits: i32 = 0;
                     // SAFETY: TIOCMGET writes one int through the pointer.
-                    if unsafe { ioctl(c.file.as_raw_fd(), TIOCMGET, &mut bits as *mut i32) } != 0 {
+                    if unsafe { ioctl(file.as_raw_fd(), TIOCMGET, &mut bits as *mut i32) } != 0 {
                         os_error()
                     } else {
                         json!({ "dataCarrierDetect": bits & TIOCM_CD != 0, "clearToSend": bits & TIOCM_CTS != 0, "ringIndicator": bits & TIOCM_RI != 0, "dataSetReady": bits & TIOCM_DSR != 0 })
@@ -529,7 +674,12 @@ impl Package for Serial {
             "forget" => {
                 let id = args["port"].as_str().unwrap_or_default().to_owned();
                 self.remembered.retain(|r| *r != id);
-                let handles: Vec<String> = self.connections.iter().filter(|(_, c)| c.port.id == id).map(|(h, _)| h.clone()).collect();
+                let handles: Vec<String> = self
+                    .connections
+                    .iter()
+                    .filter(|(_, c)| c.port.id == id)
+                    .map(|(h, _)| h.clone())
+                    .collect();
                 for h in handles {
                     self.close(&h);
                 }
