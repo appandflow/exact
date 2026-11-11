@@ -3,6 +3,7 @@ use exact_game::{Affine3A, Entity, Parent, Transform, Vec3, World};
 use rapier3d::{
     math::{Pose, Rotation, Vector},
     parry::{
+        mass_properties::MassProperties,
         shape::{HeightFieldFlags, SharedShape, TriMeshFlags},
         utils::Array2,
     },
@@ -166,6 +167,41 @@ pub(crate) fn try_shape(s: &Shape, scale: Vec3) -> Result<SharedShape, &'static 
         )?;
         Ok(shape)
     })
+}
+// The mass properties of a rounded hull's solid, the hull swept by a ball, at a
+// density; None for any other shape. Parry gives a rounded shape those of its
+// inner shape. The solid is approximated from inside by the hull of the inner
+// hull's points, each face pushed out along its normal, and the inner hull's
+// support points in each of 386 fixed directions pushed out along that
+// direction: only rounded edges and corners fall short, by a few percent of the
+// radius. Every support point of a tied direction is pushed, so a symmetric
+// hull keeps its symmetry.
+pub(crate) fn rounded_hull_mass(shape: &SharedShape, density: f32) -> Option<MassProperties> {
+    let round = shape.as_round_convex_polyhedron()?;
+    let (hull, r) = (&round.inner_shape, round.border_radius);
+    let vertices = hull.points();
+    let mut points = vertices.to_vec();
+    let adjacent = hull.vertices_adj_to_face();
+    for face in hull.faces() {
+        let first = face.first_vertex_or_edge as usize;
+        let ids = &adjacent[first..first + face.num_vertices_or_edges as usize];
+        points.extend(ids.iter().map(|&i| vertices[i as usize] + face.normal * r));
+    }
+    // The integer points on the surface of the cube [-4, 4]³, as directions.
+    for x in -4i8..=4 {
+        for y in -4i8..=4 {
+            for z in -4i8..=4 {
+                if x.abs().max(y.abs()).max(z.abs()) < 4 {
+                    continue;
+                }
+                let d = Vector::new(x.into(), y.into(), z.into()).normalize();
+                let top = vertices.iter().map(|v| v.dot(d)).fold(f32::MIN, f32::max);
+                let support = vertices.iter().filter(|v| v.dot(d) == top);
+                points.extend(support.map(|v| *v + d * r));
+            }
+        }
+    }
+    Some(SharedShape::convex_hull(&points)?.mass_properties(density))
 }
 // PhysX's hard limit on a convex mesh's vertices (`PxConvexMeshDesc::vertexLimit`),
 // applied to the input points. Contact queries walk every hull vertex.

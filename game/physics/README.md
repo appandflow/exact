@@ -26,7 +26,7 @@ the actual `displacement` and `grounded` state.
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
   (row-major, rows Z/columns X), and a convex hull of 4 to 255 points that any body
-  may use, optionally rounded (its mass ignores the rounding). Curved shapes and
+  may use, optionally rounded (its mass and inertia are the rounded solid's). Curved shapes and
   rounded hulls need uniform positive scale; a flat hull is refused.
   Bodies are roots; parented boxes must not acquire shear. Sweeps translate convex shapes.
 - A fast dynamic body is swept against static colliders each step. `Body::ccd` also

@@ -174,8 +174,8 @@ pub enum Shape {
     ConvexHull {
         /// Four to 255 finite local points that do not all lie in one plane.
         points: Vec<Vec3>,
-        /// Rounding radius in metres, zero or more. Mass derived from volume
-        /// counts the unrounded hull.
+        /// Rounding radius in metres, zero or more. Mass and inertia are the
+        /// rounded solid's, within 0.5% for a cube rounded by half its half-size.
         round: f32,
     },
 }

@@ -35,17 +35,22 @@ pub(crate) fn try_collider(
     )?;
     math::check(c.offset.is_finite(), "physics: invalid collider offset")?;
     let shape = math::try_shape(&c.shape, t.scale)?;
+    let offset = math::try_pose(Transform::at(
+        c.offset.x * t.scale.x,
+        c.offset.y * t.scale.y,
+        c.offset.z * t.scale.z,
+    ))?;
+    let mass = body.filter(|b| b.mass > 0.0).map(|b| b.mass);
+    let rounded = math::rounded_hull_mass(&shape, 1000.0).map(|mut m| {
+        if let Some(mass) = mass {
+            m.set_mass(mass, true);
+        }
+        m.transform_by(&offset)
+    });
     let shape = if c.offset == exact_game::Vec3::ZERO {
         shape
     } else {
-        SharedShape::compound(vec![(
-            math::try_pose(Transform::at(
-                c.offset.x * t.scale.x,
-                c.offset.y * t.scale.y,
-                c.offset.z * t.scale.z,
-            ))?,
-            shape,
-        )])
+        SharedShape::compound(vec![(offset, shape)])
     };
     let builder = ColliderBuilder::new(shape)
         .friction(c.friction)
@@ -60,10 +65,10 @@ pub(crate) fn try_collider(
         ))
         .active_collision_types(collision_types(c.sensor))
         .active_events(ActiveEvents::COLLISION_EVENTS);
-    Ok(if let Some(b) = body.filter(|b| b.mass > 0.0) {
-        builder.mass(b.mass)
-    } else {
-        builder.density(1000.0)
+    Ok(match (rounded, mass) {
+        (Some(m), _) => builder.mass_properties(m),
+        (None, Some(mass)) => builder.mass(mass),
+        (None, None) => builder.density(1000.0),
     })
 }
 // The rows one sync visits. Every other row equals its entry by construction:
@@ -268,9 +273,14 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             entry.body_handle = None;
             wake = true;
         }
-        let mass_changed = entry.body.as_ref().map(|b| b.mass) != b.map(|b| b.mass);
-        let collider_changed =
-            entry.collider.as_ref() != c || entry.pose.scale != t.scale || mass_changed;
+        // The collider's mass properties derive from its shape, offset and scale and
+        // the body's mass. They are set only when one of those changes, so a material
+        // edit keeps the ones a restored world carries.
+        let solid_changed = entry.body.as_ref().map(|b| b.mass) != b.map(|b| b.mass)
+            || entry.pose.scale != t.scale
+            || entry.collider.as_ref().map(|p| (&p.shape, p.offset))
+                != c.map(|c| (&c.shape, c.offset));
+        let collider_changed = solid_changed || entry.collider.as_ref() != c;
         if let Some(c) = c {
             assert!(
                 !matches!(c.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })
@@ -287,7 +297,9 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 entry.collider_handle = Some(raw(h));
                 live.reverse.insert(raw(h), e);
             } else if collider_changed {
-                let built = collider(c, t, b).build();
+                let builder = collider(c, t, b);
+                let mass = builder.mass_properties.clone();
+                let built = builder.build();
                 let co = &mut r.colliders[entry.ch().unwrap()];
                 co.set_shape(built.shared_shape().clone());
                 co.set_friction(c.friction);
@@ -295,10 +307,12 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 co.set_sensor(c.sensor);
                 co.set_active_collision_types(built.active_collision_types());
                 co.set_collision_groups(built.collision_groups());
-                if let Some(b) = b.filter(|b| b.mass > 0.0) {
-                    co.set_mass(b.mass);
-                } else {
-                    co.set_density(1000.0);
+                if solid_changed {
+                    match mass {
+                        ColliderMassProps::Density(d) => co.set_density(d),
+                        ColliderMassProps::Mass(m) => co.set_mass(m),
+                        ColliderMassProps::MassProperties(m) => co.set_mass_properties(*m),
+                    }
                 }
                 wake = true;
             }

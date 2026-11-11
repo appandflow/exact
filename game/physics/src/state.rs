@@ -507,6 +507,123 @@ mod tests {
         }
     }
 
+    // A rounded cube's mass and inertia are those of the cube swept by the ball,
+    // with a density or an authored mass, at creation and after the collider
+    // changes, offset or not.
+    #[test]
+    fn a_rounded_hull_takes_the_mass_and_inertia_of_its_rounded_solid() {
+        use crate::{Physics, Shape};
+        use exact_game::{Vec3, World};
+        use std::f64::consts::PI;
+        // Volume and inertia about an axis through the centre at unit density of
+        // the cube [-a, a]³ swept by a ball of radius r: the cube, six face slabs,
+        // twelve quarter cylinders along the edges and eight eighth balls.
+        let solid = |a: f64, r: f64| {
+            let disk = |a: f64| a * a * PI * r * r / 4.0 + 2.0 * a * r.powi(3) / 3.0;
+            let disk = |a: f64| disk(a) + PI * r.powi(4) / 16.0;
+            let volume = 8.0 * a.powi(3)
+                + 24.0 * a * a * r
+                + 6.0 * PI * a * r * r
+                + 4.0 * PI * r.powi(3) / 3.0;
+            let inertia = 16.0 * a.powi(5) / 3.0
+                + 16.0 * a.powi(4) * r / 3.0
+                + 4.0
+                    * (4.0 * a * a * ((a + r).powi(3) - a.powi(3)) / 3.0
+                        + 4.0 * a.powi(4) * r / 3.0)
+                + 4.0 * 2.0 * a * 2.0 * disk(a)
+                + 8.0 * (2.0 * a.powi(3) / 3.0 * PI * r * r / 4.0 + 2.0 * a * disk(a))
+                + 8.0
+                    * 2.0
+                    * (a * a * PI * r.powi(3) / 6.0
+                        + 2.0 * a * PI * r.powi(4) / 16.0
+                        + PI * r.powi(5) / 30.0);
+            (volume, inertia)
+        };
+        let cube = |round: f32, offset: Vec3| Collider {
+            shape: Shape::ConvexHull {
+                points: (0..8)
+                    .map(|i| {
+                        Vec3::new(
+                            [-0.5, 0.5][i & 1],
+                            [-0.5, 0.5][i >> 1 & 1],
+                            [-0.5, 0.5][i >> 2],
+                        )
+                    })
+                    .collect(),
+                round,
+            },
+            offset,
+            ..Collider::default()
+        };
+        let close = |seen: f32, want: f64, what: &str| {
+            let error = (f64::from(seen) - want).abs() / want;
+            assert!(error < 0.005, "{what}: {seen} against {want}");
+        };
+        for mass in [0.0, 2.0] {
+            let mut w = World::new(60, 0);
+            crate::register(&mut w);
+            let e = w.spawn((
+                Transform::default(),
+                Body {
+                    gravity: 0.0,
+                    mass,
+                    ..Body::default()
+                },
+                cube(0.1, Vec3::ZERO),
+            ));
+            for (round, offset) in [(0.1, Vec3::ZERO), (0.25, Vec3::new(0.0, 1.0, 0.0))] {
+                *w.get_mut::<Collider>(e).unwrap() = cube(round, offset);
+                crate::step(&mut w);
+                let p = w.resource::<Physics>();
+                let mut saved = p.executor.0.borrow_mut();
+                let live = saved.live();
+                let h = live.entries[&e].bh().unwrap();
+                let m = live.rapier.bodies[h].mass_properties().local_mprops;
+                let (volume, inertia) = solid(0.5, round.into());
+                let want = if mass > 0.0 {
+                    mass.into()
+                } else {
+                    1000.0 * volume
+                };
+                let what = format!("mass {mass}, round {round}");
+                close(m.mass(), want, &what);
+                for i in m.principal_inertia().to_array() {
+                    close(i, inertia * want / volume, &what);
+                }
+                let com = crate::math::vec3(m.local_com);
+                assert!((com - offset).length() < 1e-5, "{what}: {com}");
+            }
+            // A world saved with other mass properties, as an older build computed
+            // them, keeps them through a restore and an edit of the material alone.
+            let inertia = |w: &World| {
+                let p = w.resource::<Physics>();
+                let mut saved = p.executor.0.borrow_mut();
+                let live = saved.live();
+                let h = live.entries[&e].bh().unwrap();
+                live.rapier.bodies[h]
+                    .mass_properties()
+                    .local_mprops
+                    .principal_inertia()
+            };
+            {
+                let p = w.resource::<Physics>();
+                let mut saved = p.executor.0.borrow_mut();
+                saved.dirty = true;
+                let live = saved.live();
+                let ch = live.entries[&e].ch().unwrap();
+                live.rapier.colliders[ch].set_mass(2.0);
+            }
+            crate::step(&mut w);
+            let stored = inertia(&w);
+            let mut restored = World::new(60, 0);
+            crate::register(&mut restored);
+            restored.load(&w.save()).unwrap();
+            restored.get_mut::<Collider>(e).unwrap().friction = 0.9;
+            crate::step(&mut restored);
+            assert_eq!(inertia(&restored), stored, "mass {mass}");
+        }
+    }
+
     #[test]
     fn stale_physics_is_refused_during_read() {
         for bytes in [

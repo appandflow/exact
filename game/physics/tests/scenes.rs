@@ -104,7 +104,8 @@ fn resume_and_replay_every_tick() {
     assert_eq!(format!("0x{:016x}", a.world().hash()), pins["pile-600"]);
 }
 // Convex hulls (sharp, rounded and a static rock) and CCD bodies continue
-// identically when replayed, resumed or rebuilt, and every die settles on a face.
+// identically when replayed, resumed or rebuilt, and every die settles on a face,
+// or a rounded one against the rock.
 #[test]
 fn dice_settle_on_a_face_and_continue_identically() {
     let mut a = scene("dice").paranoid(Paranoid::Off);
@@ -136,12 +137,26 @@ fn dice_settle_on_a_face_and_continue_identically() {
     }
     assert!(slept > 0, "the dice never slept");
     let w = a.world();
-    for (i, faces) in [4, 8, 20, 20].into_iter().enumerate() {
+    let rock = w.named("rock").unwrap();
+    for (i, (faces, round)) in [(4, 0.0), (8, 0.05), (20, 0.0), (20, 0.03)]
+        .into_iter()
+        .enumerate()
+    {
         let e = w.named(&format!("die-{i}")).unwrap();
         let pose = *w.get::<Transform>(e).unwrap();
         eprintln!("d{faces} rests at {pose:?} from tick {slept}");
         assert!(pose.position.y > 0.0, "d{faces} fell through the ground");
-        assert!(on_face(&die(faces, 0.4), pose), "d{faces} rests off a face");
+        // A rounded die may come to rest leaning on the rock, its own shape in
+        // contact with it, and then not on a face. A sharp die must be on a face.
+        let shape = Shape::ConvexHull {
+            points: die(faces, 0.4),
+            round,
+        };
+        let leaning = round > 0.0 && physics::overlap(w, &shape, pose, u32::MAX).contains(&rock);
+        assert!(
+            leaning || on_face(&die(faces, 0.4), pose),
+            "d{faces} rests off a face"
+        );
     }
 }
 #[test]
