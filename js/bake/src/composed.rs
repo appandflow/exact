@@ -109,6 +109,9 @@ impl exact_runner::DataSourceWrapper for Composed {
     fn note_storage_changed(&mut self) {
         self.0.note_storage_changed()
     }
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.0.linked_sources()
+    }
     fn set_document_owner(&mut self, owner: u64) {
         self.0.set_document_owner(owner)
     }

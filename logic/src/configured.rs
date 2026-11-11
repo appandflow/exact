@@ -24,6 +24,9 @@ macro_rules! configured {
             fn note_storage_changed(&mut self) {
                 $crate::exact_runner::DataSource::note_storage_changed(&mut self.0)
             }
+            fn linked_sources(&self) -> &'static [&'static str] {
+                $crate::exact_runner::DataSource::linked_sources(&self.0)
+            }
             fn set_document_owner(&mut self, owner: u64) {
                 $crate::exact_runner::DataSource::set_document_owner(&mut self.0, owner)
             }

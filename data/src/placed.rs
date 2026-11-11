@@ -778,6 +778,10 @@ impl<D: DataSource + 'static> exact_runner::DataSourceWrapper for Placed<D> {
         }
     }
 
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.inner.as_ref().map_or(&[], DataSource::linked_sources)
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         if let Some(inner) = &mut self.inner {
             inner.set_document_owner(owner);

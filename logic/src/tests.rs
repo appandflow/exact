@@ -274,6 +274,79 @@ fn a_candidate_of_the_native_source_runs_natively() {
     assert!(unnamed.embedded.is_none());
 }
 
+/// A source the embedded crate names in `linked_sources` keeps answering from
+/// the binary while a module answers the rest, and gets the host's storage.
+#[test]
+fn linked_sources_stay_native_while_a_module_runs() {
+    struct Hosted(std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>>);
+    impl DataSource for Hosted {
+        fn app_id(&self) -> &str {
+            "test.logic"
+        }
+        fn grants(&self) -> &str {
+            "secret.keep token"
+        }
+        fn linked_sources(&self) -> &'static [&'static str] {
+            &["host"]
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(1.))
+        }
+        fn configure_storage(
+            &mut self,
+            data: std::path::PathBuf,
+            _: std::path::PathBuf,
+            _: std::path::PathBuf,
+        ) -> Result<(), DataError> {
+            *self.0.lock().unwrap() = Some(data);
+            Ok(())
+        }
+    }
+    static STORAGE: std::sync::OnceLock<
+        std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
+    > = std::sync::OnceLock::new();
+    let storage = || Hosted(STORAGE.get_or_init(Default::default).clone());
+    let plan = plan();
+    let module = wasm("");
+    let mut meta: serde_json::Value = serde_json::from_str(&receipt(&plan, &module)).unwrap();
+    meta["source"] = json!("def");
+    let receipt = meta.to_string();
+    let mut candidate = Swappable::wasm(storage())
+        .with_native("abc", storage)
+        .replacement(&plan, &receipt, module.clone())
+        .unwrap();
+    assert!(candidate.embedded.is_none());
+    candidate
+        .configure_storage("data".into(), "cache".into(), "tmp".into())
+        .unwrap();
+    assert_eq!(
+        STORAGE.get().unwrap().lock().unwrap().as_deref(),
+        Some(std::path::Path::new("data"))
+    );
+    candidate.activate().unwrap();
+    let mut store = Store::new("secret.keep token", []);
+    assert_eq!(
+        candidate.answer(&mut store, "host", &[]).unwrap(),
+        Answer::Now(Value::Number(1.))
+    );
+    assert_eq!(candidate.query("host", &[]).unwrap(), Value::Number(1.));
+    assert_eq!(
+        candidate.answer(&mut store, "x", &[]).unwrap(),
+        Answer::Now(Value::Number(42.))
+    );
+    // Without the binary's constructor there is no native copy: the module answers.
+    let mut unnamed = Swappable::wasm(storage())
+        .replacement(&plan, &receipt, module)
+        .unwrap();
+    unnamed.activate().unwrap();
+    assert_eq!(
+        unnamed
+            .answer(&mut Store::new("secret.keep token", []), "host", &[])
+            .unwrap(),
+        Answer::Now(Value::Number(42.))
+    );
+}
+
 #[test]
 fn refuses_mismatched_pair_identity_grants_target_and_disabled_policy() {
     let plan = plan();

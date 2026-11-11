@@ -80,6 +80,10 @@ pub struct Swappable<D> {
     /// The source the binary compiled natively, and how to make that source
     /// again: a Rust candidate built from the same source runs it instead.
     native: Option<Native<D>>,
+    /// The embedded source's `linked_sources`, and the native copy that
+    /// answers them while a module runs (made with `native`'s constructor).
+    linked_sources: &'static [&'static str],
+    linked: Option<D>,
 }
 
 /// The source digest a binary compiled its data crate from, and its constructor.
@@ -92,6 +96,7 @@ impl<D: DataSource> Swappable<D> {
             grants: embedded.grants().into(),
             preloads: embedded.preloads().to_vec(),
             canvas_surfaces: embedded.canvas_surfaces(),
+            linked_sources: embedded.linked_sources(),
             embedded: Some(embedded),
             mode,
             loader,
@@ -101,6 +106,7 @@ impl<D: DataSource> Swappable<D> {
             plan: None,
             executor: None,
             native: None,
+            linked: None,
         }
     }
     /// Attach the binary's checked process-start requests (LLP 1162.000 D2).
@@ -200,6 +206,14 @@ impl<D: DataSource> Swappable<D> {
             Self::configured(embedded, "wasm", None)
         }
     }
+    /// The native copy answering `source` while a module runs, if it is one
+    /// of the embedded source's `linked_sources`.
+    fn linked_for(&mut self, source: &str) -> Option<&mut D> {
+        if self.embedded.is_some() || !self.linked_sources.contains(&source) {
+            return None;
+        }
+        self.linked.as_mut()
+    }
     fn call(
         &mut self,
         store: &mut Store,
@@ -274,6 +288,7 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     fn take_storage_changed(&mut self) -> bool {
         self.embedded
             .as_mut()
+            .or(self.linked.as_mut())
             .is_some_and(DataSource::take_storage_changed)
     }
 
@@ -281,6 +296,10 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
         if let Some(embedded) = &mut self.embedded {
             embedded.note_storage_changed();
         }
+    }
+
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.linked_sources
     }
 
     fn set_document_owner(&mut self, owner: u64) {
@@ -340,8 +359,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
         cache: std::path::PathBuf,
         temporary: std::path::PathBuf,
     ) -> Result<(), DataError> {
-        if let Some(embedded) = &mut self.embedded {
-            embedded.configure_storage(data, cache, temporary)?;
+        if let Some(source) = self.embedded.as_mut().or(self.linked.as_mut()) {
+            source.configure_storage(data, cache, temporary)?;
         }
         Ok(())
     }
@@ -386,6 +405,9 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     ) -> Result<Option<exact_runner::Overlaid>, DataError> {
         if let Some(embedded) = &mut self.embedded {
             return embedded.overlay(source, args, answer, writes);
+        }
+        if let Some(linked) = self.linked_for(source) {
+            return linked.overlay(source, args, answer, writes);
         }
         // Before activation the module can't overlay: the answer shows.
         if self.executor.is_none() {
@@ -504,6 +526,9 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
         if let Some(embedded) = &mut self.embedded {
             embedded.bind(plan);
         } else {
+            if let Some(linked) = &mut self.linked {
+                linked.bind(plan);
+            }
             self.plan = Some(plan.encode());
         }
     }
@@ -517,14 +542,18 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
         if let Some(embedded) = &mut self.embedded {
             embedded.activate()
         } else {
-            self.activate_module().map_err(DataError::Unavailable)
+            self.activate_module().map_err(DataError::Unavailable)?;
+            self.linked.as_mut().map_or(Ok(()), DataSource::activate)
         }
     }
     fn activate_for_validation(&mut self) -> Result<(), DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.activate_for_validation()
         } else {
-            self.activate_module().map_err(DataError::Unavailable)
+            self.activate_module().map_err(DataError::Unavailable)?;
+            self.linked
+                .as_mut()
+                .map_or(Ok(()), DataSource::activate_for_validation)
         }
     }
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
@@ -624,6 +653,11 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
                 executor: None,
                 canvas_surfaces: self.canvas_surfaces.clone(),
                 native: self.native,
+                linked_sources: self.linked_sources,
+                linked: match self.native {
+                    Some((_, make)) if !self.linked_sources.is_empty() => Some(make()),
+                    _ => None,
+                },
             })
         };
         build().map_err(DataError::Unavailable)
@@ -668,6 +702,9 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
         if let Some(embedded) = &mut self.embedded {
             return embedded.query(source, args);
         }
+        if let Some(linked) = self.linked_for(source) {
+            return linked.query(source, args);
+        }
         let mut store = Store::new(&self.grants, []);
         match self.call(&mut store, source, args, None)? {
             Answer::Now(v) => Ok(v),
@@ -684,6 +721,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     ) -> Result<Answer, DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.answer(store, source, args)
+        } else if let Some(linked) = self.linked_for(source) {
+            linked.answer(store, source, args)
         } else {
             self.call(store, source, args, None)
         }
@@ -697,6 +736,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     ) -> Result<Answer, DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.parse(store, source, args, outcome)
+        } else if let Some(linked) = self.linked_for(source) {
+            linked.parse(store, source, args, outcome)
         } else {
             self.call(store, source, args, Some(&outcome))
         }
@@ -712,6 +753,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     ) -> Result<Answer, DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.answer_for(target, store, source, args)
+        } else if let Some(linked) = self.linked_for(source) {
+            linked.answer_for(target, store, source, args)
         } else {
             self.call(store, source, args, None)
         }
@@ -747,6 +790,8 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     ) -> Result<Answer, DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.parse_for(target, store, source, args, outcome)
+        } else if let Some(linked) = self.linked_for(source) {
+            linked.parse_for(target, store, source, args, outcome)
         } else {
             self.call(store, source, args, Some(&outcome))
         }

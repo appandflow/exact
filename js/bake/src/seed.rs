@@ -209,6 +209,9 @@ impl exact_runner::DataSourceWrapper for Seeded<'_> {
     fn note_storage_changed(&mut self) {
         self.module.note_storage_changed()
     }
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.module.linked_sources()
+    }
     fn set_document_owner(&mut self, owner: u64) {
         self.module.set_document_owner(owner)
     }
