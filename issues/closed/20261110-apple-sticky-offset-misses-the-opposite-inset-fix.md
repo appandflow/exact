@@ -1,6 +1,7 @@
 # The Apple presenter's sticky offset still cancels opposite insets on a box taller than its scrollport
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple sticky placement reduces the end inset for oversized boxes and applies the start constraint to the adjusted position, matching the kernel
 **Systems:** host/apple/Sources/ExactKit/Sticky.swift, kernel/src/kernel/sticky.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
