@@ -13,6 +13,7 @@
 //! it is one evaluation, and passes the bound at 1,000 × 1,000.
 
 use crate::LowerError;
+use contract_syntax::inline::calls::shown;
 use contract_syntax::{Expr, Node, Span, TemplatePart};
 use contract_types::{infer, Checked, Ref, Scope, Shapes, Ty};
 use std::collections::BTreeSet;
@@ -471,6 +472,7 @@ impl<'c> Held<'c> {
                         .filter(|i| reads(key, i))
                         .filter(|_| self.owning.contains(tag) || self.holds(body))
                     {
+                        let i = shown(i);
                         out.push(LowerError {
                             id: "lower-key-position",
                             message: format!("this key reads `{i}`, the row's position: after a row is inserted or removed before others, their keys name other records, so what a row holds (its state, a field's focus or text, its motion) follows the position; key by something the record keeps, such as its id"),

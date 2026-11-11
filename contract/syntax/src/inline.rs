@@ -44,7 +44,7 @@ fn err<T>(
     })
 }
 
-/// A name use `n` gives a child's declaration or view binder. `#` cannot
+/// A name use `n` gives a child's declaration. `#` cannot
 /// appear in an authored identifier, so no author's name can collide with it.
 pub fn lifted(name: &str, n: u32) -> String {
     format!("{name}#{n}")
@@ -356,7 +356,8 @@ fn expand_with_sites(
         }
         None => &source.view,
     };
-    let view = inline_nodes(source_view, &mut subst, &mut ctx).unwrap_or_default();
+    let renamed = rename_nodes(source_view, &BTreeMap::new(), 0, &discarded_slots);
+    let view = inline_nodes(&renamed, &mut subst, &mut ctx).unwrap_or_default();
     root.view = view;
     let mut owners = vec![Owner::Root; root.states.len()];
     let mut state_instances = if capture_sites {
@@ -540,7 +541,7 @@ fn inline_nodes(
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: subst_expr(&a.value, subst),
+                        value: map_attr_value(a, |e| subst_expr(e, subst)),
                         span: a.span,
                         written: a.written,
                     })
@@ -593,7 +594,10 @@ fn inline_nodes(
                 ctx.tabs = tabs;
                 out.push(Node::Element {
                     tag: tag.clone(),
-                    positional: positional.iter().map(|e| subst_expr(e, subst)).collect(),
+                    positional: positional
+                        .iter()
+                        .map(|e| map_positional(tag, e, |e| subst_expr(e, subst)))
+                        .collect(),
                     attrs,
                     children: children?,
                     span: *span,
@@ -663,8 +667,8 @@ fn inline_nodes(
     Ok(out)
 }
 
-// Rename every name the view binds with a unique suffix so inlined bodies
-// cannot capture parent names.
+// View binders must differ from lifted declarations as well as parent names:
+// a substituted derive or provider still reads its component's scope.
 // Borrow renamed strings directly; subst_expr retains each reference's span.
 fn rename_nodes(
     nodes: &[Node],
@@ -672,6 +676,7 @@ fn rename_nodes(
     n: u32,
     discarded_slots: &BTreeSet<String>,
 ) -> Vec<Node> {
+    let binder = |name: &str| format!("{name}#view{n}");
     nodes
         .iter()
         .map(|node| match node {
@@ -684,12 +689,15 @@ fn rename_nodes(
                 instance,
             } => Node::Element {
                 tag: tag.clone(),
-                positional: positional.iter().map(|e| renamed_locals(e, map)).collect(),
+                positional: positional
+                    .iter()
+                    .map(|e| map_positional(tag, e, |e| renamed_locals(e, map)))
+                    .collect(),
                 attrs: attrs
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: renamed_locals(&a.value, map),
+                        value: map_attr_value(a, |e| renamed_locals(e, map)),
                         span: a.span,
                         written: a.written,
                     })
@@ -751,10 +759,10 @@ fn rename_nodes(
                 span,
             } => {
                 let mut inner = map.clone();
-                let fresh = lifted(var, n);
+                let fresh = binder(var);
                 inner.insert(var.clone(), fresh.clone());
                 let index = index.as_ref().map(|i| {
-                    let fresh = lifted(i, n);
+                    let fresh = binder(i);
                     inner.insert(i.clone(), fresh.clone());
                     fresh
                 });
@@ -776,7 +784,7 @@ fn rename_nodes(
                 span,
             } => {
                 let mut inner = map.clone();
-                let fresh = lifted(&some.0, n);
+                let fresh = binder(&some.0);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
                     tag: *tag,
@@ -788,6 +796,31 @@ fn rename_nodes(
             }
         })
         .collect()
+}
+
+// Style and surface names are syntax; only their conditions and arguments are values.
+fn map_attr_value(a: &Attr, mut f: impl FnMut(&Expr) -> Expr) -> Expr {
+    match (a.name.as_str(), &a.value) {
+        ("class", Expr::Ternary(cond, yes, no, span)) => {
+            Expr::Ternary(Box::new(f(cond)), yes.clone(), no.clone(), *span)
+        }
+        ("surface", Expr::Call(name, args, span)) => {
+            Expr::Call(name.clone(), args.iter().map(f).collect(), *span)
+        }
+        ("class" | "surface", e) => e.clone(),
+        (_, e) => f(e),
+    }
+}
+
+fn map_positional(tag: &str, e: &Expr, f: impl FnOnce(&Expr) -> Expr) -> Expr {
+    if crate::ast::is_input_switch(tag, e)
+        || crate::ast::is_input_multiple(tag, e)
+        || crate::ast::is_scroll_document(tag, e)
+    {
+        e.clone()
+    } else {
+        f(e)
+    }
 }
 
 /// Whether a statement of `body`, in a called action's too, is `name(…)`.

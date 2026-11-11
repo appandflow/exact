@@ -704,15 +704,17 @@ to those resources.
 **The expander** (`Contract.Expand`) transcribes inline.rs and its
 submodules step for step, numbering and spelling included: capture-avoiding
 substitution renaming a binder `x@k` when a replacement mentions it, view
-binders `x#n`, derive resolution (freshened binders `x@bk`, a dependency
-read twice on every path bound once by a `let`), lifted states and actions
-`x#n` with their owners, a slot's fill inlined afresh at each `children`
-node under that node's region arms, props and injects captured as hidden
+binders `x#viewN` (0 for the root), derive resolution (freshened binders
+`x@bk`, a dependency read twice on every path bound once by a `let`), lifted
+states and actions `x#n` with their owners, a slot's fill inlined afresh at
+each `children` node under that node's region arms, props and injects captured as hidden
 parameters `@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
 `@check:` statement the flat embedding drops is not emitted). Device resources
 are hoisted once per declaration, including unused components, in file order.
 Their value reads and refresh targets are renamed; same-named function calls
-keep their heads.
+keep their heads. Style names, surface names and positional syntax words stay
+unchanged; only a conditional `class`'s condition and a surface's arguments
+are substituted.
 
 **`difftest expansion`** checks the real expander on each program:
 

@@ -1,6 +1,7 @@
 # A child's derive, or a provided value, read under a `for` or `match` binder that shadows the state it reads takes the binder's value
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** View binders are renamed apart from component declarations, so child derives and provided values keep their defining scope.
 **Systems:** contract/syntax/src/inline.rs, contract/syntax/src/inline/use_node.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

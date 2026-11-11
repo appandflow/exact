@@ -77,6 +77,60 @@ fn a_checkbox_is_a_control_with_a_role() {
     assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
 }
 
+#[test]
+fn view_binders_preserve_positional_words() {
+    let mut compiled = Vec::new();
+    let mut errors = Vec::new();
+    for (tag, word, attrs, prop, expected) in [
+        (
+            "input",
+            "switch",
+            "type=\"checkbox\" checked=true",
+            PropId::AccessibilityRole,
+            exact_kernel::PropValue::Str("switch".into()),
+        ),
+        (
+            "input",
+            "multiple",
+            "type=\"file\"",
+            PropId::Multiple,
+            exact_kernel::PropValue::Bool(true),
+        ),
+        (
+            "scroll",
+            "document",
+            "height=10",
+            PropId::ScrollDocument,
+            exact_kernel::PropValue::Bool(true),
+        ),
+    ] {
+        for prefix in ["", "component App\n  view\n    Child()\n"] {
+            let source = format!(
+                "{prefix}component Child\n  state {word} = 0\n  view\n    column\n      for {word} in [\"a\"] key={word}\n        {tag} {word} {attrs} testId={word}\n        text {word} testId=\"value\"\n"
+            );
+            match contract::compile(&source) {
+                Ok(plan) => compiled.push((plan, prop, expected.clone())),
+                Err(error) => errors.push(format!("{word} ({prefix:?}): {error}")),
+            }
+        }
+    }
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+    for (plan, prop, expected) in compiled {
+        let r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let node = r.kernel().node(view_of(&r, "a")).unwrap();
+        assert_eq!(node.props.get(prop), Some(&expected));
+        let value = r.kernel().node(view_of(&r, "value")).unwrap();
+        assert_eq!(value.props.str(PropId::Text), Some("a"));
+    }
+}
+
 /// LLP 1115.000 D10.1: a checkbox, a radio and a range have no margin of
 /// their own on any host (Chrome's UA sheet gives them `3px 3px 3px 4px`,
 /// `3px 3px 0 5px` and `2px`, which lowering wrote into every plan). The
