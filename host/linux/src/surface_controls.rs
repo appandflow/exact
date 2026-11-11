@@ -502,8 +502,14 @@ impl<D: DataSource> Presenter<D> {
             };
             self.key_down_with(name, code, repeat, self.host.now());
         }
-        // Dismissal already restores the surface's invoker; keep that focus.
+        // Escape hands the keys back to a canvas that takes them, from an
+        // editor beside it: only an app with such a canvas leaves the field, as
+        // a browser leaves the focus where it is in any other. Dismissal
+        // already restores the surface's invoker; keep that focus.
+        let keyed_canvas =
+            (self.surfaces.canvases.keys()).any(|view| self.surfaces.wants_input(*view));
         if code == "Escape"
+            && keyed_canvas
             && !surface_was_open
             && self.focus.is_some_and(|id| {
                 self.host

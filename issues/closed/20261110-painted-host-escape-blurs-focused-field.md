@@ -1,6 +1,7 @@
 # On Linux and Windows a real Escape key takes the focus from a text field or a button, and `preventDefault()` does not stop it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Escape leaves the focus where it is unless a canvas in the app takes keys, which the blur exists to hand them back to; there a `preventDefault()` still does not stop it.
 **Systems:** host/linux/src/surface_controls.rs (the painted presenter: the Linux display and VNC, the Windows window)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
