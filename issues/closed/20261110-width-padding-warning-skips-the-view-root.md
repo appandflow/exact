@@ -1,6 +1,7 @@
 # `lower-width-padding` never names the view's root, the box every starter writes `width="100%"` on
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** lower-width-padding now diagnoses full-width view roots with horizontal padding or a border under default content-box sizing.
 **Systems:** contract/lower/src/warnings/width.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

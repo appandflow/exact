@@ -1172,6 +1172,28 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
 const WIDTH_PADDING: &str = "lower-width-padding";
 
 #[test]
+fn a_full_width_view_root_with_padding_or_border_is_named() {
+    for (attrs, warns) in [
+        ("padding=16", true),
+        ("border=\"1px solid -exact-separator\"", true),
+        ("padding=16 box-sizing=\"border-box\"", false),
+        ("padding=0", false),
+        ("padding=\"16px 0\"", false),
+        ("", false),
+    ] {
+        let src = format!(
+            "component App\n  view\n    main testId=\"root\" width=\"100%\" height=\"100%\" {attrs}\n      text \"Hello\"\n"
+        );
+        let expected = if warns {
+            vec![(WIDTH_PADDING.to_string(), 3)]
+        } else {
+            vec![]
+        };
+        assert_eq!(warned(&src), expected, "{src}");
+    }
+}
+
+#[test]
 fn a_full_width_box_with_padding_is_named_with_its_repair() {
     // LLP 1116.009 D5: focus-timer's and recipe-finder's round-11 bodies,
     // `column padding=24 width="100%"`, which ran past a phone's right
