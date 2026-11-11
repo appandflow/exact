@@ -932,6 +932,7 @@ impl<D: DataSource> Presenter<D> {
                     disabled: false,
                 },
             );
+            Self::access_sets(&mut b.out);
             return (b.out, 0, (0, String::new()));
         }
         if self.page_inert() {

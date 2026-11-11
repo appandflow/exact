@@ -75,6 +75,7 @@ mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
+mod tabs;
 #[cfg(windows)]
 mod windows_field;
 #[cfg(any(target_os = "linux", all(test, unix)))]

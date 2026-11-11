@@ -472,17 +472,17 @@ impl<D: DataSource> Presenter<D> {
         Some(prevented)
     }
 
-    /// A Tab stop (LLP 1088 D7.3): focusable, and an explicit `tabindex` ≥ 0
-    /// or none at all — a negative one is focusable but skipped — shown,
-    /// not inert, with a box (display: none and `hidden` have none).
+    /// A Tab stop (LLP 1088 D7.3), with radio groups, tablists and alert
+    /// messages choosing their stops.
     pub(super) fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
-        self.focus_stop(id, boxed)
+        self.tab_stop(id, boxed)
             && self.radio_tab_stop(id)
             && (!self.alert_message(id) || self.alert_message_overflows(id))
     }
 
-    /// A Tab stop but for HTML's one stop to a radio group: every enabled
-    /// radio is one. A TV remote's stops (LLP 1115.001.003 D4).
+    /// A focus candidate before radio groups and tablists reduce to one
+    /// Tab stop. A TV remote uses every candidate (LLP 1115.001.003 D4).
+    /// An authored negative `tabindex` excludes a candidate.
     pub(super) fn focus_stop(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
         let explicit = self
             .host
@@ -761,6 +761,9 @@ impl<D: DataSource> Presenter<D> {
         }
         // A radio's arrows and Space (x2apps survey #2).
         if self.radio_key(id, name, now_ms) {
+            return;
+        }
+        if self.tab_key(id, name, now_ms) {
             return;
         }
         if self.desktop_scroll_key(name) {

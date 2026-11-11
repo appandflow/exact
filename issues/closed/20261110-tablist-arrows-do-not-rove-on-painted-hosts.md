@@ -1,6 +1,7 @@
 # A tablist on the painted hosts has no arrow keys, makes every tab a Tab stop, and loses its tab count in a modal dialog
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Painted tablists move focus by arrow keys without activating, expose one Tab stop, and report tab counts inside modal dialogs.
 **Systems:** host/linux/src/presenter/typing.rs, host/linux/src/presenter/radio.rs, host/linux/src/presenter/access.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
