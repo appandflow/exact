@@ -431,6 +431,86 @@ component A
     }
 }
 
+/// CSS Animations 1: an animation of zero duration, or of zero iterations,
+/// still occurs, and its fill shows its last (or first) frame. Core
+/// Animation plays neither, so the engine samples the node and presents the
+/// filled frame, on both platforms and for an SVG shape too.
+#[test]
+fn an_animation_of_no_time_is_sampled_and_presents_its_fill() {
+    let app = r##"keyframes dim
+  from opacity=1
+  to opacity=0.25
+keyframes rise
+  from opacity=0.25
+  to opacity=1
+keyframes spin
+  from rotate=0
+  to rotate=90
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="instant" width=40 height=40 animation=(on ? "dim 0ms linear forwards" : "none")
+      box testId="none" width=40 height=40 animation=(on ? "rise 600ms linear 0 forwards" : "none")
+      box testId="timed" width=40 height=40 animation=(on ? "dim 300ms linear forwards" : "none")
+      box testId="turned" width=40 height=40 animation=(on ? "spin 0ms linear forwards" : "none")
+      svg width=40 height=40 viewBox="0 0 40 40"
+        circle testId="dot" cx=20 cy=20 r=4 fill="#f97316" animation=(on ? "dim 0ms linear forwards" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let sampled = |name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(&host, name)).unwrap().key,
+            ))
+        };
+        for name in ["instant", "none", "dot"] {
+            assert!(sampled(name), "{name}, ios: {ios_motion}");
+            assert!(keys(&on, id(&host, name)).is_empty(), "{name}: {on}");
+        }
+        assert!(!sampled("timed"), "ios: {ios_motion}");
+        if ios_motion {
+            assert!(sampled("turned"));
+            assert!(keys(&on, id(&host, "turned")).is_empty(), "{on}");
+        }
+        let later = host.tick(200.0);
+        let presented = |name: &str| -> Option<f64> {
+            let view = id(&host, name);
+            [&on, &later].iter().rev().find_map(|batch| {
+                let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+                v["ops"].as_array().unwrap().iter().rev().find_map(|op| {
+                    (op["op"] == "present" && op["id"] == view && op["property"] == "opacity")
+                        .then(|| op["x"].as_f64().unwrap())
+                })
+            })
+        };
+        // The last frame for a forwards fill; the first for zero iterations.
+        for name in ["instant", "none"] {
+            let x = presented(name);
+            assert!(
+                x.is_some_and(|x| (x - 0.25).abs() < 1e-6),
+                "{name} presented {x:?}, ios: {ios_motion}: {on} | {later}"
+            );
+        }
+    }
+}
+
 /// `linear()` lowers to keys Core Animation plays as Chrome 155 computes the
 /// curve (the engine's `piecewise_linear_matches_chrome_at_its_edges` has
 /// the same samples): key times from 0 to 1, never decreasing; a jump held

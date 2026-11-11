@@ -1,6 +1,7 @@
 # A zero-duration animation with a fill shows nothing on Apple when Core Animation plays it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `eligibility` samples a node with an animation of zero duration or zero iterations, so the engine presents its filled frame instead of Core Animation receiving a spec it cannot play.
 **Systems:** host/apple/src/svg_lower.rs, host/apple/Sources/ExactKit/SvgScene.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

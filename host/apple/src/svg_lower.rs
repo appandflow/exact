@@ -490,7 +490,15 @@ pub(crate) fn eligibility(
                         .any(|(p, v)| *p == Property::Translate && (v.z != 0.0 || v.w != 0.0))
                 })
             });
+        // CSS plays an animation of no duration or no iterations at once
+        // and fills with its last or first frame; Core Animation plays
+        // neither (`SvgScene.swift` refuses the spec).
+        let instant = animations
+            .0
+            .iter()
+            .any(|a| a.duration <= 0.0 || a.iterations <= 0.0);
         let sampled = if paired
+            || instant
             || (percent && !(boxed && !svg))
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
