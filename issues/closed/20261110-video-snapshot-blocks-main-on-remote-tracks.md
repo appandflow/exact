@@ -1,6 +1,7 @@
 # A video or audio with a remote `src` holds the main thread until its server answers
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple media snapshots read a cached HDR flag loaded asynchronously for the current item, so remote sources do not block the main thread.
 **Systems:** host/apple/videoarm/VideoArm.swift
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
