@@ -1,6 +1,7 @@
 # On macOS a change of the window's occlusion stops a 2D canvas's frames until a later batch
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Occlusion changes use frames.hasWork, preserving a 2D canvas's display link until its frame request clears.
 **Systems:** host/apple/Sources/ExactKit/Agent.swift (`ExactSession.occlusionChanged`), host/apple/Sources/ExactKit/Frames.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

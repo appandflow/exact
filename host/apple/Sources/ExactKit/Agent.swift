@@ -1311,7 +1311,7 @@ extension ExactSession {
         #if os(macOS)
         canvases.occlusionChanged()
         #endif
-        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+        frames.run(frames.hasWork)
     }
     #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
