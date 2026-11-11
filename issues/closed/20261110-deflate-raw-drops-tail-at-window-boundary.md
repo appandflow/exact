@@ -1,6 +1,7 @@
 # `DecompressionStream("deflate-raw")` drops the tail of a valid stream whose last match crosses a 32 KiB boundary, then says the input ended early
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Raw deflate streams drain buffered output after the last input byte, preserving matches across 32 KiB boundaries and closing cleanly.
 **Systems:** js/src/compression.rs (`Decompressor::inflate_into`), js/src/streams.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
