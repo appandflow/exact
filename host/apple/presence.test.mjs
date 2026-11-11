@@ -70,4 +70,5 @@ test('App Attest and the age range: a Mac build signs neither, a release is refu
   expect(() => macProfileRows(app, 'device.tracking purpose.ads', { release: true })).not.toThrow();
   const env = 'com.apple.developer.devicecheck.appattest-environment';
   expect([entitlementValue(env, true), entitlementValue(env, false), entitlementValue('com.apple.developer.declared-age-range', true)]).toEqual(['development', 'production', true]);
+  expect([entitlementValue('aps-environment', true), entitlementValue('aps-environment', false)]).toEqual(['development', 'production']);
 });

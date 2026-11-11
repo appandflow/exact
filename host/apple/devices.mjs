@@ -646,9 +646,23 @@ export function developmentLaunchEnvironment(args, environment = process.env) {
   return { ...environment, EXACT_DEV_PLAN: url.href };
 }
 
+/** The environment a build signs under a profile that is (`debuggable`) or is not a development one: App Attest's
+ * and push's (LLP 1133.028 D15 item 1; LLP 1133.004 §9 P2). */
+export const signedEnvironment = (debuggable) => debuggable ? 'development' : 'production';
+
+/** Whether profile `p` allows entitlement `name` as the build signs it under `p`: the key, and for push's environment,
+ * which a profile carries as a value, the value the build writes there. The Live Activity path and the grant path
+ * both ask this. */
+export const allowsEntitlement = (p, name) => name === 'aps-environment' ? p.aps === signedEnvironment(p.dev) : p.entitlements.includes(name);
+
+/** What `p` lacks of `required`, each as a refusal names it. */
+export const lacks = (p, required = []) => required.filter((name) => !allowsEntitlement(p, name)).map((name) => name === 'aps-environment' && p.aps
+  ? `aps-environment ${signedEnvironment(p.dev)} (it allows ${p.aps ?? 'no value'}, and this build signs ${signedEnvironment(p.dev)} under a ${p.dev ? 'development' : 'distribution'} profile)`
+  : name);
+
 /** Whether a profile allows every entitlement in `required` (a grant's
  * signing entitlements, LLP 1069.008.000 D4). */
-export const allows = (p, required = []) => !!p && required.every((name) => p.entitlements.includes(name));
+export const allows = (p, required = []) => !!p && lacks(p, required).length === 0;
 
 /** What a profile that lacks a grant's entitlement needs, said once. */
 const missing = (bundle, required, why) => new Error(required.includes('com.apple.developer.web-browser')
@@ -682,7 +696,7 @@ export function coveringProfiles(udid, bundle, installed = installedProfiles()) 
  * the longest-lived. Or a refusal naming what each profile for the id lacked. */
 export function embeddedProfile(udid, bundle, like, required = [], installed = installedProfiles()) {
   const candidates = profilesFor(bundle, installed).filter(iosProfile).sort(byExpiry);
-  const why = candidates.map((p) => [p, profileMisfit(p, udid, like) ?? (allows(p, required) ? null : `does not allow ${required.filter((name) => !p.entitlements.includes(name)).join(', ')}`)]);
+  const why = candidates.map((p) => [p, profileMisfit(p, udid, like) ?? (allows(p, required) ? null : `does not allow ${lacks(p, required).join(', ')}`)]);
   const found = why.find(([, reason]) => !reason)?.[0];
   if (found) return found;
   throw new Error(`host/apple: no ${METHODS[like.method]} profile on this Mac covers ${bundle} as the app's (${like.name}) does: ${why.length ? why.map(([p, reason]) => `"${p.name}" ${reason}`).join('; ') : 'none is for it'}. In the Apple Developer portal, register the App ID ${bundle}${required.length ? ` with ${required.join(', ')}` : ''}, make a ${METHODS[like.method]} profile for it of team ${like.team}${udid ? ' that includes this phone' : ''}, and install it.`);

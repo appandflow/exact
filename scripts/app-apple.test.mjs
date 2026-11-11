@@ -628,6 +628,18 @@ test('a device build with entries takes the app\'s and the extension\'s profiles
   // the one both sign (the extension's own App ID's group is no grant of it), or the team wildcard.
   assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production'}), extension]), /"App" covers it but none grants aps-environment/);
   assert.match(refusal([appOnly, extension], {required:['com.apple.developer.healthkit']}), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit\n  com.exact.test.widgets: provisioned/);
+  // device.push with no activity that takes pushes (LLP 1133.004 §9 P2): the profile's environment must be the one
+  // the build signs under it, as for an activity, not merely present; both directions.
+  const quiet = {...app, manifest:{...app.manifest, live_activities:[{kind:'departure'}]}};
+  const pushRequired = {required:['aps-environment']};
+  const devProduction = make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production', entitlements:['application-identifier','get-task-allow','keychain-access-groups','aps-environment']});
+  assert.match((() => { try { entryProfiles({app:quiet, udid:'PHONE', installed:[devProduction, extension], named:null, ...pushRequired}); } catch (e) { return e.message; } assert.fail('refused'); })(),
+    /"App" covers it but none grants aps-environment \(development on a development profile, production otherwise\)/);
+  const devDevelopment = {...devProduction, aps:'development'};
+  assert.equal(entryProfiles({app:quiet, udid:'PHONE', installed:[devDevelopment, extension], named:null, ...pushRequired}).app, devDevelopment);
+  const archiveDevelopment = make('Ad hoc app', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'development', dev:false, devices:['A','PHONE'], entitlements:['application-identifier','keychain-access-groups','aps-environment']});
+  assert.match((() => { try { entryProfiles({app:quiet, udid:undefined, installed:[archiveDevelopment, extension], named:null, ...pushRequired}); } catch (e) { return e.message; } assert.fail('refused'); })(),
+    /"Ad hoc app" covers it but none grants aps-environment/);
   const browserRole = 'com.apple.developer.web-browser', browserProfile = { ...appOnly, entitlements: [...appOnly.entitlements, browserRole] };
   assert.match(refusal([appOnly, extension], { required: [browserRole] }), /com.exact.test:.*com.apple.developer.web-browser\n  com.exact.test.widgets: provisioned/);
   assert.equal(entryProfiles({ app, udid: 'PHONE', required: [browserRole], installed: [browserProfile, extension], named: null }).extension.name, extension.name);
@@ -692,6 +704,48 @@ test('a device build takes the App Clip\'s profile for its own App ID, of the ap
   const adHoc = make('Ad hoc app', 'TEAM.com.exact.test', { dev: false, devices: ['A', 'B'] });
   assert.equal(embeddedProfile(null, 'com.exact.test.Clip', adHoc, [parent], [make('Ad hoc clip', 'TEAM.com.exact.test.Clip', { dev: false, devices: ['A', 'B'], entitlements: [parent] })]).name, 'Ad hoc clip');
   assert.match(refusal([make('Ad hoc clip', 'TEAM.com.exact.test.Clip', { dev: false, devices: ['A'], entitlements: [parent] })], adHoc, null), /"Ad hoc clip" does not include 1 of the 2 devices the app's profile names/);
+  // device.push: the parent's profile has Push, the clip's need not, since the clip signs no push environment
+  // (LLP 1133.004 §9 P2); what the clip signs and what its profile must allow are one list.
+  const { grantEntitlements } = await import('../host/apple/presence.mjs');
+  const { entitlements } = await import('../host/apple/build.mjs');
+  const pushing = make('Push app', 'TEAM.com.exact.test', { entitlements: ['application-identifier', 'get-task-allow', 'aps-environment'], aps: 'development' });
+  const clipApp = { id: 'com.exact.test.Clip', clipParent: 'com.exact.test', manifest: { host: { ios: {} } } };
+  const needs = [...grantEntitlements(clipApp, ['aps-environment']), parent];
+  assert.equal(embeddedProfile('PHONE', 'com.exact.test.Clip', pushing, needs, [clip]), clip);
+  assert.doesNotMatch(entitlements(clipApp, 'TEAM', true, { entitlements: ['aps-environment'] }), /aps-environment/);
+  assert.deepEqual(grantEntitlements({ id: 'com.exact.test' }, ['aps-environment']), ['aps-environment'], 'the app signs and needs it');
+});
+
+test('device.push signs one aps-environment by the signing, beside an activity that takes pushes, and never a clip\'s or an extension\'s (LLP 1133.004 §9 P2)', async () => {
+  const {entitlements, tvReach} = await import('../host/apple/build.mjs');
+  const {macProfileRows} = await import('../host/apple/presence.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{host:{ios:{}}}};
+  const reach = {entitlements:['aps-environment'], tvOmits:['aps-environment']};
+  const value = (plist) => [...plist.matchAll(/<key>aps-environment<\/key><string>(\w+)<\/string>/g)].map(m => m[1]);
+  assert.deepEqual(value(entitlements(app, null, true, reach, {simulator:true})), ['development'], 'a simulator');
+  assert.deepEqual(value(entitlements(app, 'TEAM', true, reach)), ['development'], 'a development profile');
+  assert.deepEqual(value(entitlements(app, 'TEAM', false, reach)), ['production'], 'a distribution profile');
+  const both = {...app, manifest:{...app.manifest, live_activities:[{kind:'departure', push:true}]}};
+  for (const debuggable of [true, false]) assert.deepEqual(value(entitlements(both, 'TEAM', debuggable, reach)), [debuggable ? 'development' : 'production'], 'an activity and the grant: one key, one string');
+  assert.doesNotMatch(entitlements({...app, id:`${app.id}.Clip`, clipParent:app.id}, 'TEAM', true, reach), /aps-environment/, 'a clip');
+  assert.doesNotMatch(entitlements({...both, id:`${app.id}.widgets`, widgetAppId:app.id}, 'TEAM', true, reach), /aps-environment/, 'the extension');
+  assert.doesNotMatch(entitlements(app, null, true, tvReach(reach), {simulator:true}), /aps-environment/, 'tvOS');
+  const said = [];
+  assert.doesNotThrow(() => macProfileRows(app, 'device.notifications n\ndevice.push', { release: true, log: (l) => said.push(l) }), 'a Mac release is not refused');
+  assert.deepEqual(said, []);
+});
+
+test('a profile allows aps-environment only with the value the build signs under it, for the grant as for an activity (LLP 1133.004 §9 P2)', async () => {
+  const {allows, profile, lacks} = await import('../host/apple/devices.mjs');
+  const base = {path:'/p/x', name:'Push', team:'TEAM', prefix:'TEAM', appId:'TEAM.com.exact.test', devices:['PHONE'], expires:new Date(Date.now()+8.64e7), entitlements:['application-identifier','get-task-allow','aps-environment'], groups:[], keychain:[], enterprise:false, platforms:['iOS']};
+  const devProduction = {...base, dev:true, method:'development', aps:'production'}, devDevelopment = {...devProduction, aps:'development'};
+  const storeDevelopment = {...base, dev:false, method:'appstore', devices:[], aps:'development'}, storeProduction = {...storeDevelopment, aps:'production'};
+  assert.ok(!allows(devProduction, ['aps-environment']) && allows(devDevelopment, ['aps-environment']));
+  assert.ok(!allows(storeDevelopment, ['aps-environment']) && allows(storeProduction, ['aps-environment']));
+  assert.deepEqual(lacks(devProduction, ['aps-environment']), ['aps-environment development (it allows production, and this build signs development under a development profile)']);
+  assert.equal(profile('PHONE', 'com.exact.test', ['aps-environment'], {installed:[devProduction, devDevelopment], named:null}), devDevelopment);
+  assert.throws(() => profile('PHONE', 'com.exact.test', ['aps-environment'], {installed:[devProduction], named:null}), /grant-device-profile: aps-environment/);
+  assert.throws(() => profile('PHONE', 'com.exact.test', ['aps-environment'], {installed:[], named:devProduction}), /EXACT_PROFILE \(Push\) does not allow it/);
 });
 
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {

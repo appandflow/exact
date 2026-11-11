@@ -8,7 +8,7 @@ import { assertCapabilityFrameworks } from './link.mjs';
 import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
 import { appleLinkArgs } from '../../scripts/package-libraries.mjs';
 import { appexArgs, keepMain } from './extensions.mjs';
-import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
+import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile, allowsEntitlement } from './devices.mjs';
 import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url))), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
@@ -107,8 +107,8 @@ export function entryProfiles({ app, udid, required = [], installed = installedP
   const wants = (id, prefix) => [
     { has: p => p.groups.includes(group), missing: `the App Group ${group}`, portal: `App Groups (${group})` },
     { has: p => p.keychain.includes(`${p.prefix}.*`) || p.keychain.includes(shared(p.prefix)), missing: `the Keychain group ${shared(prefix)}`, portal: `Keychain Sharing (the group ${shared(prefix)}, or the team's ${prefix}.*)` },
-    ...(id === app.id && push ? [{ has: p => p.aps === (p.dev ? 'development' : 'production'), missing: 'aps-environment (development on a development profile, production otherwise; an activity takes pushes)', portal: 'Push Notifications' }] : []),
-    ...(id === app.id ? required.map(name => ({ has: p => p.entitlements.includes(name), missing: name, portal: name })) : []),
+    ...(id === app.id && push && !required.includes('aps-environment') ? [{ has: p => allowsEntitlement(p, 'aps-environment'), missing: 'aps-environment (development on a development profile, production otherwise; an activity takes pushes)', portal: 'Push Notifications' }] : []),
+    ...(id === app.id ? required.map(name => ({ has: p => allowsEntitlement(p, name), missing: name === 'aps-environment' ? 'aps-environment (development on a development profile, production otherwise)' : name, portal: name === 'aps-environment' ? 'Push Notifications' : name })) : []),
   ];
   // The build's method, which a profile that `like` does not decide must have.
   const mode = p => udid ? (p.dev ? null : `is ${METHODS[p.method]}, not development`) : (p.dev ? 'is development; an archive takes a distribution profile' : null);

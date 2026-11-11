@@ -1763,6 +1763,15 @@ iOS shows its own fixed prompt text): without the grant a post and the
 request are refused (`notifications.showNotification: refused, grant-missing
 (device.notifications)`).
 
+`device.push`, written alone beside `device.notifications`, signs
+`aps-environment` into an iOS or iPadOS build: `development` on a simulator
+and under a development profile, `production` under an Ad Hoc, enterprise or
+App Store one, the value a Live Activity that takes pushes signs too. A device
+build is refused unless its profile has Push Notifications. A Mac or tvOS build
+writes nothing for it and is not refused. Exact does not register for a
+device token yet: the grant signs the entitlement, and registering is still the
+app's own native code's.
+
 - `showNotification(title=, body=, tag=, silent=, data=, showTrigger=,
   navigate=)` and `closeNotification(tag=)` are statements in an action; data
   code calls them through the package's binding (`await showNotification({

@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
+import { associatedDomains, entitlementValue, grantEntitlements, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, interfaceStyle, localNetworking, modulePlist, nfcKeys, startLocation, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
@@ -356,9 +356,8 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     const owner = app.widgetAppId ?? app.clipParent ?? app.id;
     dict['keychain-access-groups'] = [`${prefix ?? SIMULATOR_PREFIX}.${owner}`, ...(simulator && !team ? [owner] : [])];
     // An activity a server advances (LLP 1126 D9): the app alone reads the update tokens, so the extension
-    // (`widgetAppId`) signs none. A development profile grants the sandbox, a distribution one production.
-    // The clip's notifications are ephemeral (`NSAppClip`), so it takes no push environment either.
-    if (!app.widgetAppId && !app.clipParent && activityEntries(app).some(entry => entry.push === true)) dict['aps-environment'] = debuggable ? 'development' : 'production';
+    // (`widgetAppId`) signs none. The value is the grant's too (`entitlementValue`), so one app with both has one.
+    if (grantEntitlements(app, ['aps-environment']).length && activityEntries(app).some(entry => entry.push === true)) dict['aps-environment'] = entitlementValue('aps-environment', debuggable);
   }
   if (app.manifest.share_target && simulator && !app.widgetTV && !app.widgetHost && !app.clipParent) dict['com.apple.security.application-groups'] ??= [widgetGroup(app)]; // the share inbox (LLP 1133.024 D4)
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
@@ -370,7 +369,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
-  for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
+  for (const name of grantEntitlements(app, reach?.entitlements)) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
   Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
 };
