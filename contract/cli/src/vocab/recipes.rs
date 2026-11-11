@@ -44,6 +44,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("first-launch"),
     recipe!("foldables"),
     recipe!("functions"),
+    recipe!("gpu-module"),
     recipe!("grouped-form"),
     recipe!("ios-driving"),
     recipe!("keyboard-and-focus"),

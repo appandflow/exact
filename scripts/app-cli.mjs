@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
 
 /** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
@@ -437,6 +437,46 @@ async function webBuildQuiet(spawned, args, dir) {
   return code;
 }
 
+/** What the web build's wasm-bindgen CLI processes in a workspace's graph resolved for wasm32 (`cargo metadata
+ * --filter-platform`): the packages `roots` names and their normal dependencies, not dev or build ones. The
+ * wasm-bindgen versions there, and each package of the workspace or a path that requires wasm-bindgen, with its
+ * requirement. */
+export function gpuBindgen(metadata, roots) {
+  const byId = new Map(metadata.packages.map((p) => [p.id, p])), nodes = new Map((metadata.resolve?.nodes ?? []).map((n) => [n.id, n]));
+  const normal = (dep) => (dep.dep_kinds ?? [{ kind: null }]).some((k) => k.kind === null);
+  const seen = new Set(), queue = metadata.workspace_members.filter((id) => roots.includes(byId.get(id)?.name));
+  while (queue.length) { const id = queue.pop(); if (!seen.has(id)) { seen.add(id); queue.push(...(nodes.get(id)?.deps ?? []).filter(normal).map((d) => d.pkg)); } }
+  const reached = [...seen].map((id) => byId.get(id)).filter(Boolean);
+  return {
+    held: [...new Set(reached.filter((p) => p.name === 'wasm-bindgen').map((p) => p.version))],
+    requiring: reached.filter((p) => !p.source).flatMap((p) => p.dependencies.filter((d) => d.name === 'wasm-bindgen' && !d.kind).map((d) => ({ name: p.name, req: d.req, manifest: p.manifest_path }))),
+  };
+}
+
+/** A note when the app's GPU modules link a wasm-bindgen other than the CLI the web build runs (`exact setup` installs
+ * the version exact2 pins in game/Cargo.toml), which refuses any other; null otherwise. The modules are `<app>-gpu`,
+ * in gpu/, and `<app>-gpu-<module>` for each of app.json's `gpu.modules`; with no gpu/ crate the web build
+ * (host/web-js/build.mjs) builds none of them. */
+function bindgenFinding(dir, workspace, options) {
+  const game = resolve(import.meta.dir, '../game/Cargo.toml');
+  const pin = existsSync(game) ? String(Bun.TOML.parse(readFileSync(game, 'utf8')).workspace?.dependencies?.['wasm-bindgen'] ?? '').replace(/^=/, '') : '';
+  const read = (path) => { try { return Bun.TOML.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+  const app = String(read(resolve(dir, 'gpu/Cargo.toml'))?.package?.name ?? '').match(/^(.+)-gpu$/)?.[1];
+  if (!pin || !app) return null;
+  let modules = []; try { modules = Object.keys(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).gpu?.modules ?? {}); } catch {}
+  const wasm = spawnSync('cargo', ['metadata', '--offline', '--locked', '--filter-platform', 'wasm32-unknown-unknown', '--format-version', '1'], { ...options, cwd: workspace });
+  if (wasm.status !== 0) return null;
+  const { held, requiring } = gpuBindgen(JSON.parse(wasm.stdout), [`${app}-gpu`, ...modules.map((m) => `${app}-gpu-${m}`)]);
+  if (!held.length || held.every((version) => version === pin)) return null;
+  // Paths as the recipe writes them, with `/` on every host.
+  const shown = (path) => relative(workspace, path).split(sep).join('/');
+  const blocking = requiring.filter((r) => !Bun.semver.satisfies(pin, r.req)), own = shown(resolve(dir, 'gpu/Cargo.toml'));
+  return `The GPU module's wasm build links wasm-bindgen ${held.join(', ')} (${requiring.map((r) => `${r.name} requires ${r.req}`).join(', ')}), and the web build's wasm-bindgen CLI is ${pin}, which refuses any other: the web build will fail. `
+    + (blocking.length
+      ? `Change ${blocking.map((r) => `${r.name}'s requirement (${shown(r.manifest)})`).join(' and ')} to wasm-bindgen = "=${pin}", then run bun exact.mjs lock again.`
+      : `Require wasm-bindgen = "=${pin}" in ${own}'s wasm32 dependencies, then run bun exact.mjs lock again: Cargo moves wasm-bindgen and the crates that name its version with it.`);
+}
+
 /** Explicit app lock repair: preserve selected versions and resolve only manifest drift. */
 export async function lockApp(dir) {
   const { cargoEnvironment } = await import('./app.mjs');
@@ -455,7 +495,9 @@ export async function lockApp(dir) {
   if (result.status !== 0) throw new Error(`could not resolve ${lock}: ${result.stderr || result.error?.message}`);
   const { lockChanges } = await import('../game/app/shells.mjs');
   const changes = lockChanges(before, readFileSync(lock, 'utf8'));
-  return `${lock}: ${changes.length ? `resolved\n${changes.join('\n')}` : 'current; no changes'}`;
+  const said = `${lock}: ${changes.length ? `resolved\n${changes.join('\n')}` : 'current; no changes'}`;
+  const found = bindgenFinding(dir, workspace, options);
+  return found ? `${said}\n${found}` : said;
 }
 if (import.meta.main && process.argv[2] === '--lock') {
   try { console.log(await lockApp(process.argv[3])); }

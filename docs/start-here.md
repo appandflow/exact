@@ -131,6 +131,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |an icon: in a button, a tab, beside a label (a symbol, never a character such as ▦ ☏ ★ or an emoji)|`symbols`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|
+|a canvas drawn in Rust on the GPU (a `Surface`); Rust of the app's own, in its own Cargo workspace|`gpu-module`|
 |app.json keys, `assets/`, the `modules` folder|`app-json`|
 |a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|
 

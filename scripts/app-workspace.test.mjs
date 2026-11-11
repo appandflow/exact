@@ -699,6 +699,64 @@ test('app update reports lock drift without changing it, and the app lock verb r
   } finally { rmSync(scratch, {recursive:true,force:true}); }
 }, 60_000);
 
+test('the wasm-bindgen the CLI processes is the one the GPU modules reach by normal dependencies', async () => {
+  const { gpuBindgen } = await import('./app-cli.mjs');
+  const pkg = (name, version, deps = [], source = null) => ({ id: `${name} ${version}`, name, version, source, manifest_path: `/w/${name}/Cargo.toml`,
+    dependencies: deps.map(([n, req, kind = null]) => ({ name: n, req, kind })) });
+  const node = (id, deps) => ({ id, deps: deps.map(([pkg, kind = null]) => ({ pkg, dep_kinds: [{ kind, target: null }] })) });
+  const registry = 'registry+https://github.com/rust-lang/crates.io-index';
+  const metadata = {
+    packages: [
+      pkg('app-gpu', '0.1.0', [['wasm-bindgen', '^0.2'], ['wasm-bindgen', '=0.2.128', 'dev'], ['helper', '^1', 'build']]),
+      pkg('app-gpu-tools', '0.1.0', [['wasm-bindgen', '=0.2.130']]), pkg('app-gpu-sky', '0.1.0', [['wasm-bindgen', '^0.2']]),
+      pkg('wasm-bindgen', '0.2.127', [], registry), pkg('wasm-bindgen', '0.2.128', [], registry), pkg('wasm-bindgen', '0.2.130', [], registry), pkg('helper', '1.0.0', [['wasm-bindgen', '=0.2.130']], registry),
+    ],
+    workspace_members: ['app-gpu 0.1.0', 'app-gpu-tools 0.1.0', 'app-gpu-sky 0.1.0'],
+    resolve: { nodes: [
+      node('app-gpu 0.1.0', [['wasm-bindgen 0.2.127'], ['wasm-bindgen 0.2.128', 'dev'], ['helper 1.0.0', 'build']]),
+      node('helper 1.0.0', [['wasm-bindgen 0.2.130']]),
+      node('app-gpu-tools 0.1.0', [['wasm-bindgen 0.2.130']]), node('app-gpu-sky 0.1.0', [['wasm-bindgen 0.2.127']]),
+    ] },
+  };
+  // A dev or build dependency, and a member whose name only contains -gpu, are not what the CLI processes.
+  assert.deepEqual(gpuBindgen(metadata, ['app-gpu']), { held: ['0.2.127'], requiring: [{ name: 'app-gpu', req: '^0.2', manifest: '/w/app-gpu/Cargo.toml' }] });
+  // A declared module is, by its exact name.
+  assert.deepEqual(gpuBindgen(metadata, ['app-gpu', 'app-gpu-sky']).held, ['0.2.127']);
+  assert.deepEqual(gpuBindgen(metadata, ['app-gpu', 'app-gpu-tools']).held.sort(), ['0.2.127', '0.2.130']);
+});
+
+test('lock says when the GPU module links a wasm-bindgen the CLI refuses, and what to write, and changes nothing for it', async () => {
+  const scratch = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact app bindgen \'$x\' ')));
+  const dir = resolve(scratch, 'my app'), lock = resolve(dir, 'Cargo.lock');
+  const write = (file, text) => { mkdirSync(dirname(resolve(dir, file)), { recursive: true }); writeFileSync(resolve(dir, file), text); };
+  const run = () => spawnSync(process.execPath, [resolve(import.meta.dir, 'app-cli.mjs'), '--lock', dir], { encoding: 'utf8' });
+  const held = () => Bun.TOML.parse(readFileSync(lock, 'utf8')).package.filter((p) => p.name === 'wasm-bindgen').map((p) => p.version);
+  const pin = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
+  const crate = (name, deps = '') => `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\n${deps}`;
+  try {
+    mkdirSync(dir); pinned(dir);
+    write('gpu/src/lib.rs', ''); write('other/src/lib.rs', '');
+    // A wasm-bindgen of the app's own, 0.2.999, which a [patch] puts in every graph that names it.
+    write('fake/Cargo.toml', '[package]\nname = "wasm-bindgen"\nversion = "0.2.999"\nedition = "2021"\n'); write('fake/src/lib.rs', '');
+    write('Cargo.toml', '[workspace]\nmembers = ["gpu", "other"]\nresolver = "2"\n\n[patch.crates-io]\nwasm-bindgen = { path = "fake" }\n');
+    write('gpu/Cargo.toml', crate('my-app-gpu', 'wasm-bindgen = "0.2"\n')); write('other/Cargo.toml', crate('my-app-other'));
+    let locked = run();
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.ok(locked.stdout.includes(`The GPU module's wasm build links wasm-bindgen 0.2.999 (my-app-gpu requires ^0.2), and the web build's wasm-bindgen CLI is ${pin}, which refuses any other: the web build will fail. Require wasm-bindgen = "=${pin}" in gpu/Cargo.toml's wasm32 dependencies, then run bun exact.mjs lock again`), locked.stdout);
+    assert.deepEqual(held(), ['0.2.999'], 'lock reports; it rewrites nothing');
+    // A requirement that excludes the pin is named as what to change.
+    write('gpu/Cargo.toml', crate('my-app-gpu', 'wasm-bindgen = "=0.2.999"\n'));
+    locked = run();
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.ok(locked.stdout.includes(`Change my-app-gpu's requirement (gpu/Cargo.toml) to wasm-bindgen = "=${pin}", then run bun exact.mjs lock again.`), locked.stdout);
+    // Another crate's wasm-bindgen is not the CLI's.
+    write('gpu/Cargo.toml', crate('my-app-gpu')); write('other/Cargo.toml', crate('my-app-other', 'wasm-bindgen = "=0.2.999"\n'));
+    locked = run();
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.doesNotMatch(locked.stdout, /wasm-bindgen CLI/);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}, 120_000);
+
 test('update refuses, before writing, a root the crates it adds cannot load in', async () => {
   const { createApp } = await import('../game/new.mjs');
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-root-'));
@@ -714,7 +772,7 @@ test('update refuses, before writing, a root the crates it adds cannot load in',
       ['[workspace]\nmembers = []\n[workspace.package]\nedition = "2021"\n', /Cargo\.toml has no version, license in \[workspace\.package\]/],
     ]) {
       writeFileSync(root, text);
-      assert.throws(() => createApp(dir, { update: true }), (e) => said.test(e.message) && /copies the generated workspace up/.test(e.message), text);
+      assert.throws(() => createApp(dir, { update: true }), (e) => said.test(e.message) && /contract vocab gpu-module/.test(e.message), text);
       assert.deepEqual([readFileSync(root, 'utf8'), existsSync(resolve(dir, 'linux')), existsSync(resolve(dir, 'exact.mjs.tmp'))], [text, false, false], 'nothing written');
     }
   } finally { rmSync(scratch, { recursive: true, force: true }); }

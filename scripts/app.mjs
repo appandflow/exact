@@ -35,7 +35,7 @@ import { bakeOutside, linkable, recordRustBake } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
-import { androidCargo, appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
+import { NO_WORKSPACE, androidCargo, appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
 import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -571,7 +571,7 @@ export function resolveApp(nameOrCrate) {
     if (!packages) {
       rust();
       const result = lockedMetadata(workspace, true);
-      if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
+      if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}${existsSync(resolve(workspace, 'Cargo.toml')) ? '' : `\nThe crates beside app.json have no Cargo workspace. ${NO_WORKSPACE}`}`);
       packages = JSON.parse(result.stdout).packages;
     }
     return packages.find(pkg => pkg.name === crate(kind));
