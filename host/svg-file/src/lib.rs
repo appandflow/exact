@@ -275,6 +275,14 @@ impl Loaded {
 mod tests {
     use super::*;
 
+    /// A refused value is shortened by characters for its warning: a byte slice
+    /// inside a CJK family name panicked, and a panic aborts the app.
+    #[test]
+    fn a_long_refused_value_with_wide_characters_loads() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><text x="0" y="15" font-family="'游ゴシック体', YuGothic, '游ゴシック Medium', 'Yu Gothic Medium', sans-serif">こんにちは</text></svg>"#;
+        assert!(load(svg).is_ok());
+    }
+
     #[test]
     fn the_natural_size_follows_the_browser_with_the_viewbox_deviation() {
         let n = |attrs: &[(&str, &str)]| {

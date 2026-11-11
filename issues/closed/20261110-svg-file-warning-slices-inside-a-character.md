@@ -1,6 +1,7 @@
 # An SVG image aborts the app when a refused attribute value has a multi-byte character across its 40th byte
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A refused value is shortened for its warning by characters, so a long CJK family name no longer panics the SVG reader.
 **Systems:** host/svg-file/src/lower.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

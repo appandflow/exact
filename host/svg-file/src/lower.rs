@@ -556,9 +556,10 @@ fn clip(value: &StyleValue<'_>) -> String {
         StyleValue::Auto => "auto".into(),
         StyleValue::Vec2(a, b) => format!("{a} {b}"),
     };
-    if text.len() > 40 {
-        format!("{}…", &text[..40])
-    } else {
-        text
+    // By characters: a byte slice inside one (a CJK family name) panicked,
+    // and the release profile aborts on a panic.
+    match text.char_indices().nth(40) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text,
     }
 }
