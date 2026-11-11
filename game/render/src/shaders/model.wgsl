@@ -103,15 +103,19 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let albedo=vec3<shading>(base.rgb);
     var environment=ambient(n,v,albedo,metallic,roughness);
     var emitted=vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission);
+    // The instance's added emission (its material, node and override colours).
+    var glow=vec3<shading>(input.glow.xyz);
     if LAYERED && !MATTE {
         // The roughness floors keep the coat's GGX peak and the sheen's 1/alpha finite.
         let coat_normal=normalize(input.normal)*select(-1.0,1.0,front);
         surface_layer=SurfaceLayer(clamp(baked.coat.x,0.0,1.0),clamp(baked.coat.y,0.045,1.0),clamp(baked.coat.z,0.07,1.0),max(baked.sheen.rgb,vec3(0.0)),coat_normal);
         environment=layered_ambient(n,v,environment);
         // KHR_materials_clearcoat, "Emission": the coat darkens what the base emits.
-        emitted*=shading(1.0-surface_layer.coat*coat_fresnel(max(dot(coat_normal,v),0.0001)));
+        let under=shading(1.0-surface_layer.coat*coat_fresnel(max(dot(coat_normal,v),0.0001)));
+        emitted*=under;
+        glow*=under;
     }
-    var color=environment*shading(ao)+emitted+vec3<shading>(input.glow.xyz);
+    var color=environment*shading(ao)+emitted+glow;
     if frame.sun_direction_illuminance.w>0.0 {
         color+=layered_brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility*water_caustics(input.world));
     }

@@ -68,7 +68,8 @@ fn sheen_lambda(cos_theta: f32, alpha: f32) -> f32 {
 // table: ln E fitted by least squares (weighted by E²) to this lobe's albedo,
 // integrated numerically for roughness 0.07 to 1 and NdotV 0.02 to 1, as a
 // quadratic in NdotV whose coefficients are cubics in 1 / roughness. Within
-// 0.04 of the integral for NdotV ≥ 0.15, 0.09 nearer grazing.
+// about 0.04 of the integral for roughness ≥ 0.2 and NdotV ≥ 0.15; nearer
+// grazing or smoother, up to about 0.13.
 fn sheen_albedo(nv: f32, roughness: f32) -> f32 {
     let x = 1.0 / roughness;
     let c0 = -0.16762 + x * (0.02951 + x * (0.0052 - 0.00044 * x));
@@ -157,7 +158,9 @@ fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world:
         let l = delta * inverseSqrt(distance2);
         var cone = light_cone(at, l);
         // Shadow maps are read only where the light reaches.
-        if window > 0.0 && cone > 0.0 && dot(n, l) > 0.0 {
+        // A layered fragment's coat may face the light where its mapped normal does not.
+        let facing = dot(n, l) > 0.0 || (LAYERED && dot(surface_layer.normal, l) > 0.0);
+        if window > 0.0 && cone > 0.0 && facing {
             cone *= light_visibility(at, world, n, l);
         }
         // Nothing to add where the window or cone is zero (in f16 an
