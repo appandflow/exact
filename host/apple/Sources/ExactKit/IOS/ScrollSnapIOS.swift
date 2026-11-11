@@ -65,8 +65,8 @@ extension NodeView {
             if let origin {
                 let from = vertical ? origin.y : origin.x
                 let speed = vertical ? velocity.y : velocity.x
-                if speed > 0.25, nearest <= from + 0.5, let next = choices.filter({ $0 > from + 0.5 }).min() { nearest = next }
-                if speed < -0.25, nearest >= from - 0.5, let next = choices.filter({ $0 < from - 0.5 }).max() { nearest = next }
+                if speed > 0.05, nearest <= from + 0.5, let next = choices.filter({ $0 > from + 0.5 }).min() { nearest = next }
+                if speed < -0.05, nearest >= from - 0.5, let next = choices.filter({ $0 < from - 0.5 }).max() { nearest = next }
                 if nearest > from + 0.5, let stop = stops.filter({ $0 > from + 0.5 }).min() { nearest = min(nearest, stop) }
                 if nearest < from - 0.5, let stop = stops.filter({ $0 < from - 0.5 }).max() { nearest = max(nearest, stop) }
             }
