@@ -48,6 +48,7 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
+import { appleProduction } from '../host/apple/link.mjs';
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath, validateChannel } from './origin.mjs';
@@ -678,7 +679,7 @@ function buildFor(app, platform, sourceRoot, run) {
     env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
     env.EXACT_APPLE_LINK = 'plan'; // a compatibility input: link as the production archive does (host/apple/link.mjs)
   }
-  return buildBake(app, platform, target, {env, analysis:true});
+  return buildBake(app, platform, target, {env, analysis:true, profile: ['ios', 'macos'].includes(platform) ? appleProduction(app, platform).profile : 'release'});
 }
 
 export { classifyArtifacts, cohortReceipt } from './app.mjs';

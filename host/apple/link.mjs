@@ -4,6 +4,18 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
+/** Production compiler policy (LLP 1047.001 D9). tvOS shares host.ios. */
+export function appleProduction(app, platform, args = []) {
+  const game = !!app.manifest.game;
+  const at = args.indexOf('--optimize');
+  const optimize = at >= 0 ? args[at + 1]
+    : app.manifest.host?.[platform === 'macos' ? 'macos' : 'ios']?.optimize
+      ?? (game ? 'speed' : args.includes('--embed') || platform !== 'macos' ? 'size' : 'speed');
+  if (!['speed', 'size'].includes(optimize)) throw new Error(`host/apple: --optimize is speed or size, not ${optimize}`);
+  if (game && optimize === 'size') throw new Error('host/apple: games cannot optimize for size because their generated Cargo workspace has no size profile; use speed');
+  return { optimize, profile: optimize === 'size' ? 'size' : 'release' };
+}
+
 /** The capabilities with a Swift half, by name, and the product of
  * `Package.swift` (its `capabilities` table) each is. */
 const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists'], ['markdown', 'ExactMarkdown'], ['surfaces', 'ExactSurfaces'], ['drag', 'ExactDrag'], ['media_picker', 'ExactMediaPicker'], ['auth_session', 'ExactAuthSession'], ['numerals', 'ExactNumerals']];

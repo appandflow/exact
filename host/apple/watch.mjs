@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
+import { appleProduction } from './link.mjs';
 import { reportBuilt } from '../../scripts/help.mjs';
 import { copyStaticTreeIfPresent } from '../web/serve.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
@@ -33,7 +34,9 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const parentArgs = args.filter((a, i) => !['--watchos', '--run', '--no-install', '--watch-sim'].includes(a) && args[i - 1] !== '--watch-sim');
     await buildParent([...parentArgs, '--ios', '--no-install']);
     if (process.exitCode) throw new Error(`iOS companion build refused (exit ${process.exitCode}); watch build stopped`);
-    const parent = appleArtifacts(app, { destination: 'ios-simulator' });
+    const production = args.includes('--release') || process.env.EXACT_UPDATE_TRUST === 'production';
+    const { optimize } = appleProduction(app, 'ios', args);
+    const parent = appleArtifacts(app, { destination: 'ios-simulator', trust: production ? 'production' : 'development', optimize: production ? optimize : 'speed' });
     const entries = watchEntries(app);
     const watch = { ...app, id: `${app.id}.watchkitapp` };
     const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
@@ -47,7 +50,6 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
       console.log(`host/apple: no watch entry and no Rust accessory entries; watch bundle omitted${args.includes('--run') ? '; --run skipped' : ''}`);
       return;
     }
-    const production = args.includes('--release') || process.env.EXACT_UPDATE_TRUST === 'production';
     const profile = production ? 'release' : HOST_DEV;
     const directory = resolve(parent.namespace, 'watchos'), target = 'aarch64-apple-watchos-sim', triple = 'arm64-apple-watchos10.0-simulator';
     mkdirSync(directory, { recursive: true });

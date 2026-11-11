@@ -286,7 +286,7 @@ export function assembleIOS({intents, shared, library, serviceDylibs, triple, ap
       entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: signingProfile?.prefix }),
       sign: (extension, ent) => run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), extension], { stdio: 'ignore' }) });
     // Each framework ships stripped as the executable does, before it is signed. A GPU framework keeps its bytes, which
-    // the bake names (Cargo's release profile stripped it). An App Clip's frameworks are the app's bytes: the same dSYMs.
+    // the bake names (Cargo's production profile stripped it). An App Clip's frameworks are the app's bytes: the same dSYMs.
     if (production) for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f.endsWith('.framework'))) {
       const gpu = gpuArtifacts.some(m => f === `${m.framework}.framework`);
       frameworkSaved.set(f, stripForDistribution(resolve(assembled, 'Frameworks', f, basename(f, '.framework')), resolve(keptSymbols, `${f}.dSYM`), { strip: !gpu }).saved);

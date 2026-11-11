@@ -714,7 +714,7 @@
             },
             "optimize": {
               "enum": ["speed", "size"],
-              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: size for an iOS or tvOS app and for an embed (`build.mjs --embed`); a game keeps speed. Games refuse size because their generated Cargo workspace has no size profile. tvOS shares this iOS setting. `build.mjs --optimize` overrides it."
             },
             "designRequiresCompatibility": {
               "type": "boolean",
@@ -860,7 +860,7 @@
             },
             "optimize": {
               "enum": ["speed", "size"],
-              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for a Mac app, size for an embed (`build.mjs --embed`); a game keeps speed. Games refuse size because their generated Cargo workspace has no size profile. `build.mjs --optimize` overrides it."
             },
             "oneTimeCodeAutofill": {
               "enum": ["marked"],

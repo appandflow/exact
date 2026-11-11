@@ -57,7 +57,7 @@ const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; m
 const APPLE = ['--painted-benchmark', '--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test', '--only <Class,…>',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
-const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
+const OPTIMIZE = ['--optimize speed|size', 'production Rust and ExactKit; default size on iOS/tvOS and embeds, speed on Mac; a game keeps speed and refuses size; app.json host.ios|macos.optimize overrides the default'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
 /** A build verb's `--json` (`reportBuilt`), with what else its object names and the flags it refuses. */
 const jsonBuilt = (more = '', refuses = '') => ['--json', `one JSON object on stdout, its last line: the artifact's path, target, trust${more} (a failure: code, error); the build's own output on stderr${refuses}`];
@@ -235,7 +235,7 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run|--prebuild|--no-install] [--json] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild|--no-install] [--json] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>] [--optimize speed|size]',
     common: ['ios [--run] [--sim <name>]    build for a simulator; --run launches it'],
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],

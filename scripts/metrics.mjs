@@ -1156,7 +1156,7 @@ if (long) {
   for (const optimize of ['speed', 'size']) {
     const bytes = out[`ios_${optimize}_bytes`], limit = IOS_HELLO_BYTES[optimize];
     const budget = Number.isFinite(bytes) ? `; budget ${limit.toLocaleString('en-US')} B, ${bytes.toLocaleString('en-US')} B ${bytes <= limit ? 'within' : 'VIOLATION'}` : '';
-    rows.push([`iOS: hello app, optimized for ${optimize}`, out[`ios_${optimize}_failed`] ? 'FAILED' : mib(bytes), out[`ios_${optimize}_failed`] ?? `production, simulator, stripped, over an empty UIKit app (${mib(out.ios_floor_bytes)}); one text node: the core and nothing a plan adds; ${optimize === 'size' ? 'what an embed builds' : 'what an app builds'} unless its manifest says otherwise${budget}`]);
+    rows.push([`iOS: hello app, optimized for ${optimize}`, out[`ios_${optimize}_failed`] ? 'FAILED' : mib(bytes), out[`ios_${optimize}_failed`] ?? `production, simulator, stripped, over an empty UIKit app (${mib(out.ios_floor_bytes)}); one text node: the core and nothing a plan adds; ${optimize === 'size' ? 'the iOS app and embed default' : 'an explicit speed choice'}${budget}`]);
   }
   rows.push(['macOS: touch one line, rebuild', out.macos_touch_failed ? 'FAILED' : s(out.macos_touch_s), out.macos_touch_failed ?? `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
   // The JS target's bytes, gated (LLP 1047.002 D5), then LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).

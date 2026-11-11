@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Build the macOS app — or, with --ios, the iOS app: the app's static
-// library (cargo, release), then the presenter (swift build) linked against
+// library (cargo), then the presenter (swift build) linked against
 // it. Usage:
 //   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS (--run assembles and launches the .app)
 //   bun host/apple/build.mjs [crate] --test [--only <Class,…>]               the Swift host tests, or only the classes named
@@ -65,7 +65,7 @@ import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleCargo } from '../../scripts/cargo-check.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
-import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
+import { appleComposition, appleProduction, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes, stripForDistribution, stripProductionExecutable };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, chooseSimulator, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 import { fileURLToPath } from 'node:url';
@@ -171,7 +171,7 @@ export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple
 export const moduleTripleFor = (app, ios, device = false, tv = false) =>
   ios ? iosTripleFor(app, device, tv) : `${macTriple}${deploymentTargets(app).macos}`;
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
-export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false, optimize = 'speed' } = {}) {
+export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false, optimize } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
   const platform = destination === 'macos' ? 'macos' : 'ios';
   composition ??= app.manifest.deploy?.store?.[platform] === '0' ? 'embedded' : 'updating';
@@ -189,8 +189,13 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   // on an M4; one shared by trust, at each switch to or from the production
   // whole-module build: 92 s). Only the link is the app's, made under `swiftLock`
   // and copied out to its private stage before the lock is released (`scratch`).
-  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : trust === 'production' ? '-whole' : ''}`);
-  return { owner, namespace, target, product, executable, products, composition, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
+  // Only Swift paths need compiler policy; lock and bundle lookups must not validate it.
+  const swift = () => {
+    optimize ??= trust === 'production' ? appleProduction(app, platform).optimize : 'speed';
+    return resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : trust === 'production' ? '-whole' : ''}`);
+  };
+  return { owner, namespace, target, product, executable, products, composition, scratch: resolve(namespace, 'link'),
+    get swift() { return swift(); }, get swiftLock() { return `${swift()}.lock`; },
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),
     binary: resolve(products, executable), bundle: destination === 'macos'
       ? resolve(owner, 'macos', `${host ? executableName(app) + ' Host' : executable}.app`)
@@ -615,6 +620,7 @@ async function main(args, lockHeld = false) {
     return (await import('../apple-painted/build.mjs')).buildPainted(app, args, { macInfoPlist });
   }
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
+  const { optimize, profile: productionProfile } = appleProduction(app, ios ? 'ios' : 'macos', args);
   // What the manifest and the app's files refuse is said before Cargo: an app with an update store ships into a stream,
   // so the bake refuses a production build without its receipt; packaging refuses a missing icon (assets.mjs).
   const store = `deploy.store.${ios ? 'ios' : 'macos'}`, streamed = app.manifest.deploy?.store?.[ios ? 'ios' : 'macos'] !== '0';
@@ -635,7 +641,7 @@ async function main(args, lockHeld = false) {
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
   let widgets = !tv && (ios ? hasEntries(app) : platformWidgetEntries(app, 'macos').length > 0);
   // Another build may take the claim first after that wait: this one waits again rather than refusing as busy.
-  const release = lockHeld ? () => {} : awaitBuildOutput(app, appleArtifacts(app).lock, () => console.error(`waiting for the Apple build of ${app.name} already running`));
+  const release = lockHeld ? () => {} : awaitBuildOutput(app, appleArtifacts(app, { optimize }).lock, () => console.error(`waiting for the Apple build of ${app.name} already running`));
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
   const crate = app.crate(ios ? 'ios' : 'macos');
@@ -689,19 +695,11 @@ async function main(args, lockHeld = false) {
     ...(ios ? tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : {}),
   };
   const built = () => ({ target: destination, trust: cargoEnv.EXACT_UPDATE_TRUST, signing: sha1 && sha1 !== '-' ? sha1 : 'ad-hoc' }); // `--json`'s object (help.mjs `jsonBuilt`)
-  // A production bake is `release`; any other builds `host-dev` (Cargo.toml),
-  // the same optimizations without whole-graph LTO, for the touch-one-line budget.
-  // An app outside this repo gets it with the root's other profiles, injected
-  // at build (injectedProfiles, LLP 1036.001 D1).
-  // A production build optimizes for speed (`release`) or for size (`size`,
-  // and Swift's -Osize; LLP 1047.001 D9): `--optimize`, else the manifest's
-  // `host.<platform>.optimize`, else size for an embed and speed for an app.
-  const optimize = (args.includes('--optimize') ? args[args.indexOf('--optimize') + 1] : undefined) ?? app.manifest.host?.[ios ? 'ios' : 'macos']?.optimize ?? (args.includes('--embed') ? 'size' : 'speed');
-  if (!['speed', 'size'].includes(optimize)) throw new Error(`host/apple: --optimize is speed or size, not ${optimize}`);
+  // Outside apps receive these profiles through injectedProfiles (LLP 1036.001 D1).
   const production = cargoEnv.EXACT_UPDATE_TRUST === 'production';
   const frameworkBundles = ios && production && !appleEmbedOnly(args);
   const frameworkPlatform = tv ? (device ? 'AppleTVOS' : 'AppleTVSimulator') : device ? 'iPhoneOS' : 'iPhoneSimulator';
-  const cargoProfile = production ? (optimize === 'size' ? 'size' : 'release') : HOST_DEV;
+  const cargoProfile = production ? productionProfile : HOST_DEV;
   // host-dev says `incremental = true`, and Cargo lets an inherited
   // CARGO_INCREMENTAL=0 (another project's shell setup) overrule the profile:
   // a touched kernel line then recompiles it whole, 17 s for 6 (an M5 Pro).
@@ -1307,7 +1305,7 @@ async function main(args, lockHeld = false) {
   const seconds = (ms) => (ms / 1000).toFixed(1);
   const timing = () => `cargo ${seconds(t1 - t0)} s, swift ${seconds(tSwift - t1)} s, arms ${seconds(tArms - tSwift)} s, modules ${seconds(t2 - tArms)} s, package ${seconds(Date.now() - t2)} s`;
   const bin = resolve(binDir, paths.executable);
-  const hostPaths = appleArtifacts(app, { destination, composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
+  const hostPaths = appleArtifacts(app, { destination, composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true, optimize: production ? optimize : 'speed' });
   const publishProducts = () => {
     if (!ios && shared) publishMacFramework(shared.framework, paths.namespace, sha1);
     if (args.includes('--host')) {
@@ -1472,7 +1470,7 @@ async function test(args) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(new URL(import.meta.url))) {
   const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   if (args.includes('--phone') && !args.includes('--device')) throw new Error('--phone needs --device; for a simulator use --sim <udid|name> (or EXACT_SIM)');
-  useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
+  useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production';
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.rebuild ? `${error.message}: ${rebuildArgs(args)}` : error.message); process.exitCode = 1; });
 }
 

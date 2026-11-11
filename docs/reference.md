@@ -3125,6 +3125,16 @@ Debug assertions and overflow checks remain enabled; the normal development
 profile still leaves app and engine code unoptimized. Tests keep their full frame
 counts. Use release builds when comparing application frame costs.
 
+Production Apple builds optimize Rust and ExactKit for size on iOS and tvOS,
+and for speed on macOS. Embeds default to size on every Apple platform;
+a game keeps speed.
+`host.ios.optimize` (also used by tvOS) or `host.macos.optimize` in app.json
+selects `"size"` or `"speed"`; `--optimize speed|size` overrides it. Size uses
+Cargo's `size` profile and Swift `-Osize -internalize-at-link`; speed uses
+`release` and `-O`. Games refuse size because their generated Cargo workspace
+has no `size` profile.
+Development builds keep `host-dev` (LLP 1047.001 D9).
+
 An unset `EXACT_UPDATE_TRUST` bakes development trust. A development binary
 admits unsigned heads, so it checks only an origin named by
 `EXACT_UPDATE_ORIGIN`, never the manifest's. `EXACT_UPDATE_TRUST=production`

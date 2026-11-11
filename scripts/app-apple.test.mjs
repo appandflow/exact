@@ -17,6 +17,62 @@ delete process.env.DEVELOPMENT_TEAM;
 
 const packagingTools = process.platform === 'darwin' && ['clang', 'codesign', 'sips', 'dsymutil', 'nm'].every((tool) => Bun.which(tool));
 
+test('Apple production optimization defaults, manifest choices and command-line overrides agree with artifact paths', async () => {
+  const { appleProduction } = await import('../host/apple/link.mjs');
+  const { appleArtifacts } = await import('../host/apple/build.mjs');
+  for (const [platform, destination] of [['ios', 'ios'], ['ios', 'ios-simulator'], ['tvos', 'tvos'], ['tvos', 'tvos-simulator'], ['macos', 'macos']]) {
+    for (const game of [false, true]) for (const embed of [false, true]) for (const manifest of [undefined, 'speed', 'size']) for (const cli of [undefined, 'speed', 'size']) {
+      const key = platform === 'macos' ? 'macos' : 'ios';
+      const app = { dir: import.meta.dir, target: '/fixture/target', id: 'test.fixture', name: 'fixture', displayName: 'Fixture', manifest: { ...(game ? { game: { crate: 'fixture-logic' } } : {}), host: { [key]: { optimize: manifest } } } };
+      const args = [...(embed ? ['--embed'] : []), ...(cli ? ['--optimize', cli] : [])];
+      const expected = cli ?? manifest ?? (game ? 'speed' : embed || platform !== 'macos' ? 'size' : 'speed');
+      if (game && expected === 'size') {
+        assert.throws(() => appleProduction(app, platform, args), /games cannot optimize for size because their generated Cargo workspace has no size profile; use speed/);
+        continue;
+      }
+      const selected = appleProduction(app, platform, args);
+      assert.deepEqual(selected, { optimize: expected, profile: expected === 'size' ? 'size' : 'release' });
+      const paths = appleArtifacts(app, { destination, trust: 'production', ...(embed || cli ? { optimize: selected.optimize } : {}) });
+      assert.ok(paths.swift.endsWith(expected === 'size' ? '-size' : '-whole'), JSON.stringify({ platform, args, manifest, paths }));
+      const development = appleArtifacts(app, { destination, trust: 'development' });
+      assert.doesNotMatch(development.swift, /-(size|whole)$/);
+    }
+  }
+  for (const args of [['--optimize', 'other'], ['--optimize']]) assert.throws(() => appleProduction({ manifest: {} }, 'ios', args), /--optimize is speed or size/);
+  const trust = process.env.EXACT_UPDATE_TRUST;
+  process.env.EXACT_UPDATE_TRUST = 'production';
+  try {
+    const app = { dir: import.meta.dir, target: '/fixture/target', id: 'test.fixture', name: 'fixture', displayName: 'Fixture', manifest: { game: { crate: 'fixture-logic' }, host: { macos: { optimize: 'size' } } } };
+    const paths = appleArtifacts(app);
+    assert.ok(paths.lock.endsWith('/.apple-build.lock'));
+    assert.ok(paths.bundle.endsWith('/macos/Fixture.app'));
+    assert.throws(() => paths.swift, /games cannot optimize for size/);
+    assert.throws(() => paths.swiftLock, /games cannot optimize for size/);
+    assert.ok(appleArtifacts(app, { destination: 'ios' }).swift.endsWith('-whole'));
+  } finally {
+    if (trust === undefined) delete process.env.EXACT_UPDATE_TRUST;
+    else process.env.EXACT_UPDATE_TRUST = trust;
+  }
+});
+
+test.skipIf(process.platform === 'win32')('Apple builder startup honors --optimize speed over a game manifest requesting size', async () => {
+  const { appleArtifacts } = await import('../host/apple/build.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-optimize-')));
+  try {
+    const manifest = { name: 'Fixture', app: { id: 'test.fixture', name: 'Fixture' }, game: { crate: 'fixture-logic', type: 'Fixture' }, host: { macos: { optimize: 'size' } } };
+    writeFileSync(resolve(dir, 'app.contract'), 'component A\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+    const paths = appleArtifacts({ dir, target: resolve(dir, 'target'), id: 'test.fixture', displayName: 'Fixture', manifest }, { optimize: 'speed' });
+    // Stop at the writer claim, after the startup path lookups and before any compiler runs.
+    mkdirSync(`${paths.lock}.flock`, { recursive: true });
+    const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--release', '--optimize', 'speed', dir],
+      { encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: '', CARGO_TARGET_DIR: '' } });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /EISDIR.*\.apple-build\.lock\.flock/);
+    assert.doesNotMatch(result.stderr, /games cannot optimize for size/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks and a small receipt with or without an archive', async () => {
   useXcode();
   const { createHash } = await import('node:crypto');

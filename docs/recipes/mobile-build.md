@@ -2,9 +2,9 @@
 
 Run in the app directory. `--json` prints `path`, `target`, `trust` and (on Apple)
 `signing` on stdout; failures print `code` and `error`. Logs go to stderr.
-It takes no `--run`, `--prebuild` or `--test`. Releases omit the agent.
+No `--run`, `--prebuild` or `--test`. Releases omit the agent.
 
-Production bakes with an update store need `deploy.signing.keys` and either
+Updating production bakes need `deploy.signing.keys` and either
 `EXACT_UPDATE_RECEIPT` (an authenticated publisher receipt) or
 `EXACT_UPDATE_GENESIS=1` (a new stream), including simulator and Android builds.
 Store `"0"` needs no updates, keys or receipts: set `deploy.store.ios: "0"`
@@ -16,7 +16,7 @@ Store `"0"` needs no updates, keys or receipts: set `deploy.store.ios: "0"`
 bun exact.mjs ios --release --no-install --json
 ```
 
-`--sim <udid|name>` selects a simulator; omit `--no-install` to install.
+`--sim <udid|name>` selects it; omit `--no-install` to install.
 
 **Signed iPhone:** needs a phone this Mac knows, an Apple Development identity
 with its private key, and a profile covering its UDID, bundle id and entitlements:
@@ -31,7 +31,7 @@ Development identity. `EXACT_PROFILE=<file.mobileprovision>` and
 bundle id and phone, unset it, or run an Xcode project with that bundle id and
 team on that phone with Automatically manage signing, then retry. Connect to install.
 
-**No team or phone:** an ad-hoc signed device `.app`, without installation:
+**No team or phone:** an ad-hoc signed device `.app`, no installation:
 
 ```sh
 bun exact.mjs ios --device --release --unsigned --json
@@ -55,8 +55,9 @@ the lock/verification files. Missing locks refuse before Rust compiles and name
 the app-local command to write them.
 
 Read JSON's absolute `path`; `--archive` paths are relative to the working directory.
+iOS defaults to size (games: speed); `--optimize speed` overrides.
 
-Check setup: `bun <exact2>/scripts/exact.mjs setup --check`.
+Setup: `bun <exact2>/scripts/exact.mjs setup --check`.
 Apple: Mac, Xcode/iOS SDK 27.1+, target Rust std/Hermes; simulator runtime to run.
 Android: platform-tools, NDK, JDK 17+ (`JAVA_HOME` or Android Studio's on macOS),
 `aarch64-linux-android` Rust std/Hermes. Setup reports the platform and build-tools
