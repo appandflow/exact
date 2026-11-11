@@ -1,6 +1,7 @@
 # A removed element that plays an exit animation runs its `resize` action once more, on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** On the JS target, resize actions stop when their scope ends, including while an exit ghost remains connected.
 **Systems:** host/web-js/observers.js, host/web/presence-glue.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

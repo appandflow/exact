@@ -204,6 +204,68 @@ component App
   } finally { await app.close(); }
 }, 60000);
 
+test('an exit ghost does not run its resize action when its fractional box is rounded', async () => {
+  const app = await exitApp('chromium', `keyframes leave
+  to opacity=0
+
+component App
+  state shown = true
+  state calls = 0
+  state seen = "none"
+  action hide
+    shown = false
+  action fit(w: number, h: number)
+    calls = calls + 1
+    seen = \`\${w}x\${h}\`
+  view
+    column
+      button "hide" press=hide testId="hide"
+      text \`\${calls} \${seen} \${shown}\` testId="seen"
+      if shown
+        box testId="panel" width=200.4 height=80.4 resize=fit -exact-exit-animation="leave 600ms linear both"
+`);
+  try {
+    const { page } = app;
+    await page.waitForFunction(() => document.querySelector('[data-testid="seen"]')?.textContent.startsWith('1 '));
+    const result = await page.evaluate(async () => {
+      const panel = document.querySelector('[data-testid="panel"]');
+      const seen = document.querySelector('[data-testid="seen"]');
+      const before = seen.textContent;
+      // Wait for the browser to report the ghost's changed box before checking that no action ran.
+      const resized = new Promise(resolve => {
+        const observer = new ResizeObserver(entries => {
+          const rect = entries.find(entry => entry.target === panel)?.contentRect;
+          if (panel.hasAttribute('data-exiting') && rect?.width === 200 && rect.height === 80) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(panel);
+      });
+      const exiting = new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+          if (!panel.hasAttribute('data-exiting')) return;
+          observer.disconnect();
+          for (const animation of panel.getAnimations()) animation.pause();
+          resolve();
+        });
+        observer.observe(panel, { attributes: true, attributeFilter: ['data-exiting'] });
+      });
+      document.querySelector('[data-testid="hide"]').click();
+      await exiting;
+      await resized;
+      await new Promise(requestAnimationFrame);
+      const after = seen.textContent, connected = panel.isConnected;
+      await Promise.all(panel.getAnimations().map(animation => (animation.finish(), animation.finished)));
+      return { before, after, connected, removed: !panel.isConnected };
+    });
+    expect(result.before).toMatch(/^1 200\.\d+x80\.\d+ true$/);
+    expect(result.connected).toBe(true);
+    expect(result.removed).toBe(true);
+    expect(result.after).toBe(result.before.replace(' true', ' false'));
+  } finally { await app.close(); }
+}, 30000);
+
 /** `source` compiled to the JS target and opened in `engine` with presence loaded. `drop(button)` presses `button`,
  * reports the exit animations that start, then finishes them; `close()` removes the page, server and app. */
 async function exitApp(engine, source, pageOptions) {
