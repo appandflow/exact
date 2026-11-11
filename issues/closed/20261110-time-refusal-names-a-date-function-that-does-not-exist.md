@@ -1,6 +1,7 @@
 # `time`'s refusals and its `vocab` entry tell the author to write `date("…")`, a function Contract does not have
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Time refusals and vocabulary describe numeric instants from data sources or exactTime(), with examples that compile.
 **Systems:** contract/lower (live_time.rs, values.rs, vocab.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

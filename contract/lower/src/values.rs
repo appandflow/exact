@@ -1207,7 +1207,7 @@ pub(crate) fn check_prop_value(
     if !ok && prop == PropId::Datetime {
         return err(
             "lower-time-instant",
-            "`datetime` is an instant in epoch milliseconds; parse a string with `date(…)`",
+            crate::live_time::INSTANT_REFUSAL,
             span,
         );
     }

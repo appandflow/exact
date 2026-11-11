@@ -57,6 +57,24 @@ fn other_output_errors_still_fail() {
     assert!(error.starts_with("contract: stdout:"), "{error}");
 }
 
+#[test]
+fn time_names_numeric_instant_sources() {
+    let out = stdout(&vocab(&["time"]));
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "time"]))).unwrap();
+    for note in [out.as_str(), json["tag"]["note"].as_str().unwrap()] {
+        assert!(!note.contains("date("), "{note}");
+        for expected in ["epoch milliseconds", "data module", "exactTime()"] {
+            assert!(note.contains(expected), "{note}");
+        }
+        for repair in [
+            "datetime=event.at",
+            "datetime=(wall.epochAtZero + performanceNow())",
+        ] {
+            assert!(note.contains(repair), "{note}");
+        }
+    }
+}
+
 /// An event record an arity refusal names (`ScrollEvent`) and a grammar word
 /// a recipe answers (`sequence`, `keyframes`) are one lookup each: euxy ports
 /// 19 and 20 grepped the guides for them.
