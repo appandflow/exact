@@ -1,6 +1,7 @@
 # A followed MIDI clock's tempo has no bound, so ticks stamped microseconds apart expand a fill without limit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Followed clocks retain their prior or last valid estimate above 2,500 BPM, and every fill drops tracks exceeding 1,000 loops per second at its actual tempo.
 **Systems:** runner/src/transport/clock.rs, runner/src/transport.rs, host/web-js/clockin.js, host/web-js/transport.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -1953,8 +1953,11 @@ segments, and its last 64 haptics with their states.
 input's clock. The input's ticks, Start, Continue, Stop and Song Position
 reach the runner with their arm timestamps in its ordinary input deliveries:
 ticks alone at most 50 ms after the oldest, anything else at once with the
-ticks ahead of it. The runner takes the tempo from the last 48 tick stamps,
-counts the position in ticks, and issues hits only to 100 ms past each
+ticks ahead of it. The runner takes the tempo from the last 48 tick stamps;
+an estimate above 2,500 BPM leaves the previous estimate, or the `bpm=` prior,
+standing. Before each fill, a track that would loop more than 1,000 times a
+second at the followed tempo is dropped and journaled. The runner counts
+the position in ticks and issues hits only to 100 ms past each
 delivery (the batch plus the 50 ms hold), so a hit is timed from the newest
 estimate; a new tempo or phase that moves a hit not yet within the hold by
 more than 2 ms takes the hits back (`by clock`) and issues them again. The
