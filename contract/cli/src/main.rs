@@ -33,9 +33,9 @@ mod verify;
 mod vocab;
 
 const USAGE: &str = "usage:
-  contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)]
+  contract build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)]
   contract migrate <file.contract>
-  contract symbols <file.contract> [--name <exact-name>]
+  contract symbols <file.contract> [--stdin] [--name <exact-name>]
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
   contract fmt --uses <file.contract>
@@ -155,8 +155,20 @@ fn gallery(args: &[String]) -> ExitCode {
 }
 
 fn symbols(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract symbols <file.contract> [--name <exact-name>]";
-    let (input, name) = match args {
+    const USAGE: &str = "usage: contract symbols <file.contract> [--stdin] [--name <exact-name>]
+  --stdin: the file's text is stdin's, read as if saved at <file.contract>";
+    // `--stdin`, anywhere once but as `--name`'s value (a literal ID may be
+    // spelled so): the rest is matched without it.
+    let (mut stdin, mut rest) = (0, Vec::new());
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--stdin" && (i == 0 || args[i - 1] != "--name") {
+            stdin += 1;
+        } else {
+            rest.push(arg.clone());
+        }
+    }
+    let args = rest;
+    let (input, name) = match args.as_slice() {
         [flag] if matches!(flag.as_str(), "--help" | "-h") => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -170,7 +182,24 @@ fn symbols(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match contract::symbols_json(std::path::Path::new(input), name) {
+    if stdin > 1 {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    }
+    let path = std::path::Path::new(input);
+    let symbols = if stdin == 1 {
+        let mut text = String::new();
+        if let Err(cause) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
+            eprintln!("contract symbols: stdin: {cause}");
+            return ExitCode::from(1);
+        }
+        contract::with_contract_texts(vec![(path.into(), text)], || {
+            contract::symbols_json(path, name)
+        })
+    } else {
+        contract::symbols_json(path, name)
+    };
+    match symbols {
         Ok(json) => {
             println!("{json}");
             ExitCode::SUCCESS

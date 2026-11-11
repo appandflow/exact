@@ -12,7 +12,10 @@ pub fn excerpt(error: &CompileError) -> String {
     let Some(index) = (line as usize).checked_sub(1) else {
         return String::new();
     };
-    let Ok(text) = std::fs::read_to_string(file) else {
+    // An unsaved text held for the file (`build --stdin`) is the one quoted.
+    let read =
+        crate::sources::contract_text(file).map_or_else(|| std::fs::read_to_string(file), Ok);
+    let Ok(text) = read else {
         return String::new();
     };
     match text.lines().nth(index) {

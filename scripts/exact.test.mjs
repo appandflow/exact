@@ -944,6 +944,13 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   const error = JSON.parse(r.stdout).find((d) => d.file === 'app.ts');
   assert.deepEqual({ ...error, message: undefined }, { id: 'typescript-TS2322', severity: 'error', message: undefined, file: 'app.ts', line: 1, col: 14, end_col: 14, related: [] });
   assert.match(error.message, /not assignable to type 'number'/);
+  // Unsaved text (`--stdin`, issue #21) is the compiler's reply alone: no types are written from it, and app.ts is
+  // not checked against types no file holds.
+  const saved = readFileSync(types, 'utf8');
+  r = spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), 'contract', 'build', 'app.contract', '--json', '--stdin'], { cwd: dir, input: contract('  extra: number\n'), encoding: 'utf8', timeout: 600_000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual([r.stdout, r.stderr], ['[]\n', '']);
+  assert.equal(readFileSync(types, 'utf8'), saved);
 }), 600_000); // The first call may compile the compiler.
 
 // `exact.mjs docs <words>`: the section that holds the words as whole words, most densely, first; printed from its

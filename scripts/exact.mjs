@@ -692,8 +692,9 @@ export function contract(args, env = process.env) {
   const json = args[0] === 'build' && args.includes('--json');
   const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
-  // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
-  const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
+  // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5); of unsaved text
+  // (`--stdin`), whose types no file holds, neither refreshes them nor type-checks app.ts.
+  const input = args[0] === 'build' && !args.includes('--stdin') ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
   if (result.status === 0 && input && basename(input) === 'app.contract') {
     const dir = dirname(resolve(input));
     refreshTypes(dir, binary, {quiet: json});

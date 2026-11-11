@@ -247,6 +247,24 @@ same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes 
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
 
+`--stdin` gives `build` and `symbols` the named file's text on stdin, an
+editor's unsaved buffer, in place of what is saved there:
+
+```sh
+contract build app.contract --json --stdin < buffer
+contract symbols app.contract --stdin < buffer
+```
+
+The text is read as if it were saved at that path: its `use` and `members`
+lines resolve beside it, every other file is read from disk, and the output
+on both streams and the exit code are those the same text saved there gives,
+diagnostics' `file` and ranges and the text form's quoted lines included.
+Only the named file's text is replaced. Unsaved text writes no file but
+`-o`'s: `build` leaves an existing `<file>.d.ts` as it is (so it never says
+it regenerated it), and `bun exact.mjs contract build app.contract --stdin`
+neither refreshes the types `app.ts` imports nor type-checks `app.ts`.
+`--stdin` takes no `--entry`.
+
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
 component call-site chain, and one binding per style row: its base value's

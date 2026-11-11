@@ -2,7 +2,7 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
+const USAGE: &str = "usage: contract build <file.contract> [--stdin] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map or --stdin)]";
 
 struct Options<'a> {
     input: &'a str,
@@ -10,6 +10,9 @@ struct Options<'a> {
     json: bool,
     errors_only: bool,
     map: bool,
+    /// The file's text is stdin's, read as if saved at `input` (an editor's
+    /// unsaved buffer): its `use` lines and diagnostics name that path.
+    stdin: bool,
     /// A widget entry's kind (LLP 1126 D2): its plan instead of the app's,
     /// compiled as the bake compiles it from `app.json` beside the input.
     entry: Option<&'a str>,
@@ -17,13 +20,14 @@ struct Options<'a> {
 
 fn options(args: &[String]) -> Option<Options<'_>> {
     let (mut input, mut output, mut json, mut map, mut entry) = (None, None, false, false, None);
-    let mut errors_only = false;
+    let (mut errors_only, mut stdin) = (false, false);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--json" if !json => json = true,
             "--errors-only" if !errors_only => errors_only = true,
             "--map" if !map => map = true,
+            "--stdin" if !stdin => stdin = true,
             "-o" if output.is_none() => {
                 output = Some(args.next()?.as_str());
                 if output?.starts_with('-') {
@@ -41,7 +45,7 @@ fn options(args: &[String]) -> Option<Options<'_>> {
         }
     }
     // An entry plan has no source map yet: `--map` with `--entry` is refused.
-    if (map || entry.is_some()) && output.is_none() || (map && entry.is_some()) {
+    if (map || entry.is_some()) && output.is_none() || (map || stdin) && entry.is_some() {
         return None;
     }
     Some(Options {
@@ -50,6 +54,7 @@ fn options(args: &[String]) -> Option<Options<'_>> {
         json,
         errors_only,
         map,
+        stdin,
         entry,
     })
 }
@@ -153,24 +158,41 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let Some(Options {
-        input,
-        output,
-        json,
-        errors_only,
-        map,
-        entry,
-    }) = options(args)
-    else {
+    let Some(options) = options(args) else {
         return report(
             &error("contract-build-usage", USAGE.into(), None),
             args.iter().any(|arg| arg == "--json"),
             2,
         );
     };
-    if let (Some(kind), Some(output)) = (entry, output) {
-        return build_entry(input, kind, output, json);
+    if let (Some(kind), Some(output)) = (options.entry, options.output) {
+        return build_entry(options.input, kind, output, options.json);
     }
+    if !options.stdin {
+        return build(&options);
+    }
+    let mut text = String::new();
+    if let Err(cause) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
+        let message = format!("stdin: {cause}");
+        return report(
+            &error("contract-build-stdin", message, Some(options.input)),
+            options.json,
+            1,
+        );
+    }
+    contract::with_contract_texts(vec![(options.input.into(), text)], || build(&options))
+}
+
+fn build(options: &Options) -> ExitCode {
+    let &Options {
+        input,
+        output,
+        json,
+        errors_only,
+        map,
+        stdin,
+        ..
+    } = options;
     // The map is always built: it prices each component for the summary.
     let want_map = map;
     // A game's surface arguments are checked apart: against a declaration
@@ -234,9 +256,10 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     };
     // Existing declarations are an author's data seam. Refresh them from this
     // successful compile, including imported source changes, without creating
-    // declarations for builds that never requested TypeScript.
+    // declarations for builds that never requested TypeScript. Text that is
+    // not saved (`--stdin`) writes none: they stay the saved sources'.
     let declaration = format!("{input}.d.ts");
-    if Path::new(&declaration).is_file() {
+    if !stdin && Path::new(&declaration).is_file() {
         let exports = contract::design_exports(Path::new(&input));
         let types = match contract::typescript_exporting(&plan, exports.as_deref()) {
             Ok(types) => types,
