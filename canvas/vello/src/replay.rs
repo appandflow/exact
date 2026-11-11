@@ -500,7 +500,8 @@ impl Replayer {
                 if r.op == Op::FillText {
                     let style = self.state.fill.clone();
                     self.paint(frame, host, Geom::Fill(&outline, Fill::NonZero, t), &style);
-                } else if let Some(stroke) = self.stroke_style() {
+                } else {
+                    let stroke = self.stroke_style();
                     let style = self.state.stroke.clone();
                     self.paint(frame, host, Geom::Stroke(&outline, stroke, t), &style);
                 }
@@ -512,9 +513,7 @@ impl Replayer {
 
     /// Stroke `user` (user space) with the stroke style under base ∘ author.
     fn stroke_user(&mut self, frame: &mut Frame, host: &mut dyn Host, user: &BezPath) {
-        let Some(stroke) = self.stroke_style() else {
-            return;
-        };
+        let stroke = self.stroke_style();
         let t = self.device();
         let style = self.state.stroke.clone();
         self.paint(frame, host, Geom::Stroke(user, stroke, t), &style);
@@ -624,21 +623,17 @@ impl Replayer {
         );
     }
 
-    /// The stroke with the state's line style; none when the dash list is
-    /// all zeros (nothing is drawn).
-    pub fn stroke_style(&self) -> Option<vello::kurbo::Stroke> {
+    /// The stroke with the state's line style; an all-zero dash list is solid.
+    pub fn stroke_style(&self) -> vello::kurbo::Stroke {
         let s = &self.state;
         let mut stroke = vello::kurbo::Stroke::new(s.width)
             .with_caps(s.cap)
             .with_join(s.join)
             .with_miter_limit(s.miter);
-        if !s.dash.is_empty() {
-            if s.dash.iter().all(|v| *v == 0.0) {
-                return None;
-            }
+        if s.dash.iter().any(|v| *v != 0.0) {
             stroke = stroke.with_dashes(s.dash_offset, s.dash.iter().copied());
         }
-        Some(stroke)
+        stroke
     }
 }
 

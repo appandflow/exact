@@ -1,6 +1,7 @@
 # A dash list of zeros strokes nothing on the vello and Linux replayers, a solid line everywhere else
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** All-zero dash lists produce solid strokes in the vello and Linux Canvas 2D replayers.
 **Systems:** canvas/vello/src/replay.rs, host/linux/src/canvas2d/mod.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
