@@ -264,6 +264,8 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config.size = (opening.width, opening.height);
     }
     let mut builder = EventLoop::<crate::accessibility::Event>::with_user_event();
+    // `crate::on_desktop_stack`'s thread, not the process's first.
+    builder.with_any_thread(true);
     let ime = crate::ime::InputMethod::default();
     let desktop = crate::desktop::Desktop::install(name);
     let ime_message = ime.message_hook();
