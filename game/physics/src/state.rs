@@ -624,6 +624,58 @@ mod tests {
         }
     }
 
+    // An authored inertia replaces the derived one along the body's axes and keeps
+    // the derived mass and centre of mass, with a collider or without one.
+    #[test]
+    fn an_authored_inertia_replaces_the_derived_one() {
+        use crate::{Physics, Shape};
+        use exact_game::{Vec3, World};
+        let inertia = Vec3::new(1.0, 2.0, 3.0);
+        let offset = Vec3::new(0.0, 0.25, 0.0);
+        let collider = Collider {
+            shape: Shape::Box {
+                half: Vec3::new(0.5, 0.1, 0.2),
+            },
+            offset,
+            ..Collider::default()
+        };
+        for (mass, collider, com) in [
+            (0.0, Some(collider.clone()), offset),
+            (3.0, Some(collider), offset),
+            (3.0, None, Vec3::ZERO),
+        ] {
+            let mut w = World::new(60, 0);
+            crate::register(&mut w);
+            let body = Body {
+                gravity: 0.0,
+                mass,
+                inertia,
+                ..Body::default()
+            };
+            let e = w.spawn((Transform::default(), body));
+            if let Some(c) = collider.clone() {
+                w.insert(e, c);
+            }
+            crate::step(&mut w);
+            let p = w.resource::<Physics>();
+            let mut saved = p.executor.0.borrow_mut();
+            let live = saved.live();
+            let rb = &live.rapier.bodies[live.entries[&e].bh().unwrap()];
+            let m = rb.mass_properties().local_mprops;
+            let want = match (mass, collider.is_some()) {
+                (0.0, true) => 1000.0 * 1.0 * 0.2 * 0.4,
+                _ => mass,
+            };
+            assert!((m.mass() - want).abs() < 1e-3, "{mass}: {}", m.mass());
+            assert_eq!(crate::math::vec3(m.principal_inertia()), inertia);
+            assert_eq!(crate::math::vec3(m.local_com), com);
+            assert_eq!(
+                m.principal_inertia_local_frame,
+                rapier3d::math::Rotation::IDENTITY
+            );
+        }
+    }
+
     #[test]
     fn stale_physics_is_refused_during_read() {
         for bytes in [

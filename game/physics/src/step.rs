@@ -52,11 +52,26 @@ pub(crate) fn try_collider(
     } else {
         SharedShape::compound(vec![(offset, shape)])
     };
+    // An authored inertia keeps the derived centre of mass and mass, with its
+    // principal axes along the body's.
+    let inertia = body
+        .map(|b| b.inertia)
+        .filter(|i| *i != exact_game::Vec3::ZERO);
+    let rounded = match inertia {
+        Some(i) => {
+            let mut m = rounded.unwrap_or_else(|| shape.mass_properties(1000.0));
+            if let Some(mass) = mass {
+                m.set_mass(mass, false);
+            }
+            Some(MassProperties::new(m.local_com, m.mass(), math::vector(i)))
+        }
+        None => rounded,
+    };
     let builder = ColliderBuilder::new(shape)
         .friction(c.friction)
         .friction_combine_rule(CoefficientCombineRule::GeometricMean)
         .restitution(c.bounce)
-        .restitution_combine_rule(CoefficientCombineRule::Max)
+        .restitution_combine_rule(restitution_rule(c))
         .sensor(c.sensor)
         .collision_groups(InteractionGroups::new(
             Group::from_bits_retain(c.layer),
@@ -70,6 +85,15 @@ pub(crate) fn try_collider(
         (None, Some(mass)) => builder.mass(mass),
         (None, None) => builder.density(1000.0),
     })
+}
+// Rapier combines a pair by the higher-priority rule of the two, and Average has
+// the lowest: the average applies only when both colliders ask for it.
+fn restitution_rule(c: &Collider) -> CoefficientCombineRule {
+    if c.bounce_average {
+        CoefficientCombineRule::Average
+    } else {
+        CoefficientCombineRule::Max
+    }
 }
 // The rows one sync visits. Every other row equals its entry by construction:
 // the last sync recorded it and nothing has written it since, so visiting it would
@@ -201,7 +225,10 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                     && b.damping.is_finite()
                     && b.damping >= 0.0
                     && b.spin_damping.is_finite()
-                    && b.spin_damping >= 0.0,
+                    && b.spin_damping >= 0.0
+                    && b.force.is_finite()
+                    && b.inertia.is_finite()
+                    && (b.inertia == exact_game::Vec3::ZERO || b.inertia.min_element() > 0.0),
                 "physics: invalid body"
             );
             if entry.body_handle.is_none() {
@@ -224,18 +251,21 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             }
             let rb = &mut r.bodies[entry.bh().unwrap()];
             if body_changed || entry.collider.is_some() != c.is_some() {
-                rb.set_additional_mass(
-                    if c.is_none() {
-                        if b.mass > 0.0 {
-                            b.mass
-                        } else {
-                            1.0
-                        }
-                    } else {
-                        0.0
-                    },
-                    true,
-                );
+                let mass = if c.is_some() {
+                    0.0
+                } else if b.mass > 0.0 {
+                    b.mass
+                } else {
+                    1.0
+                };
+                if c.is_none() && b.inertia != exact_game::Vec3::ZERO {
+                    rb.set_additional_mass_properties(
+                        MassProperties::new(Vector::ZERO, mass, math::vector(b.inertia)),
+                        true,
+                    );
+                } else {
+                    rb.set_additional_mass(mass, true);
+                }
             }
             if body_changed {
                 rb.set_body_type(body_type(b.kind), true);
@@ -259,6 +289,16 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                     }
                 }
             }
+            // Rapier keeps a dynamic body's force until it is reset, and saves it;
+            // `add_force` ignores other kinds. Both calls do nothing at zero.
+            if entry
+                .body
+                .as_ref()
+                .is_none_or(|p| p.force != b.force || p.kind != b.kind)
+            {
+                rb.reset_forces(false);
+                rb.add_force(math::vector(b.force), true);
+            }
             if b.kind == BodyKind::Kinematic {
                 moved_kinematic |= pose_changed;
                 rb.set_next_kinematic_position(math::pose(t));
@@ -276,7 +316,8 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         // The collider's mass properties derive from its shape, offset and scale and
         // the body's mass. They are set only when one of those changes, so a material
         // edit keeps the ones a restored world carries.
-        let solid_changed = entry.body.as_ref().map(|b| b.mass) != b.map(|b| b.mass)
+        let solid_changed = entry.body.as_ref().map(|b| (b.mass, b.inertia))
+            != b.map(|b| (b.mass, b.inertia))
             || entry.pose.scale != t.scale
             || entry.collider.as_ref().map(|p| (&p.shape, p.offset))
                 != c.map(|c| (&c.shape, c.offset));
@@ -304,6 +345,7 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 co.set_shape(built.shared_shape().clone());
                 co.set_friction(c.friction);
                 co.set_restitution(c.bounce);
+                co.set_restitution_combine_rule(restitution_rule(c));
                 co.set_sensor(c.sensor);
                 co.set_active_collision_types(built.active_collision_types());
                 co.set_collision_groups(built.collision_groups());

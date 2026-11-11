@@ -45,6 +45,18 @@ pub struct Body {
     /// value: reading a serialized body without CCD into one with CCD leaves CCD
     /// on. To turn it off, write the field.
     pub ccd: bool,
+    /// A world-space force at the centre of mass in newtons, applied in every step
+    /// until it is written back to zero. Contacts still act on the body, as they do
+    /// under gravity. Ignored on static and kinematic bodies. Writing a non-zero
+    /// force wakes the body; a body at rest under a constant force may sleep, as
+    /// under gravity. Saved, hashed and serialized only when non-zero, with the
+    /// omission rule of `ccd`.
+    pub force: Vec3,
+    /// Principal moments of inertia in kg·m² about the centre of mass, along the
+    /// body's local axes. All zero (the default) derives them from the collider;
+    /// otherwise all three must be positive. Saved, hashed and serialized only when
+    /// set, with the omission rule of `ccd`.
+    pub inertia: Vec3,
 }
 impl Default for Body {
     fn default() -> Self {
@@ -58,33 +70,49 @@ impl Default for Body {
             spin_damping: 0.0,
             asleep: false,
             ccd: false,
+            force: Vec3::ZERO,
+            inertia: Vec3::ZERO,
         }
     }
 }
-/// The derive's encoding, except that `ccd` is written only when set: a world
-/// without CCD keeps the saves and hashes it has. Reading keeps the record rule:
-/// an omitted `ccd` keeps its value, which is false when decoding a new body.
-macro_rules! body_record {
-    ($($field:ident),* $(,)?) => {
-        impl Data for Body {
-            const TYPE_ID: &'static str = concat!("table:", module_path!(), "::Body");
+/// The derive's record, plus fields written only when they differ from the type's
+/// default, so a value that never sets them keeps the saves and hashes it has.
+/// Reading keeps the record rule: an omitted field keeps its current value, which
+/// is the default when decoding a new value. The first list is always written; the
+/// second is `Body::ccd`, which predates the third; the third is named in the hash
+/// as well (`Writer::key`), since a hash does not name fields and two of them
+/// written alone could otherwise collide.
+macro_rules! record {
+    ($ty:ident { $($field:ident),* $(,)? } unnamed { $($bare:ident),* $(,)? } named { $($opt:ident),* $(,)? }) => {
+        impl exact_game::Data for $ty {
+            const TYPE_ID: &'static str = concat!("table:", module_path!(), "::", stringify!($ty));
             fn set_field(&mut self, field: &str, text: &str) -> Result<(), exact_game::DataError> {
                 match field {
                     $(stringify!($field) => exact_game::data::edit_field(&mut self.$field, text),)*
-                    "ccd" => exact_game::data::edit_field(&mut self.ccd, text),
+                    $(stringify!($bare) => exact_game::data::edit_field(&mut self.$bare, text),)*
+                    $(stringify!($opt) => exact_game::data::edit_field(&mut self.$opt, text),)*
                     _ => Err(exact_game::DataError::new(format!("unknown field {field}"))),
                 }
             }
             fn write(&self, w: &mut dyn exact_game::Writer) {
+                let default = <$ty as Default>::default();
                 w.begin_struct();
                 $(
                     w.field(stringify!($field));
-                    Data::write(&self.$field, w);
+                    exact_game::Data::write(&self.$field, w);
                 )*
-                if self.ccd {
-                    w.field("ccd");
-                    self.ccd.write(w);
-                }
+                $(
+                    if self.$bare != default.$bare {
+                        w.field(stringify!($bare));
+                        exact_game::Data::write(&self.$bare, w);
+                    }
+                )*
+                $(
+                    if self.$opt != default.$opt {
+                        w.key(stringify!($opt));
+                        exact_game::Data::write(&self.$opt, w);
+                    }
+                )*
                 w.end_struct();
             }
             fn read(&mut self, r: &mut dyn exact_game::Reader) -> Result<(), exact_game::DataError> {
@@ -96,9 +124,12 @@ macro_rules! body_record {
                         seen[i] = true;
                     }
                     match field.as_str() {
-                        $(stringify!($field) => Data::read(&mut self.$field, r)
+                        $(stringify!($field) => exact_game::Data::read(&mut self.$field, r)
                             .map_err(|e| e.at(stringify!($field)))?,)*
-                        "ccd" => self.ccd.read(r).map_err(|e| e.at("ccd"))?,
+                        $(stringify!($bare) => exact_game::Data::read(&mut self.$bare, r)
+                            .map_err(|e| e.at(stringify!($bare)))?,)*
+                        $(stringify!($opt) => exact_game::Data::read(&mut self.$opt, r)
+                            .map_err(|e| e.at(stringify!($opt)))?,)*
                         _ => r.skip().map_err(|e| e.at(&field))?,
                     }
                 }
@@ -110,7 +141,7 @@ macro_rules! body_record {
         }
     };
 }
-body_record!(
+record!(Body {
     kind,
     velocity,
     spin,
@@ -118,8 +149,8 @@ body_record!(
     gravity,
     damping,
     spin_damping,
-    asleep
-);
+    asleep,
+} unnamed { ccd } named { force, inertia });
 impl Component for Body {
     const NAME: &'static str = "Body";
 }
@@ -188,7 +219,7 @@ impl Default for Shape {
 }
 
 /// Collision material and filtering; a collider without a Body is static.
-#[derive(Clone, Debug, PartialEq, Component)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Collider {
     /// Local geometry.
     pub shape: Shape,
@@ -196,7 +227,8 @@ pub struct Collider {
     pub offset: Vec3,
     /// Coulomb coefficient; pair coefficients combine geometrically. Default 0.6.
     pub friction: f32,
-    /// Restitution in [0, 1]; a pair uses the larger value. Default zero.
+    /// Restitution in [0, 1]; a pair uses the larger value, or the average when
+    /// both colliders set `bounce_average`. Default zero.
     pub bounce: f32,
     /// Report touches but never apply impulses.
     pub sensor: bool,
@@ -204,6 +236,10 @@ pub struct Collider {
     pub layer: u32,
     /// Accepted membership bits; defaults to all bits.
     pub mask: u32,
+    /// Combine this pair's restitution by the average of the two `bounce` values
+    /// instead of the larger. Takes effect only when both colliders set it.
+    /// Saved, hashed and serialized only when set.
+    pub bounce_average: bool,
 }
 impl Default for Collider {
     fn default() -> Self {
@@ -215,8 +251,21 @@ impl Default for Collider {
             sensor: false,
             layer: 1,
             mask: u32::MAX,
+            bounce_average: false,
         }
     }
+}
+record!(Collider {
+    shape,
+    offset,
+    friction,
+    bounce,
+    sensor,
+    layer,
+    mask,
+} unnamed {} named { bounce_average });
+impl Component for Collider {
+    const NAME: &'static str = "Collider";
 }
 
 /// Opt a collider into begin/end journal messages. No per-tick samples are logged.

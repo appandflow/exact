@@ -22,8 +22,15 @@ the actual `displacement` and `grounded` state.
   So a static collider the game teleports or carries under a parent (it has no Body)
   emits no Touch, and journals no Announce, against static walls or terrain; give it
   a Kinematic Body, or make it a sensor, to keep those transitions.
-- Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
-  restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
+- Density defaults to 1000 kg/m³; explicit mass is kg, and `physics::mass` reads the
+  mass a step gave a body, derived or not. `Body::inertia` authors the principal
+  inertia along the body's axes (all zero derives it). `Body::force` is a world-space
+  force at the centre of mass that persists until written back to zero; it is saved
+  in the Rapier snapshot and replays exactly after a restore. Friction combines
+  geometrically, restitution by maximum, or by average when both colliders set
+  `Collider::bounce_average`. `ccd`, `force`, `inertia` and `bounce_average` are
+  saved and hashed only when set. Contact slop is 0.1 mm; other integration defaults
+  are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
   (row-major, rows Z/columns X), and a convex hull of 4 to 255 points that any body
   may use, optionally rounded (its mass and inertia are the rounded solid's). Curved shapes and
