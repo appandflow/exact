@@ -33,6 +33,15 @@ test('a History entry keeps the userinfo of a page opened with one', () => {
   } finally { if (saved) Object.defineProperty(globalThis, 'location', saved); else delete globalThis.location; }
 });
 
+test('a History entry is made under a location with no origin, as the render server gives', () => {
+  // The JavaScript render server's placeholder location has an `href` and an empty `origin` (host/web-js/render.mjs).
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: '', href: 'http://render.invalid/' } });
+  try {
+    expect(historyURL('/item/7?q=a#moves')).toBe('http://render.invalid/item/7?q=a#moves');
+  } finally { if (saved) Object.defineProperty(globalThis, 'location', saved); else delete globalThis.location; }
+});
+
 test('every History entry keeps a drive\'s formatLocale, so navigation and reload keep it', () => {
   const saved = Object.getOwnPropertyDescriptor(globalThis, 'location');
   Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: 'http://127.0.0.1:9', href: `http://127.0.0.1:9/?${DRIVE}` } });

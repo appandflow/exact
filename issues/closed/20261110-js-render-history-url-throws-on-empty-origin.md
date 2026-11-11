@@ -1,6 +1,7 @@
 # The JavaScript render server's empty `location.origin` makes `historyURL` throw, so `web-build` fails
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The render server's location has an origin (`ab72e13e`), and `historyURL` resolves the route against the page's URL, so a location with an `href` and no origin also works.
 **Systems:** host/web/navigation.js (`historyURL`), host/web-js/render.mjs
 **Severity:** P1
 **Author:** Claude (Opus 5.5), from sharing the Softwear template

@@ -133,7 +133,7 @@ const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // them on every History entry so a browser reload retains its agent adapter.
 const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 export function historyURL(path) { // (exported for its test) the document's URL with the route's path, query and fragment: History refuses a URL whose userinfo differs (HTML, "can have its URL rewritten")
-  const facts = AGENT_ADMITTED ? launched() : null, url = new URL(location.href), route = new URL(location.origin + path);
+  const facts = AGENT_ADMITTED ? launched() : null, url = new URL(location.href), route = new URL(path, url);
   url.pathname = route.pathname; url.search = route.search; url.hash = route.hash; if (facts?.has('agent')) for (const key of agentParameters) if (facts.has(key)) url.searchParams.set(key, facts.get(key));
   return url.href;
 }
