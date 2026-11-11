@@ -313,6 +313,13 @@ import; launching the binary needs no Contract source or compiler work.
 host. All three accept the headless operations and `--size COLSxROWS`.
 Interactive terminal I/O runs on Unix only; Windows supports headless operations.
 
+An interactive launch draws a fresh 32-bit seed for `exactTime()`. Its `locale`
+follows `LC_ALL`, then `LC_MESSAGES`, then `LANG`; `formatLocale` follows
+`LC_ALL`, then `LC_TIME`, then `LANG`. Empty variables are skipped, and POSIX
+locale names become BCP 47 tags (`en_US.UTF-8` becomes `en-US`). With no format
+locale set, `formatLocale` follows `locale`. Headless operations keep the
+agent's deterministic launch facts, including `EXACT_AGENT_SEED` (1 when unset).
+
 The harness's inline transcript is transferred to scrollback in bounded
 batches, retiring each only after the terminal prints it. A large burst
 still produces every entry immediately; fullscreen retains the full

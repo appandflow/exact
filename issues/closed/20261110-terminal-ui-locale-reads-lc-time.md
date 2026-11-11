@@ -1,6 +1,7 @@
 # An interactive terminal launch gives every launch the seed 0, reads the app's language from `LC_TIME` and tells no format locale
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Interactive terminal launches draw a secure 32-bit seed and resolve message and format locales by their POSIX categories, shared with Linux.
 **Systems:** host/terminal (zone.rs), host/linux (zone.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

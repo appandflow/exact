@@ -1908,6 +1908,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "getrandom 0.3.4",
  "iana-time-zone",
  "libc",
  "png",

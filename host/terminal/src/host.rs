@@ -265,7 +265,7 @@ impl<D: DataSource> Host<D> {
         };
         kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
-        let (launch, notes) = crate::zone::launch(interactive, |key| std::env::var(key).ok());
+        let (launch, notes) = crate::zone::launch(interactive, |key| std::env::var(key).ok())?;
         let mut runner = exact_runner::time::launching_with(launch, ||
             Runner::boot(plan, data, kernel, viewport, "/")).map_err(|e| match e {
                 // The data module answered another declaration than the
