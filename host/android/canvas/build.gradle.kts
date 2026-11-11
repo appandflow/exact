@@ -13,6 +13,7 @@ android {
             "../../../packages/background/android", "../../../packages/background/test",
             "../../../packages/calendar/android", "../../../packages/calendar/test",
             "../../../packages/contacts/android",
+            "../../../packages/media-capture/android", "../../../packages/media-capture/test",
         ))
     }
 }
@@ -20,4 +21,7 @@ android {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation(libs.robolectric)
+    testImplementation("androidx.camera:camera-camera2:1.6.2")
+    testImplementation("androidx.camera:camera-lifecycle:1.6.2")
+    testImplementation("androidx.lifecycle:lifecycle-runtime:2.9.4")
 }
