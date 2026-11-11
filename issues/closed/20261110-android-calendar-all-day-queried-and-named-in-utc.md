@@ -1,6 +1,7 @@
 # Android's calendar queries all-day occurrences by their UTC instants, and names a recurring one's `recurrenceId` in UTC
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android calendar queries include all-day occurrences by their local spans and name recurring occurrences by their original local date.
 **Systems:** packages/calendar/android/EventStore.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
