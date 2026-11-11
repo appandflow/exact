@@ -2,6 +2,29 @@
 
 use super::*;
 
+/// Keep the iterator temporaries out of `inline_use`'s recursive frame.
+#[inline(never)]
+fn value_names(c: &Component) -> BTreeSet<String> {
+    c.states
+        .iter()
+        .chain(&c.derives)
+        .map(|b| b.name.clone())
+        .chain(
+            c.resources
+                .iter()
+                .filter(|r| super::reads_device(r))
+                .map(|r| r.name.clone()),
+        )
+        .chain(
+            c.props
+                .iter()
+                .chain(&c.injects)
+                .filter(|p| !p.ty.as_ref().is_some_and(is_action))
+                .map(|p| p.name.clone()),
+        )
+        .collect()
+}
+
 /// Refuse a use of `name`, which `ctx.path` holds at `at`: out of line, so
 /// `inline_use`'s frame, which recursion repeats, stays small.
 #[cold]
@@ -167,18 +190,7 @@ pub(super) fn inline_use(
             Expr::Ident(super::hoisted(&c.name, &r.name), *span),
         );
     }
-    let value_names = c
-        .states
-        .iter()
-        .chain(&c.derives)
-        .map(|b| b.name.clone())
-        .chain(
-            c.resources
-                .iter()
-                .filter(|r| super::reads_device(r))
-                .map(|r| r.name.clone()),
-        )
-        .collect();
+    let value_names = value_names(c);
     // Closure-convert child props/injects into hidden action
     // parameters. A handler evaluates these curried arguments
     // at its exact node site, so intervening `if`/`match`
@@ -188,12 +200,7 @@ pub(super) fn inline_use(
         .props
         .iter()
         .chain(&c.injects)
-        .filter(|prop| {
-            !matches!(
-                prop.ty.as_ref(),
-                Some(TypeExpr::Named(name, _)) if name == "action"
-            )
-        })
+        .filter(|prop| !prop.ty.as_ref().is_some_and(is_action))
         .enumerate()
         .map(|(i, prop)| {
             let hidden = format!("@capture:{n}:{i}");

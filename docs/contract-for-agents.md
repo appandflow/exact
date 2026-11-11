@@ -649,11 +649,13 @@ Supply every declared prop exactly once; props have no defaults (pass `none` for
 an option). An `action` prop can receive a reference with
 captured arguments; the eventual event payload is appended at invocation.
 
-A prop or inject named like an app `fn` is refused when an expression in the
-component calls that name and inlining could substitute the prop into the call.
-Rename either declaration. Handler-only uses are allowed. An expression's
-`match` or arrow binder protects its bound name; a view's `for` or `match`
-binder does not protect call heads.
+Value props and injects replace value reads only: beside `min: number`,
+`min(4, 9)` still calls the function, in views and actions alike.
+An `action` prop or inject named like an app `fn` is refused when an expression
+in the component calls that name and inlining could substitute the action into
+the call. Rename either declaration. Handler-only uses are allowed. An
+expression's `match` or arrow binder protects its bound name; a view's `for`
+or `match` binder does not protect call heads.
 
 A derive supplies a value, even when its expression is a function call.
 Beside `fn pick`, `derive pick = pick(1)` makes `${pick}` read that result;

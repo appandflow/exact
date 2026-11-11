@@ -126,7 +126,7 @@ structure Subst where
   binders : List (String × Option String) := []
   /-- Whether a call's head is replaced too. -/
   calls : Bool := true
-  /-- States, derives and device resources replace value reads only. -/
+  /-- Value props, injects, states, derives and device resources replace value reads only. -/
   valueOnly : List String := []
   /-- Record constructors: a call naming one keeps its head. -/
   records : List String := []
@@ -855,12 +855,13 @@ def baseMap (s : Subst) (c : CComponent) (args provides : List (String × Expr))
   let m := insertAll (insertAll (insertAll [] pa) ia) (c.states.map fun st => (st.name, .var (lifted st.name n)))
   pure (insertAll m (c.deviceResources.map fun r => (r.name, .var (hoisted c.name r.name))))
 
-/-- State and device-resource reads leave same-named function calls intact. -/
+/-- Value bindings leave same-named function calls intact. -/
 def valueNames (c : CComponent) : List String :=
-  c.states.map (·.name) ++ c.deviceResources.map (·.name)
+  c.states.map (·.name) ++ c.deviceResources.map (·.name) ++
+    ((c.props ++ c.injects).filter (!·.action)).map (·.name)
 
 /-- The derives, each resolved expression substituted against `m`, inserted
-as value-only bindings, alongside states and device resources. -/
+as value-only bindings, alongside the component's other values. -/
 def withDerives (records values : List String) (m : SMap) (derives : List (String × Expr)) : Subst :=
   let valueOnly := values ++ derives.map (·.1)
   { map := insertAll m (derives.map fun (d, e) => (d, substExpr { map := m, records, valueOnly } e)),

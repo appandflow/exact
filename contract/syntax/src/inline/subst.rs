@@ -55,8 +55,8 @@ pub(super) struct Subst<'m, T> {
     /// and `match` variables) are values, never callable, so a call that
     /// spells one names a function (`t("key")` beside `for t in …`).
     calls: bool,
-    /// States, device facts and derives replace value reads only, even
-    /// when a derive's body is shaped like a curried action binding.
+    /// Value props, injects, states, device facts and derives replace value
+    /// reads only, even when a derive's body looks like a curried action.
     pub(super) value_only: BTreeSet<String>,
     /// The declared record constructors: shapes that are not `fn`s. A call
     /// spelling one constructs that record ahead of any scoped name (LLP

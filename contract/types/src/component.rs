@@ -525,29 +525,25 @@ impl Scope {
     }
 }
 
-/// A prop or inject named like an app `fn`, where the component calls
+/// An action prop or inject named like an app `fn`, where the component calls
 /// that name in an expression: `subst_expr` can replace the call's head
 /// with the supplied name, although the checker resolved the app fn. A
 /// handler's own call (`press=name(…)`) is the action's both ways, and a
 /// name only handlers use, or nothing does, clashes with nothing.
 fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> Option<TypeError> {
-    if !shapes.fns.contains_key(&p.name) {
+    if !matches!(ty, Ty::Action(_)) || !shapes.fns.contains_key(&p.name) {
         return None;
     }
     let call = expression_call(c, &p.name)?;
     let name = &p.name;
-    let what = if matches!(ty, Ty::Action(_)) {
-        let mut chars = name.chars();
-        let on: String = chars
-            .next()
-            .map(|c| c.to_ascii_uppercase())
-            .into_iter()
-            .chain(chars)
-            .collect();
-        format!("action {kind} `{name}` (as in `on{on}`)")
-    } else {
-        format!("{kind} `{name}`")
-    };
+    let mut chars = name.chars();
+    let on: String = chars
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .into_iter()
+        .chain(chars)
+        .collect();
+    let what = format!("action {kind} `{name}` (as in `on{on}`)");
     Some(TypeError {
         id: "type-prop-hides-fn",
         message: format!(

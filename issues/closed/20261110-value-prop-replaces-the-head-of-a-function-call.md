@@ -1,6 +1,7 @@
 # A value prop named like a function the component calls replaces that call's head
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Value props and injects replace value reads only, preserving standard and app function calls in views and actions.
 **Systems:** contract/syntax/src/inline/use_node.rs, contract/syntax/src/inline/subst.rs, contract/types/src/component.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
