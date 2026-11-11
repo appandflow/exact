@@ -126,6 +126,7 @@ function startApple(cmd, args, log, { authored, ...opts } = {}) {
 // ---------------------------------------------------------------- iOS: the bundle and the simulator
 /** The app's bundle identifier: the manifest's `app.id` (LLP 1030 D2 — derived once, in `scripts/app.mjs`), which was `com.exact.<crate>` before the manifest existed and still is for an app without one. */
 export const bundleId = (crate = 'caltrain-apple') => resolveApp(crate).id;
+const withoutSdkRoot = (env) => { delete env.SDKROOT; return env; };
 /** The one Swift package (LLP 1031 D6): ExactKit and the four executables. */
 export const pkg = resolve(root, 'host/apple');
 /** The simulator's Rust target and Swift triple on this machine. */
@@ -679,18 +680,13 @@ async function main(args, lockHeld = false) {
   // The filter pictures' kernels (iOS; `SvgFilterMetal`), for the bundle,
   // when Xcode's Metal toolchain is installed.
   const svgFilterBuilt = ios ? svgFilterLibrary(sdkName, targets.ios, resolve(webBuildDir, svgFilterLibraryName)) : null;
+  // No SDKROOT: each Cargo call asks xcrun for its target's own (scripts/cargo-check.mjs `appleCargo`).
   const cargoEnv = {
     ...developmentBuildEnv(),
     EXACT_WIDGET_GALLERY: gallery ? '1' : '0',
-    SDKROOT: sdk,
     // An iOS build's Mac side is its build scripts and proc macros: the host's target, as every cargo call's.
     MACOSX_DEPLOYMENT_TARGET: ios ? process.env.MACOSX_DEPLOYMENT_TARGET || HOST_MACOS : targets.macos,
-    ...(ios ? {
-      ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : { IPHONEOS_DEPLOYMENT_TARGET: targets.ios }),
-      // The bake's host dependencies compile Objective-C++ too. cc-rs
-      // inherits SDKROOT; target the Mac SDK explicitly for those units.
-      HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
-    } : {}),
+    ...(ios ? tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : {}),
   };
   const built = () => ({ target: destination, trust: cargoEnv.EXACT_UPDATE_TRUST, signing: sha1 && sha1 !== '-' ? sha1 : 'ad-hoc' }); // `--json`'s object (help.mjs `jsonBuilt`)
   // A production bake is `release`; any other builds `host-dev` (Cargo.toml),
@@ -768,8 +764,9 @@ async function main(args, lockHeld = false) {
     if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
   }
   // SwiftPM compiles Package.swift itself for macOS before applying the iOS product triple; an iPhone
-  // SDKROOT in its environment breaks that host manifest compile. The target SDK stays in the explicit Swift arguments.
-  const launchPartsDir = writeLaunchParts(pkg, app), swiftEnv = (libDir, composition, link = 'all') => ({
+  // SDKROOT in its environment, set here or inherited, breaks that host manifest compile ("Invalid manifest").
+  // The target SDK stays in the explicit Swift arguments.
+  const launchPartsDir = writeLaunchParts(pkg, app), swiftEnv = (libDir, composition, link = 'all') => withoutSdkRoot({
     ...process.env, ...(launchPartsDir ? { EXACT_LAUNCH_PARTS: launchPartsDir.slice(pkg.length + 1) } : {}),
     EXACT_WIDGET_GALLERY: gallery ? '1' : '0',
     EXACT_APPLE_LINK: link, EXACT_UPDATE_TRUST: cargoEnv.EXACT_UPDATE_TRUST ?? 'development', // LLP 1047.001 D4 (link.mjs); a production build compiles no inspect mode (Package.swift)
@@ -1398,12 +1395,7 @@ async function test(args) {
   const paths = appleArtifacts(app, { composition: 'embedded' });
   let cargoRelease;
   try {
-    const cargoEnv = { ...developmentBuildEnv(), CARGO_TARGET_DIR: app.target, ...(ios ? {
-      SDKROOT: read('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-path']).stdout.trim(),
-      MACOSX_DEPLOYMENT_TARGET: '14.0', IPHONEOS_DEPLOYMENT_TARGET: '17.0',
-      // Build scripts compile Objective-C++ for the Mac; SDKROOT names the phone's.
-      HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
-    } : {}) };
+    const cargoEnv = { ...developmentBuildEnv(), CARGO_TARGET_DIR: app.target, ...(ios ? { MACOSX_DEPLOYMENT_TARGET: '14.0', IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : {}) };
     const metadata = read('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: app.workspace, env: cargoEnv });
     if (metadata.status !== 0) throw new Error(`cargo metadata: ${metadata.stderr}`);
     const package_ = JSON.parse(metadata.stdout).packages.find(p => p.name === crate);

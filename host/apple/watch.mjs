@@ -51,7 +51,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const directory = resolve(parent.namespace, 'watchos'), target = 'aarch64-apple-watchos-sim', triple = 'arm64-apple-watchos10.0-simulator';
     mkdirSync(directory, { recursive: true });
     const sdk = runApple('xcrun', ['--sdk', 'watchsimulator', '--show-sdk-path']).stdout.trim();
-    const env = { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: production ? 'production' : 'development', WATCHOS_DEPLOYMENT_TARGET: '10.0', SDKROOT: sdk, EXACT_APPLE_LINK: 'plan' };
+    const env = { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: production ? 'production' : 'development', WATCHOS_DEPLOYMENT_TARGET: '10.0', EXACT_APPLE_LINK: 'plan' };
     const baked = buildBake({ ...app, hasGpu: false }, 'ios', target, { env, profile });
     const output = resolve(bakeOutput(app, env), `ios-${target}.entries`);
     const libDir = resolve(app.target, target, profile), crate = app.crate('ios');
