@@ -1,6 +1,7 @@
 # On Windows a character typed with AltGr is dropped and Control stays held afterwards
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Windows uses winit's filtered modifiers, so AltGr enters text without leaving Control held.
 **Systems:** host/windows/src/keyboard.rs, host/windows/src/window.rs, host/linux/src/surface_controls.rs, host/linux/src/presenter/field.rs
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -21,7 +21,7 @@ mod edit_menu;
 mod ime;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod jump_list;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod keyboard;
 #[cfg(windows)]
 mod modal;

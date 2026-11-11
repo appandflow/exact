@@ -209,7 +209,7 @@ fn direct_window_blinks_without_a_softbuffer_surface() {
 }
 #[test]
 fn text_without_a_physical_key_reaches_the_editor() {
-    use winit::keyboard::{KeyCode, NamedKey, NativeKey, NativeKeyCode};
+    use winit::keyboard::{Key, KeyCode, NamedKey, NativeKey, NativeKeyCode, PhysicalKey};
     let packet = PhysicalKey::Unidentified(NativeKeyCode::Windows(0));
     for text in ["a", "é", "界", "🦀"] {
         assert_eq!(
