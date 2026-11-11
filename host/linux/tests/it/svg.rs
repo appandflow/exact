@@ -3,6 +3,106 @@
 use exact_linux::{presenter::PainterChoice, Presenter};
 
 #[test]
+fn svg_overflow_clips_to_its_content_box() {
+    for overflow in [
+        "",
+        "overflow=\"hidden\"",
+        "overflow=\"clip\"",
+        "overflow=\"visible\"",
+    ] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  view
+    box width=400 height=400 background-color="#ffffff"
+      svg width=100 height=100 padding=20 viewBox="0 0 100 100" {overflow}
+        rect x=-50 y=-50 width=200 height=200 fill="#ff0000"
+"##,
+        ))
+        .unwrap_or_else(|e| panic!("{e}"));
+        let (mut presenter, error) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 400.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let frame = presenter.frame();
+        let clips = overflow != "overflow=\"visible\"";
+        for (x, y, red) in [
+            (10, 10, !clips),
+            (25, 25, true),
+            (130, 130, !clips),
+            (180, 180, false),
+        ] {
+            let c = frame.pixel(x, y).unwrap().demultiply();
+            let expected = if red {
+                (255, 0, 0, 255)
+            } else {
+                (255, 255, 255, 255)
+            };
+            assert_eq!(
+                (c.red(), c.green(), c.blue(), c.alpha()),
+                expected,
+                "({x}, {y}), {overflow}"
+            );
+        }
+    }
+}
+
+#[test]
+fn svg_content_clip_uses_inner_radii_and_leaves_its_border_visible() {
+    for radius in [10, 50] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  view
+    box width=400 height=400 background-color="#ffffff"
+      svg width=100 height=100 padding="10px 20px 30px 40px" border-width="2px 4px 6px 8px" border-style="solid" border-color="#0000ff" border-radius={radius} viewBox="0 0 100 100"
+        rect x=-50 y=-50 width=200 height=200 fill="#ff0000"
+"##,
+        ))
+        .unwrap_or_else(|e| panic!("{e}"));
+        let (mut presenter, error) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 400.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let frame = presenter.frame();
+        let red = (255, 0, 0);
+        let white = (255, 255, 255);
+        let blue = (0, 0, 255);
+        for (x, y, expected) in [
+            (45, 60, white),
+            (150, 70, white),
+            (80, 8, white),
+            (80, 120, white),
+            (4, 70, blue),
+            (170, 70, blue),
+            (86, 1, blue),
+            (86, 145, blue),
+            (49, 60, red),
+            (138, 30, red),
+            (146, 13, if radius == 50 { white } else { red }),
+            (146, 110, if radius == 50 { white } else { red }),
+        ] {
+            let c = frame.pixel(x, y).unwrap().demultiply();
+            assert_eq!(
+                (c.red(), c.green(), c.blue()),
+                expected,
+                "({x}, {y}), radius={radius}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_clip_use_paints_at_its_targets_transformed_position() {
     let plan = contract::compile(
         r##"component App

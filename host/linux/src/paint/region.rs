@@ -803,7 +803,7 @@ impl<'a> Replay<'a> {
                             }
                         }
                         Payload::Svg(s) => {
-                            painter.paint_svg(s, n.clips(), g.outer.rect, g.content, parent);
+                            painter.paint_svg(s, n.clips(), n.paint.content_shape(g), parent);
                         }
                         Payload::Text(p, palette, inline) => {
                             if let Some(inline) = inline {

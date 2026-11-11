@@ -330,23 +330,6 @@ impl BoxPaint {
             emit(shape, self.background);
         }
     }
-    /// Where the background paints: the border box, the padding box or the
-    /// content box, each with its radii less what it is inset by; `None` for
-    /// `text`, which the paragraph paints (`text_clip`).
-    fn background_shape(&self, geometry: &BoxGeometry) -> Option<Shape> {
-        use exact_kernel::BackgroundClip;
-        let outer = geometry.outer;
-        let inset = match self.clip {
-            BackgroundClip::BorderBox => return Some(outer),
-            BackgroundClip::Text => return None,
-            BackgroundClip::PaddingBox => self.widths,
-            BackgroundClip::ContentBox => {
-                let (w, p) = (self.widths, self.padding);
-                [w[0] + p[0], w[1] + p[1], w[2] + p[2], w[3] + p[3]]
-            }
-        };
-        Some(field::inset_sides(&outer, inset))
-    }
     /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
     /// list's first on top (LLP 1077 D4).
     fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
@@ -1176,7 +1159,7 @@ impl Painter {
             NodeType::TextInput => {
                 self.text_input(walk, node, rect, surface.outer.rect, content, &outer, ts)
             }
-            NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Svg => self.svg(walk, node, paint.content_shape(&geometry), ts),
             NodeType::Video | NodeType::WebView | NodeType::NativeView => {
                 self.native(node, content, &outer, ts)
             }

@@ -1,6 +1,7 @@
 # An `svg` with padding clips its content at the border box, so it draws over its own padding
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** SVG scenes clip to the content box and its inner corner curves, leaving padding and borders clear.
 **Systems:** host/linux/src/paint/svg.rs (the painting host: Linux, Windows, Android)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
