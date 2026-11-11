@@ -1,4 +1,4 @@
-import { compilerPaths, unitDepInfo, cargoBakeInputs, sourcePath } from './cargo-dep-info.mjs';
+import { compilerPaths, unitDepInfo, cargoBakeInputs, inputHashes, sourcePath } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
@@ -860,33 +860,6 @@ export function verifyBakeFiles(receipt, plan, assets) {
 // product whose inputs it describes. @ref LLP 1030 D3/D3a.
 const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonicalBuild).join(',')}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalBuild(v[k])}`).join(',')}}`;
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
-/** A development receipt names four thousand inputs by SHA-256, on every build,
- * and nearly all of them are the files they were at the last one: reading them
- * again was 0.3 s of a 2.5 s build with nothing changed. Each hash is kept in
- * the target directory with the size and time its file had, which is what
- * Cargo goes by to say the unit built from it is fresh. A production receipt
- * reads every byte. */
-function inputHashes(app, env) {
-  const kept = resolve(app.target, 'bake-input-hashes.json'), production = env.EXACT_UPDATE_TRUST === 'production';
-  let known = {}, grew = false;
-  if (!production) try { known = JSON.parse(readFileSync(kept, 'utf8')); } catch { /* none yet */ }
-  const used = {};
-  return {
-    of(path, info) {
-      const was = known[path];
-      const now = was && was[0] === info.mtimeMs && was[1] === info.size ? was : [info.mtimeMs, info.size, buildHash(readFileSync(path))];
-      if (now !== was) grew = true;
-      used[path] = now;
-      return now[2];
-    },
-    save() {
-      if (production || !grew) return;
-      // Every app of a checkout shares the file; one that has grown past any of them starts again from this build's.
-      const next = Object.keys(known).length > 40_000 ? used : { ...known, ...used };
-      writeFileSync(`${kept}.${process.pid}.tmp`, JSON.stringify(next)); renameSync(`${kept}.${process.pid}.tmp`, kept);
-    },
-  };
-}
 const under = (root, path) => {
   const child = relative(root, path);
   return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
@@ -1043,7 +1016,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const dependencies = directDependencies(app.dir).flatMap(({ name, root }) => [realpathSync(root), dirname(realpathSync(resolve(root, 'package.json')))].map(path => ({ path, name }))).sort((a,b) => b.path.length-a.path.length);
   const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
-  const nameOf = (path) => {
+  // A path outside every root a package's compile or build script names (`../../.env` beside a path dependency's own
+  // repository) is named from that package, with `/` on every host.
+  const outsideName = (path, pkg) => `crate:${pkg.name}@${pkg.version}/${relative(dirname(pkg.manifest_path),path).split(sep).join('/')}`;
+  const nameOf = (path, declarer = null) => {
     path = sourcePath(resolve(path));
     const made = rootOf(generatedAt, path);
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
@@ -1057,16 +1033,18 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
+    if (declarer) return outsideName(path, declarer);
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
   const inputs = new Map(), absent = new Map(), directories = new Map(), hashes = inputHashes(app, env);
-  const add = (path, optional = false) => {
+  const add = (path, optional = false, declarer = null) => {
     path = resolve(path); if (replaced.has(path)) return;
-    if (!existsSync(path)) { if (optional) { absent.set(nameOf(path), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
-    const name = nameOf(path);
+    if (!existsSync(path)) { if (optional) { absent.set(nameOf(path, declarer), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
+    const name = nameOf(path, declarer);
     if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
-    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
+    if (info.isDirectory() && declarer && !rootOf(locatedAt, path) && name === outsideName(path, declarer)) throw new Error(`${declarer.name} ${declarer.version}'s build script watches ${path}, a directory outside its package and outside the app, its workspace and exact2, which a build cannot record. A build script may watch files outside its package and directories inside it: have it print \`cargo:rerun-if-changed=<file>\` for each file it reads there.`);
+    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry), false, declarer); }
     else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info)});
     else throw new Error(`unsupported compiler input ${path}`);
   };
@@ -1076,7 +1054,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
     const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,graph.metadata), 'utf8');
-    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
+    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, false, graph.packages.get(m.package_id));
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
   }
@@ -1094,7 +1072,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       // artifacts. Its generated entry and typed metadata are binary inputs.
       if (changed && pkg.id !== graph.root.id) {
         const path = resolve(dirname(pkg.manifest_path), changed[1]);
-        if (!shaderRoots(app).some(root => under(root, path))) add(path, true);
+        if (!shaderRoots(app).some(root => under(root, path))) add(path, true, pkg);
       }
       const variable = /^cargo::?rerun-if-env-changed=(.*)$/.exec(line)?.[1];
       if (variable && !variable.startsWith('EXACT_') && !['OUT_DIR','CARGO_MANIFEST_DIR'].includes(variable)) environment.push(normalizeEnv([variable,env[variable]??null]));

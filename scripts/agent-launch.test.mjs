@@ -1239,6 +1239,30 @@ test('a native build is stale when a setting its module inlined has another valu
   }
 });
 
+test('a path a build script watches that was absent at build is unchanged while absent; appearing or going is a change', async () => {
+  const {receiptChanges}=await import('./agent-launch.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-watched-absent-'));
+  try {
+    // A path dependency beside the app whose build script watches `../../.env`, as Cargo's dep-info then names it.
+    const env=resolve(dir,'.env'), lib=resolve(dir,'vendor/watcher/src/lib.rs'), app=resolve(dir,'app');
+    for (const path of [lib, resolve(app,'app.contract')]) { mkdirSync(dirname(path),{recursive:true}); writeFileSync(path,''); }
+    const fixture={dir:app,workspace:app,target:resolve(app,'target'),manifest:{},crate:()=>'native-apple'};
+    const info=resolve(fixture.target,'aarch64-apple-darwin/debug/libnative_apple.d');
+    mkdirSync(dirname(info),{recursive:true});
+    writeFileSync(info,`${resolve(fixture.target,'aarch64-apple-darwin/debug/libnative_apple.a')}: ${lib} ${env}\n`);
+    const receipt=resolve(app,'receipt.json');
+    const write=(missing)=>writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:new Date(Date.now()+1000).toISOString(),
+      build:{binary:{inputs:[],missing,directories:[]}}}));
+    write([env]);
+    expect(receiptChanges(receipt,fixture)).toEqual([]);
+    writeFileSync(env,'API=1\n');
+    expect(receiptChanges(receipt,fixture)).toEqual([env]);
+    // Present when the build ran (so not in `missing`), gone now.
+    write([]); rmSync(env);
+    expect(receiptChanges(receipt,fixture)).toEqual([env]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('a Linux or Android build is stale when a setting the executable holds has another value now, or none is bound to it', async () => {
   const {bakedSettingChanges}=await import('./agent-launch.mjs');
   const {recordBuiltSettings}=await import('../js/bake/src/__exact_env.mjs');

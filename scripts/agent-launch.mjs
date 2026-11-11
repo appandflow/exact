@@ -985,7 +985,10 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // A record gone or unreadable says nothing of what it read: the build is stale.
   let baked = [], unread = [];
   if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
-  const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  // A watched path absent when the build ran (`binary.missing`) and absent now is unchanged; one that has appeared is
+  // a change, which `pendingBuildInputs` reports.
+  const absent = new Set(build?.binary?.missing ?? []), stillAbsent = path => { const at = resolve(ROOT, path); return absent.has(at) && !existsSync(at); };
+  const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path)) && !stillAbsent(path)) : [];
   return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
 }
 
