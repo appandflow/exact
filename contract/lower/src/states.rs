@@ -300,7 +300,7 @@ const BASE: &str = "$state-base";
 
 /// Whether `e` names a metric the compiler writes anywhere in it (a grouped
 /// list's ground), which no author's row may.
-fn metric_in(e: &Expr) -> bool {
+pub(crate) fn metric_in(e: &Expr) -> bool {
     match e {
         Expr::Str(t, _) => exact_kernel::style::metrics::named(t).is_some(),
         Expr::Ternary(_, a, b, _) => metric_in(a) || metric_in(b),

@@ -60,7 +60,19 @@ impl Lowerer<'_> {
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
         let kept = swipe_rows::stray(attrs);
         let attrs = kept.as_ref().unwrap_or(attrs);
-        let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
+        // A class choice's side that sets no row leaves it as the node has
+        // it unwritten: its tag's fixed rows, then a link's colour.
+        let unwritten: Vec<(exact_kernel::StyleId, Expr)> = t
+            .fixed_styles
+            .iter()
+            .map(|(id, v)| (*id, Expr::Str(v.to_string(), *span)))
+            .chain(
+                self.link_colour(tag, parent_tag, attrs, children)
+                    .map(|e| (exact_kernel::StyleId::TextColor, e)),
+            )
+            .collect();
+        let styles = |name: &str| self.styles.get(name).map(Vec::as_slice);
+        let (class_label, mut expanded) = crate::class::rows(attrs, &styles, &unwritten)?.unzip();
         // The class's rows by their places: a rewrite below (an animation's
         // longhands composed, a grouped list's rows inserted) moves rows
         // across `class_len`, never their spans (LLP 1122 D6's address).

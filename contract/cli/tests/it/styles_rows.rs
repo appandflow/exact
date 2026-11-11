@@ -566,3 +566,83 @@ fn calculated_grid_tracks_lower_in_attributes_and_styles() {
         "{message}"
     );
 }
+
+/// `class=(on ? A : B)` is `class=A` while `on` and `class=B` otherwise:
+/// the side that does not write a row leaves it as the node has it
+/// without the class (the tag's fixed `flex-direction`, `display`, an
+/// `hr`'s border), and a
+/// row the chosen style writes under another name (a shorthand beside a
+/// longhand) keeps its value. Compared on the rows set (not who wrote
+/// them) and on the layout.
+#[test]
+fn a_class_choice_is_the_class_it_chooses() {
+    use exact_kernel::Offer;
+    for (tag, a, b) in [
+        ("column", "flex-direction=\"row\"", "gap=0"),
+        ("row", "display=\"none\"", "opacity=1"),
+        ("view", "padding=10", "padding-top=4"),
+        ("view", "margin=10", "margin-top=4"),
+        (
+            "view",
+            "position=\"relative\"\n  inset=10",
+            "position=\"relative\"\n  top=4",
+        ),
+        ("column", "gap=10", "row-gap=4"),
+        ("view", "border=\"2px solid red\"", "border-color=\"blue\""),
+        ("view", "border-radius=10", "border-top-left-radius=4"),
+        ("view", "overflow=\"hidden\"", "overflow-y=\"scroll\""),
+        ("view", "flex=\"2 3 40px\"", "flex-grow=5"),
+        // An `hr` fixes its top border and colour, a metric among them.
+        ("hr", "border-width=2\n  color=\"red\"", "opacity=1"),
+    ] {
+        let node = |id: &str, class: &str| {
+            match tag {
+            "hr" => format!("      hr testId=\"{id}\" class={class}\n"),
+            _ => format!("      {tag} testId=\"{id}\" class={class}\n        view width=50 height=20\n        view width=50 height=20\n"),
+        }
+        };
+        let src = format!(
+            "style A\n  {a}\nstyle B\n  {b}\ncomponent App\n  state on = true\n  action flip\n    on = not on\n  view\n    row width=400 height=800 testId=\"root\"\n{}{}{}{}",
+            node("a", "A"),
+            node("b", "B"),
+            node("ab", "(on ? A : B)"),
+            node("ba", "(on ? B : A)"),
+        );
+        let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        for on in [true, false] {
+            let k = r.kernel_mut();
+            let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+            k.compute_layout(root, Offer::definite(400.0, 800.0))
+                .unwrap();
+            let k = r.kernel();
+            let seen = |id: &str| {
+                let n = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+                let mut style = n.style.clone();
+                style.written = Default::default();
+                let at = |c: exact_kernel::NodeRef| (c.frame.x - n.frame.x, c.frame.y - n.frame.y);
+                let children: Vec<_> = n.child_nodes().map(at).collect();
+                (style, (n.frame.width, n.frame.height), children)
+            };
+            let (yes, no) = if on { ("a", "b") } else { ("b", "a") };
+            assert_eq!(
+                seen("ab"),
+                seen(yes),
+                "{tag} A: {a}; B: {b}; on={on}: (on ? A : B)"
+            );
+            assert_eq!(
+                seen("ba"),
+                seen(no),
+                "{tag} A: {a}; B: {b}; on={on}: (on ? B : A)"
+            );
+            r.act("flip", vec![]).unwrap();
+        }
+    }
+}

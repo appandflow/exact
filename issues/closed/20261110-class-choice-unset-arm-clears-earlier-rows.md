@@ -1,6 +1,7 @@
 # The absent arm of `class=(cond ? A : B)` clears a row the tag or the chosen style already set
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A class choice pairs attributes that write one row under different names row by row, and a side that sets no row takes the value the node has unwritten (its tag's fixed row, a link's colour) instead of `none`.
 **Systems:** contract/lower/src/class.rs, contract/lower/src/nodes.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
