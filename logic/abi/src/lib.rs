@@ -311,6 +311,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a request timeout cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor a stream's idle timeout (LLP 1016.000 D11).
+        Ok(Answer::Later(r)) if r.idle_timeout_ms.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "an idle timeout cannot cross the Rust module seam".into(),
+            )),
+        ),
         // Nor a held mark (LLP 1016.000 D9): refused, never silently waited on.
         Ok(Answer::Later(r)) if r.held => encode_result(
             w,
@@ -500,6 +507,7 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         upload_progress: false,
         long_poll: None,
         timeout_ms: None,
+        idle_timeout_ms: None,
         body_from: None,
         body_to: None,
         redirect: Redirect::Follow,

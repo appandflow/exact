@@ -24,6 +24,13 @@ export function fetch(input, options) {
   const held = options?.exactHeld;
   if (held !== undefined && held !== true && held !== false) return Promise.reject(new TypeError('exactHeld is true or false'));
   if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));
+  const idle = options?.exactIdleTimeout; // LLP 1016.000 D11
+  if (idle !== undefined) {
+    if (!Number.isInteger(idle) || idle < 1 || idle > 3600000) return Promise.reject(new TypeError('exactIdleTimeout must be an integer number of milliseconds from 1 to 3600000'));
+    let url; try { url = input instanceof Request ? input.url : String(input); } catch (e) { return Promise.reject(e); }
+    if (options.exactStream === undefined || options.exactUploadProgress === true || options.exactLongPoll !== undefined || !/^wss?:/i.test(url))
+      return Promise.reject(new TypeError('exactIdleTimeout: only a WebSocket stream takes an idle timeout'));
+  }
   // A stream counts by its own rule (D5), never here.
   if (options?.exactStream !== undefined) return fetchNow(input, options);
   // An upload or a download to a file is never held (Request::is_held).

@@ -485,6 +485,37 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `exactIdleTimeout` (LLP 1016.000 D11): what `fetch` refuses itself.
+  if (op === "idle-refusals") {
+    const socket = "wss://example.test/feed", exactStream = () => ({text: ""}), out: string[] = [];
+    const inits: [string, any][] = [
+      [socket, { exactStream, exactIdleTimeout: 0 }],
+      [socket, { exactStream, exactIdleTimeout: 3600001 }],
+      [socket, { exactStream, exactIdleTimeout: 1.5 }],
+      [socket, { exactIdleTimeout: 60000 }],
+      ["https://example.test/events", { exactStream, exactIdleTimeout: 60000 }],
+      ["https://example.test/poll", { exactStream, exactIdleTimeout: 60000, exactLongPoll: { cursor: "since", from: "seq" } }],
+      ["https://example.test/upload", { method: "POST", body: "x", exactStream, exactUploadProgress: true, exactIdleTimeout: 60000 }],
+    ];
+    for (const [to, init] of inits) {
+      try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // A stream option the host refuses: marked at bake as storage's refusal is, and plain in an answer.
+  if (op === "stream-option-refused") {
+    try { await fetch("wss://example.test/feed", { exactStream: () => ({text: ""}), exactTimeout: 60000 }); }
+    catch (e:any) { return {text: e.name + ":" + e.kind + ":" + e.code + ":" + e.message}; }
+    return {text: "sent"};
+  }
+  if (op === "stream-option-uncaught") return fetch("wss://example.test/feed", { exactStream: () => ({text: ""}), exactTimeout: 60000 });
+  if (op === "own-uncaught") throw new TypeError("the source's own");
+  // The source's own error, and an option of a fetch that is no stream, are never marked.
+  if (op === "own-error") {
+    try { await fetch("https://example.test/a", { exactTimeout: 0 }); }
+    catch (e:any) { return {text: e.name + ":" + e.kind + ":" + e.code + ":" + e.message}; }
+    return {text: "sent"};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};

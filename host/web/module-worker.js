@@ -67,7 +67,7 @@ self.__exact_host = (op, name, value) => {
   if (op === 11) return stream ? Array.from(stream(Number(value)), b => b.toString(16).padStart(2, '0')).join('') : undefined;
   // `authCallback()` is the page's; `openAuthSession` refuses here: its popup
   // must open in the press's call stack, on the page (LLP 1069.006).
-  if (op === 12) { if (name === 'placement') return 'worker'; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
+  if (op === 12) { if (name === 'placement') return 'worker'; if (name === 'bake') return undefined; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
   if (op >= 18 && op <= 20) { context.externalRead = true; return presenceRead(context.store, op, name); }
   if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
   context.writes.push([name, op === 3 ? value : null]);

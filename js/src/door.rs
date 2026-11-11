@@ -188,6 +188,9 @@ pub(crate) unsafe extern "C" fn host_door(
         12 if a == "listen" => {
             Ok(cfg!(any(target_os = "macos", target_os = "linux")).then(|| "1".into()))
         }
+        // Whether this is a bake: the prelude marks a stream's refused
+        // options there, as storage's refusal is (LLP 1016.000 D11).
+        12 if a == "bake" => Ok(state.baking.then(|| "1".into())),
         12 => Ok(crypto::auth_callback(state, &a)),
         // A journal line the runtime writes (LLP 1097 D8): a failed or
         // refused storage operation, an unhandled rejection. `logs` reads

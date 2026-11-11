@@ -20,7 +20,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, copyBytes = binary.copyBytes;
+  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, idleRefusal = binary.idleRefusal, copyBytes = binary.copyBytes;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -586,6 +586,10 @@
       return Promise.reject(orphan);
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
+    // A stream's own options, refused (LLP 1016.000 D11): at bake marked as storage's refusal is, so a source that lets it through keeps its placeholder.
+    // (The door throws its refusal as a string: marked, it is an Error.)
+    var streamOption = init ? init.exactStream : undefined, marks = streamOption !== undefined && !listen && !own && !child;
+    function mark(e) { if (marks && host(12, "bake", "") === "1") { if (!e || typeof e !== "object") e = new Error(String(e)); e.kind = "Unavailable"; e.code = "bake"; } return e; } function optionRefused(e) { return Promise.reject(mark(e)); }
     if (call.socketConflict || (call.socketOps && call.socketOps.length)) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = new global.Headers(init && init.headers);
@@ -601,7 +605,7 @@
     // 1 GiB, and the file appears only whole; any other reply is read as usual.
     var bodyFrom = init ? init.exactBodyFrom : undefined, bodyTo = init ? init.exactBodyTo : undefined;
     var fileWhy = fileRefusal(init, method, url, raw); // binary.js
-    if (fileWhy) return Promise.reject(new TypeError(fileWhy));
+    if (fileWhy) return optionRefused(new TypeError(fileWhy));
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
@@ -609,29 +613,26 @@
     if (independent !== undefined) {
       ceiling = independent && independent.maxResponseBytes;
       var most = bodyTo === undefined ? 67108864 : 1073741824; // a body written to a file: 1 GiB
-      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > most)
-        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to " + most));
+      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > most) return optionRefused(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to " + most));
     }
     // An answer that keeps coming (LLP 1016.000): `exactStream` maps each
     // server-sent event to the answer, and the end too. The promise never
     // settles: the answer is what the mapper returns, message by message.
-    var stream = init ? init.exactStream : undefined;
-    if (stream !== undefined && typeof stream !== "function")
-      return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
+    var stream = streamOption;
+    if (stream !== undefined && typeof stream !== "function") return optionRefused(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
     // An upload whose stream gets its progress, then its reply (`exactUploadProgress`, LLP 1016.000 D10).
     var upload = uploadOf(init, stream, method, url);
-    if (typeof upload === "string") return Promise.reject(new TypeError(upload));
+    if (typeof upload === "string") return optionRefused(new TypeError(upload));
     // A deadline for the whole exchange (headers and body), in milliseconds: the host cancels the request
     // when it passes and the fetch rejects with a FetchError of kind "Timeout". A stream has none; an upload may.
     var timeout = init ? init.exactTimeout : undefined, held = init ? init.exactHeld : undefined;
-    if (timeout !== undefined) {
-      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
-        return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
-      if (stream && !upload) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
-    }
-    if ((held !== undefined && held !== true && held !== false) || (held && stream)) return Promise.reject(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); var poll = longPollOf(init, stream, method, url); if (typeof poll === "string") return Promise.reject(new TypeError(poll)); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9); `exactLongPoll` (D8): the host asks again with each reply's cursor (binary.js `longPollOf`)
+    if (timeout !== undefined && (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)) return optionRefused(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
+    if (timeout !== undefined && stream && !upload) return optionRefused(new TypeError("exactTimeout: a stream has no timeout"));
+    var idle = init ? init.exactIdleTimeout : undefined, idleWhy = idleRefusal(idle, !!stream && !upload && !listen && !own && init.exactLongPoll === undefined && /^wss?:/i.test(url)); // a quiet WebSocket ends as a Timeout (LLP 1016.000 D11)
+    if (idleWhy) return optionRefused(new TypeError(idleWhy));
+    if ((held !== undefined && held !== true && held !== false) || (held && stream)) return optionRefused(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); var poll = longPollOf(init, stream, method, url); if (typeof poll === "string") return optionRefused(new TypeError(poll)); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9); `exactLongPoll` (D8): the host asks again with each reply's cursor (binary.js `longPollOf`)
     // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
     // before the signal, and a throw rejects. Rust follows redirects, checking
     // each hop's grant, so "manual" answers with the 3xx and its Location.
@@ -639,8 +640,8 @@
     try { var asked = init ? init.redirect : undefined; redirect = asked !== undefined ? String(asked) : undefined; }
     catch (e) { return Promise.reject(e); }
     if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
-      return Promise.reject(new TypeError("redirect must be follow, manual or error"));
-    if (upload && redirect !== undefined && redirect !== "follow") return Promise.reject(new TypeError("exactUploadProgress: an upload follows its redirects"));
+      return optionRefused(new TypeError("redirect must be follow, manual or error"));
+    if (upload && redirect !== undefined && redirect !== "follow") return optionRefused(new TypeError("exactUploadProgress: an upload follows its redirects"));
     // The web's `signal`: an aborted fetch rejects with its reason at once,
     // and the host cancels its request (`abortRequest`).
     var signal = init ? init.signal : undefined;
@@ -656,8 +657,9 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && (!!listen || !!own || /^wss?:/i.test(String(url)));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: Array.from(headers.entries()), body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
-    if (error !== undefined) return Promise.reject(new Error(error));
+    var wire = JSON.stringify({ method: method, url: String(url), headers: Array.from(headers.entries()), body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, idle_timeout_ms: idle, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen });
+    var error; try { error = host(1, String(ticket), wire); } catch (e) { throw mark(e); } // only the door's own refusal, never what building the request threw
+    if (error !== undefined) return optionRefused(new Error(error));
     call.tickets.push(ticket);
     if (stream) { call.stream = stream; call.upload = !!upload; }
     var owner = socket ? (call.socket = listen ? listenOwner(ticket) : own ? own(ticket, call) : socketOwner(ticket, call.mutation)) : null;

@@ -280,11 +280,13 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
 // The transport belongs to the resource's abort controller (LLP 1016.000).
 // `protocol` opts the JS TypeScript adapter into D7: ordered frames and a
 // private transport handle; the other adapters still take snapshot delivery.
-export function readSocket(url, limit, message, controller, protocol) {
+// `idleMs` (LLP 1016.000 D11): the socket ends as a Timeout (kind 10) when nothing has arrived for that long, in real
+// time, its opening and each complete message counting, from the moment it is asked.
+export function readSocket(url, limit, message, controller, protocol, idleMs) {
   const encoder = new TextEncoder(), MAX_BYTES = 1048576, MAX_FRAMES = 256;
   const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
   return new Promise((resolve) => {
-    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null, queue = [], stamps = [], bytes = 0, sent = 0;
+    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null, queue = [], stamps = [], bytes = 0, sent = 0, quiet = null;
     const flush = () => {
       clearTimeout(timer); timer = null;
       if (ended) return;
@@ -298,16 +300,19 @@ export function readSocket(url, limit, message, controller, protocol) {
     };
     const end = (outcome) => {
       if (ended) return;
-      ended = true; clearTimeout(timer); queue = []; newest = null; bytes = 0;
+      ended = true; clearTimeout(timer); clearTimeout(quiet); queue = []; newest = null; bytes = 0;
       controller.signal.removeEventListener('abort', abort);
       try { socket?.close(1000); } catch {}
       resolve(outcome);
     };
     const abort = () => end(failed(4, 'request aborted'));
+    // What it had accepted is delivered first; the timeout then ends it, before the close this end sends is answered.
+    const heard = () => { if (idleMs === undefined || ended) return; clearTimeout(quiet); quiet = setTimeout(() => { flush(); end(failed(10, `nothing arrived for ${idleMs} ms`)); }, idleMs); };
     if (controller.signal.aborted) return abort();
     try { socket = new WebSocket(url); } catch (error) { return end(failed(1, String(error?.message ?? error))); }
     socket.binaryType = 'arraybuffer';
     controller.signal.addEventListener('abort', abort);
+    heard();
     const check = size => {
       if (ended || socket.readyState !== 1) throw new DOMException('the socket is not open', 'InvalidStateError');
       if (!protocol.admit()) throw new Error("outside the app's grants (net.websocket)");
@@ -331,11 +336,12 @@ export function readSocket(url, limit, message, controller, protocol) {
     }));
     socket.onopen = () => {
       if (ended) return;
-      opened = true;
+      opened = true; heard();
       if (protocol) message({ event: 'open', id: '', data: '', coalesced: 0 });
     };
     socket.onmessage = (e) => {
       if (ended) return;
+      heard();
       if (!protocol && typeof e.data !== 'string') return end(failed(2, "a binary message: a socket's messages are text"));
       const size = typeof e.data === 'string' ? encoder.encode(e.data).length : e.data.byteLength;
       if (size > limit) {
@@ -401,6 +407,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && !bytes && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
   const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
+  // An idle timeout is a WebSocket stream's (LLP 1016.000 D11), refused before any other path is taken.
+  if (op.idleTimeoutMs !== undefined && (!socket || op.longPoll || op.upload)) return failed(2, 'only a WebSocket stream takes an idle timeout');
+  if (op.idleTimeoutMs !== undefined && (!Number.isInteger(op.idleTimeoutMs) || op.idleTimeoutMs < 1 || op.idleTimeoutMs > 3600000)) return failed(2, 'an idle timeout must be 1 to 3600000 ms');
   if (invalid) return failed(2, invalid);
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
   const grant = native || asset ? null : admittingGrant(effective, url, socket ? 'websocket' : 'fetch');
@@ -435,7 +444,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
   if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
-  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') });
+  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') }, op.idleTimeoutMs);
   let decodedBody = bytes ?? undefined;
   try { if (body && !bytes) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
@@ -545,7 +554,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 // Only the TypeScript adapter opts into ordered protocol frames (D7) and
 // byte streams. An inline body goes as its bytes, copied once.
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: '', bodyBytes: req.raw?.length ? Uint8Array.from(req.raw) : undefined, bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: '', bodyBytes: req.raw?.length ? Uint8Array.from(req.raw) : undefined, bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, idleTimeoutMs: req.idleTimeoutMs, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
     { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }

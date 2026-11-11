@@ -1389,6 +1389,29 @@ whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
 (`exactStream`) takes none, except an upload (below).
 
+A WebSocket stream can stay open and carry nothing. Give it
+`exactIdleTimeout`, in milliseconds (1 to 3600000), and the host ends it
+when nothing has arrived for that long: `fetch('wss://…', { exactStream,
+exactIdleTimeout: 60000 })` (LLP 1016.000 D11). The count starts when the
+socket is asked, and starts again at its opening and at each message;
+protocol pings and pongs do not count, and nothing the app sends does. The
+mapper is then called once more, with `{ type: 'error', kind: 'Timeout',
+message: 'nothing arrived for 60000 ms' }`, after what it had already
+received (each message of a two-way socket; the newest of one the module
+only reads, which coalesces as always), and the stream is over; the app opens it again by refreshing the
+resource. The time is real time on every host, under the driver too, so
+`clock +60000` ends no socket: test it with a short timeout against a peer
+that stays silent, and wait with `clock until state …`. Only a WebSocket
+stream takes it: on an event stream, a byte stream, a long poll or an upload
+it is a `TypeError`, and the web's wasm host and a Rust module across the
+logic ABI refuse a request that has it, by name.
+
+A stream's request is never sent at build, so an option the host refuses on one
+(`exactTimeout` on a stream, `exactIdleTimeout` out of range) does not
+fail a native build: the resource shows its placeholder and fails at launch
+with that error, as on the web. An error the source throws itself still
+fails the build.
+
 A long poll, a request the server holds until something changes, says so with
 `exactHeld: true`: `fetch(url + '?wait=25', { exactHeld: true })` (LLP
 1016.000 D9). It is pending as any request (`pending(…)` reads it), but no

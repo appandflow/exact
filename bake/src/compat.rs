@@ -65,7 +65,9 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// would make with no status and no body, refuse, or answer `undefined`.
 /// 8: `Response` consumes a `ReadableStream` body and `fetch` refuses one,
 /// where older preludes stringify the stream.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 8;
+/// 9: `fetch`'s `exactIdleTimeout` (LLP 1016.000 D11), which an older
+/// prelude would ignore, leaving a quiet socket open.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 9;
 
 /// What each runtime past the first added that a bundle names to use (see
 /// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
@@ -75,7 +77,8 @@ pub(crate) const TYPESCRIPT_RUNTIME: u32 = 8;
 /// (`globalThis.Response`, a `clone` taken apart and called through `.call`).
 /// `Response` now needs 8, as do constructors whose readable side can become
 /// a request body. `structuredClone` names none of them.
-const RUNTIME_OPTIONS: [(u32, &str); 22] = [
+const RUNTIME_OPTIONS: [(u32, &str); 23] = [
+    (9, "exactIdleTimeout"),
     (8, "Response"),
     (8, "ReadableStream"),
     (8, "TransformStream"),

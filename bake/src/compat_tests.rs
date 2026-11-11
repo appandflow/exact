@@ -923,8 +923,10 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
     assert_eq!(needs(b"return (await fetch(u)).statusText"), 7);
     assert_eq!(needs(b"if (r.bodyUsed) return"), 7);
     assert_eq!(needs(b"const c = structuredClone(v)"), 0);
+    assert_eq!(needs(b"return Response.json({a: 1})"), 8);
+    // LLP 1016.000 D11's idle timeout.
     assert_eq!(
-        needs(b"return Response.json({a: 1})"),
+        needs(b"fetch(u, {exactStream: m, exactIdleTimeout: 6e4})"),
         super::TYPESCRIPT_RUNTIME
     );
 }
