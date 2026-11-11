@@ -1117,7 +1117,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['haptics'], 'docs/start-here.md', /haptic\("selection"\)/],
     [['glass'], 'docs/contract-for-agents.md', /glass/],
     [['detent'], 'docs/contract-for-agents.md', /detent/],
-    [['tab', 'bar'], 'docs/recipes/tabs.md', /tab bar/],
+    [['tab', 'bar'], 'docs/recipes/tabs.md', /iOS's bar/],
     [['back', 'button'], 'docs/recipes/navigation-stack.md', /`button id="back"`/],
     [['search'], 'docs/recipes/list-rows.md', /search/],
     [['menu'], 'docs/recipes/list-rows.md', /menu/],
