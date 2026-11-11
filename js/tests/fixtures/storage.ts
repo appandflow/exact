@@ -305,6 +305,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
+  // A host with no `bundle:` directory (LLP 1133.007 D6).
+  if (op === "absent-namespace") {
+    try { await storage.fs.readFile("bundle:/Info.plist"); return {text: "ok"}; }
+    catch (e:any) { return {text: e.name + " " + e.kind + " " + e.code}; }
+  }
   // Refusals carry a stable code beside their message (kanban F28).
   if (op === "codes") {
     const data = storage.fs.directories.data, out: string[] = [];

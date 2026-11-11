@@ -58,10 +58,11 @@ const sources: Sources = {
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 ```
 
-- A grant names a path or a prefix (`fs.write app:/data` covers its tree); anything else
-  is refused, code `denied`. `app:/data` is kept, `app:/cache` can be fetched again,
-  `app:/tmp` is scratch. A native module's `context.data`, `context.cache` and
-  `context.temporary` are these three folders ([native-module](native-module.md)).
+- A grant covers its path and its tree (`fs.write app:/data`); anything else is refused,
+  code `denied`. A native line names a directory (`fs.read /etc` reads `/etc/hosts`).
+  `app:/data` is kept, `app:/cache` can be fetched again, `app:/tmp` is scratch. A native
+  module's `context.data`, `context.cache` and `context.temporary` are these three folders
+  ([native-module](native-module.md)).
 - A file is bytes (`readFile`, `atomicWriteFile`); a missing one is code `ENOENT`: answer
   the empty collection, and branch on `e.code`, never the message.
 - SQLite: `query` reads, `execute` writes, `transaction([...])` writes several or none.

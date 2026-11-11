@@ -1031,6 +1031,15 @@ fn storage_refusals_carry_a_stable_code() {
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    // No test here sets a bundle directory, as iOS sets none. (A process
+    // test in this binary may set the home directory.) Unix only: Windows's
+    // `home:` and `bundle:` are LLP 1133.007 stage 3, not absent (§8), and
+    // its unbuilt path answers otherwise.
+    #[cfg(unix)]
+    assert_eq!(
+        call(&mut m, &mut s, "absent-namespace", ""),
+        "NotSupportedError Unavailable failed"
+    );
     let codes: Vec<String> = call(&mut m, &mut s, "codes", "")
         .lines()
         .map(|l| l.split(' ').take(2).collect::<Vec<_>>().join(" "))

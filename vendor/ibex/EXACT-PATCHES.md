@@ -456,7 +456,12 @@ links followed only until a directory an `fs.write` line (native or
 (`reach`), and every name below that opened `O_NOFOLLOW`; a link on the
 way that the running user owns, or that sits in a directory the user
 owns or can write, is refused, naming it (`made_by_this_user`), so only
-links such as macOS's `/var` and `/tmp` are followed; `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
+links such as macOS's `/var` and `/tmp` are followed; a line whose last
+name the walk finds is a regular file (`fstatat` on the walk's descriptor,
+`AT_SYMLINK_NOFOLLOW`, after `ENOTDIR`) is refused as `denied`, saying a
+native line names a directory and to replace the line with itself less
+that name, printed as `PathPrefix` prints a target (the file's directory
+when that name is a link to it; `NamesAFile`); `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
 `open_read` opens a path to read it the same way, for a child's stdin; and `stat`
 reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 `access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`, host opcodes

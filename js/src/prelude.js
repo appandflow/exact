@@ -820,8 +820,8 @@
   }
   function storageError(message, code) {
     var error = new Error(message);
-    error.kind = "Unavailable";
-    error.code = code || storageCode(String(message));
+    error.kind = "Unavailable"; error.code = code || storageCode(String(message));
+    if (/^unsupported: no (home|bundle): directory here$/.test(String(message))) Object.defineProperty(error, "name", { value: "NotSupportedError", writable: true, configurable: true }); // no such directory on iOS, tvOS, Android (LLP 1133.007 D6); its code stays "failed", as "unsupported" is a host with no app storage; defined, as the hardened Error.prototype.name is read only
     return error;
   }
   function storageCall(receiver, method, args, convert) {
