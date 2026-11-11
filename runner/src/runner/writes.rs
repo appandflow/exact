@@ -85,9 +85,9 @@ impl<D: DataSource> Runner<D> {
 
     /// A send to `m` was accepted. A newer send to a non-queue mutation
     /// ends the older pending ones (newest wins, LLP 1092 D1).
-    pub(super) fn accept_write(&mut self, m: usize, source: &str, args: &[Value]) {
+    pub(super) fn accept_write(&mut self, m: usize, source: &str, args: &[Value]) -> Option<u64> {
         if self.plan.mutations[m].refreshes.len == 0 {
-            return;
+            return None;
         }
         // Recorded before the older sends end, so ending them does not ask
         // their resources again while this one still shows in them
@@ -102,6 +102,7 @@ impl<D: DataSource> Runner<D> {
         if !self.plan.mutations[m].queue {
             self.end_pending(m, Some(id));
         }
+        Some(id)
     }
 
     /// The pending record a reply to `m` belongs to: a queue's oldest (its
@@ -167,7 +168,7 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
-    /// `m`'s send in flight ended without landing: its record goes, and
+    /// `m`'s send ended without landing: its record goes, and
     /// each refreshed resource is read again to reconcile.
     pub(super) fn end_write(&mut self, m: usize, write: Option<u64>) -> bool {
         let Some(i) = self.pending_write(m, write) else {

@@ -1,6 +1,7 @@
 # An expired wake drops its queued sends but leaves their writes showing and their stall standing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Expiring a wake removes its queued writes, clears stalls belonging to dropped heads, and publishes the updated overlay and pending state.
 **Systems:** `runner/src/runner/queue.rs`, `runner/src/runner/writes.rs`, `runner/src/runner/modules/wakes.rs`
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

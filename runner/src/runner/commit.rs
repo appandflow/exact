@@ -428,7 +428,7 @@ impl<D: DataSource> Runner<D> {
         let mut unsent: Vec<Unsent> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
-            self.accept_write(m, source, sargs);
+            let write = self.accept_write(m, source, sargs);
             let queue = self.plan.mutations[m].queue;
             let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
             if early && !queue {
@@ -439,7 +439,7 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             if queue && (early || asked.contains(&m) || !self.asks_now(m)) {
-                if let Err(e) = self.wait_turn(m, source, sargs) {
+                if let Err(e) = self.wait_turn(m, source, sargs, write) {
                     self.discard_later(&later);
                     return Err(e);
                 }

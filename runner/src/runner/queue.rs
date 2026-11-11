@@ -23,6 +23,8 @@ pub const QUEUE_BOUND: usize = 64;
 pub(super) struct Waiting {
     source: String,
     args: Vec<Value>,
+    /// The optimistic write made when this send was accepted, if any.
+    write: Option<u64>,
     /// The origin of the commit that sent it, which its `next` runs under.
     origin: CallOrigin,
     /// The invocation that commit was part of (LLP 1133.023 D7); 0 for none.
@@ -118,6 +120,7 @@ impl<D: DataSource> Runner<D> {
         m: usize,
         source: &str,
         args: &[Value],
+        write: Option<u64>,
     ) -> Result<(), RunnerError> {
         if self.queues.waiting[m].len() >= QUEUE_BOUND {
             return Err(RunnerError::QueueFull {
@@ -128,6 +131,7 @@ impl<D: DataSource> Runner<D> {
         self.queues.waiting[m].push_back(Waiting {
             source: source.to_string(),
             args: args.to_vec(),
+            write,
             origin,
             id,
         });
@@ -315,22 +319,37 @@ impl<D: DataSource> Runner<D> {
         id != 0 && (self.queues.waiting.iter()).any(|w| w.iter().any(|s| s.id == id))
     }
 
-    /// Drop the waiting sends of invocation `id`, one journal line per
-    /// mutation.
-    pub(super) fn drop_queued_of(&mut self, id: u64) {
+    /// Drop invocation `id`'s waiting sends and their writes. A dropped
+    /// head takes its stall with it. Whether anything was dropped.
+    pub(super) fn drop_queued_of(&mut self, id: u64) -> bool {
         if id == 0 {
-            return;
+            return false;
         }
+        let mut dropped = false;
         for m in 0..self.queues.waiting.len() {
+            if self.queues.waiting[m].front().is_some_and(|s| s.id == id) {
+                self.queues.stalled[m] = None;
+                self.queues.next_due[m] = f64::INFINITY;
+            }
+            let writes: Vec<u64> = self.queues.waiting[m]
+                .iter()
+                .filter(|s| s.id == id)
+                .filter_map(|s| s.write)
+                .collect();
             let before = self.queues.waiting[m].len();
             self.queues.waiting[m].retain(|s| s.id != id);
+            for write in writes {
+                self.end_write(m, Some(write));
+            }
             let n = before - self.queues.waiting[m].len();
             if n > 0 {
+                dropped = true;
                 let name = self.plan.str(self.plan.mutations[m].name).to_string();
                 self.log(super::lines::forgot_waiting(n, &name));
             }
         }
         self.sync_pending_flags();
+        dropped
     }
 
     /// Drop every waiting send — poison, or a reload that does not carry

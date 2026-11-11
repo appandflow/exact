@@ -1151,10 +1151,9 @@ shape shows the answer and stops showing every answered write; the journal says
 why for the last two.
 
 A write that ends without landing stops showing in that commit, with no undo
-code, and the resource is asked again: its reply fails, a newer send to the same
-mutation replaces it (a `queue` mutation's sends all stay), or an action assigns
-the mutation's slot. If that ask fails, `failed(items)` is true and `items` keeps
-its last answer.
+code, and the resource is asked again: its reply fails, its wake expires, or a
+non-queue mutation's send is replaced by a newer send or an assignment to its
+slot. If that ask fails, `failed(items)` is true and `items` keeps its last answer.
 
 - The overlay runs synchronously inside the commit, so it cannot await, and it
   has no effects: `fetch`, storage, the store (`get` included), `native` and
