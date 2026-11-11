@@ -1,6 +1,7 @@
 # In the terminal a box scrolled out of view takes with it the children that reach outside its rows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The terminal paints overflowing descendants when their parent is outside the visible rows, retaining ancestor clipping on each axis according to its computed overflow.
 **Systems:** host/terminal/src/paint.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

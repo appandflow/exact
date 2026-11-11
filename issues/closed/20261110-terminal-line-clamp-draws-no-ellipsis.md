@@ -1,6 +1,7 @@
 # In the terminal a clamped paragraph ends with no ellipsis
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The terminal marks clamped paragraphs and native button titles with an ellipsis on whole grapheme clusters, trimming long lines in linear time.
 **Systems:** host/terminal/src/paint.rs (`text`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

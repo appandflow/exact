@@ -59,6 +59,184 @@ fn boot(cols: usize, rows: usize) -> (Host<()>, Vt) {
 }
 
 #[test]
+fn line_clamp_marks_the_last_visible_line() {
+    let plan = contract::compile_terminal(
+        r#"component App
+  view
+    column width="16ch"
+      text "one two three four five six seven eight nine ten" line-clamp=2
+      text "----------------"
+      text "one two three four five six seven eight nine ten" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "one two three\nfour five six…\n----------------\none two three f…"
+    );
+}
+
+#[test]
+fn line_clamp_keeps_whole_clusters_and_marks_only_a_cut() {
+    for (width, value, style, expected) in [
+        (4, "abcd ef", "", "abc…"),
+        (4, "abcd", "", "abcd"),
+        (4, "abc", "", "abc"),
+        (4, "日本語", "", "日…"),
+        (4, "éééé next", "", "ééé…"),
+        (1, "a b", "", "…"),
+        (4, "ab\\ncd", "white-space=\"pre\"", "ab…"),
+        (4, "ab", "white-space=\"pre\"", "ab"),
+        (4, "ab\\ncd", "white-space=\"pre-wrap\"", "ab…"),
+        (4, "ab cd", "text-align=\"right\"", " ab…"),
+        (4, "abcd ef", "text-overflow=\"ellipsis\"", "abc…"),
+    ] {
+        let source = format!(
+            "component App\n  view\n    text \"{value}\" width=\"{width}ch\" line-clamp=1 {style}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+        assert_eq!(vt.text(false), host.frame().grid.text());
+    }
+}
+
+#[test]
+fn a_long_preserved_clamped_line_repaints_promptly() {
+    let source = format!(
+        "component App\n  view\n    text \"{}\\nb\" width=\"80ch\" white-space=\"pre\" line-clamp=1\n",
+        "a".repeat(100_000)
+    );
+    let plan = contract::compile_terminal(&source).unwrap();
+    let host = Host::boot(plan, (), Mode::Fullscreen, 80, 6).unwrap();
+    // Exclude compilation and layout; the bound catches quadratic ellipsis trimming.
+    let start = std::time::Instant::now();
+    let frame = host.render(0, 6);
+    let elapsed = start.elapsed();
+    assert_eq!(frame.grid.text().trim_end(), format!("{}…", "a".repeat(79)));
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+}
+
+#[test]
+fn native_buttons_mark_clamped_titles_on_whole_clusters() {
+    for (width, value, style, expected) in [
+        (8, "one two three four", "", "  one…"),
+        (8, "six", "", "  six"),
+        (6, "日本語", "", " 日…"),
+        (6, "éééé next", "", " ééé…"),
+        (3, "a b", "", " …"),
+        (8, "ab cd ef", "text-align=\"right\"", " ab cd…"),
+    ] {
+        let source = format!(
+            "component App\n  view\n    button \"{value}\" width=\"{width}ch\" line-clamp=1 {style}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+    }
+}
+
+#[test]
+fn overflow_clip_leaves_the_other_axis_visible() {
+    for (overflow, placement, expected) in [
+        ("overflow-y=\"clip\"", "left=\"6ch\"", "      menu"),
+        ("overflow-x=\"clip\"", "top=\"1lh\"", "\nmenu"),
+        ("overflow-x=\"clip\"", "left=\"6ch\"", ""),
+        ("overflow-y=\"clip\"", "top=\"1lh\"", ""),
+        ("overflow-y=\"hidden\"", "left=\"6ch\"", ""),
+        ("overflow-x=\"hidden\"", "top=\"1lh\"", ""),
+        (
+            "overflow-x=\"clip\" margin-top=\"-1lh\"",
+            "top=\"1lh\"",
+            "menu",
+        ),
+    ] {
+        let source = format!(
+            "component App\n  view\n    column position=\"relative\" width=\"4ch\" height=\"1lh\" {overflow}\n      text \"menu\" position=\"absolute\" {placement}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+    }
+}
+
+#[test]
+fn scrolling_an_anchor_out_of_view_keeps_its_positioned_child_visible() {
+    let plan = contract::compile_terminal(
+        r#"component App
+  view
+    column
+      scroll height="4lh" scrollbar-width="none"
+        column position="relative" height="1lh"
+          text "anchor"
+          text "menu" position="absolute" top="1lh" left="10ch"
+        text "two"
+        text "three"
+        text "four"
+        text "five"
+        text "six"
+      text "after"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "anchor\ntwo       menu\nthree\nfour\nafter"
+    );
+    host.wheel(2, 2, 1);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "two       menu\nthree\nfour\nfive\nafter"
+    );
+    host.wheel(2, 2, -1);
+    vt.render(&mut host);
+    assert_eq!(vt.text(false).lines().nth(1), Some("two       menu"));
+}
+
+#[test]
+fn children_reach_the_clip_from_boxes_above_and_below_it() {
+    for (placement, children) in [
+        (
+            "margin-top=\"-1lh\"",
+            "        text \"anchor\"\n        text \"visible\"\n",
+        ),
+        (
+            "margin-top=\"-1lh\"",
+            "        column position=\"absolute\" top=\"1lh\"\n          text \"visible\"\n",
+        ),
+        (
+            "margin-top=\"3lh\"",
+            "        column position=\"absolute\" top=\"-3lh\"\n          text \"visible\"\n",
+        ),
+    ] {
+        for overflow in ["visible", "hidden"] {
+            let source = format!(
+                "component App\n  view\n    column height=\"3lh\" overflow=\"hidden\"\n      column position=\"relative\" height=\"1lh\" {placement} overflow=\"{overflow}\"\n{children}"
+            );
+            let plan = contract::compile_terminal(&source).unwrap();
+            let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+            let mut vt = Vt::new(&mut host);
+            vt.render(&mut host);
+            let expected = if overflow == "visible" { "visible" } else { "" };
+            assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+        }
+    }
+}
+
+#[test]
 fn a_dialog_over_half_a_wide_cluster_keeps_the_screen_aligned() {
     for (cols, line, expected) in [
         (24, "日本語日本語日本語日本語", "日本語 │hello  │語日本語"),
