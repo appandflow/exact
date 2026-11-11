@@ -985,6 +985,17 @@ impl Loader<'_> {
         // members block's are its listing file's (LLP 1091.002 D4).
         let listed = self.listed_by();
         let (bound, in_blocks) = self.bindings_by_file();
+        // Collision checks need only the files that bind this spelling.
+        let by_name = |files: &[HashSet<String>]| {
+            let mut by: HashMap<String, Vec<usize>> = HashMap::new();
+            for (file, names) in files.iter().enumerate() {
+                for name in names {
+                    by.entry(name.clone()).or_default().push(file);
+                }
+            }
+            by
+        };
+        let (bound_by, in_blocks_by) = (by_name(&bound), by_name(&in_blocks));
         let called: Vec<HashSet<String>> = self
             .units
             .iter()
@@ -1049,18 +1060,18 @@ impl Loader<'_> {
                                     && unit.file.shapes.iter().any(|s| s.name == name))
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
-                                || bound.iter().enumerate().any(|(other, names)| {
-                                    other != index && names.contains(name)
-                                })
-                                || in_blocks.iter().enumerate().any(|(other, names)| {
-                                    listed[other] != Some(index) && names.contains(name)
+                                || bound_by
+                                    .get(name)
+                                    .is_some_and(|files| files.iter().any(|&other| other != index))
+                                || in_blocks_by.get(name).is_some_and(|files| {
+                                    files.iter().any(|&other| listed[other] != Some(index))
                                 }))
                     };
                     // A generated name is no binding's in any file either, or
                     // the binding's calls (in its own file too) would reach it.
                     let bound_anywhere = |unique: &str| {
-                        let mut all = bound.iter().chain(&in_blocks);
-                        unique != name && all.any(|names| names.contains(unique))
+                        unique != name
+                            && (bound_by.contains_key(unique) || in_blocks_by.contains_key(unique))
                     };
                     while taken.contains(&(kind, unique.clone()))
                         || roster(&unique)
