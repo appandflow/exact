@@ -990,36 +990,44 @@ fn in_glass_group(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
     false
 }
 
-/// LLP 1053.000.000 D4: every running opacity animation inside a glass
-/// group is sampled, not only the ones a commit touched, so a group set on
-/// an ancestor after the animation started reaches it too. Returns the views
-/// whose Core Animation specs must be withdrawn. A node that leaves every
-/// group stays sampled: its pixels are right, at a little more work.
-pub(crate) fn glass_sampling(kernel: &Kernel, engine: &mut Engine) -> Vec<exact_kernel::ViewId> {
+/// Every lowered animation that Core Animation can no longer play as CSS
+/// does because of an ancestor is switched to sampling, not only the ones a
+/// commit touched ([`eligibility`]): an opacity animation in a glass group
+/// (LLP 1053.000.000 D4), anything under a filtered box, and an SVG element
+/// drawn into a picture (`live` as for [`in_picture`]). An ancestor that
+/// gains a group or a filter touches none of its descendants. Returns the
+/// views whose Core Animation specs must be withdrawn. A node that leaves
+/// the group or the filter stays sampled: its pixels are right, at a little
+/// more work.
+pub(crate) fn resample(
+    kernel: &Kernel,
+    engine: &mut Engine,
+    live: bool,
+) -> Vec<exact_kernel::ViewId> {
     let lowered: Vec<u64> = engine
         .animated_nodes()
-        .filter(|&node| {
-            !engine.node_sampled(node)
-                && engine.animation_plays(node).iter().any(|play| {
-                    play.animation
-                        .keyframes
-                        .properties()
-                        .into_iter()
-                        .any(|p| p == Property::Opacity)
-                })
-        })
+        .filter(|&node| !engine.node_sampled(node))
         .collect();
     let mut switched = Vec::new();
     for node in lowered {
-        let key = NodeKey {
-            index: node as u32,
-            generation: (node >> 32) as u32,
+        let Some(n) = kernel.node_by_key(exact_kernel::motion::node_key(node)) else {
+            continue;
         };
-        if let Some(n) = kernel.node_by_key(key) {
-            if in_glass_group(kernel, &n) {
-                engine.set_node_sampled(node, true);
-                switched.push(n.id);
-            }
+        let svg = n.node_type.is_svg_element() || n.node_type == NodeType::Svg;
+        let opacity = || {
+            engine.animation_plays(node).iter().any(|play| {
+                play.animation
+                    .keyframes
+                    .properties()
+                    .contains(&Property::Opacity)
+            })
+        };
+        if under_box_filter(kernel, &n)
+            || (svg && in_picture(kernel, &n, live))
+            || (opacity() && in_glass_group(kernel, &n))
+        {
+            engine.set_node_sampled(node, true);
+            switched.push(n.id);
         }
     }
     switched

@@ -331,11 +331,120 @@ component A
     let node = exact_kernel::motion::motion_node(host.runner.kernel().node(view).unwrap().key);
     host.engine.set_node_sampled(node, false);
     assert_eq!(
-        svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine),
+        svg_lower::resample(host.runner.kernel(), &mut host.engine, false),
         [view]
     );
     assert!(host.engine.node_sampled(node));
-    assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
+    assert!(svg_lower::resample(host.runner.kernel(), &mut host.engine, false).is_empty());
+}
+
+/// A filtered box is drawn as a picture that Core Animation's animations
+/// do not reach (`BoxFilter.swift`), as is an SVG group with a filter
+/// reference. An animation running when an ancestor gains such a filter is
+/// switched to sampling in that batch, its Core Animation specs withdrawn,
+/// though the commit did not touch the animated node.
+#[test]
+fn a_lowered_animation_is_sampled_when_an_ancestor_gains_a_filter() {
+    let app = r##"keyframes pulse
+  from opacity=1
+  to opacity=0.2
+keyframes spin
+  from rotate=0
+  to rotate=360
+component A
+  state on = false
+  state blurred = false
+  action go
+    on = not on
+  action blur
+    blurred = not blurred
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      button press=blur testId="blur"
+        text "Blur"
+      box filter=(blurred ? "blur(0.5px)" : "none")
+        box testId="square" width=40 height=40 background-color="#ff0000" animation=(on ? "pulse 1s linear infinite alternate" : "none")
+        box testId="turning" width=40 height=40 animation=(on ? "spin 1s linear infinite" : "none")
+      svg width=40 height=40 viewBox="0 0 40 40"
+        defs
+          filter id="soft"
+            feGaussianBlur stdDeviation=1
+        g filter=(blurred ? "url(#soft)" : "none")
+          rect testId="shape" x=10 y=10 width=8 height=8 animation=(on ? "pulse 1s linear infinite" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        let names: &[&str] = if ios_motion {
+            &["square", "turning", "shape"]
+        } else {
+            &["square", "shape"]
+        };
+        let sampled = |host: &Host<NoData>, name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(host, name)).unwrap().key,
+            ))
+        };
+        // A box's specs come in its `animations` op, a shape's in its scene.
+        let shape = id(&host, "shape");
+        let lowered = |batch: &str, view: u32| {
+            fn find(v: &serde_json::Value, view: u32) -> Option<usize> {
+                if v["id"] == view && v["a"].is_array() {
+                    return v["a"].as_array().map(Vec::len);
+                }
+                let items = v.as_array().into_iter().flatten();
+                let fields = v.as_object().into_iter().flat_map(|o| o.values());
+                items.chain(fields).find_map(|c| find(c, view))
+            }
+            if view == shape {
+                find(&serde_json::from_str(batch).unwrap(), view)
+            } else {
+                specs(batch, view).map(|s| s.len())
+            }
+        };
+        let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        for name in names {
+            assert!(!sampled(&host, name), "{name}, ios: {ios_motion}");
+            assert!(
+                lowered(&on, id(&host, name)).is_some_and(|n| n > 0),
+                "{name}: {on}"
+            );
+        }
+        let blurred = host.dispatch_at(id(&host, "blur"), Event::Press, 300.0);
+        for name in names {
+            assert!(sampled(&host, name), "{name}, ios: {ios_motion}");
+            assert_eq!(
+                lowered(&blurred, id(&host, name)),
+                Some(0),
+                "{name}: {blurred}"
+            );
+        }
+        let later = host.tick(600.0);
+        let square = id(&host, "square");
+        let v: serde_json::Value = serde_json::from_str(&later).unwrap();
+        assert!(
+            v["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|op| op["op"] == "present"
+                    && op["id"] == square
+                    && op["property"] == "opacity"),
+            "ios: {ios_motion}: {later}"
+        );
+    }
 }
 
 /// LLP 1115.003 D4: a box's `translate` given as a percentage of itself

@@ -641,7 +641,7 @@ impl<D: DataSource> Host<D> {
             &|v| !runner.handlers_of(v).is_empty(),
         );
         svg_lower::hand_over_paths(runner.kernel(), &mut host.engine, host.svg.box_motion);
-        for view in svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine) {
+        for view in svg_lower::resample(runner.kernel(), &mut host.engine, host.svg.box_motion) {
             host.svg.element(host.runner.kernel(), view);
         }
         host.boot_paint(&order);
@@ -1343,7 +1343,8 @@ impl<D: DataSource> Host<D> {
                     self.svg.element(runner.kernel(), view);
                 }
             }
-            for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
+            for view in svg_lower::resample(runner.kernel(), &mut self.engine, self.svg.box_motion)
+            {
                 self.svg.element(self.runner.kernel(), view);
             }
             self.play_exits(&mut batch);

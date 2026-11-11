@@ -1,6 +1,7 @@
 # An animation running when an ancestor gains a CSS `filter` stays with Core Animation and freezes in the filtered picture
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** After each receipt, `svg_lower::resample` switches every lowered animated node now under a filtered box or in an SVG picture to sampling, as it did for opacity in a glass group, and withdraws its Core Animation specs.
 **Systems:** host/apple/src/svg_lower.rs, host/apple/src/host.rs, host/apple/Sources/ExactKit/BoxFilter.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
