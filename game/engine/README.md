@@ -511,7 +511,7 @@ non-finite values or nonpositive scale are ignored; zero quaternions mean identi
 Rest mirrors keep their winding. Clip scale tracks must retain each rest-axis sign;
 validation names the clip and node on refusal. Cubic Bezier controls must also
 retain those signs, conservatively excluding tangent overshoot through zero.
-Presentation payload pages are reused, then reclaimed after two consecutive
+Presentation payload pages are reused, then reclaimed after 60 consecutive
 empty presents. `World::presentation_bytes()` reports retained payload and index
 metadata, whose capacity is bounded by the highest entity index used.
 

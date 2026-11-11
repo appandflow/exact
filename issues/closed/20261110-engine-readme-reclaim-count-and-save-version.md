@@ -1,6 +1,7 @@
 # The engine README says presentation pages are reclaimed after two empty presents (it is 60), and save.rs calls the save v5 (it is v6)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The engine README states the 60-present reclamation threshold, and save.rs identifies EXGAME v6.
 **Systems:** game/engine/README.md, game/engine/src/world/save.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
