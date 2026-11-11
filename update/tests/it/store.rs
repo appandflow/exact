@@ -1120,6 +1120,7 @@ fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
     std::fs::create_dir_all(entry.join("assets")).unwrap();
     std::fs::write(entry.join("exact.json"), raw).unwrap();
     std::fs::write(entry.join("app.plan"), b"plan four").unwrap();
+    std::fs::write(entry.join("assets.json"), bundle.index()).unwrap();
     std::fs::write(entry.join("assets/mark.png"), b"a mark").unwrap();
 
     let refusal = origin.check(&mut store).unwrap_err();

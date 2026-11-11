@@ -734,7 +734,11 @@ impl Store {
         let mut envelope = Envelope::parse(&fetch(head_url)?)?;
         // The signature first: an unauthenticated head names nothing to fetch.
         self.embedded.verify(&envelope)?;
-        self.read_index(&mut envelope, head_url, fetch)?;
+        // Its index from the blob store when an earlier check kept it.
+        if let Some(card) = envelope.index.as_ref().map(|index| index.card.clone()) {
+            self.obtain(&card, head_url, fetch, &mut |_| None)?;
+            envelope.read_index(&read_card(&self.blobs().dir().join(&card.sha256), &card)?)?;
+        }
         if !self.admit_check(&envelope, head_url, embedded_asset)? {
             self.write_entry(&envelope, head_url, fetch, embedded_asset)?;
         }
@@ -1352,22 +1356,6 @@ impl Store {
         blobs.put(&card.sha256, &bytes)
     }
 
-    /// Read the asset index a fetched head names into it: from the blob
-    /// store when an earlier check kept it, else from the origin.
-    fn read_index(
-        &self,
-        envelope: &mut Envelope,
-        head_url: &str,
-        fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-    ) -> Result<(), String> {
-        let Some(index) = &envelope.index else {
-            return Ok(());
-        };
-        self.obtain(&index.card, head_url, fetch, &mut |_| None)?;
-        let raw = read_card(&self.blobs().dir().join(&index.card.sha256), &index.card)?;
-        envelope.read_index(&raw)
-    }
-
     fn blobs(&self) -> Blobs {
         Blobs::at(&self.dir)
     }
@@ -1415,23 +1403,19 @@ impl Store {
             if !keep.contains(&name) && remove_entry(&item.path()) {
                 continue;
             }
-            if let Ok(envelope) = read_bounded(
+            if let Ok(mut envelope) = read_bounded(
                 &item.path().join("exact.json"),
                 crate::MAX_ENVELOPE_BYTES as u64,
             )
             .and_then(|raw| Envelope::parse(&raw))
             {
                 digests.insert(envelope.plan.sha256.clone());
-                if let Some(index) = &envelope.index {
-                    digests.insert(index.card.sha256.clone());
-                }
                 // A witness holds no index file, and so names no asset blobs.
-                let mut envelope = envelope;
-                let roster = envelope.index.as_ref().and_then(|index| {
-                    read_card(&item.path().join("assets.json"), &index.card).ok()
-                });
-                if roster.is_some_and(|raw| envelope.read_index(&raw).is_ok()) {
-                    if let Ok(assets) = envelope.assets() {
+                if let Some(card) = envelope.index.as_ref().map(|index| index.card.clone()) {
+                    digests.insert(card.sha256.clone());
+                    let raw = read_card(&item.path().join("assets.json"), &card);
+                    if raw.and_then(|raw| envelope.read_index(&raw)).is_ok() {
+                        let assets = envelope.assets().unwrap_or_default();
                         digests.extend(assets.iter().map(|a| a.sha256.clone()));
                     }
                 }

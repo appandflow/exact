@@ -103,7 +103,8 @@ export async function followRustUpdates(exact, sourceURL) {
         const javascript = next.module;
         // The asset cards are in the index the envelope names, at most 4 MiB (update/src/envelope.rs).
         if(next.assets&&!(next.assets.bytes<=4*1024*1024))throw new Error('Rust update asset index exceeds its bound');
-        const listed=next.assets?JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode((await load(next.assets,canonical)).bytes)).assets:[];
+        const index=next.assets?await load(next.assets,canonical):null;
+        const listed=index?JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(index.bytes)).assets:[];
         if(!Array.isArray(listed)||listed.length!==(next.assets?.count??0))throw new Error('Rust update asset index does not hold the cards its envelope counts');
         const cards=[next.plan,pair.receipt,pair.module,...(javascript?[javascript.receipt,javascript.web]:[]),...listed];
         if(cards.reduce((n,c)=>n+c.bytes,0)>256*1024*1024)throw new Error('Rust update exceeds generation bound');
@@ -112,7 +113,7 @@ export async function followRustUpdates(exact, sourceURL) {
         const assets=new Map();
         for(const card of listed) {
           if(!/^(assets|deck|shaders)\//.test(card.name)||/[\\\x00-\x1f]/.test(card.name)||card.name.split('/').some(p=>!p||p==='.'||p==='..')||assets.has(card.name))throw new Error('Invalid Rust update asset name');
-          assets.set(card.name,await load(card,canonical));
+          assets.set(card.name,await load(card,index.url));
         }
         if(await exact.reloadGeneration(plan.bytes,assets,()=>true,js?{receipt:js[0].bytes,script:js[1].bytes}:null,{receipt:receipt.bytes,module:module.bytes}))accepted=identity(next);
       }

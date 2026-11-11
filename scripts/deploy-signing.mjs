@@ -124,8 +124,14 @@ export function sealEnvelope({ assets = [], ...envelope }, indexUrl = './assets.
   const index = assetIndex(assets, indexUrl);
   if (index) envelope.assets = index.card;
   const bytes = envelopeBytes(envelope);
-  return { envelope, bytes, index: index?.bytes ?? null,
-    report: `exact.json ${kib(bytes.length)} of ${kib(ENVELOPE_BYTES)}, ${index ? `assets.json ${kib(index.bytes.length)} of ${kib(ASSET_INDEX_BYTES)} for` : 'no asset index:'} ${assets.length} asset${assets.length === 1 ? '' : 's'}` };
+  return { envelope, bytes, index: index?.bytes ?? null, report: envelopeReport(bytes.length, index?.bytes.length ?? null, assets.length) };
+}
+
+/** Both files' sizes against their bounds and the card count, as a line; a
+ * file over its bound is said to be one every client refuses. */
+export function envelopeReport(envelope, index, count) {
+  const over = (n, most) => n > most ? ' (over its bound: every client refuses it)' : '';
+  return `exact.json ${kib(envelope)} of ${kib(ENVELOPE_BYTES)}${over(envelope, ENVELOPE_BYTES)}, ${index === null ? 'no asset index:' : `assets.json ${kib(index)} of ${kib(ASSET_INDEX_BYTES)}${over(index, ASSET_INDEX_BYTES)} for`} ${count} asset${count === 1 ? '' : 's'}`;
 }
 
 export function fileCard(object, name) {
@@ -135,11 +141,12 @@ export function fileCard(object, name) {
   if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) throw new Error(`${name} has no exact nonnegative byte count`);
 }
 
-/** The envelope's card for its asset index, refused over the index's bound. */
-export function indexCard(card) {
+/** The envelope's card for its asset index, refused over the index's bound
+ * unless `bounded` is false (a web root, which a browser loads at any size). */
+export function indexCard(card, bounded = true) {
   fileCard(card, 'assets.json');
   if (!Number.isSafeInteger(card.count) || card.count < 0) refuse('assets.json has no exact nonnegative card count');
-  if (card.bytes > ASSET_INDEX_BYTES) refuse(`the asset index is ${kib(card.bytes)} for ${card.count} assets; the most is ${kib(ASSET_INDEX_BYTES)}`);
+  if (bounded && card.bytes > ASSET_INDEX_BYTES) refuse(`the asset index is ${kib(card.bytes)} for ${card.count} assets; the most is ${kib(ASSET_INDEX_BYTES)}`);
 }
 
 /** exact-update's `safe_name`: a relative path whose segments use only the
@@ -177,8 +184,8 @@ export function portableAssetNames(names) {
 /** The asset cards of an envelope whose index `card` is these `raw` bytes:
  * refused unless they are its exact bytes and hold `count` cards with
  * portable, distinct names (`update/src/envelope.rs` `read_index`). */
-export function readAssetIndex(card, raw) {
-  indexCard(card);
+export function readAssetIndex(card, raw, { bounded = true } = {}) {
+  indexCard(card, bounded);
   if (!raw || raw.length !== card.bytes || createHash('sha256').update(raw).digest('hex') !== card.sha256) refuse('the asset index is not the bytes its envelope names');
   let index;
   try { index = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)); } catch (error) { refuse(`the asset index is not JSON: ${error.message}`); }

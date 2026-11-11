@@ -41,7 +41,7 @@ import { requireReleasePins } from '../game/inputs.mjs';
 // produced and proves the client verifies it.
 import { spawnSync } from 'node:child_process';
 import { randomBytes, verify } from 'node:crypto';
-import { Refusal, refuse, assetIndex, canonicalBytes, canonicalJson, envelopeBytes, fileCard, portableAssetNames, publicKeyFromRaw, loadSigner, keygen, indexCard, readAssetIndex, validateRawIntegers } from './deploy-signing.mjs';
+import { Refusal, refuse, assetIndex, canonicalBytes, canonicalJson, envelopeBytes, fileCard, portableAssetNames, publicKeyFromRaw, loadSigner, keygen, indexCard, readAssetIndex, envelopeReport, validateRawIntegers } from './deploy-signing.mjs';
 export { canonicalBytes, portableAssetNames, publicKeyFromRaw, loadSigner, readAssetIndex, sealEnvelope } from './deploy-signing.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
@@ -1171,6 +1171,7 @@ export function webRelease(web) {
   const source = files.map(({ name, body }) => ({ name, sha256: sha256(body) }));
   const id = sha256(canonicalBytes({ webRoot: 1, source }));
   const prefix = `/${webReleasePath(id)}/`;
+  let report = null;
   for (const file of files) {
     file.sourceSha256 = sha256(file.body);
     if (file.name === 'index.html') {
@@ -1220,7 +1221,7 @@ export function webRelease(web) {
       const envelope = JSON.parse(file.body.toString('utf8'));
       const index = envelope.assets && files.find((f) => f.name === 'assets.json');
       if (envelope.assets && !index) refuse('web envelope names an asset index the build does not hold');
-      for (const card of [envelope.plan, ...(index ? readAssetIndex(envelope.assets, index.body) : [])]) {
+      for (const card of [envelope.plan, ...(index ? readAssetIndex(envelope.assets, index.body, { bounded: false }) : [])]) {
         const name = card === envelope.plan ? 'app.plan' : card.name;
         const captured = files.find((f) => f.name === name);
         if (!captured || card.sha256 !== sha256(captured.body) || card.bytes !== captured.body.length) refuse(`web envelope does not bind ${name}`);
@@ -1228,16 +1229,18 @@ export function webRelease(web) {
       envelope.plan.url = prefix + 'app.plan';
       if (envelope.assets) envelope.assets.url = prefix + 'assets.json';
       file.body = canonicalBytes(envelope);
+      // Said, never refused: a browser loads a root whatever its envelope weighs.
+      report = `the web root's ${envelopeReport(file.body.length, index ? index.body.length : null, envelope.assets?.count ?? 0)}`;
     }
   }
   const pointer = { webRoot: 1, id, files: files.map(({ name, body, sourceSha256 }) => ({ name, sourceSha256, sha256: sha256(body), bytes: body.length })) };
-  return { pointer, files };
+  return { pointer, files, report };
 }
 
 /** Every payload lands immutably and is read back before the only mutable
  * pointer moves. A failed or concurrent publish cannot damage the prior graph. */
 export async function publishRoot({ origin, row, web, log = () => {} }) {
-  const { pointer, files } = webRelease(web);
+  const { pointer, files, report } = webRelease(web);
   return origin.withLock(webRootStream, async () => {
     const before = await origin.get(webRootPath);
     if (before && parseWebRoot(before).id === pointer.id) {
@@ -1260,7 +1263,7 @@ export async function publishRoot({ origin, row, web, log = () => {} }) {
       // proves this pointer won; otherwise preserve the original refusal.
       if (!(await origin.get(webRootPath))?.equals(bytes)) throw error;
     }
-    log(`  origin: ${files.length} immutable files verified; atomic web root ${pointer.id.slice(0, 12)}`);
+    log(`  origin: ${files.length} immutable files verified; atomic web root ${pointer.id.slice(0, 12)}${report ? `; ${report}` : ''}`);
     return { ...row, action: 'published', root: pointer.id, written: files.map((f) => f.name) };
   });
 }

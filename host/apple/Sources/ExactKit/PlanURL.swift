@@ -698,7 +698,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         }
         let head = Head(json: json, base: base, plan: plan, module: module, moduleCanonical: moduleCanonical, rust: rustModule, rustCanonical: rustCanonical, total: total)
         // The asset cards are in the index the envelope names, and resolve
-        // against the index's own URL (update/src/envelope.rs). No index, no assets.
+        // against the URL it names the index by, not a redirect's target, as
+        // the update store and the web clients resolve them
+        // (update/src/envelope.rs). No index, no assets.
         guard let indexRow = json["assets"] else {
             takeRoster([], base: base, head: head, subscribe: shouldSubscribe, generation: generation, expected: expected)
             return
@@ -719,7 +721,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                 self.failed("cannot verify the asset index \(index.url)", generation: generation)
                 return
             }
-            self.takeRoster(list, base: response.url ?? index.url, head: head, subscribe: shouldSubscribe, generation: generation, expected: expected)
+            self.takeRoster(list, base: index.url, head: head, subscribe: shouldSubscribe, generation: generation, expected: expected)
         }
     }
 

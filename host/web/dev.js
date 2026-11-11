@@ -113,8 +113,11 @@ async function fetchGeneration(message, signal, first = false) {
   // (update/src/envelope.rs); a generation with no assets names none.
   const index = envelope.assets;
   if (index !== undefined && (!Number.isSafeInteger(index?.count) || index.bytes > 4 * 1024 * 1024)) throw new Error("invalid or oversized asset index card");
-  envelope.assets = index ? JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode((await load(index, "assets.json")).bytes)).assets : [];
+  const listed = index ? await load(index, "assets.json") : null;
+  envelope.assets = listed ? JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(listed.bytes)).assets : [];
   if (!Array.isArray(envelope.assets) || envelope.assets.length !== (index?.count ?? 0)) throw new Error("the asset index does not hold the cards its envelope counts");
+  // Its cards resolve against its own URL.
+  if (listed) envelope.assets = envelope.assets.map((card) => ({ ...card, url: new URL(card?.url, listed.url).href }));
   for (const card of envelope.assets) {
     if (!validName(card.name) || names.has(card.name)) throw new Error("invalid or duplicate asset name");
     names.add(card.name);

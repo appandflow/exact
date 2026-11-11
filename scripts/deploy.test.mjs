@@ -941,6 +941,12 @@ async function rejects(action, matches) {
   const raw = canonicalBytes({ assets: [...listed, { ...listed[0], name: 'logo.png' }] });
   let indexProblem = null;
   try { readAssetIndex({ url: './x', sha256: sha256(raw), bytes: raw.length, count: 2 }, raw); } catch (error) { indexProblem = error.message; }
+  // A web root's index is read at any size (a browser loads it); a client's is bounded.
+  const huge = canonicalBytes({ assets: Array.from({ length: 34000 }, (_, i) => ({ ...listed[0], name: `assets/n${i}` })) });
+  const hugeCard = { url: './x', sha256: sha256(huge), bytes: huge.length, count: 34000 };
+  const unbounded = readAssetIndex(hugeCard, huge, { bounded: false }).length === 34000;
+  const bounded = await rejects(() => readAssetIndex(hugeCard, huge), (error) => /for 34000 assets; the most is 4096\.0 KiB/.test(error.message));
+  result('a web root reads an index over the client bound; a client refuses it', unbounded && bounded);
   result('the publisher refuses asset names a client filesystem folds together', refused.every(Boolean) && accepted
     && signingRefused && /differ only by case/.test(indexProblem ?? ''), JSON.stringify({ refused, accepted, signingRefused, indexProblem }));
 }
