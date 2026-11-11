@@ -1375,8 +1375,9 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   a connection carries every query's result, 8 MiB together unless
   `convex(url, functions, { maxMessageBytes })` says another.
 - **A quiet socket.** Convex pings one every 15 seconds, and `live.beat` rises
-  with every frame. `apps/mosaic` refreshes `live` when `beat` has not moved
-  for a minute.
+  with every frame. The recipe's `watch` refreshes `live` when `beat` has not
+  moved for a minute, whether the socket is `ready`, `open` or still
+  `connecting`: no host ends a socket for being quiet.
 - **A query's lifetime.** Its identity is its function and arguments. One a
   screen no longer asks for is dropped at the second change after its last
   ask. One asked while the socket is closed, with nothing delivered for it,
