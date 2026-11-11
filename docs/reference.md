@@ -2745,6 +2745,10 @@ A data crate answers the view's sources in Rust instead of `app.ts`: an app's
 | `app_id()` | The app's identity, which names its storage: `com.example.my-app-3f9a2c` (`exact new` writes the name and six random hex digits), or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
 | `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
 
+A source that wraps another implements `exact_runner::DataSourceWrapper`.
+Every method is required, so adding a data-source method cannot silently use
+a leaf's default in a wrapper. Forward each call or handle it explicitly.
+
 A record is positional: `Value::record(vec![…])` takes its fields in the order
 the shape declares them. `bun exact.mjs contract rust app.contract -o
 /tmp/shapes.rs` writes each shape as a struct with its fields in that order;

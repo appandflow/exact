@@ -636,7 +636,7 @@ fn turn<D: DataSource>(
     }
 }
 
-impl<D: DataSource + 'static> DataSource for Placed<D> {
+impl<D: DataSource + 'static> exact_runner::DataSourceWrapper for Placed<D> {
     fn prepare_snapshot(
         &mut self,
         module: Option<exact_runner::SnapshotModule<'_>>,
@@ -744,6 +744,19 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
 
     /// A worker-placed module does not draw yet (LLP 1056 stage 1; QUEUE):
     /// its canvases report the error through `state`.
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        match (&self.owner, self.inner.as_mut()) {
+            (None, Some(inner)) => inner.draw_2d(surface, args, ctx, frame),
+            _ => Err("a worker-placed module does not draw Canvas 2D yet".into()),
+        }
+    }
+
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,
@@ -1068,7 +1081,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             .collect();
         let mut out: Vec<_> = ready
             .into_iter()
-            .map(|token| (token, self.dispatch(token, store)))
+            .map(|token| (token, DataSource::dispatch(self, token, store)))
             .collect();
         let Some(inner) = self.inner.as_mut() else {
             return out;

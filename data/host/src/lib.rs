@@ -152,7 +152,7 @@ impl<D: DataSource> Storage<D> {
 fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
-impl<D: DataSource> DataSource for Storage<D> {
+impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
     fn prepare_snapshot(
         &mut self,
         module: Option<exact_runner::SnapshotModule<'_>>,
@@ -243,6 +243,16 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn canvas_surfaces(&self) -> Vec<(String, usize)> {
         self.source.canvas_surfaces()
     }
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        self.source.draw_2d(surface, args, ctx, frame)
+    }
+
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,
@@ -357,7 +367,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                 dispatch
             }
             #[cfg(not(target_arch = "wasm32"))]
-            Some(Pending::Storage(..)) => match self.continuation(token) {
+            Some(Pending::Storage(..)) => match DataSource::continuation(self, token) {
                 Some(work) => Dispatch::Run(exact_runner::Work::Now(work)),
                 None => Dispatch::Missing,
             },

@@ -259,6 +259,19 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             .ok_or_else(|| DataError::UnknownSource(source.into()))
     }
 
+    fn canvas_source(&mut self, surface: &str) -> &mut dyn DataSource {
+        if self
+            .javascript
+            .canvas_surfaces()
+            .iter()
+            .any(|(name, _)| name == surface)
+        {
+            &mut self.javascript
+        } else {
+            &mut self.rust
+        }
+    }
+
     fn token(&mut self) -> Result<u64, DataError> {
         let token = self.next_continuation;
         self.next_continuation = token
@@ -582,7 +595,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
     }
 }
 
-impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+impl<J: DataSource, R: DataSource> exact_runner::DataSourceWrapper for Mixed<J, R> {
     fn prepare_snapshot(
         &mut self,
         module: Option<exact_runner::SnapshotModule<'_>>,
@@ -972,21 +985,23 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         all
     }
 
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        self.canvas_source(surface)
+            .draw_2d(surface, args, ctx, frame)
+    }
+
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,
         ctx: &exact_runner::exact_canvas::Context2d,
     ) -> exact_runner::Drawn {
-        let javascript = self
-            .javascript
-            .canvas_surfaces()
-            .iter()
-            .any(|(n, _)| n == request.surface);
-        if javascript {
-            self.javascript.draw(request, ctx)
-        } else {
-            self.rust.draw(request, ctx)
-        }
+        self.canvas_source(request.surface).draw(request, ctx)
     }
 
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
@@ -1066,6 +1081,10 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
 
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
         self.javascript.background_state()
+    }
+
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        self.javascript.keeps_sent(fetch)
     }
 
     // Each let-go request goes to the child that asked it, and each child

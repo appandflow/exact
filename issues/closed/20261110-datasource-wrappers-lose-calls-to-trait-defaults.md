@@ -1,6 +1,7 @@
 # Every `DataSource` method has a default body, so a wrapper that omits a forward compiles and loses the call
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Data-source wrappers implement every method through a required trait generated alongside the leaf defaults.
 **Systems:** runner/src/runner/source.rs (`DataSource`), data/src/placed.rs, data/src/mixed.rs, data/host/src/lib.rs, logic/src/lib.rs, logic/src/configured.rs, host/render/src/source.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

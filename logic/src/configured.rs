@@ -10,7 +10,7 @@ macro_rules! configured {
                 Self(($factory)())
             }
         }
-        impl $crate::exact_runner::DataSource for $name {
+        impl $crate::exact_runner::DataSourceWrapper for $name {
             fn prepare_snapshot(
                 &mut self,
                 module: Option<$crate::exact_runner::SnapshotModule<'_>>,
@@ -42,6 +42,15 @@ macro_rules! configured {
             }
             fn canvas_surfaces(&self) -> Vec<(String, usize)> {
                 $crate::exact_runner::DataSource::canvas_surfaces(&self.0)
+            }
+            fn draw_2d(
+                &mut self,
+                surface: &str,
+                args: &[$crate::exact_plan::Value],
+                ctx: &$crate::exact_runner::exact_canvas::Context2d,
+                frame: &$crate::exact_runner::exact_canvas::Frame,
+            ) -> Result<bool, $crate::exact_runner::exact_canvas::DrawError> {
+                $crate::exact_runner::DataSource::draw_2d(&mut self.0, surface, args, ctx, frame)
             }
             fn draw(
                 &mut self,

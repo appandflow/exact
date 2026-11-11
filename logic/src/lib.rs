@@ -249,7 +249,7 @@ impl<D: DataSource> Swappable<D> {
     }
 }
 
-impl<D: DataSource> DataSource for Swappable<D> {
+impl<D: DataSource> exact_runner::DataSourceWrapper for Swappable<D> {
     fn prepare_snapshot(
         &mut self,
         module: Option<exact_runner::SnapshotModule<'_>>,
@@ -614,6 +614,19 @@ impl<D: DataSource> DataSource for Swappable<D> {
     }
     /// A replaced Rust module does not draw yet: its canvases report the
     /// error through `state` (LLP 1056 stage 1; QUEUE).
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.draw_2d(surface, args, ctx, frame),
+            None => Err("a replaced Rust module does not draw Canvas 2D yet".into()),
+        }
+    }
+
     fn draw(
         &mut self,
         request: &exact_runner::DrawRequest<'_>,

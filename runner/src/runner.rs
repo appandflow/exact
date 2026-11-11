@@ -67,8 +67,9 @@ mod snapshot;
 mod source;
 mod tabs;
 pub use source::{
-    Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Overlaid, PreloadWake, SnapshotModule, Target, Write, BACKGROUND,
+    Announce, BackgroundState, DataError, DataSource, DataSourceWrapper, InFlight, Interrupt,
+    Native, NativeCall, NativeHandler, Overlaid, PreloadWake, SnapshotModule, Target, Write,
+    BACKGROUND,
 };
 mod delivery;
 mod links;
