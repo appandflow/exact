@@ -392,26 +392,40 @@ final class CanvasesHost {
         return true
     }
 
+    /// Tells assistive technology that a canvas's placed children appeared,
+    /// disappeared or reordered.
+    nonisolated(unsafe) static var postLayoutChanged: () -> Void = { UIAccessibility.post(notification: .layoutChanged, argument: nil) }
+
     /// After a frame, where the surface put each child (LLP 1014 D5): the
     /// homography on the child, `nil` for the kernel's frame.
     private func readPlacements(_ m: GpuModule, _ e: Entry) {
         guard e.each, let overlay = e.view.overlay else { return }
         var h = [Float](repeating: 0, count: 10)
-        for (i, child) in overlay.subviews.compactMap({ $0 as? NodeView }).enumerated() {
+        let children = overlay.subviews.compactMap { $0 as? NodeView }
+        for (i, child) in children.enumerated() {
             let outcome = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) }
-            let next: [Double]? = outcome == 1 ? h.map { Double($0) } : nil
-            let changed = next != child.placement || child.placementHidden != (outcome == 2)
-            child.placement = next
+            child.placement = outcome == 1 ? h.map { Double($0) } : nil
             child.placementHidden = outcome == 2
             child.alpha = outcome == 0 ? 1 : 0
-            if changed { child.placementChanged() }
         }
         // Alpha 0 keeps UIKit from drawing what the surface composites, and
         // UIKit's own walk skips a view at alpha 0, so the children are
         // listed. UIKit takes a list as given: what its walk leaves out
         // (`isHidden`; `accessibilityElementsHidden`, which `aria-hidden`,
         // `inert` and a hidden placement set) is left out here.
-        overlay.accessibilityElements = overlay.subviews.compactMap { $0 as? NodeView }.filter { !$0.accessibilityElementsHidden && !$0.isHidden }
+        let exposed = children.filter { !$0.accessibilityElementsHidden && !$0.isHidden }
+        let listed = overlay.accessibilityElements ?? []
+        guard listed.count != exposed.count || !zip(listed, exposed).allSatisfy({ ($0 as AnyObject) === $1 }) else { return }
+        overlay.accessibilityElements = exposed
+        // A placed child that moves is read where it is on demand
+        // (`accessibilityFrame`), as a scrolled or animated view is. A layout
+        // change is for when "an individual element appears or disappears"
+        // (UIAccessibilityLayoutChangedNotification), and makes VoiceOver
+        // read the screen again: posted once when the list changes, behind a
+        // sheet or under `inert` too (a re-read there is the accepted cost).
+        // Its argument is "the element that VoiceOver should move to", so
+        // none: a child appearing is no reason to move the cursor off another.
+        Self.postLayoutChanged()
     }
 
     /// Every canvas whose children changed since its last capture is painted

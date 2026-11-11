@@ -882,11 +882,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return convert(inChild, from: placed)
     }
 
-    /// The placement changed: accessibility sees the new box.
-    package func placementChanged() {
-        UIAccessibility.post(notification: .layoutChanged, argument: nil)
-    }
-
     /// Hit-testing through the surface's placements (LLP 1014 D5): a canvas
     /// whose children are placed maps the point through each child's
     /// inverse, topmost first — straight from the canvas to the child,
