@@ -668,9 +668,9 @@ const EPOCH: Kinds = 16;
 const ALL: [Kinds; 5] = [TIME, SPAN, CONST, UNSEEN, EPOCH];
 
 /// One kind with another, under `op`: a time with the origin added is the
-/// wall-clock time; a time less a time or an unseen anchor is a span, less
-/// a constant, a span or the origin still a time; otherwise what either is,
-/// a constant only when both are.
+/// wall-clock time, with a span added a later time; a time less a time or
+/// an unseen anchor is a span, less a constant, a span or the origin still
+/// a time; otherwise what either is, a constant only when both are.
 fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
     let join = if x == y || y == CONST {
         x
@@ -681,6 +681,7 @@ fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
     };
     match op {
         BinOp::Add if x | y == TIME | EPOCH => UNSEEN,
+        BinOp::Add if x | y == TIME | SPAN => TIME,
         BinOp::Sub if x == TIME => match y {
             TIME | UNSEEN => SPAN,
             _ => TIME,
