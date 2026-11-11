@@ -1,5 +1,5 @@
 // What an Apple app links: the capabilities its composition names, and the
-// SDK its executable records.
+// SDK its executable records, with the device launch link of LLP 1047.001.001.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -49,8 +49,19 @@ export function appleComposition(graph, production, ahead = [], granted = false)
 
 /** The system frameworks only a capability's Swift half brings, and so
  * absent from an executable whose composition does not link it (LLP
- * 1047.001.000 §6, the check's first form). */
-const CAPABILITY_FRAMEWORKS = [['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI'], ['ExactSnapshot', 'WidgetKit'], ['ExactSnapshot', 'ActivityKit']];
+ * 1047.001.000 §6, the check's first form). SafariServices belongs to
+ * @exact/in-app-browser in ExactAppModules, not a SwiftPM capability product. */
+const CAPABILITY_FRAMEWORKS = [['@exact/in-app-browser', 'SafariServices'], ['ExactMediaPicker', 'PhotosUI'], ['ExactAuthSession', 'AuthenticationServices'], ['ExactNumerals', 'SwiftUI'], ['ExactSnapshot', 'WidgetKit'], ['ExactSnapshot', 'ActivityKit']];
+
+export function appleLaunchFrameworks(destination, product) {
+  return destination === 'ios' && ['ExactIOS', 'ExactHostIOS'].includes(product) ? ['SafariServices'] : [];
+}
+
+export function appleLaunchLinkArgs(destination, product) {
+  // UIKit's -[UIApplication _accessibilityInit] loads this closure at every launch;
+  // dyld loads it cheaper (LLP 1047.001.001). Keep the link even with dylib dead stripping.
+  return appleLaunchFrameworks(destination, product).flatMap(name => ['-Xlinker', '-needed_framework', '-Xlinker', name]);
+}
 
 /** The dylibs an executable's load commands name (`LC_LOAD_DYLIB` and its
  * weak, re-export, lazy and upward forms), every slice of a universal one.

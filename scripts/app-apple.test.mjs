@@ -55,6 +55,43 @@ test('Apple production optimization defaults, manifest choices and command-line 
   }
 });
 
+test.skipIf(process.platform !== 'darwin')('only iOS device app executables keep SafariServices at launch, including with dylib dead stripping', async () => {
+  useXcode();
+  const { appleLaunchFrameworks, appleLaunchLinkArgs, assertCapabilityFrameworks } = await import('../host/apple/link.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-safari-link-'));
+  const run = (command, args) => {
+    const result = spawnSync(command, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  try {
+    const source = resolve(dir, 'main.c');
+    writeFileSync(source, 'int main(void) { return 0; }');
+    for (const [destination, sdk, triple] of [
+      ['ios', 'iphoneos', 'arm64-apple-ios17.0'],
+      ['ios-simulator', 'iphonesimulator', 'arm64-apple-ios17.0-simulator'],
+      ['tvos', null, null], ['tvos-simulator', null, null],
+      ['macos', 'macosx', null], ['watchos', null, null], ['watchos-simulator', null, null],
+    ]) {
+      for (const product of ['ExactIOS', 'ExactHostIOS', 'ExactMac', 'ExactHostMac', 'ExactCore', 'ExactWatch', 'ExactWidgets']) {
+        const expected = destination === 'ios' && ['ExactIOS', 'ExactHostIOS'].includes(product);
+        assert.deepEqual(appleLaunchFrameworks(destination, product), expected ? ['SafariServices'] : []);
+        assert.deepEqual(appleLaunchLinkArgs(destination, product), expected ? ['-Xlinker', '-needed_framework', '-Xlinker', 'SafariServices'] : []);
+      }
+      if (!sdk) continue;
+      const executable = resolve(dir, destination);
+      run('xcrun', ['--sdk', sdk, 'clang', source, ...(triple ? ['-target', triple] : []),
+        '-Xlinker', '-dead_strip_dylibs', ...appleLaunchLinkArgs('ios', 'ExactIOS'), '-o', executable]);
+      assert.match(run('otool', ['-L', executable]), /SafariServices.framework\/(?:Versions\/A\/)?SafariServices/);
+      const check = () => assertCapabilityFrameworks(executable, [], appleLaunchFrameworks(destination, 'ExactIOS'));
+      if (destination === 'ios') assert.doesNotThrow(check);
+      else assert.throws(check, /SafariServices/);
+      assert.throws(() => assertCapabilityFrameworks(executable, []), /SafariServices.*@exact\/in-app-browser/);
+      assert.doesNotThrow(() => assertCapabilityFrameworks(executable, ['@exact/in-app-browser']));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test.skipIf(process.platform === 'win32')('Apple builder startup honors --optimize speed over a game manifest requesting size', async () => {
   const { appleArtifacts } = await import('../host/apple/build.mjs');
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-optimize-')));
@@ -76,7 +113,7 @@ test.skipIf(process.platform === 'win32')('Apple builder startup honors --optimi
 test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks and a small receipt with or without an archive', async () => {
   useXcode();
   const { createHash } = await import('node:crypto');
-  const { assembleIOS, stripForDistribution } = await import('../host/apple/bundle.mjs');
+  const { assembleIOS, stripForDistribution, stripProductionExecutable } = await import('../host/apple/bundle.mjs');
   const { shippedReceipt, copyAppleGpuProducts } = await import('../host/apple/build.mjs');
   const { wrapFramework, codeDigest, plistFile } = await import('../host/apple/assets.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-package-'));
@@ -101,6 +138,8 @@ test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks an
     for (const [production, device, archived] of [[true, true, false], [true, true, true], [true, false, false], [false, true, false]]) {
       app.manifest = archived ? { icons: [{ src: 'icon.png', sizes: '1024x1024' }] } : {};
       const binDir = resolve(dir, `${production}-${device}-${archived}`); mkdirSync(binDir);
+      const bin = resolve(binDir, 'ExactClip');
+      copyFileSync(executable, bin);
       const capture = resolve(binDir, 'capture'); mkdirSync(capture);
       const gpu = { built: 'gpu.dylib', load: 'libgpu.dylib', framework: 'ExactGpu' };
       copyFileSync(dylib, resolve(capture, gpu.built));
@@ -109,22 +148,32 @@ test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks an
       const gpuSource = resolve(capture, production ? 'ExactGpu.framework/ExactGpu' : gpu.built);
       run('codesign', ['--force', '--sign', '-', '--timestamp=none', production ? resolve(capture, 'ExactGpu.framework') : gpuSource]);
       const ipa = archived ? resolve(binDir, 'Archive.ipa') : null;
+      const symbols = stripProductionExecutable(bin, { production, ipa });
       const bundle = resolve(binDir, 'Fixture.app');
       const whole = JSON.stringify({ build, target: 'aarch64-apple-ios', development: production ? null : { token: 'kept' } });
-      const result = assembleIOS({ app, paths: { bundle, executable: 'Fixture', capture }, binDir, bin: executable, device,
+      const result = assembleIOS({ app, paths: { bundle, executable: 'ExactClip', capture }, binDir, bin, device,
         production, distribution: archived, ipa, bakedCompat: compat, bakedPlan: plan, buildReceipt: build,
         libDir: capture, gpuArtifacts: [gpu], looseArms: [[true, dylib, ...pairs[0]]],
         modulesBuilt: dylib, modulesLoadName: pairs[1][0], hasSvg: true, svgBuilt: dylib, svgLoadName: pairs[2][0],
         canvasGpuBuilt: dylib, canvasGpuLoadName: pairs[3][0], serviceDylibs: [{ built: dylib, load: pairs[4][0], framework: pairs[4][1] }],
         args: [], unsigned: true, sha1: '-', linkRoot: binDir, sdkName: 'iphoneos' }, {
-        runApple: run, infoPlist: () => plistFile({ CFBundleIdentifier: app.id, CFBundleExecutable: 'Fixture', CFBundlePackageType: 'APPL' }),
+        runApple: run, infoPlist: () => plistFile({ CFBundleIdentifier: app.id, CFBundleExecutable: 'ExactClip', CFBundlePackageType: 'APPL' }),
         copyAppleStaticTrees() {}, writeUsageStrings() {}, assertAppleIdentity() {}, distributionKeys: () => ({}),
-        receipt: () => whole, shippedReceipt, copyAppleGpuProducts, entitlements: () => plistFile({}), appClip: () => null, stripForDistribution,
+        receipt: () => whole, shippedReceipt, copyAppleGpuProducts, entitlements: () => plistFile({}), appClip: () => ({ id: app.id + '.Clip', name: 'Clip', executable: 'Clip' }), stripForDistribution,
       });
+      const clipBytes = readFileSync(resolve(bundle, 'AppClips/Clip.app/Clip'));
+      assert.equal(codeDigest(clipBytes), codeDigest(readFileSync(bin)), 'the clip copies the parent executable, including when its name is ExactClip');
+      assert.equal(codeDigest(readFileSync(resolve(bundle, 'ExactClip'))), codeDigest(readFileSync(bin)));
+      if (symbols) {
+        const uuid = path => /UUID: ([A-F0-9-]+)/.exec(run('dwarfdump', ['--uuid', path]).stdout)?.[1];
+        assert.ok(uuid(symbols.dsym));
+        assert.equal(uuid(symbols.dsym), uuid(resolve(bundle, 'ExactClip')));
+        assert.equal(uuid(symbols.dsym), uuid(resolve(bundle, 'AppClips/Clip.app/Clip')));
+      }
       const bundled = readFileSync(resolve(bundle, 'receipt.json'), 'utf8');
       assert.equal(bundled, production ? shippedReceipt(whole) : whole);
       if (production) {
-        const sidecar = resolve(binDir, ipa ? 'Archive.receipt.json' : 'Fixture.receipt.json');
+        const sidecar = resolve(binDir, ipa ? 'Archive.receipt.json' : 'ExactClip.receipt.json');
         assert.equal(readFileSync(sidecar, 'utf8'), whole);
         assert.equal(result.frameworkSymbols.count, pairs.length + 1);
         for (const [loose, name] of pairs) {
@@ -139,7 +188,7 @@ test.skipIf(!packagingTools)('production iOS bundles ship stripped frameworks an
       } else {
         assert.equal(result.frameworkSymbols.count, 0);
         for (const [loose] of pairs) assert.match(run('nm', ['-a', resolve(bundle, 'Frameworks', loose)]).stdout, / _local_value$/m);
-        assert.equal(existsSync(resolve(binDir, 'Fixture.receipt.json')), false);
+        assert.equal(existsSync(resolve(binDir, 'ExactClip.receipt.json')), false);
       }
       run('codesign', ['--verify', '--deep', '--strict', bundle]);
     }

@@ -783,7 +783,10 @@ with the registry crates this machine has compiled
 directory to compile everything here. Every production Apple build (`--release`,
 `--archive`, `exact release`, or `EXACT_UPDATE_TRUST=production`) uses the whole-module
 Swift build and strips its executable, writing `<executable>.dSYM` beside the staged
-build product. Development builds keep their symbols. An IPA writes `<name>.dSYM`
+build product. Development builds keep their symbols. iPhone and iPad device app executables
+link SafariServices in development and production so dyld loads the libraries
+UIKit would load at launch (LLP 1047.001.001). An App Clip copies its parent’s
+executable and carries the same link. An IPA writes `<name>.dSYM`
 beside its archive; `exact release` copies the build's matching dSYM beside its release.
 Production iOS and tvOS bundles ship a small receipt and stripped frameworks, whether
 archived or not. The whole receipt stays beside `<name>.app` or `<name>.ipa` as
