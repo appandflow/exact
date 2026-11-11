@@ -54,7 +54,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { backgroundKeys, interfaceStyle, localNetworking, nfcKeys, startLocation, transportSecurity, updateActivation } from './plist.mjs';
+import { backgroundKeys, interfaceStyle, localNetworking, modulePlist, nfcKeys, startLocation, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
 import { appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { auditLaunchParts, launchModules, launchServices, serviceArgs, writeLaunchParts } from './launch-parts.mjs';
@@ -394,24 +394,10 @@ export const usageKeys = (reach) => {
   return {
     ...Object.fromEntries(usage.map(([key, texts]) => [key, texts[reach.base]])),
     ...Object.fromEntries((reach.flags ?? []).map((key) => [key, true])),
-    ...reach.modules, ...(reach.bonjour?.length ? { NSBonjourServices: reach.bonjour } : {}),
+    ...(reach.bonjour?.length ? { NSBonjourServices: reach.bonjour } : {}),
     CFBundleDevelopmentRegion: reach.base,
     CFBundleLocalizations: reach.locales,
   };
-};
-
-/** `reach` with what the app's modules' implementations add to Info.plist
- * (`modules`): each declared dictionary, keyed by the strings keys the app
- * passes and valued by their base text (LLP 1133.002 D10). */
-const modulePlist = (app, reach, target) => {
-  const added = appleImplementations(app.dir, target).flatMap((p) => p.plist);
-  if (!added.length) return reach;
-  const base = reach?.base ?? 'en', strings = JSON.parse(readFileSync(resolve(app.dir, `strings/${base}.json`), 'utf8'));
-  const modules = Object.fromEntries(added.map(({ key, keys }) => [key, Object.fromEntries(keys.map((k) => {
-    if (typeof strings[k] !== 'string') throw new Error(`host/apple: ${key} names "${k}", which strings/${base}.json lacks`);
-    return [k, strings[k]];
-  }))]));
-  return { ...reach, modules };
 };
 
 /** `<tag>.lproj/InfoPlist.strings` under `dir`, one per strings table, with
@@ -477,7 +463,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation), interfaceStyle(app));
-  return plistFile(dict);
+  return plistFile(withPackageKeys(dict, reach));
 };
 
 /** What App Store Connect reads from a distributed bundle and Xcode would
@@ -538,7 +524,7 @@ export function designCompatible(app, platform) {
 }
 
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
-export const macInfoPlist = (app, { development = null, icon = {}, reach = null, distributed = false } = {}) => plistFile({
+export const macInfoPlist = (app, { development = null, icon = {}, reach = null, distributed = false } = {}) => plistFile(withPackageKeys({
   ...icon, ...(app.manifest.moduleConfig ? { ExactModuleConfig: app.manifest.moduleConfig } : {}),
   CFBundleExecutable: executableName(app),
   CFBundleIdentifier: app.id,
@@ -564,7 +550,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   ...updateActivation(app), ...interfaceStyle(app, true),
   ...openingLinks(app, 'macos', development, distributed), ...shortcutKeys(app, 'macos'),
   ...(app.manifest.host?.macos?.oneTimeCodeAutofill === 'marked' ? { NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true } : {}),
-});
+}, reach));
 /** The build receipt (LLP 1030 D2): what this binary was actually built from and with — the toolchain, the SDK, the identity and profile, the entitlements as signed — written beside it, never committed, so "what did this binary contain" is answered by a file. */
 export function receipt(app, fields) {
   const version = (cmd, args) => (read(cmd, args).stdout ?? '').trim().split('\n')[0];

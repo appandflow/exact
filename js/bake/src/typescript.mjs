@@ -1123,8 +1123,9 @@ export function usedPackages(app) {
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
- * its class, its source files, and the system frameworks it needs from an OS
- * version (`frameworks`, LLP 1133.016 D15). */
+ * its class, its source files, what it adds to Info.plist (`plist`,
+ * `plistKeys`), and the system frameworks it needs from an OS version
+ * (`frameworks`, LLP 1133.016 D15). */
 export function appleImplementations(app, target) {
   const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
   return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
@@ -1133,7 +1134,11 @@ export function appleImplementations(app, target) {
     if (!impl || !files?.length || !impl.json.class) return [];
     const extension=i.name.split('/').at(-1);
     // An Info.plist dictionary keyed by each literal strings key the app passes at `name.option` (LLP 1133.002 D10).
-    const plist=Object.entries(impl.json.plist ?? {}).map(([key,at])=>{
+    // A literal value is `plistKeys`', which host/apple checks against its allow-list.
+    const declared=impl.json.plist ?? {};
+    if (typeof declared!=='object' || Array.isArray(declared)) throw new Error(`${extension}'s Apple implementation: its plist is not an object`);
+    const plist=Object.entries(declared).map(([key,at])=>{
+      if (typeof at!=='string' || !/^\w+\.\w+$/.test(at)) throw new Error(`${extension}'s Apple implementation: its plist gives ${key} ${JSON.stringify(at)}, not "<call>.<option>" (a literal value is plistKeys')`);
       const [name,option]=at.split('.'), keys=new Set();
       for (const [,inside] of named.matchAll(new RegExp(`\\b${name}\\s*\\(([^)]*)\\)`,'g')))
         for (const [,,value] of inside.matchAll(new RegExp(`\\b${option}\\s*[=:]\\s*(["'])([^"']+)\\1`,'g'))) keys.add(value);
@@ -1145,7 +1150,7 @@ export function appleImplementations(app, target) {
     // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
     const authenticator=!!i.declaration?.authenticator?.apple;
     const events=(i.declaration.names ?? []).some(n=>n.event);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,start:i.declaration?.start==='load',frameworks:impl.json.frameworks??{},activity:impl.json.apple?.activity??null}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,plistKeys:impl.json.plistKeys ?? null,views:packageViewTags(i,impl),authenticator,start:i.declaration?.start==='load',frameworks:impl.json.frameworks??{},activity:impl.json.apple?.activity??null}];
   });
 }
 

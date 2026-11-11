@@ -2448,6 +2448,24 @@ carries it beside a Linux executable or, signed, in an Apple bundle's `Framework
 does not list; two dependencies declaring `native` (`bake-native-twice`).
 `packages/fixtures/vault` is a whole one, its library built by `test/library.mjs`.
 
+### A package's Info.plist keys
+
+A package's Apple implementation (`apple/exact.json`) adds to the Info.plist of every app
+that uses it, whether or not the app grants a device. `plistKeys` sets a key to a value,
+and only a key on the Apple host's allow-list, with the one value the list gives it
+(`PLIST_KEYS` in `host/apple/plist.mjs`), for the platforms it names:
+
+```json
+"plistKeys": { "SKIncludeConsumableInAppPurchaseHistory": true }
+```
+
+`plist` names a dictionary keyed by the strings keys the app passes to one call's
+option, each valued by its base-locale text:
+`"plist": { "NSLocationTemporaryUsageDescriptionDictionary": "requestPreciseLocation.purposeKey" }`.
+The build refuses, naming the package, a key not on the list, another value, a `plist`
+entry that is not `"<call>.<option>"`, and any key the build itself writes. An app has
+no Info.plist field of its own.
+
 ### Arranged panes
 
 On iOS and iPadOS 27.1 or later, an element hatch can call
