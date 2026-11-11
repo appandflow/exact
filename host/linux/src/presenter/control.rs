@@ -47,7 +47,47 @@ impl<D: DataSource> Presenter<D> {
         self.toggle_control_with_press(id, now_ms, press, false)
     }
 
-    pub(crate) fn click_control(&mut self, id: ViewId, now_ms: f64, press: Option<ViewId>) -> bool {
+    /// Whether a date or time control's press opens the platform's picker:
+    /// where a shell takes requests (LLP 1115.001.000 D1), or the agent
+    /// holds one.
+    pub(crate) fn date_picks(&self) -> bool {
+        self.has_shell() || self.agent
+    }
+
+    /// A key's default action at a focused file, date or time control:
+    /// Space or Enter does what a click does, its `press` and then its
+    /// picker, as the browser's button in it takes them. False when the key
+    /// clicks nothing at `id`.
+    pub(crate) fn key_click(&mut self, id: ViewId, name: &str, now_ms: f64) -> bool {
+        use exact_kernel::ControlKind;
+        let Some(node) = self.host.kernel().node(id) else {
+            return false;
+        };
+        let clicks = match ControlKind::of(node.node_type, node.props) {
+            Some(ControlKind::File) => true,
+            Some(ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal) => {
+                self.date_picks()
+            }
+            _ => false,
+        };
+        if !clicks || !matches!(name, " " | "Enter") {
+            return false;
+        }
+        let press = (self.host.runner().handlers_of(id))
+            .contains(&EventKind::Press)
+            .then_some(id);
+        self.click_control(id, now_ms, press, false)
+    }
+
+    /// A click at `id`, a control: its `press` (a pointer's when
+    /// `pointer`), then its default action.
+    pub(crate) fn click_control(
+        &mut self,
+        id: ViewId,
+        now_ms: f64,
+        press: Option<ViewId>,
+        pointer: bool,
+    ) -> bool {
         use exact_kernel::ControlKind;
         let Some(node) = self.host.kernel().node(id) else {
             return false;
@@ -67,7 +107,7 @@ impl<D: DataSource> Presenter<D> {
                 return true;
             }
             let key = node.key;
-            self.dispatch_control_press(press, now_ms, true);
+            self.dispatch_control_press(press, now_ms, pointer);
             // Picker and menu defaults read the committed control, which its
             // click may have removed, disabled or replaced.
             let Some(node) = self.host.kernel().node_by_key(key).filter(|node| {
@@ -78,7 +118,7 @@ impl<D: DataSource> Presenter<D> {
             };
             return self.toggle_control_with_press(node.id, now_ms, None, false);
         }
-        self.toggle_control_with_press(id, now_ms, press, true)
+        self.toggle_control_with_press(id, now_ms, press, pointer)
     }
 
     fn toggle_control_with_press(
@@ -111,9 +151,8 @@ impl<D: DataSource> Presenter<D> {
             }
             return true;
         }
-        // A date or time control's press opens the platform's picker where a
-        // shell takes requests (LLP 1115.001.000 D1), or holds one for the agent.
-        if (self.has_shell() || self.agent)
+        // A date or time control's press opens the platform's picker.
+        if self.date_picks()
             && matches!(
                 exact_kernel::ControlKind::of(node.node_type, node.props),
                 Some(

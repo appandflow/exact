@@ -736,6 +736,9 @@ impl<D: DataSource> Presenter<D> {
         if self.remote_key(id, (name, code, repeat), now_ms) {
             return;
         }
+        if self.key_click(id, name, now_ms) {
+            return;
+        }
         let Some(node) = self.host.kernel().node(id) else {
             return;
         };
@@ -853,3 +856,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "keyboard_tests.rs"]
+mod keyboard_tests;

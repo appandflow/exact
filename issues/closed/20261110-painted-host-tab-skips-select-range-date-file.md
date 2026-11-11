@@ -1,6 +1,7 @@
 # On the painted hosts Tab skips a `select`, a range and a file control
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `focusable` admits every control HTML lists as a focusable area (a select, a range, a file control, and a date or time control where its press opens a picker), so Tab and a press reach each, and Space or Enter at a focused file, date or time control clicks it; a range's and a select's own keys are `issues/20261110-range-takes-no-drag-or-keys-on-painted-hosts.md` and `issues/20261110-select-menu-and-keys-on-painted-hosts.md`.
 **Systems:** host/linux/src/surface_controls.rs (the painted presenter: Linux, Windows, Android TV's remote)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
