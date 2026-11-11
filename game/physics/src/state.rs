@@ -714,7 +714,12 @@ mod tests {
         crate::step(&mut w);
         let plain = w.save();
         let text = json::to_string(&*w.resource::<Physics>()).unwrap();
-        for name in ["solver_iterations", "contact_frequency", "coulomb_friction"] {
+        for name in [
+            "solver_iterations",
+            "contact_frequency",
+            "coulomb_friction",
+            "friction_",
+        ] {
             assert!(!text.contains(name), "{text}");
         }
         {
@@ -724,6 +729,8 @@ mod tests {
             p.static_contact_frequency = 40.0;
             p.contact_damping_ratio = 5.0;
             p.coulomb_friction = true;
+            p.friction_gravity = 50.0;
+            p.friction_slip_speed = 0.2;
         }
         crate::step(&mut w);
         let check = |w: &World| {
@@ -735,6 +742,7 @@ mod tests {
             assert_eq!(ip.static_contact_softness.natural_frequency, 40.0);
             assert_eq!(ip.static_contact_softness.damping_ratio, 5.0);
             assert_eq!(ip.friction_model, FrictionModel::Coulomb);
+            assert_eq!((ip.friction_gravity, ip.friction_slip_speed), (50.0, 0.2));
         };
         check(&w);
         let text = json::to_string(&*w.resource::<Physics>()).unwrap();

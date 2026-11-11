@@ -340,3 +340,75 @@ fn extra_colliders_are_refused_without_a_body_and_as_sensors_or_meshes() {
         assert!(result.is_err());
     }
 }
+
+// A body resting on the floor is flung up and along in one tick. Coulomb friction
+// leaves the lifting contact nothing to hold it (its normal impulse is zero), so
+// the body does not spin. Weight-bounded friction keeps each touching point's
+// bound mu g m dt for the whole step. A ball has one point at its radius r below
+// the centre: the slide loses mu g dt and the spin is mu g m dt r / (2/5 m r²).
+// A box of side s has four, half the side below the centre: at most 4 mu g dt off
+// the slide and a spin of 12 mu g dt / s (4 rad/s here). Rapier solves both
+// tangent directions of a point together, so at a corner part of the bound goes
+// across the slide (cancelling between corners) and the box gets about 94% of it.
+#[test]
+fn weight_friction_acts_on_a_contact_lifting_off() {
+    let (mu, g, hz) = (0.5f32, 80.0f32, 120.0f32);
+    let lift = |shape: Shape, weight: bool| {
+        let mut w = World::new(hz as u32, 0);
+        physics::register(&mut w);
+        {
+            let mut p = w.resource_mut::<physics::Physics>();
+            p.coulomb_friction = true;
+            p.friction_gravity = if weight { g } else { 0.0 };
+            p.friction_slip_speed = 0.1;
+        }
+        w.spawn((
+            Transform::at(0.0, -0.5, 0.0),
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::new(20.0, 0.5, 20.0),
+                },
+                friction: mu,
+                ..Collider::default()
+            },
+        ));
+        let e = w.spawn((
+            Transform::at(0.0, 0.5, 0.0),
+            Body::default(),
+            Collider {
+                shape,
+                friction: mu,
+                ..Collider::default()
+            },
+        ));
+        for _ in 0..60 {
+            physics::step(&mut w);
+        }
+        let rest = w.get::<Body>(e).unwrap().spin;
+        assert!(rest.length() < 1e-3, "settled spin {rest}");
+        w.get_mut::<Body>(e).unwrap().velocity = Vec3::new(6.0, 3.0, 0.0);
+        physics::step(&mut w);
+        let b = w.get::<Body>(e).unwrap().clone();
+        assert!(b.spin.x.abs() < 1e-3 && b.spin.y.abs() < 1e-3, "{}", b.spin);
+        (6.0 - b.velocity.x, -b.spin.z)
+    };
+    let ball = Shape::Sphere { radius: 0.5 };
+    for shape in [ball.clone(), Shape::default()] {
+        let (slowed, spin) = lift(shape, false);
+        assert!(slowed.abs() < 1e-3 && spin.abs() < 1e-3, "{slowed} {spin}");
+    }
+    let (slowed, spin) = lift(ball, true);
+    let bound = mu * g / hz;
+    assert!((slowed - bound).abs() < 1e-4, "ball slowed {slowed}");
+    assert!((spin - bound / 0.4 / 0.5).abs() < 1e-4, "ball spin {spin}");
+    let (slowed, spin) = lift(Shape::default(), true);
+    let most = 12.0 * bound;
+    assert!(
+        spin <= most && spin > 0.9 * most,
+        "box spin {spin} for at most {most}"
+    );
+    assert!(
+        slowed <= 4.0 * bound && slowed > 0.9 * 4.0 * bound,
+        "box slowed {slowed}"
+    );
+}

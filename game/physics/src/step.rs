@@ -500,9 +500,16 @@ fn configure(p: &Physics, ip: &mut IntegrationParameters, dt: f32) {
                 .iter()
                 .all(|f| f.is_finite() && *f > 0.0)
             && p.contact_damping_ratio.is_finite()
-            && p.contact_damping_ratio >= 0.0,
+            && p.contact_damping_ratio >= 0.0
+            && [p.friction_gravity, p.friction_slip_speed]
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0.0)
+            && (p.friction_gravity == 0.0 || p.coulomb_friction),
         "physics: invalid solver settings"
     );
+    // Not saved by Rapier: the resource holds them.
+    ip.friction_gravity = p.friction_gravity;
+    ip.friction_slip_speed = p.friction_slip_speed;
     ip.dt = dt;
     ip.num_solver_iterations = p.solver_iterations as usize;
     ip.contact_softness = SpringCoefficients::new(p.contact_frequency, p.contact_damping_ratio);

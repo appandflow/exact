@@ -316,6 +316,19 @@ pub struct Physics {
     /// One friction constraint per contact point (Rapier's Coulomb model) instead
     /// of one per group of four plus a twist constraint (its default, faster).
     pub coulomb_friction: bool,
+    /// Weight-bounded friction, as cannon-es has it; needs `coulomb_friction`. A
+    /// contact point touching when a step starts may take a friction impulse of
+    /// friction × `friction_gravity` × the pair's reduced mass × the substep's
+    /// duration in each substep of that step, whatever its normal load: a point
+    /// lifting off keeps its friction until the step ends, and a flicked box trips
+    /// over its edge instead of sliding. Contacts with multibodies keep Coulomb
+    /// friction. In m/s²; zero (the default) keeps Coulomb friction everywhere.
+    pub friction_gravity: f32,
+    /// Below this contact-point speed in m/s, along the normal and across it, a
+    /// point keeps Coulomb friction under `friction_gravity`, so resting and
+    /// rolling contacts settle flat. Zero applies the weight bound to every
+    /// touching point.
+    pub friction_slip_speed: f32,
 }
 crate::types::record!(Physics {
     gravity,
@@ -327,6 +340,8 @@ crate::types::record!(Physics {
     static_contact_frequency,
     contact_damping_ratio,
     coulomb_friction,
+    friction_gravity,
+    friction_slip_speed,
 });
 impl exact_game::Resource for Physics {
     const NAME: &'static str = "Physics";
@@ -343,6 +358,8 @@ impl Default for Physics {
             static_contact_frequency: 60.0,
             contact_damping_ratio: 10.0,
             coulomb_friction: false,
+            friction_gravity: 0.0,
+            friction_slip_speed: 0.0,
         }
     }
 }

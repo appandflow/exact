@@ -37,6 +37,16 @@ the actual `displacement` and `grounded` state.
   constraint per contact point instead of Rapier's grouped friction with a twist
   constraint). They are applied each step, live in the saved snapshot, and enter
   the resource's encoding only when they differ from those defaults.
+  `friction_gravity` (with `coulomb_friction`) bounds friction by weight, as
+  cannon-es does: a point touching when a step starts may take friction ×
+  `friction_gravity` × the pair's reduced mass × the substep's duration in each
+  substep, whatever its normal load, so a contact lifting off keeps its friction
+  for that step; below `friction_slip_speed` a point keeps the Coulomb bound, so
+  resting and rolling contacts settle flat. Contacts with multibodies keep Coulomb
+  friction. The vendored Rapier carries the bound (marked Exact2 in
+  `contact_with_coulomb_friction.rs`); its two integration parameters are not in
+  the snapshot, since the resource holds them, so EXPHYS stays v3. At zero, the
+  default, every contact keeps Rapier's Coulomb bound exactly.
 - `Collider::extra` adds shapes to the collider's Body, each with its own material,
   layer and mask and no mass; they are Rapier colliders on that body, rebuilt with
   the primary and saved with the world (`Entry::extra_handles`, written only when
