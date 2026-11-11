@@ -1,6 +1,7 @@
 # An `iframe` whose `src` is empty, `#` or `?` crashes the app on macOS and iOS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Empty iframe sources load a blank document; query-only and fragment-only sources report missing files without trapping.
 **Systems:** host/apple/webarm/FrameFiles.swift (`WebArm.localBytes`), host/apple/webarm/WebArm.swift (`serve`), host/apple/Sources/ExactKit/WebModule.swift
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
