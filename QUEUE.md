@@ -1960,3 +1960,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - The JS build should ask a `render=build` route's `pages=` source and render each page (`host/web-js/src/emit.rs` `build_pages` skips parameterised routes; only the Rust render entry asks the source). An app `exact new` made cannot pre-render `/product/:id` today (docs/agent-pitfalls.md, "Websites").
 
 - **A long-named game's generated adapter fails `rustfmt`, and two scaffold tests expect an older template** (2026-11-01): a game with a long name gets a `logic/src/lib.rs` the formatter would rewrite, which is the generator's defect, not the test's (`game/new.test.mjs`, "ordinary cargo fmt accepts baked adapters for short and long paths"); the generated type's import-list expectation and Beacons' tracked-file inventory are stale tests. Retained output: `target/win-qual/game2/mac-tests-round-3.log` in the Windows-default worktree.
+
+- Game audio: after a large upward pitch change on a one-shot, the web output can be stopped about 168.5 ms of source before its end (1→16, 10.53 ms of playback), and a downward change leaves silence until the simulation ends the voice.

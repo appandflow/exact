@@ -302,8 +302,11 @@ definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`
 registration saves its frames, rate and channels. `w.play("chime").start()` creates
 a voice with optional gain, pitch, pan, start offset and fade-in; dropping the play
 builder does nothing. A looping definition plays until `audio::stop` or
-`audio::fade`. Call `audio::step(w)` after game logic. Voices and definitions are
-saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
+`audio::fade`. `audio::pitch(w, id, rate)` changes a playing voice's rate each tick,
+bounded to 0.01..16 as `Play::pitch` is (non-finite becomes 1). Outputs smooth the
+change over about 10 ms without restarting; saved progress integrates the rates
+at tick boundaries (LLP 1046.003). Call `audio::step(w)` after game logic. Voices
+and definitions are saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
 budgets belong to the separate [audio executor](../audio/README.md).
 
 ### Procedural characters
