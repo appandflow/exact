@@ -1,6 +1,7 @@
 # A space after `${` in a template is refused as "an indented block"
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Template interpolations accept leading spaces without treating them as indentation and retain exact source spans.
 **Systems:** contract/syntax (lexer, template parsing)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

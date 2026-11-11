@@ -91,12 +91,58 @@ fn imported_lexer_parser_and_import_errors_name_their_own_file() {
     );
     app.refuse("component Row\n  view\n    text )\n", "syntax", ")");
     app.refuse("component Row\n  view\n    text `é ${}`\n", "syntax", "}");
+    app.refuse(
+        "component Row\n  view\n    text `é ${   }`\n",
+        "syntax",
+        "}",
+    );
     app.refuse("component Row\n  view\n    text `é ${@}`\n", "syntax", "@");
+    app.refuse(
+        "component Row\n  view\n    text `é ${   @ }`\n",
+        "syntax",
+        "@",
+    );
+    app.refuse(
+        "component Row\n  view\n    text `é ${   ) }`\n",
+        "syntax",
+        ")",
+    );
     app.refuse(
         "use Missing from \"./missing.contract\"\ncomponent Row\n  view\n    text \"row\"\n",
         "use",
         "use",
     );
+}
+
+#[test]
+fn spaces_around_template_expressions_leave_the_plan_unchanged() {
+    let source =
+        |body: &str| format!("component App\n  state a = 1\n  view\n    column\n      {body}\n");
+    for (spaced, compact) in [
+        ("text `${ a }`", "text `${a}`"),
+        ("text `${ a}`", "text `${a}`"),
+        ("text `${a }`", "text `${a}`"),
+        ("text `${   a   }`", "text `${a}`"),
+        ("text `x ${ a + 1 } y`", "text `x ${a + 1} y`"),
+        (
+            r#"text `${ a > 0 ? "pos" : "neg" }`"#,
+            r#"text `${a > 0 ? "pos" : "neg"}`"#,
+        ),
+        ("column testId=`row-${ a }`", "column testId=`row-${a}`"),
+        ("text `é ${ a } ${ a + 1 }`", "text `é ${a} ${a + 1}`"),
+        ("text `${ `nested ${ a }` }`", "text `${`nested ${a}`}`"),
+        (
+            r#"text `${ match some(a) { case some(n) => n, case none => 0 } }`"#,
+            r#"text `${match some(a) { case some(n) => n, case none => 0 }}`"#,
+        ),
+    ] {
+        let plan = contract::compile(&source(spaced)).unwrap_or_else(|e| panic!("{spaced}: {e}"));
+        assert_eq!(
+            plan.encode(),
+            contract::compile(&source(compact)).unwrap().encode(),
+            "{spaced}"
+        );
+    }
 }
 
 #[test]
@@ -113,6 +159,8 @@ fn transitive_imports_and_repeated_template_interpolations_keep_byte_columns() {
     for line in [
         "    text `é ${1} xx ${missingName}`",
         "    text `é ${`nested ${missingName}`}`",
+        "    text `é ${ 1 } xx ${   missingName }`",
+        "    text `é ${ `nested ${   missingName }` }`",
     ] {
         let row = app
             .write(

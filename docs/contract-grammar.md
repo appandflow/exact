@@ -53,7 +53,8 @@ a `keyframes` or `font` block, and a component need at least one entry.
   and a Unicode code point in hex, as JavaScript and Swift write it: `\u{2011}`
   (one to six digits; `\u{1F600}`, never a surrogate pair) or `\u2011` (four).
   Any other is refused, naming these. Single quotes are not delimiters.
-- Templates use backticks and `${expression}`. Interpolation scanning balances
+- Templates use backticks and `${expression}`. Spaces around the expression are
+  optional: `${ a }` and `${a}` mean the same. Interpolation scanning balances
   nested braces, strings, and templates. A template is one physical source line.
   Template text takes a string's escapes (`` `${a}\t${b}` `` is a tab), and
   `\${` is literal text, not an interpolation.
