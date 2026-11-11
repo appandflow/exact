@@ -627,6 +627,92 @@ fn references_resolve_nearest_and_instances_inherit_from_their_use() {
     assert!(children[0].uid != dot as u64, "an instance has its own key");
 }
 
+#[test]
+fn a_clip_use_keeps_its_targets_transform() {
+    use NodeType::*;
+    use StyleId::*;
+    for (rows, expected) in [
+        (vec![(Transform, "translate(50 0)")], (50., 0., 10., 10.)),
+        (vec![(Translate, "30px 20px")], (30., 20., 10., 10.)),
+        (vec![(Rotate, "90")], (-10., 0., 10., 10.)),
+        (vec![(Scale, "2")], (0., 0., 20., 20.)),
+        (
+            vec![
+                (TransformBox, "fill-box"),
+                (TransformOrigin, "center"),
+                (Translate, "3px 4px"),
+                (Rotate, "90"),
+                (Scale, "2"),
+                (Transform, "translate(5 2)"),
+            ],
+            (-6., 9., 20., 20.),
+        ),
+    ] {
+        let mut d = Doc::new();
+        let svg = d.node(Svg, &[(Width, "100"), (Height, "100")], &[]);
+        let mut shape_rows = vec![(Width, "10"), (Height, "10")];
+        shape_rows.extend_from_slice(&rows);
+        let target = d.node(SvgRect, &shape_rows, &[(PropId::Id, "shape")]);
+        let defs = d.node(SvgDefs, &[], &[]);
+        d.children(defs, &[target]);
+        let direct = d.node(SvgRect, &shape_rows, &[]);
+        let instance = d.node(SvgUse, &[], &[(PropId::Href, "#shape")]);
+        let clip = d.node(SvgClipPath, &[], &[(PropId::Id, "clip")]);
+        d.children(clip, &[direct, instance]);
+        let rect = d.node(
+            SvgRect,
+            &[(Width, "100"), (Height, "100"), (ClipPath, "url(#clip)")],
+            &[],
+        );
+        d.children(svg, &[defs, clip, rect]);
+        let mut k = d.kernel(&[svg], 100.);
+        for placed in [false, true] {
+            if placed {
+                k.apply(
+                    1,
+                    2,
+                    &[
+                        style(clip, &[(Transform, "translate(7 11)")]),
+                        style(instance, &[(X, "3"), (Y, "4"), (Transform, "scale(2)")]),
+                    ],
+                )
+                .unwrap();
+            }
+            let scene = resolve(&k, svg);
+            let shapes = &find(&scene.items, rect)
+                .unwrap()
+                .clip
+                .as_ref()
+                .unwrap()
+                .shapes;
+            assert_eq!(shapes.len(), 2);
+            for (index, shape) in shapes.iter().enumerate() {
+                let (mut x, mut y, mut w, mut h) = expected;
+                if placed {
+                    if index == 1 {
+                        x = 2. * (x + 3.);
+                        y = 2. * (y + 4.);
+                        w *= 2.;
+                        h *= 2.;
+                    }
+                    x += 7.;
+                    y += 11.;
+                }
+                let actual = shape.path.bounds().unwrap();
+                for (actual, expected) in [actual.0, actual.1, actual.2, actual.3]
+                    .into_iter()
+                    .zip([x, y, w, h])
+                {
+                    assert!(
+                        (actual - expected).abs() < 1e-4,
+                        "{rows:?}, placed={placed}, shape {index}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// LLP 1055.000 D10: a `clipPath` resolves to its children's union in the
 /// clipped element's user space, `objectBoundingBox` mapped to its box, its
 /// own `clip-path` intersected; a missing one does not clip.

@@ -1,6 +1,7 @@
 # A `use` inside a `clipPath` drops its target's own transform
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A use inside a clipPath applies its target's own transform before the use's placement.
 **Systems:** kernel/src/svg/scene/clip.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
