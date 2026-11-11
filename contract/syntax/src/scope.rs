@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// Status intrinsics resolve their target before looking up a function.
-pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure"];
+pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure", "current"];
 
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
 /// both are called as `Name(…)`.

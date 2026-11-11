@@ -27,6 +27,7 @@ mod nul;
 mod outlive;
 mod overlay;
 mod overrun;
+mod parallel;
 mod pinned_engines;
 mod presence;
 mod process;

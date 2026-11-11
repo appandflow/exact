@@ -627,7 +627,7 @@ fn the_functions_are_listed_and_in_the_json() {
         "{all}"
     );
     assert!(
-        all.contains("compiler intrinsics:\n  pending, failed, failure, path"),
+        all.contains("compiler intrinsics:\n  pending, current, failed, failure, path"),
         "{all}"
     );
     let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();

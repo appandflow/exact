@@ -351,15 +351,18 @@ impl<D: DataSource> Runner<D> {
             .map_err(|error| RunnerError::Data { resource, error })
     }
 
-    /// What answers a send of mutation `m` to `source`, a module's name.
+    /// What answers a send (`target`) to `source`, a module's name.
     pub(super) fn module_send(
         &mut self,
-        m: usize,
+        target: Target,
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
+        let m = target
+            .mutation()
+            .expect("a send's target names its mutation");
         let ty = self.plan.mutations[m].ty;
-        self.module_target(Target::Mutation(m), source, args, ty)
+        self.module_target(target, source, args, ty)
     }
 
     /// A Contract read or send of a module's name: admitted (D14), then
@@ -376,12 +379,12 @@ impl<D: DataSource> Runner<D> {
         let mut args = self.args_json(&row, args);
         self.clamp_bounds(&row, &mut args);
         self.resolve_of(&row, &mut args);
-        let send = matches!(target, Target::Mutation(_));
+        let send = target.mutation().is_some();
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
         let reader = match target {
             Target::Resource(i) => Some(samples::Reader::Resource(i)),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         // A sampled source's reader is known to its answer (`samples.rs`).
         self.extensions.samples.asking = reader.map(|r| (r, origin));
@@ -418,11 +421,13 @@ impl<D: DataSource> Runner<D> {
         let (row, key, route) = (row.clone(), self.key(row), self.route(row));
         let what = match target {
             Target::Resource(i) => format!("query {}", self.plan.str(self.plan.resources[i].name)),
-            Target::Mutation(m) => format!("send {}", self.plan.str(self.plan.mutations[m].name)),
+            Target::Mutation(m) | Target::Sent(m, _) => {
+                format!("send {}", self.plan.str(self.plan.mutations[m].name))
+            }
         };
         let reader = match target {
             Target::Resource(i) => Some(i),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         let feeds = !self.substitute(&row)["feeds"].is_null();
         match decision {

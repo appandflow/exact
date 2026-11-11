@@ -236,13 +236,18 @@ component Groceries
   arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
   later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
-  write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
-  the field only on an ok reply, as `afterAdd` does). Only the root declares them;
-  children take `props`. For a mutation without `queue`, the action that sends it must
-  not also assign its slot to `none`: assignments commit after sends and can discard its
-  new reply. Hide an old error with `pending(added)`. `none` means the slot contains no
-  reply, not failure; use `failure(added)` to show request failures and match the reply
-  to handle a domain refusal.
+  write (`refreshes` re-reads, `then` runs an action: clear the field only on an ok
+  reply, as `afterAdd` does). A send is newest-wins, for a value whose late reply should
+  be dropped; `queue` sends one at a time, in order, for a log; `parallel` sends each at
+  once, for independent writes. Only the root declares them; children take `props`. For
+  a newest-wins mutation, the action that sends it must not also assign its slot to
+  `none`: assignments commit after sends and can discard its new reply. Hide an old error
+  with `pending(added)`. `none` means the slot contains no reply, not failure; use
+  `failure(added)` to show request failures and match the reply to handle a domain refusal.
+- **Loading.** Show "loading" on `not current(x)`, which is false while `x` shows an answer to
+  other arguments, not on `pending(x)`, which a refresh sets too. `resource x = src(id) when
+  id != ""` asks nothing until its condition holds (nothing selected, a page not open), and asks
+  again each time it turns true.
 - **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
 **The data module** answers each source with exactly its declared shape: an extra

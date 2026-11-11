@@ -219,9 +219,45 @@ def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : Strin
 structure Settled where
   derives : List (String × Value) := []
   resources : List (String × Value) := []
-  /-- The arguments each resource's value answers. -/
+  /-- The arguments each resource's value answers. An idle resource has
+  none: its value answers nothing now. -/
   args : List (String × List Value) := []
+  /-- The resources whose `when` was false (LLP 1161.002 D2). -/
+  idle : List String := []
   deriving Inhabited
+
+/-- `ty`'s zero, what a resource idle before its first answer holds (LLP
+1161.002 D5): `0`, `""`, `false`, `()`, `none`, `[]`, and a record of its
+fields' zeros, as the runner's `zero`. A string enum is a `string` here,
+whose zero is `""` where the runner's is the enum's first member. -/
+def zeroOf (shapes : List Shape) : Nat → Ty → Value
+  | _, .number => .num 0
+  | _, .bool => .bool false
+  | _, .string => .str ""
+  | _, .unit => .unit
+  | _, .option _ => .none
+  | _, .list _ => .list []
+  | _, .unknown => .unit
+  | 0, .record s => .record s []
+  | n + 1, .record s =>
+    match shapes.find? (·.name == s) with
+    | .some sh => .record s (sh.fields.map fun f => zeroOf shapes n f.ty)
+    | .none => .record s []
+
+/-- What an idle resource holds (LLP 1161.002 D2, D5): its previous
+value, else its type's zero. -/
+def idleValue (p : Program) (prev : Settled) (r : ResourceDecl) : Value :=
+  (lookup r.name prev.resources).getD (zeroOf p.shapes (p.shapes.length + 1) r.ty)
+
+/-- Whether a resource's `when` holds (LLP 1161.002 D1): with none it
+always does; a value other than `true` closes it, as the runner reads it. -/
+def gateOpen (env : Env) (r : ResourceDecl) : Result Bool :=
+  match r.gate with
+  | .none => .ok true
+  | .some g => do
+    match ← eval fuel env false [] g with
+    | .bool true => pure true
+    | _ => pure false
 
 /-- The runner's `==` on values (`exact_plan::Value`'s `PartialEq`):
 numbers by IEEE `==` (`-0 = 0`, `NaN ≠ NaN`), the rest structurally. Two
@@ -317,7 +353,12 @@ graph is acyclic, and each value is a function of the values it reads).
 
 A resource whose arguments equal (`argsEq`) those its previous value
 answered keeps that value and asks nothing, unless the commit refreshes it
-(`force`): its source is asked only when the question changes. -/
+(`force`): its source is asked only when the question changes.
+
+A resource whose `when` is false is idle (LLP 1161.002 D2): its arguments
+are not read and nothing is asked, even when the commit refreshes it; it
+keeps its previous value, or its type's zero, with no arguments, so the
+settlement that opens the gate asks again (D3). -/
 def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F64)
     (prev : Settled := {}) (force : List String := []) : Result Settled :=
   let rec pass : Nat → Settled → Result Settled
@@ -328,7 +369,7 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
       let mut waiting := false
       for d in p.derives do
         if (lookup d.name st.derives).isSome then continue
-        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
         match eval fuel env false [] d.body with
         | .ok v =>
           if !conforms p v d.ty then throw (.refused s!"derive `{d.name}` of the wrong type")
@@ -338,7 +379,7 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
         | .error e => throw e
       for r in p.resources do
         if (lookup r.name st.resources).isSome then continue
-        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+        let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
         match r.each with
         | .some e =>
           let held := ((prev.args.find? (·.1 == r.name)).map (·.2)).getD []
@@ -350,6 +391,15 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
           | .error .pending => waiting := true
           | .error err => throw err
         | .none =>
+        match gateOpen env r with
+        | .error .pending => waiting := true
+        | .error e => throw e
+        | .ok false =>
+          if !conforms p (idleValue p prev r) r.ty then
+            throw (.refused s!"resource `{r.name}` of the wrong shape")
+          st := { st with resources := st.resources ++ [(r.name, idleValue p prev r)], idle := st.idle ++ [r.name] }
+          progress := true
+        | .ok true =>
         match evalList fuel env false [] r.args with
         | .ok args =>
           let kept : Option (Value × List Value) :=
@@ -680,7 +730,7 @@ def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : 
     (now : F64) (prev : Settled := {}) (force : List String := []) (view : List VNode := []) :
     Result (Settled × Result (List VNode × RowStore)) := do
   let st ← settle p o slots now prev force
-  let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+  let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
   .ok (st, renderTabs fuel
     { env, store, tabs := { opened := Tabs.visited (tabIndex view), every := o.everyTab } })
 
@@ -768,7 +818,7 @@ theorem gateTimer_action {env : Env} {tm tm' : Timer} (h : gateTimer env tm = .o
 /-- D8's step over a commit's settled state, at its time. -/
 def gateStep (p : Program) (slots : List (String × Value)) (st : Settled) (now : F64)
     (timers : List Timer) : Result (List Timer) :=
-  timers.mapM (gateTimer { prog := p, slots, derives := st.derives, resources := st.resources, now })
+  timers.mapM (gateTimer { prog := p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle })
 
 theorem mapM_gateTimer_actions {env : Env} :
     ∀ {ts ts' : List Timer}, ts.mapM (gateTimer env) = .ok ts' → ts'.map (·.action) = ts.map (·.action)
@@ -907,7 +957,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
     if !((a.params.zip args).all fun (q, v) => argOk p q v) then
       refuse (.refused "an argument of the wrong type") else
     let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
-                       resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now }
+                       resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now, idle := c.settled.idle }
     let ls : Locals := ((a.params.map (·.1)).zip args).reverse
     match exec fuel env ls a.body {} with
     | .error e => refuse e
@@ -1073,7 +1123,7 @@ def lateSlots (p : Program) (st : Settled) (slots : List (String × Value)) :
     Result (List (String × Value)) :=
   p.states.foldlM (fun slots decl => do
     if !decl.late || decl.owner.isSome then return slots
-    let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+    let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle }
     let v ← eval fuel env false [] decl.init
     if !conforms p v decl.ty then throw (.refused s!"slot `{decl.name}` initialized with the wrong type")
     pure (setSlot slots decl.name v)) slots
@@ -1100,7 +1150,7 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
       match gateStep p slots st 0 timers with
       | .error e => (empty, .refused e)
       | .ok timers =>
-      let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+      let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0, idle := st.idle }
       match renderTabs fuel { env, store := [], tabs := { every := o.everyTab } } with
       | .ok (view, live) =>
         ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
@@ -1135,7 +1185,7 @@ def dispatch (p : Program) (o : Oracle) (c : Config) (target : String) (event : 
         (c, .refused (.unsupported s!"a payload for a `{n.control.getD ""}` control")) else
       let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
                          resources := c.settled.resources, rows := rowSlots c.store n.rows,
-                         now := c.now }
+                         now := c.now, idle := c.settled.idle }
       match evalList fuel env false n.locals args with
       | .error e => (c, .refused e)
       | .ok vs => runAction p o c a (vs ++ payload.toList) n.rows

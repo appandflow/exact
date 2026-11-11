@@ -566,6 +566,7 @@ impl PlanBuilder {
             placeholder_value: self.no_data(),
             each: ArgsRange { start: 0, len: 0 },
             transient: false,
+            gate: ArgsRange { start: 0, len: 0 },
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -580,7 +581,7 @@ impl PlanBuilder {
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
-            queue: false,
+            mode: MutationMode::Newest,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
@@ -590,9 +591,10 @@ impl PlanBuilder {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
     }
 
-    /// `mutation … queue` (LLP 1092 D1): its sends wait their turn.
-    pub fn set_mutation_queue(&mut self, mutation: MutationsId) {
-        self.plan.mutations[mutation.0 as usize].queue = true;
+    /// `mutation … queue` (LLP 1092 D1), whose sends wait their turn, or
+    /// `mutation … parallel` (LLP 1161.000 D1), whose sends run together.
+    pub fn set_mutation_mode(&mut self, mutation: MutationsId, mode: MutationMode) {
+        self.plan.mutations[mutation.0 as usize].mode = mode;
     }
 
     /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
@@ -1033,6 +1035,12 @@ impl PlanBuilder {
     /// 1156.005 D4).
     pub fn set_resource_transient(&mut self, id: ResourcesId) {
         self.plan.resources[id.0 as usize].transient = true;
+    }
+
+    /// A resource's `when` (LLP 1161.002 D1): the condition under which it is asked.
+    pub fn set_resource_gate(&mut self, id: ResourcesId, gate: Code) {
+        let range = self.args(&[gate]);
+        self.plan.resources[id.0 as usize].gate = range;
     }
 
     /// Replace an action's body.

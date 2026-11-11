@@ -291,9 +291,9 @@ member        = "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
 provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "for" IDENT "in" expr [ "key" "=" expr ] ]
-                [ "with" expr { "," expr } ] "as" "shape" type
+                [ "with" expr { "," expr } ] [ "when" expr ] "as" "shape" type
                 [ "else" source-call ] [ "transient" ] NL ;
-mutation      = "mutation" IDENT "as" "shape" type [ "queue" ]
+mutation      = "mutation" IDENT "as" "shape" type [ "queue" | "parallel" ]
                 [ "refreshes" IDENT { "," IDENT } ]
                 [ "then" IDENT ] NL ;
 action        = "action" IDENT [ "(" [ action-params ] ")" ] block(statement) ;
@@ -524,8 +524,19 @@ can still appear in an ordinary assignment.
 A resource's optional `with` supplies one or more request context expressions,
 after its call arguments and before `as shape`. The source receives both lists
 in order; a change to either asks again. Only admission of an eligible persisted
-answer at boot compares the call arguments alone (LLP 1027.005). An empty call
-is valid; an empty `with` is not. `else` keeps its place after the shape.
+answer at boot compares the call arguments alone (LLP 1027.005), and so does
+`current` (below). An empty call is valid; an empty `with` is not. `else` keeps
+its place after the shape.
+
+A resource's optional `when cond`, before `as shape`, asks it only while `cond`, a
+`bool`, holds (LLP 1161.002; `type-when-not-bool`). While it is false the resource
+is idle: nothing is asked, a request in flight is let go (an upload's goes on),
+`pending` and `failed` are false and `failure` is `none`, and `refresh` asks
+nothing. It keeps the value it showed, which is no longer an answer: `current` is
+false. When `cond` turns true the resource is asked again, forced, even at the
+arguments it had, and is current once that answer lands. A resource idle at boot
+shows its placeholder. A resource over a list takes no `when`
+(`syntax-resource-for-when`).
 
 A resource over a list, `resource r = source(x) for x in list as shape S`,
 asks its source once for each element (LLP 1017.000 P4c, amended
@@ -537,7 +548,7 @@ request go, and the others go on. `r` reads as `S[]` in the list's order,
 each element its shape's zero until its answer; an element whose key
 repeats an earlier one's reads that one's answer. `pending(r)` and
 `failed(r)` are true when any element's request is pending or has failed,
-and `failure(r)` is the first failure. It takes no `with` or `else`
+`current(r)` when every element's is, and `failure(r)` is the first failure. It takes no `with` or `else`
 (`syntax-resource-for-with`, `syntax-resource-for-else`), and asks a data
 source, not one the runner answers (`lower-resource-for-source`). A
 mutation's `refreshes r` shows the source's overlay over each element from
@@ -554,7 +565,16 @@ forgotten (LLP 1156.005 D4).
 A mutation's `then` names a parameterless action and follows `refreshes` when
 both are present. `queue`, right after the shape, makes every send of the
 mutation wait its turn (LLP 1092): one request in flight, later sends asked in
-order, each after the reply before it and its `then`. The clauses after the shape
+order, each after the reply before it and its `then`. `parallel`, in the same
+place, asks every send when it is made (LLP 1161.000): each is its own request
+in flight, at most 64 at once (the 65th refuses its action, `QueueFull`), and its
+reply lands whatever else is out. A reply lands in the slot unless a later send
+has already concluded (answered or failed), `pending(m)` is true while any send
+is out, and an assignment forgets no request. A `parallel` mutation takes no
+`then` (`type-parallel-then`): its replies land in any order. Its source is
+called once per send and may have several calls outstanding; a source that reads
+local storage, changes it and writes it back orders its own work or is `queue`.
+With neither, a send forgets the one in flight: the newest wins. The clauses after the shape
 may continue onto deeper-indented lines, each starting with its keyword, in the
 same order (`mutation edited as shape Jump refreshes page`, then `then followEdit`
 indented under it). Action effects are inferred: `writes` clauses are refused.
@@ -1138,11 +1158,12 @@ Compiler intrinsics and special forms additionally include:
 
 | Form | Meaning | Example |
 | --- | --- | --- |
-| `pending(resourceOrMutationName)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
-| `failed(resourceOrMutationName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
-| `failure(resourceOrMutationName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is the nonempty source `reason` when supplied, otherwise the infrastructure vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
-| `path("routeName", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
-| `empty(field=constant, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
+| `pending(resourceOrMutation)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
+| `current(resource)` | Boolean; it shows an answer to its current call arguments: not its placeholder, not an answer kept from other call arguments or across idleness (`when`). A refresh of the same arguments, or a changed `with` value, leaves it true (LLP 1161.001) | `if not current(detail)` shows "loading" for a newly selected item, and not after a refresh |
+| `failed(resourceOrMutation)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
+| `failure(resourceOrMutation)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is the nonempty source `reason` when supplied, otherwise the infrastructure vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
+| `path("route", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
+| `empty(field=value, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
 | `some(expr)` | Construct an option | `some(3)` is an `option<number>` holding 3 |
 | `DeclaredShape(field=value, …)` | Construct a record | `Day(key="mon", ml=0)` is a `Day` |
 | `DeclaredShape(base, field=value, …)` | Copy a record | `Day(d, ml=d.ml + 250)` is `d` with `ml` changed |
@@ -1174,7 +1195,10 @@ new code is a breaking change; branch with a default case.
 
 `failure(x).reason` retains the domain string as well, empty when none was supplied.
 For a mutation, failure belongs to its latest send: a new send, a successful answer,
-or an explicit assignment clears it. A failed request retains its previous value,
+or an explicit assignment clears it. A `parallel` mutation's belongs to its latest
+send to conclude: a send's failure shows unless a later send has already answered
+or failed, and an earlier send's success, which does not land in the slot then,
+leaves a later send's failure standing. A failed request retains its previous value,
 does not retry, and does not run `then`. A synchronous throw that refuses the sending
 action still rolls that action back; only an admitted request's failure persists.
 
@@ -2834,7 +2858,8 @@ Syntax is only the first layer. In particular:
   `type-persist-child`, a derive `syntax-persist-derive`.
 - An action sends one mutation at most once on any path: a second send forgets
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice` — unless the
-  mutation is `queue`, whose sends each wait their turn (LLP 1092 D6). Exclusive
+  mutation is `queue`, whose sends each wait their turn (LLP 1092 D6), or
+  `parallel`, whose sends each land (LLP 1161.000 D2). Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). A `match` binder and an
   outer name it shadows are different values; their tests do not prove separate
@@ -2853,13 +2878,14 @@ Syntax is only the first layer. In particular:
   and `pending(m)` read settled values. In 1,029 bake-off builds the body's read
   was met in 86 and the call's in 2, which is why the call's is no longer a
   refusal. `pending`/`failed` operate on declarations, not arbitrary values.
-- An action that both sends a nonqueued mutation and assigns it on one path, in
+- An action that both sends a newest-wins mutation and assigns it on one path, in
   either order and through calls, is warned of (`analyze-send-assigned`, LLP
   1035.005.002 C1): a send is asked when the action runs; once the writes land,
   a request still in flight for a mutation the action assigned is forgotten and
   its reply dropped, and the slot keeps the assigned value (LLP 1016 D5). The
-  message names the three intents' spellings; a `queue` mutation's assignment
-  drops no queued work (LLP 1092 D4) and is not named. No bake-off build wrote
+  message names the three intents' spellings; a `queue` or `parallel`
+  mutation's assignment forgets no request (LLP 1092 D4, LLP 1161.000 D4) and
+  is not named. No bake-off build wrote
   the combination; Weird Castle's logout means it.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

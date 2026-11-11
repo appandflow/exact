@@ -271,25 +271,41 @@ pub struct Overlaid {
     pub keep: Vec<u64>,
 }
 
-/// What a request answers: a resource or a mutation, by its index in the
-/// plan. The runner keeps at most one request in flight per target (LLP
-/// 1016 D5), so an executor that parks a call until its reply comes keys
-/// it by target: two targets may ask one source with equal arguments.
+/// What a request answers: a resource, a mutation, or one send of a
+/// `parallel` mutation, by index in the plan. The runner keeps at most one
+/// request in flight per target (LLP 1016 D5), so an executor that parks a
+/// call until its reply comes keys it by target: two targets may ask one
+/// source with equal arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Target {
     /// `plan.resources[i]`.
     Resource(usize),
     /// `plan.mutations[i]`.
     Mutation(usize),
+    /// Send `n` of `plan.mutations[m]`, a `parallel` mutation (LLP 1161.000
+    /// D5): numbered when the send is made, in send order, and the same
+    /// through its continuations. Each send is its own request in flight.
+    Sent(usize, u64),
 }
 
 impl Target {
-    /// `Resource(3)`, `Mutation(0)`: what `{:?}` writes, without `core::fmt`
-    /// (a module call's key carries it, on a first press's path).
+    /// `Resource(3)`, `Mutation(0)`, `Sent(0, 7)`: what `{:?}` writes,
+    /// without `core::fmt` (a module call's key carries it, on a first
+    /// press's path).
     pub fn text(self) -> String {
         match self {
             Target::Resource(i) => exact_num::text!("Resource({})", i),
             Target::Mutation(i) => exact_num::text!("Mutation({})", i),
+            Target::Sent(m, n) => exact_num::text!("Sent({}, {})", m, n),
+        }
+    }
+
+    /// The mutation a send answers, whether it is the mutation's one
+    /// request or one of a parallel mutation's.
+    pub fn mutation(self) -> Option<usize> {
+        match self {
+            Target::Mutation(m) | Target::Sent(m, _) => Some(m),
+            Target::Resource(_) => None,
         }
     }
 }
@@ -957,7 +973,11 @@ mod target_tests {
     #[test]
     fn a_target_text_is_its_debug_text() {
         for i in [0, 1, 9, 10, 4_294_967_295, usize::MAX] {
-            for target in [Target::Resource(i), Target::Mutation(i)] {
+            for target in [
+                Target::Resource(i),
+                Target::Mutation(i),
+                Target::Sent(i, i as u64),
+            ] {
                 assert_eq!(target.text(), format!("{target:?}"));
             }
         }

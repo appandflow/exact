@@ -329,10 +329,14 @@ impl<D: DataSource> Runner<D> {
                 }
                 "it keeps its last value"
             }
-            Target::Mutation(m) => {
-                self.failed_mut[m] = Some(why);
+            Target::Mutation(m) | Target::Sent(m, _) => {
+                // A parallel send failing after a later one concluded
+                // leaves that one's outcome (LLP 1161.000 D4).
+                if self.conclude_send(target) {
+                    self.failed_mut[m] = Some(why);
+                }
                 // Its write ends, and what it showed in is asked again.
-                self.end_write(m, write);
+                self.end_write(target, write);
                 "it is not retried"
             }
         };

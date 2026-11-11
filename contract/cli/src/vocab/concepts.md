@@ -58,7 +58,9 @@ names: spinner, skeleton, baked, bake, first-frame
 A resource's `else` is its value until the first answer: `else empty()` is its shape's zero
 (`false`, `""`, `0`, `[]`), so a `loaded: bool` the source always answers `true` tells the
 first frame from an empty answer. `pending(r)` is true while a request is out, `failed(r)`
-once one failed with no answer. `progress` with no `value` is the system spinner.
+once one failed with no answer, and `current(r)` once what it shows answers its current
+arguments: "loading" is `not current(r)`, so a refresh (`pending`, still current) keeps the
+rows. `progress` with no `value` is the system spinner.
 
 ```contract
 shape Feed
@@ -588,7 +590,8 @@ names: send, mutate, post, put, patch, request
 `mutation name as shape T` is the reply slot, an option (`none` until the reply lands);
 `send name = source(args)` in an action asks the data module's source. `pending(name)` is true
 while it is in flight; `refreshes res` asks a resource again when the reply lands, `then act`
-runs an action (no parameters) after it, `queue` keeps sends in order.
+runs an action (no parameters) after it. A send forgets the one in flight; `queue` keeps sends
+in order, one at a time; `parallel` asks each at once and lands every reply (no `then`).
 
 ```contract
 shape Reply
@@ -604,8 +607,8 @@ component App
       text `Add (${items.length})`
 ```
 
-- One send of a mutation per path (`analyze-send-twice`): a second write needs its own mutation or
-  `queue`. Read the reply with `match added { case some(r) => r.ok, case none => false }`.
+- One send of a mutation per path (`analyze-send-twice`): a second write needs its own mutation,
+  `queue` or `parallel`. Read the reply with `match added { case some(r) => r.ok, case none => false }`.
 
 More: docs/recipes/after-a-write.md
 
@@ -614,8 +617,9 @@ names: source, sources, fetch, load, useEffect, useQuery, query, transient, no-s
 
 `resource name = source(args) as shape T else empty()` asks the source in `app.ts` and shows its
 answer as `name`; the arguments are state, so a change asks again. Until the first answer it is
-`else empty()`, the shape's zero (`[]`, `""`, `0`, `false`). `pending(name)` is true while a
-request is in flight, `failed(name)` when it had no answer. Only the root declares one.
+`else empty()`, the shape's zero. `pending(name)`: a request out; `failed(name)`: no answer;
+`current(name)`: it shows its arguments' answer. `when cond` asks nothing while `cond` is
+false. Only the root declares one.
 
 ```contract
 component App

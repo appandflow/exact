@@ -210,7 +210,7 @@ pub fn read_after_assign(checked: &Checked<'_>) -> Vec<AnalyzeError> {
 }
 
 /// `analyze-send-assigned` (@ref LLP 1035.005.002 C1): each action that both
-/// sends a nonqueued mutation and assigns it on one path, in either order.
+/// sends a newest-wins mutation and assigns it on one path, in either order.
 /// Lowering reports them as warnings.
 pub fn send_assigned(checked: &Checked<'_>) -> Vec<AnalyzeError> {
     sends::send_assigned(&checked.expanded.root)

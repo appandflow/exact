@@ -36,6 +36,7 @@ mod injects;
 mod lists;
 mod literals;
 mod media;
+mod mutations;
 mod payload;
 mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
@@ -816,26 +817,6 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             }
             if let Some(t) = failure::check(name, args, *span, scope) {
                 return t;
-            }
-            if name == "pending" {
-                // `pending(x)`: whether resource or mutation `x` has a
-                // request in flight (LLP 1016 D3). Not a roster call: its
-                // argument is a name, not a value.
-                let [Expr::Ident(target, tspan)] = args.as_slice() else {
-                    return err(
-                        "type-pending-argument",
-                        "`pending(x)` names one resource or mutation",
-                        *span,
-                    );
-                };
-                return match scope.lookup(target) {
-                    Some((Ref::Resource(_) | Ref::Mutation(_), _)) => Ok(Ty::Bool),
-                    _ => err(
-                        "type-pending-argument",
-                        format!("`{target}` is not a resource or a mutation"),
-                        *tspan,
-                    ),
-                };
             }
             if records::is_record_call(name, shapes) {
                 return records::infer_record(name, args, *span, scope, shapes);

@@ -121,6 +121,8 @@ pub struct Env<'a> {
     pub now_ms: f64,
     /// Whether each resource has a request in flight (LLP 1016 D3).
     pub pending_resources: &'a [bool],
+    /// Whether each resource shows an answer to its call arguments (LLP 1161.001).
+    pub current_resources: &'a [bool],
     /// Arguments whose latest request failed, by resource (LLP 1054.000.002).
     pub failed_resources: &'a [Option<Vec<Value>>],
     /// Why, while `failed_resources` holds (LLP 1109 D3); may be shorter.
@@ -806,6 +808,8 @@ impl Host<Value> for Run<'_, '_> {
         }
         Ok(if op == Opcode::FailedResource {
             env.failed_resources.get(i).is_some_and(Option::is_some)
+        } else if op == Opcode::CurrentResource {
+            env.current_resources.get(i).copied().unwrap_or(false)
         } else {
             env.pending_resources.get(i).copied().unwrap_or(false)
         })
@@ -1071,6 +1075,7 @@ mod tests {
             frames: &[],
             now_ms: 0.0,
             pending_resources: &[],
+            current_resources: &[],
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
@@ -1219,6 +1224,7 @@ mod tests {
             frames: &[],
             now_ms: 0.0,
             pending_resources: &[],
+            current_resources: &[],
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
@@ -1442,6 +1448,7 @@ mod tests {
                 frames: &[],
                 now_ms: 0.0,
                 pending_resources: &[],
+                current_resources: &[],
                 failed_resources: &[],
                 failed_why: &[],
                 pending_mutations: &[],

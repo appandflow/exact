@@ -748,7 +748,7 @@ per instance. A disagreement is kept under
 
 - `ExpandSubst.subst_iff`: the expander's substitution commutes with
   evaluation. For an expression of the fragment (`Plain`: no
-  `pending`/`failed`, no `sortBy` (not yet carried through these proofs;
+  `pending`/`failed`/`failure`/`current`, no `sortBy` (not yet carried through these proofs;
   `difftest expansion` checks it), callbacks of at most two parameters, no binder named
   like a call in its scope), a substitution whose replacements are
   callbacks of at most two parameters and never a callback, and no call
@@ -857,7 +857,9 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   component scope without the states lifted from children (`lifted`: late
   or arm-owned), whose names (`x#N`) the root's source cannot write;
   `pending(x)`/`failed(x)` name a resource in scope (the checker's
-  `scope.lookup`), so a root initializer cannot ask after one.
+  `scope.lookup`), so a root initializer cannot ask after one;
+  `current(x)` names a resource, never a mutation; a resource's `when` is
+  typed where its arguments are, and a resource over a list has none.
 - `reachable_slotsOK` and `reachable_valTy` (`TypeInvariant.lean`, over
   `Contract.Reachable`): in every configuration a well-typed program
   reaches, each root slot is a state or mutation holding a value of its
@@ -1041,6 +1043,34 @@ What it does not carry, as restrictions:
   mutation's, whose answers an advance lands (`QUEUE.md`).
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
+
+## Whether an answer is current, and a resource's `when` (LLP 1161.001, 1161.002)
+
+A resource may carry a gate (`ResourceDecl.gate`, `resource r = s(args)
+when cond`). `settle` reads it before the arguments (`gateOpen`; a value
+other than `true` closes it, as the runner reads it). Closed, the resource
+is idle: its arguments are not read, nothing is asked even when the commit
+refreshes it, it keeps its previous value (`idleValue`; before any value,
+its type's zero, `zeroOf`), it has no `Settled.args` entry, and its name is
+in `Settled.idle`. With no arguments kept, the settlement that opens the
+gate asks again, at the same arguments or new ones. `current(r)` reads
+`Env.idle`: every settled answer here answers its arguments, so it is true
+unless `r` is idle; the VM reads the runner's flag (`Vm.Env.currentResources`,
+`CurrentResource`), and the lowering proof takes the two to agree (`RefOk`).
+The corpus has `resources/current` and `resources/gate`.
+
+What it does not carry:
+
+- A placeholder: a resource idle before its first answer holds its type's
+  zero, where the runner shows its `else`. A program that gates a resource
+  with an `else` placeholder disagrees until the first answer, and a string
+  enum's zero here is `""` (the embedding types an enum `string`) where the
+  runner's is its first member.
+- A request in flight when the gate closes, an upload's or a stream's, and
+  the window between waking and the forced ask's answer, when the runner's
+  `current` is false: answers here are synchronous. The runner's tests
+  (`contract/cli/tests/it/when.rs`, `current.rs`) and the conformance plan
+  (`host/web-js/conformance/gate.contract`) check these.
 
 ## Persisted state (LLP 1116 D5)
 

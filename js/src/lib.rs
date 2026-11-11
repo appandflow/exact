@@ -164,7 +164,9 @@ struct Sig {
 /// A parked answer's key: the runner's target when it named one, then the
 /// source and its arguments. The runner keeps one request in flight per
 /// target, so two targets asking one source with equal arguments are two
-/// calls; a new call on the same key replaces the old one.
+/// calls; a new call on the same key replaces the old one. Each send of a
+/// parallel mutation is its own target (`Target::Sent`, LLP 1161.000 D5), so
+/// two with equal arguments are two calls too.
 type Key = (Option<Target>, String, Vec<u8>);
 
 /// An answer that awaited a fetch: the prelude's call id, and the fetch
@@ -903,7 +905,7 @@ impl Module {
         // may a resource's answer and a mutation's after its source (the
         // amendment of 2026-10-18); a call for no target sends nothing.
         let mutation = match target {
-            Some(Target::Mutation(_)) if session => "mutation",
+            Some(Target::Mutation(_) | Target::Sent(..)) if session => "mutation",
             Some(Target::Resource(_)) if session => "answer",
             None if session && source.starts_with(TOOL) => "tool",
             _ => "",

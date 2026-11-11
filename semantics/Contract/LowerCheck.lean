@@ -97,7 +97,7 @@ def layout (p : Program) (pi : PlanInfo) : Layout :=
 /-- The VM's environment in a configuration of the semantics: root slots
 and mutations from the configuration, no region instance in force (an
 owned slot has none), every derive and resource as settled, nothing in
-flight. -/
+flight, every resource current unless idle. -/
 def vmEnv (p : Program) (pi : PlanInfo) (c : Config) (params : List Value) (writes : List Nat) :
     Vm.Env :=
   { slots := pi.slots.map fun (n, owned) =>
@@ -106,13 +106,14 @@ def vmEnv (p : Program) (pi : PlanInfo) (c : Config) (params : List Value) (writ
     owned := pi.slots.map (·.2)
     derives := pi.derives.map (lookup · c.settled.derives)
     resources := pi.resources.map (lookup · c.settled.resources)
+    currentResources := pi.resources.map fun r => !(c.settled.idle.contains r)
     params, now := c.now, writable := writes
     mutationSlots := pi.mutations.map (·.2), routes := p.routes,
     strings := p.strings }
 
 def semEnv (p : Program) (c : Config) : Contract.Env :=
   { prog := p, slots := c.slots, derives := c.settled.derives,
-    resources := c.settled.resources, now := c.now }
+    resources := c.settled.resources, now := c.now, idle := c.settled.idle }
 
 /-- An argument of each type, two ways. -/
 partial def sample (p : Program) (k : Nat) : Ty → Value

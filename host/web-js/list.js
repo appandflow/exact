@@ -1009,7 +1009,7 @@ function publish() {
 function wake() {
   for (const d of Deferred.splice(0)) {
     if (!Lists.has(d[0].view)) continue;
-    if (d[1].some(t => t.ticket)) Deferred.push(d);
+    if (d[1].some(t => t.ticket || t.tickets?.length)) Deferred.push(d);
     else { const c = d[0]; for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
   }
 }
@@ -1095,7 +1095,7 @@ function edges(c, edge) {
     if (ok === false) { c.edgeArmed[i] = true; break; }
     if (position === 0 && edge.endAfterNoop && rev() !== before) {
       endAfterNoop = false;
-      const targets = [...Resources, ...Mutations].filter(t => t.ticket && t.ticket.id > since);
+      const targets = [...Resources, ...Mutations].filter(t => (t.ticket ? [t.ticket] : t.tickets ?? []).some(k => k.id > since)); // a parallel mutation's sends too
       for (let k = Deferred.length - 1; k >= 0; k--) if (Deferred[k][0] === c) Deferred.splice(k, 1);
       Deferred.push([c, targets]);
       wake();

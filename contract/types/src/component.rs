@@ -149,24 +149,7 @@ pub(crate) fn check_component(
         // A mutation holds `option<T>` of its answer (LLP 1090 D2).
         sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
         ct.mutations.push(t);
-        // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
-        for (i, (name, span)) in m.refreshes.iter().enumerate() {
-            if !c.resources.iter().any(|r| &r.name == name) {
-                sink.push(TypeError {
-                    id: "type-refreshes-not-resource",
-                    message: format!(
-                        "`{name}` is not a resource: `refreshes` names this component's resources"
-                    ),
-                    span: *span,
-                });
-            } else if m.refreshes[..i].iter().any(|(n, _)| n == name) {
-                sink.push(TypeError {
-                    id: "type-refreshes-duplicate",
-                    message: format!("`{name}` is already named in `refreshes`"),
-                    span: *span,
-                });
-            }
-        }
+        super::mutations::check(c, m, sink);
     }
     // Slots from initializers (may hold `?` inside an option).
     if !c.states.is_empty() {
@@ -321,6 +304,7 @@ pub(crate) fn check_component(
         for (i, r) in c.resources.iter().enumerate() {
             let each = crate::each::args_scope(r, &scope, shapes).0;
             let scope = each.as_ref().unwrap_or(&scope);
+            sink.keep_unit(crate::each::gate(r, scope, shapes));
             // An argument that failed above is reported there, once.
             let params: Vec<Ty> = r
                 .args
@@ -1088,7 +1072,7 @@ pub(crate) fn initializer_scope(
     // names, and of those only an action is callable; any other name a
     // call makes is the roster's (`state length = length("abc")`).
     let calls = |name: &str| {
-        !matches!(name, "failed" | "failure" | "pending")
+        !matches!(name, "failed" | "failure" | "pending" | "current")
             && !crate::records::is_record_call(name, shapes)
             && !shapes.fns.contains_key(name)
             && c.actions.iter().any(|a| a.name == name)

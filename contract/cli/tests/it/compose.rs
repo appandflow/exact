@@ -377,7 +377,7 @@ fn a_mutation_clause_out_of_order_names_the_order() {
     let error = contract::compile(src).unwrap_err();
     assert_eq!(error.id, "syntax-expected-newline", "{error}");
     assert!(
-        error.message.starts_with("`queue` is out of place: a mutation's clauses go `as shape T`, then `queue`, then `refreshes a, b`, then `then action`"),
+        error.message.starts_with("`queue` is out of place: a mutation's clauses go `as shape T`, then `queue` or `parallel`, then `refreshes a, b`, then `then action`"),
         "{error}"
     );
 }

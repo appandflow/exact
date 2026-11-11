@@ -16,10 +16,11 @@
 //! with the same spelling have distinct facts (LLP 1089 D3).
 //!
 //! A `queue` mutation is exempt (LLP 1092 D6): its sends wait in order and
-//! each reply reaches its `then`.
+//! each reply reaches its `then`. So is a `parallel` one (LLP 1161.000 D2):
+//! its sends run together and each reply lands.
 
 use super::{AnalyzeError, Related};
-use contract_syntax::{BinOp, Component, Expr, Span, Stmt};
+use contract_syntax::{BinOp, Component, Expr, MutationMode, Span, Stmt};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What a path's enclosing conditions say: each tested name is one of these
@@ -184,9 +185,10 @@ impl<'a> Walk<'a> {
             match stmt {
                 Stmt::Send { target, span, .. } => {
                     let mutation = self.c.mutations.iter().find(|m| &m.name == target);
-                    // @ref LLP 1092 D2 — a queue's sends each wait their
-                    // turn: none forgets another's reply.
-                    if mutation.is_some_and(|m| m.queue) {
+                    // @ref LLP 1092 D2, LLP 1161.000 D2 — a queue's sends
+                    // each wait their turn, a parallel one's run together:
+                    // none forgets another's reply.
+                    if mutation.is_some_and(|m| m.mode != MutationMode::Newest) {
                         continue;
                     }
                     let earlier = sent.entry(target).or_default();
@@ -371,7 +373,7 @@ impl<'a> Both<'a> {
         for stmt in stmts {
             match stmt {
                 Stmt::Send { target, span, .. } => {
-                    if self.nonqueued(target) {
+                    if self.newest_wins(target) {
                         self.meet(target, *span, guard, assigned, "sends", "assigns");
                         sent.entry(target)
                             .or_default()
@@ -381,7 +383,7 @@ impl<'a> Both<'a> {
                     moved(target, guard, assigned);
                 }
                 Stmt::Assign { target, span, .. } => {
-                    if self.nonqueued(target) {
+                    if self.newest_wins(target) {
                         self.meet(target, *span, guard, sent, "assigns", "sends");
                         assigned.entry(target).or_default().push((
                             *span,
@@ -433,8 +435,9 @@ impl<'a> Both<'a> {
         }
     }
 
-    fn nonqueued(&self, name: &str) -> bool {
-        self.c.mutations.iter().any(|m| m.name == name && !m.queue)
+    /// A newest-wins mutation: an assignment forgets its request in flight.
+    fn newest_wins(&self, name: &str) -> bool {
+        (self.c.mutations.iter()).any(|m| m.name == name && m.mode == MutationMode::Newest)
     }
 
     /// `target` is sent (or assigned) here, after being assigned (or sent)
@@ -493,7 +496,7 @@ fn union<'a>(into: &mut Made<'a>, from: Made<'a>) {
     }
 }
 
-/// @ref LLP 1035.005.002 C1 — every action that both sends a nonqueued
+/// @ref LLP 1035.005.002 C1 — every action that both sends a newest-wins
 /// mutation and assigns it on one path, through calls too, in either order:
 /// a warning, once a mutation an action. In 1,029 bake-off builds no action
 /// did; the one in the apps is Weird Castle's logout, which means it.

@@ -166,7 +166,7 @@ export function commit(f, what = "commit", finished) {
   if (Writes) { if (finished) Finishes.push(finished); return f(); }
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Finishes = finished ? [finished] : []; Refused = null; Why = ""; time();
-  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
+  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => [m.ticket, m.tickets, m.concluded]), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
   let ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
   try {
     untracked(f);
@@ -189,7 +189,7 @@ export function commit(f, what = "commit", finished) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => k < saved.length && r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes); // new list members end through their refusal callbacks (each.js)
+    Resources.forEach((r, k) => k < saved.length && r.restore(saved[k])); Mutations.forEach((m, k) => { [m.ticket, m.tickets, m.concluded] = held[k]; }); Sched?.restore(queued); Ov.restore(writes); // new list members end through their refusal callbacks (each.js)
     Store.restore(store);
     for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too
@@ -461,7 +461,7 @@ function reply(t, name, source, held, f, next, gone) {
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page, and is asked again when its stream was open (LLP 1048.000 D6). */
 export function res(name, source, args, initial, initialArgs, type, ph, carried = false, member = false) { // `carried`: settled, not a bake to ask again — a dev reload's (checkpoint.js), an `else` row's (emit.rs)
-  const ver = sig(0), pend = sig(false), fail = sig(null);
+  const ver = sig(0), pend = sig(false), fail = sig(null), cur = sig(false); // `cur`: `current(x)` (LLP 1161.001), its own signal: an answer equal to the placeholder changes no value
   const kept = !member && checkpoint().kept?.get(name); // a list's checkpoint holds its aggregate; each member asks again
   if (kept) [initialArgs, initial] = kept;
   const r = { name, source, type, member, value: initial, settled: initialArgs, pending: pend, baked: kept ? READER.has(source) || checkpoint().revalidate || checkpoint().open.has(name) : !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
@@ -473,18 +473,19 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     if (v === undefined) throw new Failed(`${name} answers later and has nothing to show; give it an \`else\``);
     r.value = v; Inspections.placeholder(r);
   };
+  const id = a => a?.slice(0, Math.max(0, a.length - r.context)), asleep = () => { r.asleep = r.slept = true; r.forced = r.rev = r.reconciling = false; if (!r.ticket?.upload) release(); if (r.failed) { r.failed = null; r.error = r.code = r.reason = undefined; } flag(fail, failure()); hold(); return r.value; }; // `id`: the call arguments, `with` aside (`current`, LLP 1161.001); `asleep`: a closed `when`, the value kept and no answer, a request let go but an upload's (LLP 1161.002 D2)
   const take = (v, a, origin, generation) => { // `origin`: when it was asked (overlay.js)
     if (type && !conforms(v, type, [0], r.checked)) throw new Failed(loneSurrogate(v) ? `${name}: result string contains a lone surrogate` : `${name}: the answer does not conform to its shape`, "shape");
     r.checked = v;
-    r.value = v; r.settled = a; r.origin = origin; r.placeholder = false; Inspections.take(r, generation);
+    r.value = v; r.settled = a; r.origin = origin; r.placeholder = false; r.slept = false; Inspections.take(r, generation); // a fresh answer: current again after idleness (LLP 1161.001)
   };
   const land = t => reply(t, name, source, () => r.ticket === t, ...data.uploads.ends(r, t, (p, o) => { // an upload keeps how it ended (uploads.js)
     if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, !!(o.more && t.upload)); W(fail, null); W(ver, ver.n.v + 1); // an upload is pending until its reply
   }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); }));
-  const m = memo(() => Ov.shown(r, (() => {
-    ver();
+  const m = memo(() => { const shown = Ov.shown(r, (() => {
+    ver(); if (args.gate && !args.gate()) return asleep(); if (r.asleep) { r.asleep = false; r.forced = true; } // `when` (LLP 1161.002): closed, nothing is asked; waking asks again, forced
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
     const forced = r.forced, rev = r.rev, reconciling = r.reconciling, mk = data.uploads.at(r, a); // `reconciling`: asked after a write ended, a refusal fails it (overlay.js); `mk`: an upload asked at these arguments, not asked again (LLP 1016.000 D10)
     r.forced = r.rev = r.reconciling = false;
@@ -534,10 +535,10 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     if (!shown) { hold(); flag(pend, true); }
     if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; r.forced = r.reconciling = true; r.baked ||= shown; recommit(() => { r.ov = null; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
     return r.value;
-  })(), r.settled ?? r.asked, r.origin), type);
+  })(), r.settled ?? r.asked, r.origin); flag(cur, !r.placeholder && !r.slept && r.settled !== undefined && r.asked !== undefined && equal(id(r.settled), id(r.asked))); return shown; }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks, r.placeholder, pend.n.v],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; r.placeholder = x[18]; write(pend.n, x[19]); write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks, r.placeholder, pend.n.v, r.asleep, r.slept],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; r.placeholder = x[18]; r.asleep = x[20]; r.slept = x[21]; write(pend.n, x[19]); write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
     reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },
@@ -545,39 +546,39 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   });
   onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
-  m.p = () => (m(), pend());
-  m.f = () => (m(), fail() != null); m.e = () => { m(); const f = fail(); return f ? [f[3] || f[1], f[2], f[3]] : null; }; // `failure(x)`: `none`, or the `Failure` record `[code, message, reason]`
-  m.n.resource = r;
-  m.r = r;
+  m.p = () => (m(), pend()); m.c = () => (m(), cur()); m.f = () => (m(), fail() != null); m.e = () => { m(); const f = fail(); return f ? [f[3] || f[1], f[2], f[3]] : null; }; // `failure(x)`: `none`, or the `Failure` record `[code, message, reason]`
+  m.n.resource = r; m.r = r;
   return m;
 }
-/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket — or, a `queue` (LLP 1092), one ticket
- * and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`. */
-export const Mutations = [];
-export function mut(name, slot, refreshes, type, queue) {
+/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket — or (`mode` 1), a `queue` (LLP 1092), one ticket and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`;
+ * or (`mode` 2), `parallel` (LLP 1161.000), a ticket per send in flight (`tickets`), numbered in send order (`send`), the slot and failure following the latest to conclude (`concluded`, runner parallel.rs). */
+export const Mutations = []; const BOUND = 64; // the runner's QUEUE_BOUND: a parallel mutation's 65th send in flight refuses its action
+export function mut(name, slot, refreshes, type, mode) {
   const pend = sig(false), fail = sig(null);
-  const m = { name, requests: 0, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
+  const m = { name, requests: 0, ticket: null, then: null, due: Infinity, next: Infinity, queue: mode === 1, parallel: mode === 2, tickets: [], sends: 0, concluded: 0, pend, refreshes: refreshes.map(x => x.r) };
+  const keeps = () => !!(m.wait || m.parallel), out = t => { m.tickets = m.tickets.filter(x => x !== t); return m.tickets.length > 0 || !!m.wait?.length; }; // an assignment or a newer send forgets nothing (LLP 1092 D4, LLP 1161.000 D4); `out`: `t` is no longer in flight, whether `m` is still pending
+  const concludes = t => { if (!m.parallel) return true; if (m.concluded > t.send) return false; m.concluded = t.send; return true; }; // a send's reply landed or it failed without one: whether its outcome reaches the slot and the failure, as no later send has concluded (D4)
   const shown = (re, undo) => { for (const r of m.refreshes) r.touch(undo); for (const r of re ?? []) r.reconcile(undo); }; // a write began or ended (overlay.js)
   Mutations.push(m);
   slot.n.m = m;
   // An answer now lands before the action's own writes, as the runner's do: an assignment in the same action wins.
   const landWrite = (v, undo) => { if (!Writes.some(w => w[0] === slot.n)) { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
-  const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
+  const land = t => reply(t, name, t.source, () => m.parallel ? m.tickets.includes(t) : m.ticket === t, (p, o) => {
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write, send: t.send }; if (m.parallel) m.tickets = [...m.tickets.filter(x => x !== t), n]; else m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`, "shape");
-    m.checked = p.v; W(fail, null);
-    if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
+    m.checked = p.v; if (m.parallel) { if (!o.more) W(pend, out(t)); } else { if (!o.more) m.ticket = null; W(pend, !!m.wait?.length); }
     Ov.land(m, p.v, t.write);
-    slot.n.landing = 1; W(slot, p.v); Landed.push(m);
+    if (concludes(t)) { W(fail, null); slot.n.landing = 1; W(slot, p.v); } Landed.push(m); // a reply concluding after a later send's leaves the slot (LLP 1161.000 D4)
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", (error, code, reason) => { write(fail.n, [reason || code || "error", error, reason || ""]); m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
+  }, "it ends unsent", (error, code, reason) => { if (concludes(t)) write(fail.n, [reason || code || "error", error, reason || ""]); if (m.parallel) write(pend.n, out(t)); else { m.ticket = null; write(pend.n, !!m.wait?.length); } m.ended(t.write); });
   Object.assign(m, {
-    // A queue's assignment forgets nothing (LLP 1092 D4).
-    forget(undo) { undo?.push([fail.n, fail.n.v]); write(fail.n, null); if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
+    // A queue's or a parallel mutation's assignment forgets nothing (LLP 1092 D4, LLP 1161.000 D4).
+    forget(undo) { undo?.push([fail.n, fail.n.v]); write(fail.n, null); if (m.ticket && !keeps()) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!keeps()) shown(Ov.endPending(m), undo); },
     ended(write) { const re = Ov.end(m, write); if (re) shown(re); return !!re; }, // its send in flight ended without landing: whether a write showed (the caller's commit publishes it)
     send(source, args, undo, own) {
+      if (m.parallel && m.tickets.length >= BOUND) throw new Refusal(`QueueFull { mutation: ${JSON.stringify(name)} }`); const at = m.parallel ? ++m.sends : 0; // the 65th in flight refuses (LLP 1161.000 D2); `at`, its place in send order
       if (!own) shown(Ov.accept(m, source, args), undo); // its write shows from here (a queue's next was accepted as it began to wait)
       // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
@@ -590,7 +591,7 @@ export function mut(name, slot, refreshes, type, queue) {
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
       } catch (e) {
         if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; }
-        m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length);
+        m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, m.tickets.length > 0 || !!m.wait?.length); concludes({ send: at });
         const reason = failureReason(e); undo.push([fail.n, fail.n.v]); write(fail.n, [reason || failureCode(e), String(e?.message ?? e), reason]);
         say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return;
       }
@@ -599,11 +600,11 @@ export function mut(name, slot, refreshes, type, queue) {
         m.checked = a.v;
         Ov.land(m, a.v);
         m.forget(undo); // answered at once, it replaces one still in flight (newest wins): the older reply is not wanted
-        landWrite(a.v, undo);
+        concludes({ send: at }); landWrite(a.v, undo);
         if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
       } else {
-        const t = { id: ++Ticket, name: m.name, owner: m, source, args, req: a.req, promise: a.promise, call: a.call, stream: a.stream, write: Ov.asked(m) };
-        if (t.call) t.call.ticket = t; m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
+        const t = { id: ++Ticket, name: m.name, owner: m, source, args, req: a.req, promise: a.promise, call: a.call, stream: a.stream, write: Ov.asked(m), send: at };
+        if (t.call) t.call.ticket = t; if (m.parallel) m.tickets = [...m.tickets, t]; else m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       }
       if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
     },

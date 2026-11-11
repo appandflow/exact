@@ -13,6 +13,7 @@ pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
     pending_res: Vec<bool>,
+    current_res: Vec<bool>,
     failed_res: Vec<Option<crate::failure::Failure>>,
     pending_mut: Vec<bool>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
@@ -29,6 +30,7 @@ struct Progress<'a> {
     resources: &'a [bool],
     resource_changed: &'a [bool],
     pending_res: &'a [bool],
+    current_res: &'a [bool],
 }
 
 enum RequestEffect {
@@ -202,8 +204,11 @@ impl<D: DataSource> Runner<D> {
                     && !now.resource_changed[r]
                     && base.store_readers[r] == self.store_readers[r]
             }
+            // `current(x)` reads this input too (LLP 1161.001).
             Input::PendingResource(r) => {
-                now.resources[r] && base.pending_res[r] == now.pending_res[r]
+                now.resources[r]
+                    && base.pending_res[r] == now.pending_res[r]
+                    && base.current_res.get(r) == now.current_res.get(r)
             }
             Input::FailedResource(r) => {
                 now.resources[r]
@@ -244,6 +249,8 @@ impl<D: DataSource> Runner<D> {
         // source is told once it is published (LLP 1027 D11).
         let mut adopted = vec![false; states.len()];
         let mut resource_args = vec![Vec::new(); states.len()];
+        // What `current(x)` reads in this pass, set as each resource settles.
+        let mut current_res = vec![false; states.len()];
         // Over a list (`each.rs`): each family's members in its list's
         // order, and the members whose elements left.
         let mut lists = std::collections::BTreeMap::<usize, Vec<usize>>::new();
@@ -291,6 +298,7 @@ impl<D: DataSource> Runner<D> {
                         resources: &settled_res,
                         resource_changed: &resource_changed,
                         pending_res: &pending_res,
+                        current_res: &current_res,
                     };
                     if self.derives[i].is_some()
                         && self.unchanged(&self.sites.deps().derives[i], &now)
@@ -317,6 +325,7 @@ impl<D: DataSource> Runner<D> {
                             frames: &[],
                             now_ms: self.now_ms,
                             pending_resources: &pending_res,
+                            current_resources: &current_res,
                             failed_resources: &self.failed_args,
                             failed_why: &self.failed_why,
                             pending_mutations: &self.pending_mut,
@@ -379,6 +388,8 @@ impl<D: DataSource> Runner<D> {
                             states[i] = None;
                             self.store_readers[i] = false;
                             settled_res[i] = true;
+                            current_res[i] =
+                                self.is_current(i, states[i].as_ref(), &resource_args[i]);
                             progress = true;
                             continue;
                         }
@@ -424,8 +435,12 @@ impl<D: DataSource> Runner<D> {
                                 kept_seed: false,
                                 origin: 0,
                                 answered_for: None,
+                                asleep: false,
+                                slept: false,
                             });
                             settled_res[i] = true;
+                            // A family is current when every listed member is (LLP 1161.001).
+                            current_res[i] = order.iter().all(|&m| current_res[m]);
                             progress = true;
                             continue;
                         }
@@ -444,6 +459,7 @@ impl<D: DataSource> Runner<D> {
                                 frames: &[],
                                 now_ms: self.now_ms,
                                 pending_resources: &pending_res,
+                                current_resources: &current_res,
                                 failed_resources: &self.failed_args,
                                 failed_why: &self.failed_why,
                                 pending_mutations: &self.pending_mut,
@@ -471,6 +487,7 @@ impl<D: DataSource> Runner<D> {
                         awaiting.resize(n, false);
                         settled_res.resize(n, false);
                         resource_changed.resize(n, false);
+                        current_res.resize(n, false);
                         // A row a new member took may have settled empty in
                         // this pass already, while it was a left element's.
                         for m in added {
@@ -497,6 +514,102 @@ impl<D: DataSource> Runner<D> {
                         continue;
                     }
                     let row = self.plan.resources[i].clone();
+                    // @ref LLP 1161.002 D2 — a closed gate asks nothing.
+                    let open = match row.gate.iter().next() {
+                        None => true,
+                        Some(gate) => {
+                            let code = self.plan.arg(gate).expr;
+                            let result = {
+                                let env = Env {
+                                    plan: &self.plan,
+                                    strings: &self.strings,
+                                    router: self.router.as_deref(),
+                                    lists: self.links.lists,
+                                    format: self.links.format,
+                                    geometry: None,
+                                    slots: &self.slots,
+                                    derives: &derives,
+                                    resources: &resources,
+                                    params: &[],
+                                    frames: &[],
+                                    now_ms: self.now_ms,
+                                    pending_resources: &pending_res,
+                                    current_resources: &current_res,
+                                    failed_resources: &self.failed_args,
+                                    failed_why: &self.failed_why,
+                                    pending_mutations: &self.pending_mut,
+                                    failed_mutations: &self.failed_mut,
+                                    store_dependent_derives: &derive_store_dependent,
+                                    store_dependent_resources: &self.store_readers,
+                                };
+                                vm::eval(self.plan.code(code), &env, &[])
+                            };
+                            match result {
+                                Ok(o) => o.value == Value::Bool(true),
+                                Err(Trap::Pending { .. }) => {
+                                    all = false;
+                                    continue;
+                                }
+                                Err(t) => return Err(t.into()),
+                            }
+                        }
+                    };
+                    if !open {
+                        // Idle: a request in flight is let go when this
+                        // settlement stands, except an upload's, which goes on;
+                        // the value stays and stops being an answer.
+                        let upload = self.uploading(i);
+                        if !upload {
+                            effects[i] = RequestEffect::Answered;
+                            pending_res[i] = false;
+                            self.failed_args[i] = None;
+                        }
+                        awaiting[i] = false;
+                        let state = match states[i].take() {
+                            Some(mut s) => {
+                                s.asleep = true;
+                                s.slept = true;
+                                s
+                            }
+                            None => {
+                                let Some(v) = self.placeholder(i, &row, &resources) else {
+                                    all = false;
+                                    continue;
+                                };
+                                ResourceState {
+                                    inspection_generation: 0,
+                                    args: Vec::new(),
+                                    value: Held::new(v),
+                                    store_revision: self.store.revision(),
+                                    placeholder: true,
+                                    kept_seed: false,
+                                    origin: 0,
+                                    answered_for: None,
+                                    asleep: true,
+                                    slept: true,
+                                }
+                            }
+                        };
+                        let args = state.answered_args().to_vec();
+                        let shown = self.shown(i, &args, &state.value, state.origin);
+                        resource_changed[i] = !matches!(
+                            &self.resource_values[i],
+                            Some(old) if Held::same(old, &shown)
+                        );
+                        resources[i] = Some(shown);
+                        resource_args[i] = state.args.clone();
+                        states[i] = Some(state);
+                        settled_res[i] = true;
+                        current_res[i] = false;
+                        progress = true;
+                        continue;
+                    }
+                    // Waking asks again, forced: no request is kept across
+                    // idleness (LLP 1161.002 D3).
+                    let waking = states[i].as_ref().is_some_and(|s| s.asleep);
+                    if waking && !force.contains(&i) {
+                        force.push(i);
+                    }
                     let mut args = Vec::with_capacity(row.args.len as usize);
                     let mut pending = false;
                     let mut store_dependent = false;
@@ -506,11 +619,12 @@ impl<D: DataSource> Runner<D> {
                         resources: &settled_res,
                         resource_changed: &resource_changed,
                         pending_res: &pending_res,
+                        current_res: &current_res,
                     };
                     let kept_args = self
                         .settled
                         .as_ref()
-                        .filter(|_| self.member(i).is_none())
+                        .filter(|_| self.member(i).is_none() && !waking)
                         .filter(|_| self.unchanged(&self.sites.deps().resource_args[i], &now))
                         .map(|s| s.resource_args[i].clone());
                     for a in row.args.iter().filter(|_| kept_args.is_none()) {
@@ -530,6 +644,7 @@ impl<D: DataSource> Runner<D> {
                                 frames: &[],
                                 now_ms: self.now_ms,
                                 pending_resources: &pending_res,
+                                current_resources: &current_res,
                                 failed_resources: &self.failed_args,
                                 failed_why: &self.failed_why,
                                 pending_mutations: &self.pending_mut,
@@ -875,6 +990,8 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
+                                    current_res[i] =
+                                        self.is_current(i, states[i].as_ref(), &resource_args[i]);
                                     progress = true;
                                     continue;
                                 }
@@ -1084,6 +1201,11 @@ impl<D: DataSource> Runner<D> {
                         Some(old) if Held::same(old, &shown)
                     );
                     resources[i] = Some(shown);
+                    // A value kept across idleness stays no answer until a
+                    // fresh one, asked since, replaces it (LLP 1161.001 D1).
+                    let slept = states[i]
+                        .as_ref()
+                        .is_some_and(|s| s.slept && s.origin == origin && !placeholder);
                     states[i] = Some(ResourceState {
                         inspection_generation: generation,
                         args: value_args,
@@ -1093,9 +1215,12 @@ impl<D: DataSource> Runner<D> {
                         kept_seed,
                         origin,
                         answered_for,
+                        asleep: false,
+                        slept,
                     });
                     self.inspected_success(i, generation);
                     settled_res[i] = true;
+                    current_res[i] = self.is_current(i, states[i].as_ref(), &resource_args[i]);
                     progress = true;
                 }
                 if all && settled_res.iter().all(|s| *s) {
@@ -1126,6 +1251,7 @@ impl<D: DataSource> Runner<D> {
                 slots: self.slots.clone(),
                 now_ms: self.now_ms,
                 pending_res,
+                current_res: current_res.clone(),
                 failed_res: crate::failure::states(&self.failed_args, &self.failed_why),
                 pending_mut: self.pending_mut.clone(),
                 failed_mut: self.failed_mut.clone(),

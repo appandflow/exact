@@ -157,6 +157,7 @@ fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a crate::vm::Stri
         frames: &[],
         now_ms: 0.0,
         pending_resources: &[],
+        current_resources: &[],
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],

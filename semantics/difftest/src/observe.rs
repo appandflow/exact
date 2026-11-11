@@ -164,7 +164,7 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
     }
     // Each queue's waiting sends (LLP 1092 D12), in declaration order.
     let queued = r.queued();
-    for m in plan.mutations.iter().filter(|m| m.queue) {
+    for m in (plan.mutations.iter()).filter(|m| m.mode == exact_plan::MutationMode::Queue) {
         let name = plan.str(m.name);
         let n = queued
             .iter()

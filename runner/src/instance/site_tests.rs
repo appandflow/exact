@@ -22,6 +22,7 @@ fn reused_frames_preserve_nested_scopes_and_release_rows_on_error() {
         frames: &[],
         now_ms: 0.0,
         pending_resources: &[],
+        current_resources: &[],
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],

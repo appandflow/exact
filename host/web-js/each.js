@@ -51,6 +51,7 @@ export function resEach(name, source, list, key, args, type, elem, zero) {
   }, type, name);
   const each = f => { for (const e of members.values()) if (!e.left) f(e.g.r); };
   g.p = () => (g(), order.some(e => e.g.p()));
+  g.c = () => (g(), order.every(e => e.g.c())); // `current(x)`: every listed element answers its own arguments (LLP 1161.001)
   g.f = () => (g(), order.some(e => e.g.f()));
   g.e = () => { g(); for (const e of order) { const f = e.g.e(); if (f) return f; } return null; };
   // What a mutation's `refreshes` and the overlay ask of a resource, asked of each element's.

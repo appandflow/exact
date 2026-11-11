@@ -352,6 +352,8 @@ impl<D: DataSource> Runner<D> {
                     placeholder: false,
                     kept_seed: true,
                     answered_for: None,
+                    asleep: false,
+                    slept: false,
                     origin: 0,
                 });
             }
@@ -398,6 +400,8 @@ impl<D: DataSource> Runner<D> {
                 placeholder: false,
                 kept_seed: true,
                 answered_for: None,
+                asleep: false,
+                slept: false,
                 origin: 0,
             });
             match ready {
@@ -701,8 +705,8 @@ impl<D: DataSource> Runner<D> {
                 .and_then(|_| self.gate_step())
             {
                 Ok(()) => {
-                    for ((origin, id), (m, source, args, request)) in by.into_iter().zip(later) {
-                        let target = super::Target::Mutation(m);
+                    for ((origin, id), (target, source, args, request)) in by.into_iter().zip(later)
+                    {
                         self.as_invocation(origin, id, |r| {
                             r.enqueue(target, source, args, request, false)
                         });
@@ -721,13 +725,13 @@ impl<D: DataSource> Runner<D> {
         // `data_ready`): they are dropped, said in the journal, and their
         // writes end.
         if dropped {
-            for (m, ..) in std::mem::take(&mut self.unsent) {
-                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+            for (target, ..) in std::mem::take(&mut self.unsent) {
+                let name = self.target_name(target);
                 self.log(super::lines::unsent_refused(
                     &name,
                     "data_ready was refused",
                 ));
-                self.end_write(m, None);
+                self.end_write(target, None);
             }
             self.sync_pending_flags();
         }
@@ -753,22 +757,17 @@ impl<D: DataSource> Runner<D> {
     /// long ago, so a source's refusal ends that one send, said in the
     /// journal, as a refused reply does — never this commit.
     #[allow(clippy::type_complexity)]
-    fn send_unsent(
-        &mut self,
-    ) -> (
-        Vec<(CallOrigin, u64)>,
-        Vec<(usize, String, Vec<Value>, super::Request)>,
-    ) {
+    fn send_unsent(&mut self) -> (Vec<(CallOrigin, u64)>, Vec<super::Later>) {
         let (mut by, mut later) = (Vec::new(), Vec::new());
-        for (m, source, args, (origin, id)) in std::mem::take(&mut self.unsent) {
+        for (target, source, args, (origin, id)) in std::mem::take(&mut self.unsent) {
             let sent = later.len();
-            self.as_invocation(origin, id, |r| r.send_one(m, source, args, &mut later));
+            self.as_invocation(origin, id, |r| r.send_one(target, source, args, &mut later));
             by.extend(std::iter::repeat_n((origin, id), later.len() - sent));
         }
         self.sync_pending_flags();
         // Pending until the request goes out with the commit, or is let go.
-        for (m, ..) in &later {
-            self.pending_mut[*m] = true;
+        for m in later.iter().filter_map(|l| l.0.mutation()) {
+            self.pending_mut[m] = true;
         }
         (by, later)
     }
@@ -781,12 +780,14 @@ impl<D: DataSource> Runner<D> {
     /// One of [`Self::send_unsent`]'s sends, under its commit's origin.
     fn send_one(
         &mut self,
-        m: usize,
+        target: super::Target,
         source: String,
         args: Vec<Value>,
-        later: &mut Vec<(usize, String, Vec<Value>, super::Request)>,
+        later: &mut Vec<super::Later>,
     ) {
-        let target = super::Target::Mutation(m);
+        let m = target
+            .mutation()
+            .expect("a send's target names its mutation");
         let name = self.plan.str(self.plan.mutations[m].name).to_string();
         self.mutation_requests += 1;
         let answer = if Self::activity_send(&source) {
@@ -805,9 +806,13 @@ impl<D: DataSource> Runner<D> {
             Ok(super::Answer::Now(value)) if self.conforms(&value, self.plan.mutations[m].ty) => {
                 match self.mutation_slot(m) {
                     Ok(slot) => {
-                        self.forget_ticket(super::Target::Mutation(m));
-                        self.land_write(m, None, &value);
-                        self.slots[slot] = Value::some(value);
+                        if self.newest_wins(m) {
+                            self.forget_ticket(target);
+                        }
+                        self.land_write(target, None, &value);
+                        if self.conclude_send(target) {
+                            self.slots[slot] = Value::some(value);
+                        }
                         self.landed.push(m);
                         for r in self.declared_refreshes(m) {
                             self.force_refresh(r);
@@ -822,7 +827,7 @@ impl<D: DataSource> Runner<D> {
                 Some("its answer does not fit the mutation's shape".to_string())
             }
             Ok(super::Answer::Later(request)) => {
-                later.push((m, source, args, request));
+                later.push((target, source, args, request));
                 None
             }
             Err(error) => Some(format!("{error:?}")),
@@ -832,8 +837,8 @@ impl<D: DataSource> Runner<D> {
             // Its write ends; the resources it showed in drop it in
             // this commit, and a refusal of the commit does not bring
             // it back.
-            self.refused_unsent.push((m, self.asked_write(m)));
-            self.end_write(m, None);
+            self.refused_unsent.push((target, self.asked_write(target)));
+            self.end_write(target, None);
         }
     }
 }

@@ -109,7 +109,7 @@ impl<D: DataSource> Runner<D> {
             .filter(|p| !p.in_flight())
             .filter_map(|p| match p.target {
                 Target::Resource(i) => Some(self.member(i).map_or(i, |m| m.family)),
-                Target::Mutation(_) => None,
+                Target::Mutation(_) | Target::Sent(..) => None,
             })
             .collect();
         let (mut answers, mut open) = (Vec::new(), Vec::new());
@@ -192,6 +192,8 @@ impl<D: DataSource> Runner<D> {
                 placeholder: false,
                 kept_seed: false,
                 answered_for: None,
+                asleep: false,
+                slept: false,
                 origin: 0,
             });
             *seed = true;

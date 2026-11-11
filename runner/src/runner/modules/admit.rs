@@ -273,7 +273,7 @@ impl<D: DataSource> Runner<D> {
             _ => o.id,
         };
         if owner != 0 && owner != by {
-            let send = matches!(target, Target::Mutation(_));
+            let send = target.mutation().is_some();
             self.extensions.origins.let_go.push((owner, send));
         }
     }

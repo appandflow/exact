@@ -123,7 +123,7 @@ private def childFactsEnv : CompSem.CEnv :=
 
 -- Before settlement, a child's status read must reach its resource,
 -- rather than report the quiet status of an unknown name.
-#guard ["pending", "failed", "failure"].all fun which =>
+#guard ["pending", "failed", "failure", "current"].all fun which =>
   ["viewport", "page"].all fun name =>
     match CompSem.ceval 10 childFactsEnv (.inst "Child" [] []) [] (.call which [.var name]) with
     | .error .pending => true

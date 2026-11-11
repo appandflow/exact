@@ -6,7 +6,7 @@
 use super::*;
 
 impl Parser {
-    /// `mutation NAME as shape T [queue] [refreshes a, b] [then action]`.
+    /// `mutation NAME as shape T [queue | parallel] [refreshes a, b] [then action]`.
     /// The clauses after the shape may continue on deeper-indented lines, in
     /// the same order (the codeedit diary: `then` on the next line was
     /// `syntax-expected-section`).
@@ -17,10 +17,16 @@ impl Parser {
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
         let mut continued = false;
-        // @ref LLP 1092 D1 — a keyword only here: every send of the
-        // mutation waits for the one before it.
-        let queue = self.clause_ahead("queue", &mut continued);
-        if queue {
+        // @ref LLP 1092 D1, LLP 1161.000 D1 — keywords only here: every
+        // send of the mutation waits for the one before it, or none waits.
+        let mode = if self.clause_ahead("queue", &mut continued) {
+            MutationMode::Queue
+        } else if self.clause_ahead("parallel", &mut continued) {
+            MutationMode::Parallel
+        } else {
+            MutationMode::Newest
+        };
+        if mode != MutationMode::Newest {
             self.next();
         }
         let mut refreshes = Vec::new();
@@ -35,7 +41,7 @@ impl Parser {
         }
         if !refreshes.is_empty()
             && matches!(self.peek_kind(), TokenKind::Ident(word)
-                if !matches!(word.as_str(), "queue" | "refreshes" | "then"))
+                if !matches!(word.as_str(), "queue" | "parallel" | "refreshes" | "then"))
         {
             return self.err(
                 "syntax-expected-newline",
@@ -48,8 +54,9 @@ impl Parser {
         } else {
             None
         };
-        // A clause out of order (r32 t4 wrote `refreshes cards queue`).
-        if let Some(word) = ["queue", "refreshes", "then"]
+        // A clause out of order (r32 t4 wrote `refreshes cards queue`), or
+        // both modes.
+        if let Some(word) = ["queue", "parallel", "refreshes", "then"]
             .into_iter()
             .find(|w| self.at_ident(w))
         {
@@ -57,7 +64,7 @@ impl Parser {
                 "syntax-expected-newline",
                 format!(
                     "`{word}` is out of place: a mutation's clauses go `as shape T`, then \
-                     `queue`, then `refreshes a, b`, then `then action`, each at most once"
+                     `queue` or `parallel`, then `refreshes a, b`, then `then action`, each at most once"
                 ),
             );
         }
@@ -66,7 +73,7 @@ impl Parser {
             return self.err(
                 "syntax-expected",
                 format!(
-                    "a mutation's continued lines hold `queue`, `refreshes …` and `then …`, in that order; found {}",
+                    "a mutation's continued lines hold `queue` or `parallel`, `refreshes …` and `then …`, in that order; found {}",
                     describe(self.peek_kind())
                 ),
             );
@@ -77,7 +84,7 @@ impl Parser {
         Ok(MutationDecl {
             name,
             shape,
-            queue,
+            mode,
             refreshes,
             then,
             span,
@@ -134,6 +141,19 @@ impl Parser {
         } else {
             None
         };
+        // @ref LLP 1161.002 D1 — asked only while the condition holds.
+        let gate = if self.at_ident("when") {
+            if each.is_some() {
+                return self.err(
+                    "syntax-resource-for-when",
+                    "a resource over a list takes no `when`: its list already leaves out what it should not ask",
+                );
+            }
+            self.next();
+            Some(self.expr()?)
+        } else {
+            None
+        };
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
@@ -180,6 +200,7 @@ impl Parser {
             placeholder,
             each,
             transient,
+            gate,
             span,
         })
     }

@@ -178,7 +178,7 @@ impl<D: DataSource> Runner<D> {
         }
         let own = match p.target {
             Target::Resource(i) => Some(i),
-            Target::Mutation(_) => None,
+            Target::Mutation(_) | Target::Sent(..) => None,
         };
         if staged.iter().any(|(i, _)| Some(*i) != own) {
             return Err("a mapper sends only on its own socket".into());

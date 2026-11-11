@@ -291,7 +291,7 @@ compile complete examples, parse authored tests, and check local links.
 | `state name = expr` / `state name: T = expr` | Component | Stored state; its type is inferred unless declared |
 | `derive name = expr` | Component | Dependency-driven computed value |
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
-| `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
+| `mutation name as shape T [queue \| parallel]` | Root component | Optional reply slot for explicit sends |
 | `action name(args)` | Component | Event transaction; effects inferred |
 | `task name mount` / `task name when cond [key=expr]` | Root component | One timer/frame schedule, always or while `cond` holds |
 | `view` | Component | UI tree |
@@ -488,7 +488,7 @@ The first press yields `1/2`. Writing `doubled = count * 2` instead would use th
 old count and yield `1/0`. The same snapshot rule applies inside nested branches
 and to locals declared after a state assignment. The compiler warns of such a read
 (`analyze-read-after-assign`), naming the line that assigned the slot, and of a
-send and an assignment of one nonqueued mutation on one path
+send and an assignment of one newest-wins mutation on one path
 (`analyze-send-assigned`): the assignment forgets the request in flight and keeps
 its value, whichever comes first, so a retry hides the old result while
 `pending(m)` instead, and a logout sends through a mutation of its own.
@@ -903,16 +903,19 @@ Choose the mechanism from its lifetime:
 | --- | --- |
 | Value follows query arguments | `resource result = source(args) as shape T` |
 | Source needs changing context while the same kept answer is suitable at boot | `resource result = source(identity) with context as shape T` |
+| Ask nothing until a condition holds (nothing selected, a query too short, a page not open) | `resource result = source(args) when cond as shape T`: idle while `cond` is false, asked again, forced, when it turns true |
 | Explicit command with a reply | `mutation reply as shape T`, then `send reply = source(args)` |
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | Show a write before its reply (optimistic) | `refreshes` on the mutation, and the source's `overlay` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
+| Writes a person may repeat before the first answers: a rename, a save | `mutation … parallel`: every send asked at once, each reply lands |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Act when a sheet or route opens (scroll the chosen item into view, load its draft) | In the root, even when the sheet is a child component's view: `task reveal when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
+| "Loading" for a new question, not for a refresh | `not current(resourceName)`: false while it shows its placeholder, an answer to other call arguments, or a value kept across `when`'s idleness; a refresh of the same arguments leaves it true |
 | Resource request failed without an answer | `failed(resourceOrMutationName)` |
 | Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -1008,19 +1011,19 @@ public development identities and does not implement an authenticated session
 lifecycle.
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. A newer send or an assignment drops a mutation's in-flight reply. It
-does not undo storage operations the source has already started; those
-operations and any serialized storage chain behind them run to completion.
-Other source work, such as a fetch, may be aborted when an answer is replaced
-(see the [runtime reference](reference.md#what-a-data-module-can-use)).
+request. A newer send or an assignment drops a newest-wins mutation's in-flight
+reply. It does not undo storage operations the source has already started; those
+operations and any serialized storage chain behind them run to completion. Other
+source work, such as a fetch, may be aborted when an answer is replaced (see the
+[runtime reference](reference.md#what-a-data-module-can-use)).
 
-The action sending a mutation without `queue` must not also assign its slot to
-`none`. Assignments commit after sends, so the reset can discard the new reply
-even when it appears first. Keep the mutation for its reply and hide an old error
-while `pending(added)`, as the [after-a-write recipe](recipes/after-a-write.md)
-does. `none` means the slot contains no reply, not that the write failed: use
-`failure(added)` for a request failure, and match a shaped reply's `ok` or error
-for a domain refusal.
+The action sending a newest-wins mutation (neither `queue` nor `parallel`) must
+not also assign its slot to `none`. Assignments commit after sends, so the reset
+can discard the new reply even when it appears first. Keep the mutation for its
+reply and hide an old error while `pending(added)`, as the [after-a-write
+recipe](recipes/after-a-write.md) does. `none` means the slot contains no reply,
+not that the write failed: use `failure(added)` for a request failure, and match
+a shaped reply's `ok` or error for a domain refusal.
 
 An action that sends one mutation twice on one path is refused
 (`analyze-send-twice`) because the second send would forget the first reply, counting
@@ -1030,7 +1033,7 @@ or in `if`s testing one unchanged name against different literals. A `match`
 binder and an outer name it shadows are different values; testing them against
 different literals does not make the paths separate. Send one
 combined request, use a mutation per request, or declare the mutation `queue`
-(LLP 1092). A
+(LLP 1092) or `parallel` (LLP 1161.000). A
 `queue` mutation (`mutation wrote as shape Ack queue then afterWrote`) keeps one
 request in flight; every later send waits, in order, with the arguments it was
 made with, and is asked after the reply before it and that reply's `then`, so
@@ -1039,17 +1042,32 @@ in flight or waits: send while it is pending, since `not pending(m)` means the
 spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
 nothing — every reply still lands over it — so a mutation that must drop a late
 reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
-65th refuses its action. `refreshes` asks its resources again when the reply
-lands; a mutation the source answers synchronously (without a request) has
-landed, so its resources are asked in the sending commit. A send still in flight
-does not ask them; what it writes shows before its reply only through the data
-module's `overlay`, if it exports one (below). `then` is parameterless,
-runs once at the host's next clock advance as a new commit (under the driver, an
-input's own answer's `then` before the input's reply), reads the latest
-answer, does not run for a failure that brought no answer, and cannot send its
-own mutation; to repeat, use a task (see "Repeating while a condition holds").
-Do not mistake the scheduling boundary
-for a general async workflow or a per-reply event log.
+65th refuses its action.
+
+A `parallel` mutation (`mutation renamed as shape Ack parallel refreshes issues`)
+asks every send when it is made, each its own request, and lands every reply in
+whatever order they come: two renames, two saves of one form, two comments. A
+reply lands in the slot unless a later send has already concluded, so a late
+reply never overwrites a newer outcome; `failure(m)` shows a send's failure
+unless a later send has already concluded, and an earlier send's success leaves
+a later one's failure standing. `pending(m)` is true while any send is out, an
+assignment forgets no request, at most 64 sends are in flight (the 65th refuses
+its action), and it takes no `then` (`type-parallel-then`), since its replies
+land in any order. Its source is called once per send, with several calls
+outstanding: one that reads local storage, changes it and writes it back must
+order its own work, or the mutation should be `queue`. Keep the default,
+newest-wins, for a reply that must be droppable, such as a sign-in.
+
+`refreshes` asks its resources again when the reply lands; a mutation the source
+answers synchronously (without a request) has landed, so its resources are asked
+in the sending commit. A send still in flight does not ask them; what it writes
+shows before its reply only through the data module's `overlay`, if it exports
+one (below). `then` is parameterless, runs once at the host's next clock advance
+as a new commit (under the driver, an input's own answer's `then` before the
+input's reply), reads the latest answer, does not run for a failure that brought
+no answer, and cannot send its own mutation; to repeat, use a task (see
+"Repeating while a condition holds"). Do not mistake the scheduling boundary for
+a general async workflow or a per-reply event log.
 
 A long poll (`/changes?since=…&wait=…`) is a stream too: add
 `exactLongPoll: { cursor: 'since', from: 'seq' }` beside `exactStream`, and the
@@ -1161,8 +1179,12 @@ why for the last two.
 
 A write that ends without landing stops showing in that commit, with no undo
 code, and the resource is asked again: its reply fails, its wake expires, or a
-non-queue mutation's send is replaced by a newer send or an assignment to its
-slot. If that ask fails, `failed(items)` is true and `items` keeps its last answer.
+newest-wins mutation's send is replaced by a newer send or an assignment to its
+slot. If that ask fails, `failed(items)` is true and `items` keeps its last
+answer. A `parallel` mutation's writes each show until their own reply and the
+answer asked after it, and one's failure takes nothing else with it; the overlay
+receives the writes that have landed, in the order they landed, then those still
+out, in send order.
 
 - The overlay runs synchronously inside the commit, so it cannot await, and it
   has no effects: `fetch`, storage, the store (`get` included), `native` and
@@ -4354,7 +4376,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `xs.reduce(…)`, `xs.find(…)`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "Canvas"` in a `style` | `background-color="Canvas"` (or nothing: an unset background is the platform's) |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
-| Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
+| Two `send`s to one mutation in one action | One combined request, a mutation per request, `mutation … queue` to run both in order, or `mutation … parallel` to run both at once |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in

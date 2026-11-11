@@ -672,7 +672,20 @@ stays true while anything waits. Assigning `saved = none` forgets nothing under
 `queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
 late reply should be dropped (LLP 1092).
 
-For a mutation without `queue`, the action that sends `saved` must not also
+Independent writes a person may repeat before the first answers, such as two
+renames or two comments, want every send at once. Declare the mutation
+`parallel` (`mutation renamed as shape Renamed parallel refreshes issues`):
+each send is asked when it is made, its write shows through the overlay until
+its own reply and the answer asked after it, and its reply lands whatever else
+is out. The slot and `failure(renamed)` follow the latest send that has
+concluded, so a late reply never overwrites a newer outcome, and an earlier
+send's failure shows unless a later send has already concluded. `pending`
+stays true while any send is out, an assignment forgets no request, at most 64
+sends are in flight, and there is no `then`. The source is called once per
+send: one that reads local storage, changes it and writes it back must order
+its own work, or the mutation should be `queue` (LLP 1161.000).
+
+For a newest-wins mutation, the action that sends `saved` must not also
 assign `saved = none`. Assignments commit after sends, so that reset can discard
 the new reply even when it appears first. Hide a previous error while
 `pending(saved)` instead. `none` means the slot contains no reply, not a failed write; use

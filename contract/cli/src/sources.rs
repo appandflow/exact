@@ -1018,7 +1018,7 @@ impl Loader<'_> {
                             // An intrinsic's spelling: a `fn` of it is never
                             // what a call of the name reads, so one imported
                             // under another name must not take it back.
-                            && (matches!(name, "action" | "pending" | "failed" | "failure")
+                            && (matches!(name, "action" | "pending" | "failed" | "failure" | "current")
                                 // A shape spelled `path`: its constructor is
                                 // the router's `path()` under any alias.
                                 || (name == "path"
@@ -1341,7 +1341,10 @@ fn builtin_types() -> HashSet<String> {
 /// type checker reads before any `fn` (`pending`, `failed`, `path`, `t`).
 fn compiler_call(name: &str) -> bool {
     exact_plan::Stdlib::from_name(name).is_some()
-        || matches!(name, "pending" | "failed" | "failure" | "path" | "t")
+        || matches!(
+            name,
+            "pending" | "failed" | "failure" | "current" | "path" | "t"
+        )
 }
 
 /// A file's own top-level names, by namespace, in source order.

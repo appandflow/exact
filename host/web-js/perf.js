@@ -133,7 +133,7 @@ export function reply(target, tags) {
  * (main.js): a big one crossing the seam is said (seam.js). A reply is parsed
  * for the resource or mutation holding its ticket. */
 export function seam() {
-  const holder = args => (Resources.find(r => r.ticket?.args === args) ?? Mutations.find(m => m.ticket?.args === args))?.name;
+  const holder = args => (Resources.find(r => r.ticket?.args === args) ?? Mutations.find(m => m.ticket?.args === args || m.tickets?.some(t => t.args === args)))?.name;
   watch(data, { types: sourceTypes, say: line => journal.push(`t=${clock.now} ${line}`), owner: holder });
 }
 

@@ -779,9 +779,12 @@ fn lower_body(
         l.b.set_action_body(l.actions[i], code);
     }
     for (i, m) in root.mutations.iter().enumerate() {
-        if m.queue {
-            l.b.set_mutation_queue(l.mutations[i]);
-        }
+        let mode = match m.mode {
+            contract_syntax::MutationMode::Newest => exact_plan::MutationMode::Newest,
+            contract_syntax::MutationMode::Queue => exact_plan::MutationMode::Queue,
+            contract_syntax::MutationMode::Parallel => exact_plan::MutationMode::Parallel,
+        };
+        l.b.set_mutation_mode(l.mutations[i], mode);
         if let Some((name, _)) = &m.then {
             let action = l.actions[l.action_names[name.as_str()]];
             l.b.set_mutation_then(l.mutations[i], action);
