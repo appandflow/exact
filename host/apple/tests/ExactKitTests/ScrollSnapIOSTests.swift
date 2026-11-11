@@ -76,6 +76,16 @@ final class ScrollSnapIOSTests: XCTestCase {
         XCTAssertEqual(stopped.snappedOffset(CGPoint(x: 520, y: 0), in: stoppedScroll, from: began, velocity: flick).x, 150, "`always` stops a fling at the first position past where it began")
     }
 
+    func testViewportLongAreasThatAlwaysStopPageNatively() throws {
+        let pages = (0..<3).map { ("start", Double($0) * 300, 300.0) }
+        let (paged, pagedScroll) = try strip(pages, stop: "always")
+        XCTAssertTrue(paged.pagesByViewport(pagedScroll))
+        let (free, freeScroll) = try strip(pages)
+        XCTAssertFalse(free.pagesByViewport(freeScroll), "`normal` may pass over pages")
+        let (cards, cardScroll) = try strip((0..<6).map { ("start", Double($0) * 150, 150.0) }, stop: "always")
+        XCTAssertFalse(cards.pagesByViewport(cardScroll), "areas shorter than the viewport snap by rule")
+    }
+
     func testAgentRevealAndWheelRestAtAPagesSnapPosition() throws {
         let session = ExactApp.shared.makeSession(label: "snap-reveal")
         defer { session.destroy() }

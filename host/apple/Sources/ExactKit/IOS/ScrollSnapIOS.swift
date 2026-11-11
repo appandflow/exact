@@ -33,30 +33,22 @@ extension NodeView {
         let maximum = max(0, (vertical ? scrollView.contentSize.height : scrollView.contentSize.width) - port)
         let wanted = vertical ? proposed.y : proposed.x
         var positions: [CGFloat] = [], targetPositions: [CGFloat] = [], stops: [CGFloat] = []
-        func visit(_ view: UIView) {
-            for case let node as NodeView in view.subviews where !node.isHidden {
-                let align = node.style["scroll_snap_align"]?.string
-                if align == "start" || align == "end" || align == "center" {
-                    let rect = node.convert(node.bounds, to: scrollView)
-                    let (lo, mid, hi, size) = vertical ? (rect.minY, rect.midY, rect.maxY, rect.height) : (rect.minX, rect.midX, rect.maxX, rect.width)
-                    // A snap area larger than the viewport can be explored
-                    // freely while it covers the viewport (CSS Snap §5.2.2);
-                    // a smaller one rests with its start, centre or end at
-                    // the viewport's.
-                    let wide = size >= port
-                    let at = wide ? lo : align == "end" ? hi - port : align == "center" ? mid - port / 2 : lo
-                    let start = min(maximum, max(0, at))
-                    let end = wide ? min(maximum, max(start, hi - port)) : start
-                    let position = min(end, max(start, wanted))
-                    positions.append(position)
-                    if node.style["scroll_snap_stop"]?.string == "always" { stops.append(position) }
-                    if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
-                }
-                // A nested scroll container captures its own snap areas.
-                if node.scrollView == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
-            }
+        for (node, rect) in snapAreas(in: scrollView) {
+            let align = node.style["scroll_snap_align"]?.string
+            let (lo, mid, hi, size) = vertical ? (rect.minY, rect.midY, rect.maxY, rect.height) : (rect.minX, rect.midX, rect.maxX, rect.width)
+            // A snap area larger than the viewport can be explored
+            // freely while it covers the viewport (CSS Snap §5.2.2);
+            // a smaller one rests with its start, centre or end at
+            // the viewport's.
+            let wide = size >= port
+            let at = wide ? lo : align == "end" ? hi - port : align == "center" ? mid - port / 2 : lo
+            let start = min(maximum, max(0, at))
+            let end = wide ? min(maximum, max(start, hi - port)) : start
+            let position = min(end, max(start, wanted))
+            positions.append(position)
+            if node.style["scroll_snap_stop"]?.string == "always" { stops.append(position) }
+            if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
         }
-        visit(scrollView)
         let choices = targetPositions.isEmpty ? positions : targetPositions
         var result = proposed
         if var nearest = choices.min(by: { abs($0 - wanted) < abs($1 - wanted) }) {
@@ -71,6 +63,38 @@ extension NodeView {
             if vertical { result.y = nearest } else { result.x = nearest }
         }
         return result
+    }
+
+    /// The snap areas this scroller captures, with their frames in its content.
+    private func snapAreas(in scrollView: UIScrollView) -> [(NodeView, CGRect)] {
+        var areas: [(NodeView, CGRect)] = []
+        func visit(_ view: UIView) {
+            for case let node as NodeView in view.subviews where !node.isHidden {
+                if ["start", "end", "center"].contains(node.style["scroll_snap_align"]?.string ?? "") { areas.append((node, node.convert(node.bounds, to: scrollView))) }
+                // A nested scroll container captures its own snap areas.
+                if node.scrollView == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
+            }
+        }
+        visit(scrollView)
+        return areas
+    }
+
+    /// Whether a drag on this scroller pages as UIKit's `isPagingEnabled` does,
+    /// which is SwiftUI's `.paging`: every snap area is one viewport long, starts
+    /// at a multiple of it and says `scroll-snap-stop: always`, so CSS allows
+    /// exactly one page per gesture. UIKit then also animates the settle.
+    func pagesByViewport(_ scrollView: UIScrollView) -> Bool {
+        let type = style["scroll_snap_type"]?.string
+        guard type == "x mandatory" || type == "y mandatory", scrollView.adjustedContentInset == .zero else { return false }
+        let vertical = type == "y mandatory"
+        let port = vertical ? scrollView.bounds.height : scrollView.bounds.width
+        let areas = snapAreas(in: scrollView)
+        guard port > 0, !areas.isEmpty else { return false }
+        return areas.allSatisfy { node, rect in
+            let (lo, size) = vertical ? (rect.minY, rect.height) : (rect.minX, rect.width)
+            let page = (lo / port).rounded()
+            return node.style["scroll_snap_stop"]?.string == "always" && abs(size - port) < 0.5 && abs(lo - page * port) < 0.5
+        }
     }
 }
 #endif
