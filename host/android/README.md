@@ -307,6 +307,7 @@ chain at its scroller. What no scroller can take stretches the edge of the inner
 
 **The ends and the indicator.** The stretch is `EdgeEffect`'s own: it stretches the `RenderNode` it is drawn into, so
 while an edge is stretched the scroller's rows are drawn through a node the size of its box (`Scrolling.record`).
+`scrollbar-width="none"` suppresses the indicator, including after a live style change. The page follows the root's setting.
 The indicator is a `View` over the scroller's box that draws nothing but the scrollbar `View` gives a view that
 scrolls, with the theme's thumb, shown as the scroller moves and faded by `View`.
 
@@ -321,7 +322,7 @@ Not built of D7:
   a scroller nested in a list's row, and the page itself are drawn inside their surroundings, so they move when
   exact2's paint arrives; the frame waits up to 2 ms for it, as it does for a drag's moves. They have no stretch at
   their ends either. Giving each a node needs the recorder to open a group inside a row's recording.
-- `scroll-snap-type` and `scrollbar-width` are not read by this host (a swipe row written as a snapping scroller
+- `scroll-snap-type` is not read by this host (a swipe row written as a snapping scroller
   rests wherever it is let go). `keyboardDismissMode`, pull-to-refresh and a sheet's part in the hand-off are later
   stages. A hosted `EditText` takes part as a child of a ScrollView does (below).
 - A mouse's wheel and a trackpad do not scroll (`onGenericMotionEvent`), and nothing scrolls for TalkBack.
