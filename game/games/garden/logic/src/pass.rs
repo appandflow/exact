@@ -1050,6 +1050,7 @@ fn fence(p: &mut World, l: &PassLook, now: u64) {
                         color: lantern.color,
                         intensity: lantern.candela,
                         range: lantern.range,
+                        ..Default::default()
                     },
                 );
                 return;

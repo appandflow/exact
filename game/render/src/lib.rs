@@ -240,8 +240,9 @@ pub struct EnvironmentMapInput<'a> {
 /// lights are counted in `FrameInput::lights_dropped`, never silently lost.
 pub const MAX_LIGHTS: usize = 256;
 
-/// An inverse-square point or spot light, smoothly extinguished at its range.
-#[derive(Debug, Clone, Copy, Default)]
+/// A point or spot light, falling off with distance by `decay` (inverse-square
+/// by default) and smoothly extinguished at its range.
+#[derive(Debug, Clone, Copy)]
 pub struct LightInput {
     /// World-space position.
     pub position: Vec3,
@@ -252,6 +253,9 @@ pub struct LightInput {
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,
+    /// Distance falloff exponent: radiance at `d` metres is `intensity / d^decay`
+    /// (`PointLight::decay`; 2 is inverse-square).
+    pub decay: f32,
     /// Unit direction a spot light points (its −Z); ignored without a cone.
     pub direction: Vec3,
     /// A spot light's cosines of its inner and outer half-angles: full intensity
@@ -259,6 +263,20 @@ pub struct LightInput {
     pub cone: Option<[f32; 2]>,
     /// Wants a shadow map; the renderer shadows the first few such lights.
     pub shadows: bool,
+}
+impl Default for LightInput {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            color: Vec3::ZERO,
+            intensity: 0.,
+            range: 0.,
+            decay: 2.,
+            direction: Vec3::ZERO,
+            cone: None,
+            shadows: false,
+        }
+    }
 }
 
 /// Retained emissive tween and material for one entity; only presentation samples it.

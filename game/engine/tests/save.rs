@@ -164,3 +164,60 @@ fn engine_scene_components_first_spawned_mid_game_restore_unregistered() {
         exact_game::Vec3::new(1.0, 2.0, 0.0).into()
     );
 }
+
+#[test]
+fn a_light_at_the_default_decay_keeps_the_encoding_it_had_without_one() {
+    use exact_game::data::{bin, hash, json};
+    use exact_game::{PointLight, SpotLight};
+    // The records as they were before `decay`.
+    #[derive(Data, Default)]
+    struct Point {
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+    }
+    #[derive(Data, Default)]
+    struct Spot {
+        color: [f32; 3],
+        intensity: f32,
+        range: f32,
+        inner: f32,
+        outer: f32,
+    }
+    let point = PointLight::default();
+    let old = Point {
+        color: point.color,
+        intensity: point.intensity,
+        range: point.range,
+    };
+    assert_eq!(bin::to_vec(&point), bin::to_vec(&old));
+    assert_eq!(hash::of(&point), hash::of(&old));
+    let spot = SpotLight::default();
+    let old = Spot {
+        color: spot.color,
+        intensity: spot.intensity,
+        range: spot.range,
+        inner: spot.inner,
+        outer: spot.outer,
+    };
+    assert_eq!(bin::to_vec(&spot), bin::to_vec(&old));
+    assert_eq!(hash::of(&spot), hash::of(&old));
+    assert_eq!(PointLight::TYPE_ID, "table:exact_game::scene::PointLight");
+
+    // Another decay is saved and restored, and changes the hash.
+    let flat = SpotLight { decay: 0., ..spot };
+    assert_ne!(hash::of(&flat), hash::of(&spot));
+    let mut w = World::new(60, 0);
+    let lamp = w.spawn((Transform::default(), flat));
+    let bytes = w.save();
+    let mut fresh = World::new(60, 0);
+    fresh.load(&bytes).unwrap();
+    assert_eq!(fresh.get::<SpotLight>(lamp).unwrap().decay, 0.);
+    assert_eq!(fresh.hash(), w.hash());
+    // A record without it is the default decay, even over a light that had another.
+    let mut patched = flat;
+    json::read_into(&json::to_string(&spot).unwrap(), &mut patched).unwrap();
+    assert_eq!(patched, spot);
+    assert!(!json::to_string(&spot).unwrap().contains("decay"));
+    assert!(json::to_string(&flat).unwrap().contains("\"decay\""));
+}

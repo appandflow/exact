@@ -773,7 +773,11 @@ Engine lights are photometric and share one scale, `PHOTOMETRIC_SCALE` (0.0003):
 `DirectionalLight.illuminance` is lux, and `PointLight.intensity` is candela, so a
 light delivers `intensity / d²` lux at `d` metres. 10,000 lux of sun, or a 10,000 cd
 lamp seen from 1 m, maps to renderer radiance 3; the 100 cd default lights a surface
-1 m away at 1% of the default sun. `FrameInput` carries renderer radiance.
+1 m away at 1% of the default sun. `FrameInput` carries renderer radiance. A point or
+spot light's `decay` (default 2) is the exponent of that distance: it delivers
+`intensity / d^decay`, so at another decay `intensity` is the illuminance 1 m away, an
+artistic scale rather than candela, and at 0 only the range window, a spot's cone and
+N·L shape it (three.js `decay`). Decays 2 and 0 take no `pow` in the shader.
 Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,

@@ -406,6 +406,7 @@ fn toggling_a_shadowed_flashlight_reuses_its_shadow_layers() {
             color: Vec3::ONE,
             intensity,
             range: 10.,
+            decay: 2.,
             direction: -Vec3::Y,
             cone: Some([0.9, 0.8]),
             shadows: true,
@@ -598,4 +599,148 @@ fn orthographic_primitive_shading_uses_parallel_view_rays() {
 #[test]
 fn orthographic_model_shading_uses_parallel_view_rays() {
     floor_shading(true);
+}
+
+// One spot over the dark floor: `decay`, its intensity, and either straight down
+// from `height` (`graze` 0) or from 0.5 m at x = -9, aimed along the floor to x = 9.
+#[derive(Default, Args)]
+struct Falloff {
+    decay: f32,
+    intensity: f32,
+    height: f32,
+    graze: u32,
+}
+struct FalloffScene;
+impl Game for FalloffScene {
+    const ID: &'static str = "render-light-falloff";
+    type Args = Falloff;
+    fn setup(w: &mut World, args: &Falloff) {
+        w.insert_resource(Environment {
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            background: Some([0.; 3].into()),
+            ..Default::default()
+        });
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(40., 40.),
+            Material::rgb(0.6, 0.6, 0.6),
+        ));
+        w.spawn((
+            Transform::at(0., 10., 0.).looking_at(Vec3::ZERO, -Vec3::Z),
+            Camera::orthographic(20.),
+        ));
+        let sun = DirectionalLight {
+            illuminance: 0.,
+            ..Default::default()
+        };
+        w.spawn((
+            Transform::at(0., 5., 0.).looking_at(Vec3::ZERO, Vec3::Z),
+            sun,
+        ));
+        let (pose, inner, outer) = if args.graze == 0 {
+            let pose = Transform::at(0., args.height, 0.).looking_at(Vec3::ZERO, Vec3::Z);
+            (pose, 0.5, 0.6)
+        } else {
+            let pose = Transform::at(-9., 0.5, 0.).looking_at(Vec3::new(9., 0., 0.), Vec3::Y);
+            (pose, 0.4, 0.5)
+        };
+        w.spawn((
+            pose,
+            SpotLight {
+                intensity: args.intensity,
+                range: 1000.,
+                inner,
+                outer,
+                decay: args.decay,
+                ..Default::default()
+            },
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &Falloff) {}
+}
+
+fn render_falloff(
+    gpu: &Gpu,
+    decay: f32,
+    intensity: f32,
+    height: f32,
+    graze: bool,
+) -> fixture::Pixels {
+    let mut surface = WorldSurface::<FalloffScene>::default();
+    let args = [decay, intensity, height].map(|n| Value::Number(f64::from(n)));
+    surface
+        .bind(
+            &[
+                args[0].clone(),
+                args[1].clone(),
+                args[2].clone(),
+                Value::Number(f64::from(u32::from(graze))),
+            ],
+            None,
+        )
+        .unwrap();
+    let frame = Frame {
+        width: 640.,
+        height: 360.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.0,
+    };
+    let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
+    assert!(surface.error().is_none(), "{:?}", surface.error());
+    pixels.save(&format!("lights-decay-{decay}-{height}-{graze}"));
+    pixels
+}
+
+#[test]
+fn a_spot_without_decay_lights_the_floor_by_angle_alone() {
+    let Some(gpu) = gpu() else { return };
+    // Grazing a long floor from one end: inverse-square leaves the far end dark;
+    // without decay only the falling N·L dims it (5× from x = -6 to x = 6).
+    let graze = |decay| {
+        let image = render_falloff(
+            &gpu,
+            decay,
+            if decay == 0. { 15_000. } else { 140_000. },
+            0.,
+            true,
+        );
+        [at(&image, -6., 0.), at(&image, 0., 0.), at(&image, 6., 0.)]
+    };
+    let (flat, square) = (graze(0.), graze(2.));
+    eprintln!("decay 0 at x -6, 0, 6: {flat:?}; decay 2: {square:?}");
+    assert!(flat[2] > 25. && flat[0] < 230., "{flat:?}");
+    assert!(square[2] < square[0] / 10., "{square:?}");
+    // Straight down from 4 m and 8 m: without decay the same angle off the axis
+    // is equally bright at either height; with it, 4x darker from twice as far.
+    let below = |decay, intensity, height: f32| {
+        let image = render_falloff(&gpu, decay, intensity, height, false);
+        [at(&image, 0., 0.), at(&image, height * 0.25, 0.)]
+    };
+    let near = below(0., 1250., 4.);
+    let far = below(0., 1250., 8.);
+    eprintln!("decay 0 from 4 m {near:?}, 8 m {far:?}");
+    assert!(near[0] > 40. && near[0] < 220., "{near:?}");
+    assert!((near[0] - far[0]).abs() <= 1., "{near:?} {far:?}");
+    // Off the axis the camera's view direction, so the specular, differs a little.
+    assert!((near[1] - far[1]).abs() <= 3., "{near:?} {far:?}");
+    let square = [below(2., 20_000., 4.), below(2., 20_000., 8.)];
+    assert!(square[1][0] < square[0][0] - 20., "{square:?}");
+    // The pow path: decay 1 from 4 m matches decay 2 from 2 m on the axis.
+    let (linear, squared) = (below(1., 5_000., 4.)[0], below(2., 5_000., 2.)[0]);
+    eprintln!("decay 1 from 4 m {linear}, decay 2 from 2 m {squared}");
+    assert!((linear - squared).abs() <= 1., "{linear} {squared}");
+    // d^4 at 16 m is 65536, past half precision's largest value.
+    let (steep, squared) = (below(4., 81_920_000., 16.)[0], below(2., 320_000., 16.)[0]);
+    eprintln!("decay 4 from 16 m {steep}, decay 2 from 16 m {squared}");
+    assert!(
+        squared > 40. && (steep - squared).abs() <= 1.,
+        "{steep} {squared}"
+    );
 }

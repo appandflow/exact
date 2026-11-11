@@ -500,6 +500,7 @@ nothing yet.
 | Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
+| A lamp without distance falloff | `SpotLight { decay: 0., .. }` or a `PointLight`'s: only the range, cone and angle shape it (three.js `decay`; default 2, inverse-square) |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
 | Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` ([team colour from a saved `Team`](render/tests/instances.rs): `p.insert(e, MaterialOverrides(vec![MaterialOverride { material: 0, color: Some(team_rgba), ..Default::default() }]))`) |

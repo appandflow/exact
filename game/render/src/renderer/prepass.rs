@@ -479,6 +479,7 @@ mod tests {
                 color: Vec3::ONE,
                 intensity: 10.,
                 range: 10.,
+                decay: 2.,
                 direction: Vec3::NEG_Z,
                 cone: None,
                 shadows: false,

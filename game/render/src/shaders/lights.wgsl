@@ -1,5 +1,8 @@
-// Clustered point and spot lights (lights.rs): records of 16 words, then a
+// Clustered point and spot lights (lights.rs): records of 20 words, then a
 // 16 x 9 x 24 grid of (first index word, count), then the clusters' light lists.
+// A record: position, range; colour, intensity; direction, the cone's outer and
+// inner cosines; shadow layer, matrix word, texel per metre (shadow_sample.wgsl);
+// decay; three words unused.
 @group(0) @binding(8) var<storage, read> light_words: array<u32>;
 const PI = 3.141592653589793;
 // Directions and the lobes' scalars in f32; colour in `shading` (frame.wgsl).
@@ -44,6 +47,17 @@ fn light_cone(at: u32, l: vec3<f32>) -> f32 {
     if outer < -1.5 { return 1.0; }
     return smoothstep(outer, light_f(at + 12u), dot(-l, light_v(at + 8u)));
 }
+// A light's intensity at squared distance `d2`, and the divisor left to the
+// shading float: intensity / d^decay. The default decay 2 divides by d² in
+// the shading float, as it always has. Another divides in f32, where d^decay
+// neither overflows nor vanishes as it can in f16; 0 skips the pow.
+fn light_falloff(at: u32, d2: f32) -> vec2<f32> {
+    let decay = light_f(at + 16u);
+    let intensity = light_f(at + 7u);
+    if decay == 2.0 { return vec2(intensity, d2); }
+    if decay == 0.0 { return vec2(intensity, 1.0); }
+    return vec2(intensity / pow(d2, decay * 0.5), 1.0);
+}
 // Add each of the fragment's cluster lights to `color`, in frame order. The
 // model shader's historical evaluation order is kept for its pixels.
 fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world: vec3<f32>,
@@ -53,7 +67,7 @@ fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world:
     let first = light_words[cell];
     let count = light_words[cell + 1u];
     for (var k = 0u; k < count; k++) {
-        let at = light_words[first + k] * 16u;
+        let at = light_words[first + k] * 20u;
         let delta = light_v(at) - world;
         let distance2 = max(dot(delta, delta), 0.0001);
         let range = max(light_f(at + 3u), 0.0001);
@@ -69,14 +83,15 @@ fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world:
         // overflowed product times zero would not be zero).
         if window <= 0.0 || cone <= 0.0 { continue; }
         let tint = vec3<shading>(light_v(at + 4u));
-        let intensity = shading(light_f(at + 7u));
+        let lit = light_falloff(at, distance2);
+        let intensity = shading(lit.x);
         let w = shading(window);
-        let d2 = shading(distance2);
+        let falloff = shading(lit.y);
         let c = shading(cone);
         if model {
-            *color += brdf(n, v, l, base, metallic, roughness) * tint * intensity * w * w / d2 * c;
+            *color += brdf(n, v, l, base, metallic, roughness) * tint * intensity * w * w / falloff * c;
         } else {
-            let radiance = tint * intensity * w * w / d2;
+            let radiance = tint * intensity * w * w / falloff;
             *color += brdf(n, v, l, base, metallic, roughness) * radiance * c;
         }
     }

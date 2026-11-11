@@ -14,8 +14,8 @@ use glam::{Vec3, Vec4Swizzles};
 /// Screen tiles across, down, and depth slices.
 pub(crate) const CLUSTERS: [u32; 3] = [16, 9, 24];
 const CELLS: usize = (CLUSTERS[0] * CLUSTERS[1] * CLUSTERS[2]) as usize;
-/// u32 words per light record (lights.wgsl).
-pub(crate) const RECORD_WORDS: usize = 16;
+/// u32 words per light record (lights.wgsl): five vec4s.
+pub(crate) const RECORD_WORDS: usize = 20;
 
 pub(crate) struct Lights {
     pub buffer: Buffer,
@@ -206,6 +206,15 @@ impl Lights {
                 shadow.map_or(-1., |(layer, _)| layer as f32),
                 shadow.map_or(0., |(layer, _)| (matrices + layer as usize * 16) as f32),
                 shadow.map_or(0., |(_, texel)| texel),
+                // NaN takes the default; a negative exponent would brighten with distance.
+                if light.decay.is_nan() {
+                    2.
+                } else {
+                    light.decay.max(0.)
+                },
+                0.,
+                0.,
+                0.,
             ];
             self.words[i * RECORD_WORDS..(i + 1) * RECORD_WORDS]
                 .copy_from_slice(&record.map(f32::to_bits));
