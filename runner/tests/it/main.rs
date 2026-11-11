@@ -34,6 +34,7 @@ mod replay;
 mod router;
 mod secret_state;
 mod sockets;
+mod stream_mapper;
 mod tabs;
 mod transform_binding;
 mod uploads;

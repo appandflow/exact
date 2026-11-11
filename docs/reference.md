@@ -1492,8 +1492,8 @@ that expects a push (after an action the server answers on the long poll) waits
 for it with `clock held [<target>…] [<n>s]`: real time passes, the clock frozen,
 until each held request has had one reply (20 s by default), then `clock data`. Mark only
 the asks that wait (a first ask answered at once need not be); a stream never is
-(`exactStream` stops counting at its first message), and with `exactStream` it
-is refused; an upload (`exactBodyFrom`) is never held either, its file being read
+(`exactStream` stops counting when its first message commits), and with
+`exactStream` it is refused; an upload (`exactBodyFrom`) is never held either, its file being read
 before it is sent, nor is a download to a file (`exactBodyTo`). A Rust source's request takes `Request::held()` (not across the Rust
 module seam, which refuses it, as it refuses a deadline). On the web build an
 answer counts as held only while every fetch it has out is held: an ordinary
@@ -1509,7 +1509,8 @@ An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped and commits
 as the resource's answer. A mapper may return a promise (an `async` mapper):
-the message commits when it settles, and until then the messages after it, and
+the message commits when it settles. The resource stays pending until its first
+mapped value commits. Until a mapper settles, the messages after it, and
 the end, wait, so they are mapped in the order they arrived and a later
 message's mapper call never overtakes an earlier one's. Natively its later
 turns are an answer's: each `await scheduler.yield()` ends one, and the next
@@ -1545,8 +1546,8 @@ sources and worker-placed sources still take such a body as the one answer.
 A caller's abort signal maps an `error` with kind `Aborted` while the resource
 is still held. New arguments, `refresh` or the resource leaving the view close
 the stream without further mapper calls;
-`state.pending` lists it until its first message, `state.streams` while it is
-open, with `grant`, the grant line that admitted it. The same holds on Hermes, the web's wasm host and the web build (the JS
+`state.pending` lists it until its first mapped value commits, `state.streams`
+while it is open, with `grant`, the grant line that admitted it. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.

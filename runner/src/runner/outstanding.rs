@@ -18,7 +18,7 @@ pub const STARTUP_TIMER_WINDOW_MS: f64 = 1000.0;
 pub struct Outstanding {
     /// Requests in flight for resources showing no answer yet.
     pub requests: Vec<String>,
-    /// Streams for resources showing no answer, before their first message.
+    /// Streams for resources showing no answer, before their first value commits.
     pub streams: Vec<String>,
     /// Resources showing a placeholder until their source can answer.
     pub awaiting: Vec<String>,

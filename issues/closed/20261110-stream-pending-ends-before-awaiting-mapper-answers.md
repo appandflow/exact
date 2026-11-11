@@ -1,6 +1,7 @@
 # A stream stops being pending when its first message arrives, before an awaiting mapper has answered
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A stream stays pending and outstanding until its first mapped value commits.
 **Systems:** `runner/src/runner/commit.rs`, `runner/src/runner/mapper_turns.rs`, `runner/src/runner/outstanding.rs`
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

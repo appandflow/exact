@@ -1247,13 +1247,11 @@ impl<D: DataSource> Runner<D> {
         }
         let p = &mut self.pending[pos];
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
-            count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
             sockets::socket_message(count, m);
         }
         let p = p.clone();
         self.note_child_outcome(p.ticket, &outcome);
-        self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
@@ -1442,6 +1440,13 @@ impl<D: DataSource> Runner<D> {
                     error,
                 });
             }
+        }
+        if message || turn {
+            let pending = self.pending.iter_mut().find(|q| q.ticket == p.ticket);
+            if let Some(count) = pending.and_then(|p| p.stream.as_mut()) {
+                count.messages += 1;
+            }
+            self.sync_pending_flags();
         }
         match p.target {
             Target::Resource(i) => {

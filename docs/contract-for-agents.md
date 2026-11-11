@@ -4072,7 +4072,8 @@ After an action that causes a push you will read (a write the server echoes, a b
 request in flight (or each named) has had one reply, the server's own timeout answer included; then `clock
 data` lands what that reply started. Past its bound (20 s) it answers `settled: false, reason: "held"`,
 naming the targets that had none.
-A stream counts as landed at its first message, so for state it reaches later (a socket's READY after HELLO),
+A stream counts as landed when its first mapped value commits, so for state it
+reaches later (a socket's READY after HELLO),
 wait with `clock until state <path> == <literal> within <ms>`: real time with the clock frozen, polling `state`
 until it equals the JSON literal; a miss fails naming the last value.
 `clock settle` also runs the clock to where the last running finite, unpaused

@@ -5,7 +5,7 @@
 use super::*;
 
 impl<D: DataSource> Runner<D> {
-    /// Whether resource `i` has a stream open that has delivered: it is not
+    /// Whether resource `i` has a stream open that has committed a value: it is not
     /// pending, but a newer answer must still let its ticket go.
     pub(super) fn streaming(&self, i: usize) -> bool {
         self.pending
@@ -18,7 +18,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn sync_pending_flags(&mut self) {
         self.pending_res = vec![false; self.plan.resources.len()];
         self.pending_mut = vec![false; self.plan.mutations.len()];
-        // A stream is pending until its first message (LLP 1016.000 D1).
+        // A stream is pending until its first value commits (LLP 1016.000 D1).
         for p in self.pending.iter().filter(|p| p.in_flight()) {
             match p.target {
                 Target::Resource(i) => self.pending_res[i] = true,
@@ -77,7 +77,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether any request is in flight (the agent's `settle` waits on it).
-    /// An open stream counts only until its first message (LLP 1016.000
+    /// An open stream counts until its first value commits (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
     /// clock waits on it, nor on one the server holds (LLP 1016.000 D9,

@@ -284,11 +284,11 @@ struct PendingReq {
     reasks: usize,
 }
 
-/// An open stream's messages so far, and those the host coalesced away
+/// An open stream's committed messages, and those the host coalesced away
 /// (LLP 1016.000 D4, D5). One message landed ends its `pending`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StreamCount {
-    /// Messages delivered to the runner.
+    /// Messages whose mapped values committed.
     pub messages: u64,
     /// Messages the host dropped for a newer one before delivery.
     pub coalesced: u64,
@@ -297,7 +297,7 @@ pub struct StreamCount {
 }
 
 impl PendingReq {
-    /// In flight: every request, a stream until its first message, and an
+    /// In flight: every request, a stream until its first value commits, and an
     /// upload until its reply. What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
         self.upload || self.stream.is_none_or(|s| s.messages == 0)
