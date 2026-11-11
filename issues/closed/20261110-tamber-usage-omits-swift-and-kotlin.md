@@ -1,6 +1,7 @@
 # `contract tamber` lists `gen ts|rust` and `bun exact.mjs tamber --help` lists `gen ts|rust|swift`; the command takes `kotlin` too
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Tamber's compiler and app help list all four binding languages: TypeScript, Rust, Swift and Kotlin.
 **Systems:** contract/cli/src/tamber.rs, scripts/help.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

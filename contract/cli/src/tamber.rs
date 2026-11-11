@@ -13,7 +13,7 @@ const USAGE: &str = "usage:
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
-  contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
+  contract tamber gen ts|rust|swift|kotlin <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
   contract tamber import css <stylesheet> [--app <app dir>]   (its custom properties written into the design, between markers a later import rewrites)
   contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | pen <file.pen> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
   contract tamber import-plan <design file>   (one import planned alone: {request, design} on stdin, {ok} or {error} out; the wire's)

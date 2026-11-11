@@ -32,6 +32,23 @@ fn contract(args: &[&str]) -> (bool, String, String) {
 }
 
 #[test]
+fn usage_lists_every_binding_language() {
+    for (args, success) in [
+        (vec!["tamber"], false),
+        (vec!["tamber", "--help"], true),
+        (vec!["tamber", "gen"], false),
+    ] {
+        let (ok, out, error) = contract(&args);
+        let said = out + &error;
+        assert_eq!(ok, success, "{args:?}: {said}");
+        assert!(
+            said.contains("gen ts|rust|swift|kotlin <app dir | app.contract | file.tamber>"),
+            "{args:?}: {said}"
+        );
+    }
+}
+
+#[test]
 fn family_stack_check_and_css_import_report_the_refused_value() {
     let dir = app(
         "family-stack",

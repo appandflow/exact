@@ -1,4 +1,4 @@
-//! `contract tamber gen ts | rust <app> [-o <dir>]` — every language's
+//! `contract tamber gen ts|rust|swift|kotlin <app> [-o <dir>]` — every language's
 //! generated names over the one table (LLP 1121 D12): from the design's IR,
 //! never committed. They go in the app's `.exact/tamber/` (gitignored, as
 //! all of `.exact/` is) unless `-o` names a directory.

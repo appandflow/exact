@@ -393,7 +393,7 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import css <stylesheet> [--app <app>] | import shadcn|tailwind|dtcg|pen|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift|kotlin <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import css <stylesheet> [--app <app>] | import shadcn|tailwind|dtcg|pen|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],
@@ -418,9 +418,9 @@ undo and a change stream, with a token only this machine's loopback can have. ge
 bindings from the IR, generated and never committed (LLP 1121 D12): ts, tamber.ts (a
 ColorToken union, each token's CSS per mode) and tamber.css; rust, tamber.rs, a
 Token<Color> constant a token (SURFACE_CARD), which session.tamber().get resolves; swift,
-tamber.swift, ExactTamberToken.surfaceCard for a native view's ExactTamber(view). op takes
-that token and sends one request, or prints the change stream (subscribe). import css
-writes a stylesheet's :root custom properties into the design, between markers a later
+tamber.swift, ExactTamberToken.surfaceCard; kotlin, TamberTokens.kt for Android native views.
+op takes the server's token and sends one request, or prints the change stream (subscribe).
+import css writes :root custom properties into the design, between markers a later
 import of it rewrites, naming each it refuses (LLP 1153 D6). import <kind> holds another
 system's theme on the server as proposals: the tokens as one, each role override apart.
 tool is the design tool (LLP 1122), built if stale, served by the design server at
