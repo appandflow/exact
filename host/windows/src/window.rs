@@ -1357,6 +1357,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         if let Some(p) = self.presenter.as_mut() {
             p.windows_field_edits(self.started.elapsed().as_secs_f64() * 1000.);
             p.timer_visibility(self.minimized || self.occluded);
+            if let Some(e) = p.follow_local_offset() {
+                eprintln!("exact-windows: {e}");
+            }
             let now = self.started.elapsed().as_secs_f64() * 1000.0;
             if p.wake_due_ms().is_some_and(|due| due <= now) {
                 if let Some(e) = p.advance(now) {

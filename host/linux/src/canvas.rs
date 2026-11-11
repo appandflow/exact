@@ -1180,6 +1180,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             p.poll_development(D::default); // the dev loop's, as on the Linux display
             p.run_commands(D::default);
             p.hatch_turn();
+            if let Some(e) = p.follow_local_offset() {
+                eprintln!("exact: {e}");
+            }
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.

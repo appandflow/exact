@@ -1,6 +1,7 @@
 # On Linux, Android and Windows the date an app reads falls behind after a sleep, and a clock change is never told
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Presenter::follow_local_offset` retells the date at the live clock's zero when it moved by a second or more, run before each advance and frame on Linux, at each Android loop turn and canvas reader frame, and at each Windows turn, which a Linux `CLOCK_REALTIME` cancel-on-set timer and Windows `WM_TIMECHANGE` and `PBT_APMRESUMEAUTOMATIC` wake.
 **Systems:** host/linux/src/app.rs, host/linux/src/presenter/preferences.rs (`follow_local_offset`), host/linux/src/android.rs, host/windows/src/window.rs
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from fixing the Apple host's (issues/closed/20261110-apple-date-lags-after-sleep-or-a-clock-change.md)

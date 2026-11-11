@@ -33,6 +33,7 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 use tiny_skia::Pixmap;
 
+mod clock_set;
 mod flip;
 mod pointer;
 use flip::FlipState;
@@ -270,6 +271,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     // The display's clock owns time (the timers RFC, D1)
     p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
+    let clock_set = clock_set::ClockSet::open();
     // @ref LLP 1132 D10 — a touch screen alone is `pointer: coarse`, `hover: none`.
     if input.touch_only() {
         let mut preferences = p.host().runner().viewport().preferences;
@@ -407,6 +409,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // finished update check the same.
         fds.push(p.executor_fd());
         fds.push(p.image_fd());
+        if let Some(set) = &clock_set {
+            fds.push(set.fd());
+        }
         if let Some(fd) = p.content_region_fd() {
             fds.push(fd);
         }
@@ -493,7 +498,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         p.hatch_turn();
         let now = wall();
         let due = p.wake_due_ms().is_some_and(|due| due <= now);
-        if due || p.wants_frames() {
+        let date_jumped = clock_set.as_ref().is_some_and(|set| set.take());
+        if due || p.wants_frames() || date_jumped {
             if let Some(e) = p.follow_local_offset() {
                 eprintln!("exact: {e}");
             }
