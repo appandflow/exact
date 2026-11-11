@@ -1,6 +1,7 @@
 # `tamber import css` prints no kind for a token whose name spells a role and does not say it overrides that role
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** CSS imports report each token's kind and name any platform role it overrides.
 **Systems:** contract/cli/src/tamber_import_css.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
