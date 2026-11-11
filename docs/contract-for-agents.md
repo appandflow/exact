@@ -2866,11 +2866,16 @@ JSON-LD. A page's own title and metas stay its `head` element's.
 
 - An entry is one `script`, `link` or `meta`, whose value is its attributes: a string, or
   `true` for a bare one such as `async`. A script's `text` is its content; an object or a
-  list is written as JSON. In it, `<!--`, and `<script` and `</script` before whitespace,
-  `/` or `>`, are written `\u003C…`, which a JavaScript or JSON literal reads alike.
-- The build refuses another tag, a malformed entry, and what Exact writes itself (the
-  charset, the viewport, the `head` element's fields, the icon, manifest and theme colour),
-  naming the entry.
+  list is written as JSON, with `<!--`, and `</script` before whitespace, `/` or `>`,
+  written `\u003C…`, which JSON reads alike. A `text` that is a string is written as it is,
+  and one holding either sequence is refused, since the page's HTML parser reads it there:
+  write `"\x3C!--"` or `'<' + '!--'` inside a string, or a space after `<` in code.
+- The build refuses another tag, a malformed entry or attribute name, and what Exact
+  writes or reads itself (the charset, the viewport, the `head` element's fields, the icon,
+  manifest, theme colour and colour scheme, a `meta` named `exact-…`, a script or preload
+  of its own `app.js`, `glue.js` or `app.wasm` however its URL is spelt, and a script or
+  link of an `application/vnd.exact.…` type such as its checkpoint), naming the entry. A
+  `rel` is read as its words, so `"shortcut icon"` is an icon.
 - A script runs once per document. When the runtime changes the route in place, the tags
   stay and do not run again, so an analytics tag counts that change only if it watches the
   browser history. A page that loads no runtime (an `interaction` page with no handlers)
