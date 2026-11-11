@@ -1,6 +1,7 @@
 # `difftest expansion` reports every case that commits as a divergence: only one side prints `ran` lines
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Expansion checks compare outcomes and configurations without commit traces, and typing prefers input over change.
 **Systems:** semantics/difftest/src/expansion.rs, semantics/Contract/CompSem.lean, scripts/async.mjs (the `difftest` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

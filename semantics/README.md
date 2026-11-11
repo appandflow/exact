@@ -495,8 +495,9 @@ runner never made is noted (`# js: the oracle has no answer…`) and shows as
 the refusal it causes. It prints `Contract.Observe`'s format from the
 module's own state (names.js) and the DOM: a `testId`'s text is a text's,
 an inline run's, an option's or an SVG text's, as `agent.js` reads them.
-A tap goes to the element's `press` listener and a `type` to its `change`;
-an element without one is refused, as the runner refuses (NoHandler), and so
+A tap goes to the element's `press` listener. A `type` prefers its `input`
+listener, falling back to `change`. An element without the listener is
+refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
 A press on a disabled control is outside the JS comparison: the runner's
@@ -734,9 +735,10 @@ argument's hidden parameter, `?` in both expansions until the checker types
 it from its handler, need only be at least the expansion's, `Ty.le`); (b) the
 component-level semantics of the unexpanded file against the flat
 semantics of Rust's expansion over the case's script, the oracle the
-runner's transcript, every observation line compared but the slots the
-expansion lifts out of children (`slot name#n …`), which the
-component-level semantics keeps per instance. A disagreement is kept under
+runner's transcript. It compares outcomes and configurations, omitting commit
+traces (`ran …`), which the component-level semantics does not emit, and the
+slots the expansion lifts out of children (`slot name#n …`), which it keeps
+per instance. A disagreement is kept under
 `target/difftest/expansion/`, its script shrunk.
 
 **What is proved** (no `sorry`, no axioms beyond Lean's own):

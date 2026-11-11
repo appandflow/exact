@@ -825,7 +825,12 @@ def cdispatchAt (p : CProgram) (o : Oracle) (c : CConfig) (target event : String
 
 def cstep (p : CProgram) (o : Oracle) (c : CConfig) : Observe.Event → CConfig × Outcome
   | .tap t => cdispatchAt p o c t "press" .none
-  | .change t s => cdispatchAt p o c t "change" (.some (.str s))
+  | .change t s =>
+    let event :=
+      if ((cfindTestId t c.view).map fun n => n.handlers.any (·.event == "input")).getD false then
+        "input"
+      else "change"
+    cdispatchAt p o c t event (.some (.str s))
   | .clock ms => cadvance p o c (c.now + ms)
   | .other t e v => cdispatchAt p o c t e v
 
