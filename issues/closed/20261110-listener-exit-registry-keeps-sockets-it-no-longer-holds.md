@@ -1,6 +1,7 @@
 # A listener that is displaced or loses its socket file leaves its entry in the exit registry
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Displaced or missing listener sockets leave the exit registry before their bindings are dropped, without touching replacement sockets.
 **Systems:** host/listen (bind.rs, lib.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
