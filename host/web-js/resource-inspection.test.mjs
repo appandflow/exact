@@ -110,3 +110,47 @@ test.each([['not pending', false], ['pending', true]])('resource pending state r
     expect(await page.evaluate(() => fixture.state())).toEqual(before);
   } finally { await browser.close(); server.stop(true); }
 }, 30000);
+
+test.each([
+  ['derive', false], ['derive', true], ['source', false], ['source', true],
+])('a list element first asked in a refused commit is asked again (refusal: %s, existing pending: %s)', async (refuseAt, initiallyPending) => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    await page.evaluate(async refuseAt => {
+      const rt = await import('/host/web-js/rt.js'), { resEach } = await import('/host/web-js/each.js');
+      rt.clock.agent = true;
+      const ids = rt.sig([1]), bad = rt.sig(false), asked = [], answers = [];
+      rt.data.answer = (_source, [n]) => {
+        asked.push(n);
+        if (n === 2 && bad() && refuseAt === 'source') { throw new rt.Refusal('source refused'); }
+        const answer = Promise.withResolvers();
+        answers.push(() => answer.resolve(n * 10));
+        return { promise: answer.promise };
+      };
+      const items = resEach('items', 'item', ids, n => n, n => [n], '[n', 'n', 0);
+      const share = rt.memo(() => 100 / (items().length + 1 - (bad() ? items().length + 1 : 0)), 'n', 'share');
+      rt.commit(() => {});
+      rt.effect(() => { document.getElementById('exact-root').textContent = `${items().join(',')} ${items.p() ? 'pending' : 'settled'} ${share()}`; });
+      window.fixture = { rt, ids, bad, asked, answers,
+        state: () => ({ shown: items(), pending: items.p(), ids: ids(), bad: bad(), share: share(), asked: [...asked] }),
+        add: refuse => rt.commit(() => { rt.W(ids, [1, 2]); rt.W(bad, refuse); }) };
+    }, refuseAt);
+    if (!initiallyPending) {
+      await page.evaluate(() => fixture.answers[0]());
+      await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    }
+    const before = await page.evaluate(() => fixture.state());
+    expect(before).toEqual({ shown: [initiallyPending ? 0 : 10], pending: initiallyPending, ids: [1], bad: false, share: 50, asked: [1] });
+    expect(await page.evaluate(() => fixture.add(true))).toBe(false);
+    expect(await page.evaluate(() => fixture.state())).toEqual({ ...before, asked: [1, 2] });
+    expect(await page.evaluate(() => fixture.rt.Resources.length)).toBe(1);
+    expect(await page.evaluate(() => fixture.add(false))).toBe(true);
+    await page.evaluate(() => fixture.answers.forEach(finish => finish()));
+    await page.waitForFunction(() => fixture.rt.inflight.n === 0);
+    expect(await page.evaluate(() => fixture.state())).toEqual({
+      shown: [10, 20], pending: false, ids: [1, 2], bad: false, share: 100 / 3, asked: [1, 2, 2],
+    });
+    expect(await page.locator('#exact-root').textContent()).toBe(`10,20 settled ${100 / 3}`);
+  } finally { await browser.close(); server.stop(true); }
+}, 30000);

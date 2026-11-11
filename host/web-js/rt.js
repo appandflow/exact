@@ -159,7 +159,7 @@ export function R(r) { Refresh.push(r.r ?? r); }
 /** What its resource reads (a watched topic, ts-data.js `changed`, LLP 1016.002 D4; the store, `lateReaders`) changed while ticket `t` was in flight (`t.again`): its reply landed or failed, so the resource is asked again. */
 const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, what it reads changed while ticket ${t.id} was in flight`); R(t.r); } }, openEnded = t => !!(t.stream || t.req?.stream || t.req?.longPoll || t.call?.held > 0), reads = r => r.store || !!r.ticket?.call?.seen?.read, lateReaders = () => { for (const r of Resources) if (reads(r) && r.ticket && !openEnded(r.ticket)) r.ticket.again = true; }, lateIdle = () => { for (const r of Resources) if (reads(r) && (!r.ticket || openEnded(r.ticket))) R(r); }; // a store write outside a commit asks every store reader again (one whose answer has read the store so far, landed or not), a failed one too, as the runner's commit after a module turn does (LLP 1146 D2): one in flight once its reply lands, marked before that commit's checkpoint so a refusal keeps the mark, and one whose request may never land (a stream, a long poll, a held fetch) now
 /** Pull every derive and resource in plan order: the settlement pass. */
-function settle() { for (const n of Settle) fresh(n); }
+function settle() { for (const n of Settle) if (!n.gone) fresh(n); }
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
  * runs; a refusal anywhere up to here puts everything back and leaves the
  * tree untouched; then the tree updates, completion callbacks run, requests go out, commands run. */
@@ -190,7 +190,7 @@ export function commit(f, what = "commit", finished) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => k < saved.length && r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes); // a resource the commit made (an element's, each.js) has nothing to put back
+    Resources.forEach((r, k) => k < saved.length && r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes); // new list members end through their refusal callbacks (each.js)
     Store.restore(store);
     for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too

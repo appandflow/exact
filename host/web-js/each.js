@@ -11,6 +11,12 @@ const keyText = v => typeof v === "string" ? "s:" + v : typeof v === "number" ? 
  * element's, `zero` what an element shows until its answer. */
 export function resEach(name, source, list, key, args, type, elem, zero) {
   const members = new Map(), parent = owner(); // key text → { s: its scope, g: its resource, item: its element's slot, left }
+  const remove = (k, e) => {
+    members.delete(k);
+    const r = e.g.r;
+    if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
+    end(e.s); Resources.splice(Resources.indexOf(r), 1);
+  };
   let order = [];
   const g = memo(() => {
     const seen = new Set(), next = [];
@@ -22,6 +28,10 @@ export function resEach(name, source, list, key, args, type, elem, zero) {
       if (!e) {
         e = untracked(() => { const item = sig(x), e = { item }; e.s = scope(() => { e.g = res(name, source, () => e.left ? r.ticket?.args ?? r.settled : args(item()), undefined, undefined, elem, zero); }, parent); const r = e.g.r; return e; }); // a leaving element asks nothing more
         members.set(k, e);
+        // A refused join has no checkpoint to restore and no request to keep.
+        const joined = () => {};
+        joined.refused = () => remove(k, e);
+        stood(joined);
       } else if (!seen.has(k) && !eq(e.item.n.v, x)) write(e.item.n, x); // a repeated key reads the first element's answer
       e.left = false;
       seen.add(k); next.push(e);
@@ -30,10 +40,7 @@ export function resEach(name, source, list, key, args, type, elem, zero) {
       e.left = true;
       stood(() => { // let go only once the commit that dropped it stands
         if (!e.left || members.get(k) !== e) return;
-        members.delete(k);
-        const r = e.g.r;
-        if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
-        end(e.s); Resources.splice(Resources.indexOf(r), 1);
+        remove(k, e);
       });
     }
     order = next;

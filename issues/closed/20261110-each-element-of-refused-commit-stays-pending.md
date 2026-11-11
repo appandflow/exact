@@ -1,6 +1,7 @@
 # A list resource's element first asked in a refused commit is never asked again on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A refused commit removes newly joined list resource elements so their next join asks again.
 **Systems:** host/web-js/each.js, host/web-js/rt.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
