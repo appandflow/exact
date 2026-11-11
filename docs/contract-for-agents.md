@@ -4736,12 +4736,12 @@ own `color`, `background-color` (or `background`) or `::placeholder color`
 wins over the role, so it is not judged.
 
 A style a native host does not draw as written is recorded on its row in the
-schema (`hosts`), and `contract vocab <name>` prints it (`linux, windows,
-android, on a box: not drawn: a box or an image draws unfiltered`). A style
+schema (`hosts`), and `contract vocab <name>` prints it (`ios: not drawn: UIKit
+has no public blend on a layer, so the element draws unblended`). A style
 with no such line has no gap on record, which is not a measurement. For each
 target the app ships, a style you set that the host there does not draw at
-all is said once, naming every such target (`style-undrawn: \`filter\` is not
-drawn on linux (app.json \`host.linux\`): …`): the node draws there as if the
+all is said once, naming every such target (`style-undrawn: \`mix-blend-mode\`
+is not drawn on ios (app.json \`host.ios\`): …`): the node draws there as if the
 style were unset. It is information, as `tamber-unreachable` is. tvOS reads
 iOS's entries; a host that draws a style differently (`differs`) is said by
 `vocab` alone.

@@ -78,7 +78,7 @@ fn shadow_reach(node: &exact_kernel::NodeRef<'_>) -> (f32, f32, f32, f32) {
 /// boxes — each moved by its presented translate, grown to its diagonal
 /// when turned, scaled or in a plane of its own, and by its own shadows —
 /// bounded by `cap`.
-fn reach(
+pub(super) fn reach(
     walk: &Walk<'_, '_>,
     node: &exact_kernel::NodeRef<'_>,
     (x, y, w, h): Rect4,

@@ -31,6 +31,7 @@ mod presentation;
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) use presentation::Presentation;
 pub mod border;
+mod box_filter;
 pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
@@ -1068,7 +1069,7 @@ impl Painter {
             && self
                 .backend
                 .push_css_clip(&node.style.rare.clip_path, ts.pre_translate(x, y));
-        self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
+        self.box_content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
         self.dark = previous;
         if path_clip {
             self.backend.pop_clip();

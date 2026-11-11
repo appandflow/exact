@@ -1,8 +1,8 @@
 //! @ref LLP 1159.000 D4 — `style-undrawn`: for each target the app ships,
 //! each style row it sets that the target's host does not draw there (the
 //! schema's `hosts` column), once a row, scope and reason, naming each
-//! target; `best-effort` says nothing; a scope the entry does not name is
-//! not judged.
+//! target; `best-effort` says nothing; a value that leaves the row unset
+//! is not judged.
 
 use std::path::PathBuf;
 
@@ -31,61 +31,28 @@ fn undrawn(path: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-const FILTERED: &str = "style Soft\n  filter=\"blur(2px)\"\n\ncomponent App\n  view\n    column\n      box filter=\"blur(4px)\" width=20 height=20\n      box class=Soft width=20 height=20\n      svg width=20 height=20\n        rect width=10 height=10 filter=\"blur(1px)\" mix-blend-mode=\"multiply\"\n";
-
-#[test]
-fn a_filter_on_a_box_is_undrawn_where_the_paint_walk_draws() {
-    let said = undrawn(&app("filter", "\"linux\": {}, \"web\": {}", FILTERED));
-    assert_eq!(said.len(), 1, "{said:?}");
-    // The box's own and its class's, never the `rect`'s inside the `svg`.
-    assert!(
-        said[0].starts_with("`filter` is not drawn on linux (app.json `host.linux`): a box or an image draws unfiltered"),
-        "{said:?}"
-    );
-    assert!(
-        said[0].contains("set 2 times, the first at line 7"),
-        "{said:?}"
-    );
-}
-
-#[test]
-fn a_host_that_draws_it_says_nothing_and_each_that_does_not_is_named() {
-    // The Mac filters a box and blends; the web is the oracle.
-    assert_eq!(
-        undrawn(&app("mac", "\"macos\": {}, \"web\": {}", FILTERED)),
-        Vec::<String>::new()
-    );
-    // Android and Windows draw with Linux's walk: one line names both. Android's
-    // stream has no blend either, which is its own line.
-    let said = undrawn(&app(
-        "painted",
-        "\"android\": {}, \"windows\": {}",
-        FILTERED,
-    ));
-    assert_eq!(said.len(), 2, "{said:?}");
-    assert!(
-        said[1].starts_with("`mix-blend-mode` is not drawn on android (app.json `host.android`): the reader's stream has no blend"),
-        "{said:?}"
-    );
-    assert!(
-        said[0]
-            .contains("on windows (app.json `host.windows`) and android (app.json `host.android`)")
-            || said[0].contains(
-                "on android (app.json `host.android`) and windows (app.json `host.windows`)"
-            ),
-        "{said:?}"
-    );
-}
+/// Two blended shapes, one by its own row and one by a class, and a
+/// filtered box.
+const BLENDED: &str = "style Multiplied\n  mix-blend-mode=\"multiply\"\n\ncomponent App\n  view\n    column\n      box filter=\"blur(4px)\" width=20 height=20\n      svg width=20 height=20\n        rect width=10 height=10 mix-blend-mode=\"screen\"\n        rect width=10 height=10 class=Multiplied\n";
 
 #[test]
 fn a_blend_is_undrawn_on_ios_and_on_tvos_which_reads_its_column() {
-    let said = undrawn(&app("blend", "\"ios\": {}, \"macos\": {}", FILTERED));
+    let said = undrawn(&app(
+        "blend",
+        "\"ios\": {}, \"macos\": {}, \"web\": {}",
+        BLENDED,
+    ));
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(
         said[0].starts_with("`mix-blend-mode` is not drawn on ios (app.json `host.ios`): UIKit has no public blend on a layer"),
         "{said:?}"
     );
-    let tv = undrawn(&app("tv", "\"tvos\": {}", FILTERED));
+    // The shape's own row and its class's.
+    assert!(
+        said[0].contains("set 2 times, the first at line 9"),
+        "{said:?}"
+    );
+    let tv = undrawn(&app("tv", "\"tvos\": {}", BLENDED));
     assert_eq!(tv.len(), 1, "{tv:?}");
     assert!(
         tv[0].starts_with("`mix-blend-mode` is not drawn on tvos"),
@@ -94,13 +61,40 @@ fn a_blend_is_undrawn_on_ios_and_on_tvos_which_reads_its_column() {
 }
 
 #[test]
+fn each_host_says_its_own_reason_and_a_host_that_draws_it_says_nothing() {
+    // The Mac, Linux and Windows blend; the web is the oracle.
+    assert_eq!(
+        undrawn(&app(
+            "drawn",
+            "\"macos\": {}, \"linux\": {}, \"windows\": {}, \"web\": {}",
+            BLENDED
+        )),
+        Vec::<String>::new()
+    );
+    // iOS and Android each have a reason of their own: a line each.
+    let said = undrawn(&app("both", "\"ios\": {}, \"android\": {}", BLENDED));
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said.iter()
+            .any(|m| m.contains("on ios (app.json `host.ios`): UIKit")),
+        "{said:?}"
+    );
+    assert!(
+        said.iter().any(|m| m
+            .contains("on android (app.json `host.android`): the reader's stream has no blend")),
+        "{said:?}"
+    );
+}
+
+#[test]
 fn best_effort_and_an_unset_value_say_nothing() {
-    // iOS and macOS draw a backdrop blur differently, which `vocab` says.
-    let glass = "component App\n  view\n    column\n      box backdrop-filter=\"blur(8px)\" filter=\"none\" width=20 height=20\n";
+    // A backdrop blur differs on iOS and macOS, and a turned box's shadow
+    // where the paint walk draws: `vocab` says both, the lint neither.
+    let glass = "component App\n  view\n    column\n      box backdrop-filter=\"blur(8px)\" filter=\"drop-shadow(2px 2px 2px #000000)\" width=20 height=20\n      svg width=20 height=20\n        rect width=10 height=10 mix-blend-mode=\"normal\"\n";
     assert_eq!(
         undrawn(&app(
             "glass",
-            "\"ios\": {}, \"macos\": {}, \"linux\": {}",
+            "\"ios\": {}, \"macos\": {}, \"linux\": {}, \"android\": {}",
             glass
         )),
         Vec::<String>::new()

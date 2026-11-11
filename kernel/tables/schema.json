@@ -3847,7 +3847,7 @@
       "codec": "filter",
       "_comment": "@ref LLP 1055.000 D14: CSS `filter` on SVG elements: none, url(#id) and the filter functions, in order.",
       "hosts": [
-        { "host": "painted", "on": "box", "fidelity": "none", "why": "a box or an image draws unfiltered; inside an `svg` it is filtered (QUEUE, CSS `filter` on a box)" }
+        { "host": "painted", "on": "box", "fidelity": "best-effort", "why": "on a box rotated or skewed in the plane, a `drop-shadow()` falls along the screen's axes, not the box's" }
       ],
       "cold": true
     },
