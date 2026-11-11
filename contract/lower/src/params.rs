@@ -239,7 +239,7 @@ pub fn shown(message: &str, params: &[ParamToken]) -> String {
 /// message it was the params x the messages, Astra's round 3).
 #[derive(Debug, Clone, Default)]
 pub struct Shown {
-    full: std::collections::HashMap<String, String>,
+    names: std::collections::HashMap<String, String>,
     /// Each token name's length, longest first.
     lengths: Vec<usize>,
 }
@@ -247,17 +247,26 @@ pub struct Shown {
 impl Shown {
     /// The index of `params`' token names.
     pub fn new(params: &[ParamToken]) -> Shown {
-        let mut full = std::collections::HashMap::new();
-        for p in params.iter().rev() {
-            full.insert(p.token.clone(), p.full.clone());
-        }
-        let mut lengths: Vec<usize> = full.keys().map(String::len).collect();
-        lengths.sort_unstable_by(|a, b| b.cmp(a));
-        lengths.dedup();
-        Shown { full, lengths }
+        Self::with_names(params, |p| p.full.clone())
     }
 
-    /// `message` with each param's token name written as its full name.
+    /// Names a repair can write back into the row that read the params.
+    pub(crate) fn local(params: &[ParamToken]) -> Shown {
+        Self::with_names(params, |p| format!("{PREFIX}{}", p.param.name))
+    }
+
+    fn with_names(params: &[ParamToken], name: impl Fn(&ParamToken) -> String) -> Shown {
+        let mut names = std::collections::HashMap::new();
+        for p in params.iter().rev() {
+            names.insert(p.token.clone(), name(p));
+        }
+        let mut lengths: Vec<usize> = names.keys().map(String::len).collect();
+        lengths.sort_unstable_by(|a, b| b.cmp(a));
+        lengths.dedup();
+        Shown { names, lengths }
+    }
+
+    /// `message` with each param's token name replaced by its indexed name.
     pub fn text(&self, message: &str) -> String {
         // Only where a token can start (each begins with `PREFIX`), the
         // longest token there, so a name that prefixes another does not
@@ -275,7 +284,7 @@ impl Shown {
             let hit = self.lengths.iter().find_map(|&n| {
                 let end = start + n;
                 let word = message.get(start..end)?;
-                self.full.get(word).map(|f| (end, f.as_str()))
+                self.names.get(word).map(|f| (end, f.as_str()))
             });
             match hit {
                 Some((end, f)) => {

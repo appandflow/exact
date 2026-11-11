@@ -1,6 +1,7 @@
 # The `lower-symbol-tint` warning tells the author to write a param by its hashed token name
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Symbol tint repairs preserve local param names, warnings hide internal tokens, and authored internal param tokens are refused at their rows.
 **Systems:** contract/lower/src/lib.rs, contract/lower/src/symbols/tint.rs, contract/lower/src/params/rewrite.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

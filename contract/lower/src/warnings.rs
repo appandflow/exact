@@ -70,7 +70,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     routeless_header::check(checked, &mut out);
     // Track the navigation root (the outermost `navigationKey`) and its `navigationBack`.
     crate::menu_rows::notes(&root.view, &mut out);
-    crate::symbols::tints(&root.view, &checked.file.styles, lowered, &mut out);
+    crate::symbols::tints(&root.view, checked.file, lowered, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());
@@ -205,7 +205,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         },
         &mut out,
     );
-    out
+    crate::theme::shown_errors(out) // a param by the name its author wrote
 }
 
 /// What the one-scheme warning knows of the app's tokens (LLP 1121 D3).

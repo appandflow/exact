@@ -4977,7 +4977,8 @@ D15), one param a line: `radius: length = "radius.md"  range="0..40"  step=1
 control="slider"  group="Shape"  priority=1  label="Corner radius"`. A param is a
 token the component owns: its default is any token value (a literal, a token, or
 an expression over tokens and the component's other params), and its rows and
-defaults name it `param.radius`. Every instance shares it. Its full name is the
+defaults name it `param.radius`; a generated internal token name is refused
+(`tamber-param-unknown`). Every instance shares it. Its full name is the
 component's declaring file and name, `post.contract#PostButton.radius` (an import
 alias never changes it; moving the file makes it a new param), and
 `PostButton.radius` where no other component has that name (a package's file
