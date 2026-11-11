@@ -1249,13 +1249,15 @@ fn now_is_refused_with_both_repairs_at_its_span() {
 fn live_resource_arguments_warn_through_derives_and_functions_but_sampled_state_does_not() {
     let file = contract_syntax::parse(
         r#"
+fn forwardedClock(): number = laterClock()
+fn laterClock(): number = clockValue()
 fn clockValue(): number = performanceNow()
 shape Reply
   value: number
 component App
-  state sampledAt = 0
-  derive live = clockValue() + 1
+  state sampledAt = performanceNow()
   derive forwarded = live
+  derive live = forwardedClock() + 1
   resource direct = read(performanceNow()) as shape Reply else empty()
   resource indirect = read(forwarded) as shape Reply else empty()
   resource context = read() with performanceNow() as shape Reply else empty()
@@ -1275,6 +1277,81 @@ component App
     assert!(warnings
         .iter()
         .all(|w| w.id == "analyze-resource-clock" && w.message.contains("sample")));
+}
+
+#[test]
+fn resource_clock_advice_preserves_lexical_scope() {
+    let file = contract_syntax::parse(
+        r#"
+fn clockValue(): number = performanceNow()
+fn sampled(clockValue: number): number = clockValue
+fn sampledAt(): number = performanceNow()
+fn callback(): number[] = [1].map((clockValue) => clockValue)
+fn matched(): number = match some(1) { case some(clockValue) => clockValue, case none => 0 }
+fn fallback(): number = match none { case some(clockValue) => clockValue, case none => clockValue() }
+shape Reply
+  value: number
+component App
+  state sampledAt = performanceNow()
+  derive forwarded = sampledAt
+  resource parameter = read(sampled(1)) as shape Reply else empty()
+  resource arrow = read(callback().length) as shape Reply else empty()
+  resource matched = read(matched()) as shape Reply else empty()
+  resource fallback = read(fallback()) as shape Reply else empty()
+  resource nested = read([1].map((clockValue) => match some(2) { case some(item) => clockValue + item, case none => clockValue }).length) as shape Reply else empty()
+  resource liveArrow = read([1].map((item) => clockValue() + item).length) as shape Reply else empty()
+  resource sibling = read([1].map((clockValue) => clockValue).length + clockValue()) as shape Reply else empty()
+  resource argument = read(sampled(clockValue())) as shape Reply else empty()
+  resource state = read(forwarded) as shape Reply else empty()
+  view
+    text parameter.value
+"#,
+    )
+    .unwrap();
+    let warnings = contract_analyze::resource_clock_warnings(&file);
+    let expected = ["fallback", "liveArrow", "sibling", "argument"];
+    assert_eq!(warnings.len(), expected.len(), "{warnings:?}");
+    for (warning, name) in warnings.iter().zip(expected) {
+        assert!(warning.message.contains(&format!("`{name}`")), "{warning}");
+    }
+}
+
+#[test]
+fn resource_clock_advice_tracks_let_values_in_their_scope() {
+    use contract_syntax::Expr;
+    let mut file = contract_syntax::parse(
+        "component App\n  resource reply = read(0) as shape Reply else empty()\n  view\n    text reply.value\n",
+    )
+    .unwrap();
+    let span = file.components[0].resources[0].span;
+    let clock = Expr::Call("performanceNow".into(), Vec::new(), span);
+    let name = "value".to_string();
+    let read = Expr::Ident(name.clone(), span);
+    for (value, body, warns) in [
+        (clock.clone(), read.clone(), true),
+        (clock.clone(), Expr::Number(0.0, span), false),
+        (
+            clock,
+            Expr::Let {
+                name: name.clone(),
+                value: Box::new(Expr::Number(0.0, span)),
+                body: Box::new(read),
+                span,
+            },
+            false,
+        ),
+    ] {
+        file.components[0].resources[0].args = vec![Expr::Let {
+            name: name.clone(),
+            value: Box::new(value),
+            body: Box::new(body),
+            span,
+        }];
+        assert_eq!(
+            contract_analyze::resource_clock_warnings(&file).len(),
+            usize::from(warns)
+        );
+    }
 }
 
 #[test]

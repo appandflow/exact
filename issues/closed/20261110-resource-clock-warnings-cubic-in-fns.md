@@ -1,6 +1,7 @@
 # `resource_clock_warnings` costs the cube of the number of `fn`s on every `contract build`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Clock advice stops at an unchanged round and resolves local scopes without cloning the declaration map.
 **Systems:** contract/analyze (`resource_clock_warnings`), contract/cli build
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
