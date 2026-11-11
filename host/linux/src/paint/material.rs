@@ -678,7 +678,7 @@ pub(crate) fn touch_box(rect: Rect4) -> Rect4 {
 }
 
 /// A 24-unit path drawn as a role's is: stroked, or filled even-odd.
-fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
+pub(super) fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
     exact_kernel::SymbolPath {
         d,
         filled,

@@ -199,6 +199,9 @@ pub struct ButtonFaceStyle {
     pub button: crate::StyleProps,
     /// Image-to-text gap on the face axis. None asks the host's system spacing.
     pub image_gap: Option<f32>,
+    /// Where a radio drawn as a segment sits in its group
+    /// ([`crate::segmented`]); None for any other button.
+    pub segment: Option<crate::SegmentPlace>,
 }
 
 impl ButtonFaceStyle {

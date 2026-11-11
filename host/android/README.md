@@ -978,7 +978,11 @@ Not built of D11:
   transition; a centred title; an overflow menu for buttons that do not fit (they are all placed, and the title
   is cut first).
 - **The segmented buttons** for a `tablist` in the content, and for one in a header (it stays in the page, as the
-  search field does); **list items** and their dividers (rows as cells land on every host at once).
+  search field does). A `radiogroup` of radios is built (`kernel/src/segmented.rs`, `paint/segment.rs`): Compose's
+  `SingleChoiceSegmentedButtonRow`, its numbers the schema's `segmented-button-` rows, seen through the presenter on
+  a Mac and not yet on a phone or beside the oracle's `segmented-buttons` specimen. Owed there: Compose's motion
+  (the label slides and the check grows as the choice moves; here both change at once).
+  **List items** and their dividers (rows as cells land on every host at once).
 - **A header's rich title**: the avatar, the subtitle and the tap on the title that iOS shows are not read here.
 - **`onSecondaryContainer`** for the selected symbol, badges, a navigation rail on a wide window, and hiding the
   navigation bar for a route pushed while the tablist is hidden (the bar follows the tablist's own `display`).

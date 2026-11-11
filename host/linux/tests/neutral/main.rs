@@ -5,6 +5,7 @@
 //! reads a colour or a metric while the switch is moving.
 mod buttons;
 mod fields;
+mod segments;
 mod tabs;
 
 use exact_kernel::ViewId;
@@ -383,6 +384,9 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     route_header_context_changes_invalidate_retained_nodes();
     route_header_effective_rows_reach_layout_admission_and_motion();
     tabs::narrow_tab_bars_follow_the_neutral_paint_rules();
+    segments::radio_groups_are_the_webs_segmented_control();
+    segments::segmented_group_follows_a_change_that_moves_its_eligibility();
+    segments::segment_faces_are_the_buttons();
     tabs::active_tab_background_has_one_native_paint_owner();
     tabs::narrow_tab_geometry_follows_root_metrics_and_authored_rows();
 }

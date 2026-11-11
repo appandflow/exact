@@ -19,6 +19,7 @@ use crate::error::{ApplyError, StyleDomainError};
 use crate::generated::{InheritedStyle, NodeType, PropId, StyleMask};
 use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutMirror;
+use crate::segmented;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
 mod defaults;
@@ -755,6 +756,8 @@ pub(crate) fn continue_document(
                     text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                     receipt.layout_invalidated |=
                         crate::rows::prop_changed(arena, layout, slot, *prop, touched);
+                    receipt.layout_invalidated |=
+                        segmented::prop_changed(arena, layout, slot, *prop, touched);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -794,6 +797,8 @@ pub(crate) fn continue_document(
                         text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                         receipt.layout_invalidated |=
                             crate::rows::prop_changed(arena, layout, slot, *prop, touched);
+                        receipt.layout_invalidated |=
+                            segmented::prop_changed(arena, layout, slot, *prop, touched);
                         touched.push(arena.key(slot));
                     }
                 }
@@ -819,6 +824,8 @@ pub(crate) fn continue_document(
                     // A text style's weight and leading move with its size.
                     let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
+                    receipt.layout_invalidated |=
+                        segmented::style_changed(arena, layout, slot, changed, touched);
                     if changed.intersects(StyleMask::LAYOUT) {
                         unstyled.remove(&slot);
                     }
@@ -840,6 +847,8 @@ pub(crate) fn continue_document(
                     }
                     let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
+                    receipt.layout_invalidated |=
+                        segmented::style_changed(arena, layout, slot, changed, touched);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, touched, receipt);
                 }
@@ -1148,22 +1157,9 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
-    // An alert's defaults read its children: whether it is grouped or a part
-    // box empty (its own and, for its actions' margin, its siblings'), and a
-    // row's place among them (arena/alert.rs)
-    if arena.neutral_alert(parent) || arena.alert_group(parent) {
-        layout.restyle(arena, parent, node);
-        let siblings = match arena.parent(parent) {
-            Some(alert) if arena.alert_group(parent) => arena.children(alert),
-            _ => &[],
-        };
-        for child in arena.children(parent).iter().chain(siblings) {
-            if let Some(node) = arena.taffy(*child) {
-                layout.restyle(arena, *child, node);
-                layout.mark_dirty(node);
-            }
-        }
-    }
+    // Styles that read a box's children.
+    arena.alert_children_changed(layout, parent, node);
+    crate::segmented::children_changed(arena, layout, parent);
     #[cfg(test)]
     count(_entries, 0);
 }
