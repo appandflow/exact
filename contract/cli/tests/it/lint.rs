@@ -425,16 +425,59 @@ fn a_horizontal_scroll_can_grow_vertically_with_its_contents() {
 
 #[test]
 fn bake_refuses_a_pressable_with_zero_area() {
-    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
-    let plan = contract::compile(src).unwrap();
-    let e = contract::bake(plan, NoData).unwrap_err();
-    match e {
-        BakeError::Lint { id, message, .. } => {
-            assert_eq!(id, "bake-zero-size");
-            assert!(message.contains("testId=\"go\""), "{message}");
+    for attrs in ["width=0 height=0", "flex-grow=0", "flex-basis=0"] {
+        let src = format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    row height=44\n      button press=go {attrs} testId=\"go\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let e = contract::bake(plan, NoData).unwrap_err();
+        match e {
+            BakeError::Lint { id, message, .. } => {
+                assert_eq!(id, "bake-zero-size", "{attrs}: {message}");
+                assert!(message.contains("testId=\"go\""), "{message}");
+            }
+            other => panic!("{attrs}: {other:?}"),
         }
-        other => panic!("{other:?}"),
     }
+}
+
+fn empty_controls_sized_by_flex(attrs: &str, width: f32) {
+    for control in ["button press=go", "link href=\"/close\""] {
+        for applied in [attrs, "class=Size"] {
+            let src = format!(
+                "style Size\n  {attrs}\ncomponent App\n  action go\n  view\n    column width=300\n      row height=44\n        {control} {applied} aria-label=\"Close\" testId=\"close\"\n"
+            );
+            let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{src}\n{e}"));
+            contract::check(&plan).unwrap();
+            let plan = contract::bake(plan, NoData).unwrap();
+            let mut runner = exact_runner::Runner::boot(
+                plan,
+                NoData,
+                exact_kernel::Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let root = runner.kernel().roots()[0];
+            runner
+                .kernel_mut()
+                .compute_layout(root, exact_kernel::Offer::definite(300.0, 100.0))
+                .unwrap();
+            let kernel = runner.kernel();
+            let key = kernel.find_by_test_id("close")[0];
+            let frame = kernel.node_by_key(key).unwrap().frame;
+            assert_eq!((frame.width, frame.height), (width, 44.0), "{src}");
+        }
+    }
+}
+
+#[test]
+fn empty_controls_can_take_their_size_from_flex_grow() {
+    empty_controls_sized_by_flex("flex=1", 300.0);
+    empty_controls_sized_by_flex("flex-grow=1", 300.0);
+}
+
+#[test]
+fn empty_controls_can_take_their_size_from_flex_basis() {
+    empty_controls_sized_by_flex("flex-basis=40", 40.0);
 }
 
 /// Ledger2 Rough 4: an absolutely positioned button is sized by its insets

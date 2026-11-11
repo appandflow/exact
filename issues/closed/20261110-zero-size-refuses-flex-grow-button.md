@@ -1,6 +1,7 @@
 # `lower-zero-size` refuses an empty button sized by `flex-grow` or `flex-basis`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Empty buttons and links accept flex-grow and flex-basis as sizing attributes; bake still refuses zero area.
 **Systems:** contract/lower/src/controls.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
