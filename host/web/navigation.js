@@ -277,6 +277,7 @@ function commit(op) {
     written.length = Math.max(0, cursor + 1);
     op.pushed = written[cursor]?.id === op.top; written[++cursor] = stamp(cursor, op); // `pushed`: an entry of the visit shown, whose place fragment.js keeps
     history.pushState(written[cursor], "", historyURL(op.url));
+    globalThis.exact?.fragment?.forget(cursor);
   }
 }
 function popped({ j, state, url }) {

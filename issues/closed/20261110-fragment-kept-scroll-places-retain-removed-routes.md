@@ -1,6 +1,7 @@
 # fragment.js keeps every element that ever scrolled, so removed routes are never collected
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fragment scroll places hold elements weakly, and every history push discards the forward entries it replaces.
 **Systems:** host/web/fragment.js, host/web-js/router.js, host/web/glue.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
