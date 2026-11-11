@@ -22,7 +22,9 @@ export interface ConvexLive {
 }
 
 type Socket = { send(data: string): void; close(code?: number, reason?: string): void };
-type StreamEvent = { readonly type: string; readonly data: string | ArrayBuffer; readonly message?: string; readonly code?: number; readonly reason?: string };
+type StreamEvent = { readonly type: string; readonly data: string | ArrayBuffer; readonly kind?: string; readonly message?: string; readonly code?: number; readonly reason?: string };
+
+const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 
 /** Convex's own pure functions, which the app imports from its `convex` and hands over: `getFunctionName` from
  *  `convex/server`, `convexToJson` and `jsonToConvex` from `convex/values`. The module imports no package itself,
@@ -35,7 +37,9 @@ type ArgsOf<R extends Reference<string>> = R['_args'];
 type ReturnOf<R extends Reference<string>> = R['_returnType'];
 
 export interface ConvexOptions {
-  /** The largest frame Convex may send, in bytes; the host's stream ceiling (1 MiB) when absent. */
+  /** The largest frame Convex may send, in bytes: 8 MiB when absent. The first frame of a connection carries every
+   *  query's result, so it is the sum of them. A larger one ends the socket as `failed`. Natively an open stream
+   *  counts twice its ceiling against the 68 MiB that independent reads share. */
   maxMessageBytes?: number;
 }
 
@@ -51,7 +55,8 @@ export interface ConvexClient {
   mutation<M extends Reference<'mutation'>>(ref: M, args: ArgsOf<M>): Promise<ReturnOf<M>>;
   /** An action: its result. It rejects as a mutation does. */
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
-  /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it from a mutation's source. */
+  /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it in a
+   *  mutation's source, before any `await`: the web sends only from a source's own turn, and a call after one throws. */
   setAuth(token: string | undefined): void;
   /** The queries Convex is asked for and the requests in flight, for a test or a log. */
   inspect(): { queries: { id: number; udfPath: string; sent: boolean; answered: boolean }[]; requests: number };
@@ -77,7 +82,7 @@ export function convex(address: string, functions: ConvexFunctions, options: Con
     sync.connecting([...id].map(b => b.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5'));
     socket = undefined;
     return fetch(url, {
-      ...(options.maxMessageBytes ? { exactIndependentHttp: { maxResponseBytes: options.maxMessageBytes } } : {}),
+      exactIndependentHttp: { maxResponseBytes: options.maxMessageBytes ?? MAX_MESSAGE_BYTES },
       exactStream(event: StreamEvent, given?: Socket): ConvexLive {
         if (mine !== epoch) return snapshot();
         if (event.type === 'open') { socket = given; send(sync.opened()); }
@@ -91,7 +96,10 @@ export function convex(address: string, functions: ConvexFunctions, options: Con
           }
         } else {
           socket = undefined;
-          sync.closed(event.type === 'close' ? `the socket closed (${event.code ?? 1006})${event.reason ? `: ${event.reason}` : ''}` : event.message ?? 'the socket failed');
+          // A refusal (a frame over the ceiling, an origin outside the grants) would meet a new connection too.
+          const refused = event.type === 'error' && event.kind === 'Refused';
+          const over = refused && /ceiling/.test(event.message ?? '') ? ': raise maxMessageBytes in convex()\'s options, or ask for less' : '';
+          sync.closed(event.type === 'close' ? `the socket closed (${event.code ?? 1006})${event.reason ? `: ${event.reason}` : ''}` : `${event.message ?? 'the socket failed'}${over}`, refused);
         }
         return snapshot();
       },
@@ -122,7 +130,7 @@ export function convex(address: string, functions: ConvexFunctions, options: Con
     live, query,
     mutation: <M extends Reference<'mutation'>>(ref: M, args: ArgsOf<M>) => request<ReturnOf<M>>('Mutation', getFunctionName(ref), args ?? {}),
     action: <A extends Reference<'action'>>(ref: A, args: ArgsOf<A>) => request<ReturnOf<A>>('Action', getFunctionName(ref), args ?? {}),
-    setAuth(token: string | undefined) { send(sync.setAuth(token)); },
+    setAuth(token: string | undefined) { sync.setAuth(token, send); },
     inspect: () => sync.inspect(),
   };
 }

@@ -144,6 +144,13 @@ export interface OAuthProvider {
   json(store: OAuthStore, url: string, init?: RequestInit): Promise<unknown>;
   /** The kept ID token's claims; `null` while signed out or with none. */
   claims(store: OAuthStore): Record<string, unknown> | null;
+  /** The kept ID token itself, for a service set up to accept this issuer's as the person's proof (Convex's `setAuth`);
+   *  `null` while signed out or with none. It is read at once, so a source can hand it on in its own turn. It is the
+   *  person's credential: keep it in data code, and never answer it to Contract, where an answer is kept and shown. */
+  idToken(store: OAuthStore): string | null;
+  /** Refreshes the session now, for a service that said the ID token had expired: data code reads no clock to see
+   *  it. A provider need not issue an ID token on a refresh (OIDC Core §12.2): the kept one then stands. */
+  refresh(store: OAuthStore): Promise<OAuthResult>;
 }
 
 /** A provider: one per issuer and client, made once at module level. */

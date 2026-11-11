@@ -959,6 +959,27 @@ describe('a first-party sign-in', () => {
     expect(p.claims(store)).toBeNull();
   });
 
+  test('the ID token is handed out for a service that takes it, and the session refreshes when asked', async () => {
+    const p = oauth(configFor('forgerock')), store = memory();
+    expect(p.idToken(store)).toBeNull();
+    expect(await p.refresh(store)).toMatchObject({ ok: false, retryable: false });
+    const send = withSession(await tree());
+    expect((await p.signIn(store, { authorize: (request) => send(request) })).ok).toBe(true);
+    const first = p.idToken(store);
+    expect(first!.split('.').length).toBe(3);
+    const refreshes = async () => (await counts('forgerock')).refresh ?? 0, before = await refreshes();
+    expect(await p.refresh(store)).toEqual({ ok: true, code: '', error: '', retryable: false, status: 0 });
+    expect(await refreshes()).toBe(before + 1);
+    expect(p.idToken(store)!.split('.').length).toBe(3);
+    expect(p.claims(store)).toMatchObject({ sub: 'user-1' });
+    // A session kept without an ID token hands none out.
+    const bare = memory();
+    bare.set('forgerock.session', JSON.stringify({ ...JSON.parse(store.get('forgerock.session')!), idToken: undefined }));
+    expect(p.idToken(bare)).toBeNull();
+    expect((await p.signOut(store)).ok).toBe(true);
+    expect(p.idToken(store)).toBeNull();
+  });
+
   test('configured as the docs say, with no auth.callback grant: callback set, and the token in a header', async () => {
     const g = globalThis as Record<string, unknown>, callback = g.authCallback;
     g.authCallback = (): string => { throw new Error('authCallback(): the grants name no auth.callback'); };

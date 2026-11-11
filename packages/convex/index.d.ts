@@ -35,7 +35,9 @@ type ArgsOf<R extends Reference<string>> = R['_args'];
 type ReturnOf<R extends Reference<string>> = R['_returnType'];
 
 export interface ConvexOptions {
-  /** The largest frame Convex may send, in bytes; the host's stream ceiling (1 MiB) when absent. */
+  /** The largest frame Convex may send, in bytes: 8 MiB when absent. The first frame of a connection carries every
+   *  query's result, so it is the sum of them. A larger one ends the socket as `failed`. Natively an open stream
+   *  counts twice its ceiling against the 68 MiB that independent reads share. */
   maxMessageBytes?: number;
 }
 
@@ -51,7 +53,8 @@ export interface ConvexClient {
   mutation<M extends Reference<'mutation'>>(ref: M, args: ArgsOf<M>): Promise<ReturnOf<M>>;
   /** An action: its result. It rejects as a mutation does. */
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
-  /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it from a mutation's source. */
+  /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it in a
+   *  mutation's source, before any `await`: the web sends only from a source's own turn, and a call after one throws. */
   setAuth(token: string | undefined): void;
   /** The queries Convex is asked for and the requests in flight, for a test or a log. */
   inspect(): { queries: { id: number; udfPath: string; sent: boolean; answered: boolean }[]; requests: number };

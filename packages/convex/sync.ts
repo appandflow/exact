@@ -316,16 +316,18 @@ export class Sync {
 
   /** The person's token changed (`undefined`: signed out). Answers computed for the identity before are
    *  kept, since the server's next `Transition` names only the ones that changed, and none is served until
-   *  that `Transition` arrives and raises `rev` (`local_state.ts`, `setAuth`). */
-  setAuth(token: string | undefined): Frame[] {
+   *  that `Transition` arrives and raises `rev` (`local_state.ts`, `setAuth`). `deliver` sends the frame. */
+  setAuth(token: string | undefined, deliver: (frames: Frame[]) => void = () => {}): Frame[] {
     if (token === this.token) return [];
+    const baseVersion = this.identityVersion;
+    const frames: Frame[] = !this.connected() ? [] : [token === undefined ? { type: 'Authenticate', tokenType: 'None', baseVersion } : { type: 'Authenticate', tokenType: 'User', value: token, baseVersion }];
+    // Sent before anything here changes: a turn that may not send throws, and the identity is still the one Convex has.
+    deliver(frames);
     this.token = token;
     this.authError = '';
     this.identityStale = true;
-    if (!this.connected()) return [];
-    const baseVersion = this.identityVersion;
-    this.identityVersion += 1;
-    return [token === undefined ? { type: 'Authenticate', tokenType: 'None', baseVersion } : { type: 'Authenticate', tokenType: 'User', value: token, baseVersion }];
+    this.identityVersion += frames.length;
+    return frames;
   }
 
   /** For `state` and tests: the queries the server is asked for, and the requests in flight. */

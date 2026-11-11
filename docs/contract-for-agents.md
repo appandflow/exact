@@ -1366,7 +1366,9 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   `closed` (the socket ended or never opened: refresh `live`, as the recipe's
   `retry` does) or `failed` (Convex said something this client cannot follow;
   `live.error` says what, and a new connection would meet it again, so nothing
-  retries it).
+  retries it). A frame over the module's ceiling is one: the first frame of
+  a connection carries every query's result, 8 MiB together unless
+  `convex(url, functions, { maxMessageBytes })` says another.
 - **A quiet socket.** Convex pings one every 15 seconds, and `live.beat` rises
   with every frame. `apps/mosaic` refreshes `live` when `beat` has not moved
   for a minute.
@@ -1383,12 +1385,17 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   the socket is not open (nothing was sent), and when the socket closes before
   the answer. That last one may have run, and nothing is sent again on the
   next connection: a write that must not repeat carries its own key.
-- **A person's token.** `cx.setAuth(jwt)` from a mutation's source, with a JWT
-  the deployment accepts (its `auth.config.ts`); `cx.setAuth(undefined)` signs
-  out. No answer computed for the person before is given again, but the screen
+- **A person's token.** `cx.setAuth(jwt)` in a mutation's source, before any
+  `await` (the web sends only from a source's own turn, and a later call is
+  refused), with a JWT the deployment accepts (its `auth.config.ts`);
+  `cx.setAuth(undefined)` signs out. With `@exact/oauth`, signing in is two
+  mutations: `signIn`, then in its `then` one whose source is `(_a, store) =>
+  { cx.setAuth(provider.idToken(store) ?? undefined); return { ok: true }; }`.
+  When `live.authError` says the token expired, send `provider.refresh(store)`
+  and then that one again. The token stays in data code. No answer computed for the person before is given again, but the screen
   keeps what it showed until the new answers land: gate a signed-in screen on
-  your own session, as with any backend. A refused token is `live.authError`,
-  and Convex closes the socket.
+  your own session, as with any backend. A refused token is `live.authError`;
+  Convex closes the socket, and the next connection is signed out.
 - **Tests** run with no Convex. `server.ts` beside `app.ts` gives
   `@exact/convex/test/server.ts` the app's functions as plain JavaScript over
   memory, and `test` and `verify` start it (`apps/mosaic/server.ts`). Keep the
