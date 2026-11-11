@@ -139,6 +139,16 @@ check('Escape closes a sheet as its Cancel does; with no Cancel the root names, 
   };
   await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
   expect(await escape()).toEqual(['pressed r4']);
+  // While an input method composes text in a field of the sheet, Escape is the input method's: it cancels the
+  // composition and the sheet stays, as AppKit and UIKit give a composing field every key. Composition over, it closes.
+  await evaluate(`{ const field = document.createElement('input'); field.id = 'field'; document.getElementById('r4').append(field); field.focus(); }`);
+  await call('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+  expect(await escape()).toEqual([]);
+  await call('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+  expect(await escape()).toEqual(['pressed r4']);
+  // WebKit ends a composition before the keydown of the key that ended it, which then says so only by keyCode 229.
+  expect(await evaluate(`document.getElementById('field').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 229, bubbles: true, cancelable: true })); calls.splice(0)`)).toEqual([]);
+  await evaluate(`document.getElementById('field').remove()`);
   // It presses a Cancel in the sheet header's closed menu too, as iOS presses the control wherever it is.
   await evaluate(`{ const menu = document.createElement('div'); menu.popover = 'manual'; document.querySelector('#r4 > header').append(menu); menu.append(document.querySelector('#r4 #back')); } select('4')`);
   expect(await escape()).toEqual(['pressed r4']);

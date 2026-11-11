@@ -355,7 +355,7 @@ export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson
       drain(); settled();
     });
     document.addEventListener("keydown", event => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229) return; // an input method's Escape cancels its composition
       if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
       if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(p => p.popover === "auto" || p.popover === "hint")) return;
       // The innermost shown sheet's Back: its named control, else the app bar's way, as iOS's swipe down (`goBack`).
