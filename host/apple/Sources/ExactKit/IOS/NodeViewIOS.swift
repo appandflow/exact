@@ -1126,6 +1126,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
+        if isParagraph, set.keys.contains(where: Self.paragraphProps.contains) || clear.contains(where: Self.paragraphProps.contains) { invalidateText() }
         #if os(iOS)
         let nativeList = kind == "list" && next["listStyle"] != nil
         if groupedOwner != nativeList { groupedOwner = nativeList; syncScroll() }
@@ -1463,10 +1464,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
             ctx.restoreGState()
         }
-        if isParagraph, rollsNumerals, let engine = text {
-            dropTextRaster()
-            NumeralLink.installed?.show(self, attributed: engine.attributed(paragraphSpec()), box: contentBox(),
-                                        align: paragraphSpec().align, mode: style["content_transition"]?.string ?? "numeric")
+        if isParagraph, rollsNumerals {
+            showNumerals(ctx)
         } else if isParagraph {
             NumeralLink.installed?.hide(self)
             if canRasterText {

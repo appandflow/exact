@@ -123,6 +123,9 @@ extension NodeView {
     var textAlignmentCode: Int {
         TextStyle.alignment(style)
     }
+    /// The props a paragraph's spec reads (`paragraphSpec`): setting one
+    /// invalidates what was laid out from the old value, whoever asked first.
+    static let paragraphProps: Set<String> = ["text", "markup", "atoms", "atomFaces", "atomStyles", "href", "fitScale"]
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
         #if os(macOS)

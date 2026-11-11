@@ -1464,7 +1464,7 @@ package final class Presenter {
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
             if textChanged || children { node.invalidateText() }
-            if boxChanged || !node.canRasterText { node.setNeedsDisplay() }
+            if boxChanged || node.hasContentTransition || !node.canRasterText { node.setNeedsDisplay() }
             paragraph = node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }

@@ -26,7 +26,9 @@ final class NodeLayer: CALayer {
         if node.drawsPaint { super.display(); return }
         contents = nil
         if node.isParagraph {
-            // Text's pixels are the raster layer's; this one keeps none.
+            // Text's pixels are the raster layer's; this one keeps none, and
+            // the Numerals capability, which drew it on one line, lets go.
+            if node.hasContentTransition { NumeralLink.installed?.hide(node) }
             node.presenter?.textRasters.ensure(node, urgent: node.presenter?.textIsVisible(node) == true)
             if node.textRasterFailed { super.display(); return }
         }
