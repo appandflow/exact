@@ -362,6 +362,62 @@ component App
 }
 
 #[test]
+fn select_options_use_their_value_or_label_in_the_document() {
+    let doc = document(
+        r#"
+component App
+  state pick = "b"
+  view
+    column
+      select value=pick
+        option "a" testId="plain-a"
+        option "b" testId="plain-b"
+      select value=pick
+        option "b" value="a" testId="valued-a"
+        option "B" value="b" testId="valued-b"
+      select value="b c"
+        option "a" testId="space-a"
+        option testId="space-b"
+          text "  b\t"
+          text " c\n "
+      select value=""
+        option "a" testId="empty-a"
+        option "B" value="" testId="empty-b"
+      select
+        option "a" testId="default-a"
+        option "b" testId="default-b"
+      select value="b"
+        option "First" value="b" testId="duplicate-a"
+        option "b" testId="duplicate-b"
+      select value="b c"
+        option "a" testId="nbsp-a"
+        option "b c" testId="nbsp-b"
+"#,
+    );
+    for (id, selected) in [
+        ("plain-a", false),
+        ("plain-b", true),
+        ("valued-a", false),
+        ("valued-b", true),
+        ("space-a", false),
+        ("space-b", true),
+        ("empty-a", false),
+        ("empty-b", true),
+        ("default-a", false),
+        ("default-b", false),
+        ("duplicate-a", true),
+        ("duplicate-b", false),
+        ("nbsp-a", false),
+        ("nbsp-b", true),
+    ] {
+        let at = doc.find(&format!("data-testid=\"{id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let tag = &doc[start..at + doc[at..].find('>').unwrap()];
+        assert_eq!(tag.contains(" selected"), selected, "{tag}");
+    }
+}
+
+#[test]
 fn markdown_is_spans_and_navigable_links() {
     let src = r#"
 component App

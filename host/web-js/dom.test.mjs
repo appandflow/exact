@@ -1,10 +1,11 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createDocument } from './dom.js';
 import { webCompiler } from './module.mjs';
 import { renderer } from './render.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { standIns } from '../web/tests/stand-ins.mjs';
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
@@ -38,6 +39,201 @@ test('the render DOM reflects link relations and image alternatives in both dire
     expect(el.getAttribute(prop)).toBe('');
   }
 });
+
+test('the render DOM selects options by their value or label', () => {
+  const doc = createDocument(), select = doc.createElement('select');
+  const a = doc.createElement('option'), b = doc.createElement('option'), explicit = doc.createElement('option');
+  a.textContent = 'a'; explicit.textContent = 'b c';
+  const run = doc.createElement('span'); run.textContent = ' c ';
+  b.append(' \tb\n', run);
+  explicit.setAttribute('value', 'other');
+  select.append(a, doc.createComment(), b, explicit);
+  select.value = 'b c';
+  expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, true, false]);
+  select.value = 'other';
+  expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, false, true]);
+  explicit.setAttribute('value', '');
+  select.value = '';
+  expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, false, true]);
+  select.value = 'a';
+  expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([true, false, false]);
+});
+
+test.each([
+  ['duplicate', 'b', [['First', 'b'], ['b']], [true, false]],
+  ['nonbreaking space', 'b\u00a0c', [['a'], ['b\u00a0c']], [false, true]],
+  ['HTML whitespace', 'b c', [['a'], ['\t b\n\r\f c ']], [false, true]],
+  ['other whitespace', '\u00a0b\u2003c\v', [['a'], ['\u00a0b\u2003c\v']], [false, true]],
+])('the render DOM selects the first matching option: %s', (_, value, options, selected) => {
+  const doc = createDocument(), select = doc.createElement('select');
+  for (const [label, own] of options) {
+    const option = doc.createElement('option'); option.textContent = label;
+    if (own !== undefined) option.setAttribute('value', own);
+    select.append(option);
+  }
+  select.value = value;
+  expect(select.options.map(o => o.hasAttribute('selected'))).toEqual(selected);
+  expect(select.value).toBe(value);
+});
+
+async function withRenderRuntime(run) {
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../target/select-runtime-test-'));
+  const previous = globalThis.document, doc = createDocument();
+  globalThis.document = doc;
+  try {
+    const real = ['rt.js', 'elements.js', 'shape.js', 'overlay.js', 'held.js', 'roster.js', 'budget.js'];
+    for (const name of real) copyFileSync(resolve(import.meta.dir, name), resolve(dir, name));
+    for (const [name, source] of standIns(real)) writeFileSync(resolve(dir, name), source);
+    await run(doc, await import(resolve(dir, 'rt.js')));
+  } finally {
+    globalThis.document = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test.each([['', false], ['b', false], ['', true], ['b', true]])(
+  'the runtime selects %j and rechecks changed option labels (explicit value: %j)',
+  async (value, explicit) => withRenderRuntime((doc, { P, settled }) => {
+    const select = doc.createElement('select'); doc.root.append(select);
+    P(select, 'value', () => value);
+    const a = doc.createElement('option'), b = doc.createElement('option');
+    a.textContent = 'a'; b.textContent = value;
+    if (explicit) P(b, 'value', () => value);
+    select.append(a, b); settled(true);
+    expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, true]);
+    P(b, 'text', () => 'c'); settled(true);
+    expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, explicit]);
+    expect(select.value).toBe(explicit ? value : 'a');
+    expect(b.getAttribute('value')).toBe(explicit ? value : null);
+    P(a, 'text', () => value); settled(true);
+    expect(select.value).toBe(value);
+    P(b, 'value', () => ''); P(select, 'value', () => '');
+    a.textContent = 'a'; settled(true);
+    expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([false, true]);
+    expect(b.value).toBe('');
+  }),
+);
+
+test.each([false, true])('the runtime marks the first option selected in a multiple select (explicit value: %j)',
+  async explicit => withRenderRuntime((doc, { P, settled }) => {
+    const select = doc.createElement('select'); doc.root.append(select);
+    select.setAttribute('multiple', ''); P(select, 'value', () => 'a');
+    for (const label of ['a', 'b']) {
+      const option = doc.createElement('option'); option.textContent = label;
+      if (explicit) P(option, 'value', () => label);
+      select.append(option);
+    }
+    settled(true);
+    expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([true, false]);
+    select.value = 'b'; settled(true);
+    expect(select.value).toBe('b');
+    P(select, 'value', () => 'a'); settled(true);
+    expect(select.options.map(o => o.hasAttribute('selected'))).toEqual([true, false]);
+  }),
+);
+
+test.each(['js', 'rust'])('%s-rendered selects show label-only options before and after adoption', async how => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/select-document-test-'));
+  let server, browser;
+  try {
+    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
+    writeFileSync(source, `routes nav
+  home "/" render=build
+
+component App
+  state pick = "b"
+  state label = "b"
+  action choose(v: string)
+    pick = v
+  action relabel
+    label = "c"
+  view
+    column
+      select value=pick change=choose testId="plain"
+        option "a"
+        option "b"
+      select value=pick change=choose testId="valued"
+        option "b" value="a"
+        option "B" value="b"
+      select value="b c" testId="spaces"
+        option "a"
+        option
+          text "  b\\t"
+          text " c\\n "
+      select value=pick testId="empty"
+        option "a"
+        option "b" value=""
+        option "b"
+      select value="b" testId="duplicate"
+        option "First" value="b"
+        option "b"
+      select value="" testId="empty-label"
+        option "a"
+        option ""
+      select value="" testId="empty-value"
+        option "a"
+        option "B" value=""
+      select value="b\u00a0c" testId="nbsp"
+        option "a"
+        option "b\u00a0c"
+      select multiple=true value="a" testId="multiple-label"
+        option "a"
+        option "b"
+      select multiple=true value="a" testId="multiple-value"
+        option "A" value="a"
+        option "B" value="b"
+      select value=pick testId="bound"
+        option "a"
+        option label value=pick testId="bound-option"
+      select value="b" text-transform="uppercase" testId="uppercase"
+        option "a"
+        option "b"
+      select value="bc" testId="mixed"
+        option "a"
+        option "b"
+          text "c"
+      button "Keep selection" press=choose("b") testId="wake"
+      button "Change label" press=relabel testId="relabel"
+      text pick testId="chosen"
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', how], {
+      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    for (const javaScriptEnabled of [false, true]) {
+      const page = await browser.newPage({ javaScriptEnabled });
+      await page.goto(server.url.href);
+      const selections = () => page.evaluate(() => [...document.querySelectorAll('select')].map(e => [e.value, e.selectedIndex]));
+      const expected = [['b', 1], ['b', 1], ['b c', 1], ['b', 2], ['b', 0], ['', 1], ['', 1], ['b\u00a0c', 1],
+        ['a', 0], ['a', 0], ['b', 1], ['b', 1], ['bc', 1]];
+      expect(await selections()).toEqual(expected);
+      if (javaScriptEnabled) {
+        expect(await page.evaluate(() => !!globalThis.exact?.ready)).toBe(false);
+        await page.evaluate(() => { globalThis.renderedSelect = document.querySelector('[data-testid="plain"]'); });
+        await page.getByTestId('wake').click();
+        await page.waitForFunction(() => globalThis.exact?.journal?.some(line => line.endsWith('adopted the document')));
+        expect(await page.evaluate(() => renderedSelect === document.querySelector('[data-testid="plain"]'))).toBe(true);
+        expect(await selections()).toEqual(expected);
+        await page.getByTestId('relabel').click();
+        await page.waitForFunction(() => document.querySelector('[data-testid="bound-option"]').textContent === 'c');
+        expect(await page.getByTestId('bound-option').getAttribute('value')).toBe('b');
+        expect(await selections()).toEqual(expected);
+        await page.getByTestId('plain').selectOption('a');
+        await page.waitForFunction(() => document.querySelector('[data-testid="chosen"]').textContent === 'a');
+        expect(await page.getByTestId('valued').inputValue()).toBe('a');
+      }
+      await page.close();
+    }
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
 
 test('Bun-rendered bound links and symbols keep their attributes through adoption', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');

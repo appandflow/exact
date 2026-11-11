@@ -97,10 +97,24 @@ class Element extends Node {
       });
     });
   }
-  get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
+  get value() {
+    if (this.localName === 'select') {
+      const options = this.options;
+      return (options.find(o => o.hasAttribute('selected')) ?? options.find(o => !o.hasAttribute('disabled')))?.value ?? '';
+    }
+    if (this.localName === 'option') return this.getAttribute('value') ?? this.textContent.replace(/[\t\n\f\r ]+/g, ' ').replace(/^ | $/g, '');
+    return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? '';
+  }
   get options() { return this.childNodes.filter(c => c.localName === 'option'); }
   // A select's value is the option that carries it, `selected` (document.rs).
-  set value(v) { if (this.localName === 'select') for (const o of this.childNodes) o.toggleAttribute?.('selected', o.getAttribute('value') === v); else if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
+  set value(v) {
+    if (this.localName === 'select') {
+      const options = this.options, selected = options.find(o => o.value === String(v));
+      for (const o of options) o.toggleAttribute('selected', o === selected);
+    } else if (this.localName === 'textarea') this.textContent = v;
+    else if (v === '' && this.localName !== 'option') this.removeAttribute('value');
+    else this.setAttribute('value', v);
+  }
   set checked(v) { this.toggleAttribute('checked', !!v); }
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }

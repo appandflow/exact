@@ -602,7 +602,7 @@ struct Walk<'r, 'w, S: Source> {
     touch: u32,
     /// Open routes `navigation.project` hides.
     hidden: u32,
-    /// The open `select`'s value: the option that carries it is `selected`.
+    /// The open `select`'s value, consumed by its first matching option.
     select: Option<String>,
     scroll_document: bool,
     /// The page's scroller's ancestors while one element is it:
@@ -791,9 +791,6 @@ impl<S: Source> Walk<'_, '_, S> {
                 // attribute) are the element's; a textarea's is its text.
                 "value" => match element {
                     "input" | "button" | "option" => {
-                        if element == "option" && self.select.as_ref() == Some(value) {
-                            attrs.push(("selected".into(), None));
-                        }
                         attrs.push((name.clone(), Some(value.clone())));
                     }
                     "textarea" => content = Some(value.clone()),
@@ -830,6 +827,18 @@ impl<S: Source> Walk<'_, '_, S> {
                     attrs.push((name.clone(), Some("about:blank".into())));
                 }
                 _ => attrs.push((name.clone(), Some(value.clone()))),
+            }
+        }
+        if element == "option" {
+            if let Some(selected) = &self.select {
+                let value = props
+                    .get("value")
+                    .cloned()
+                    .unwrap_or_else(|| option_label(src, id));
+                if &value == selected {
+                    attrs.push(("selected".into(), None));
+                    self.select = None;
+                }
             }
         }
         if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
@@ -1260,6 +1269,19 @@ fn symbol_scale() -> f64 {
         exact_kernel::MetricValue::Number(n) => n,
         _ => 1.0,
     }
+}
+
+/// An option without `value` uses its text (LLP 1069.001 D2).
+fn option_label(src: &impl Source, id: ViewId) -> String {
+    let mut text = String::new();
+    let mut pending = vec![id];
+    while let Some(id) = pending.pop() {
+        if let Some(node) = src.facts(id) {
+            text.push_str(node.props.str(PropId::Text).unwrap_or(""));
+            pending.extend(src.children(id).iter().rev());
+        }
+    }
+    exact_kernel::control::option_label(&text)
 }
 
 /// Append `text` escaped for HTML text (`attribute` false) or a

@@ -358,9 +358,9 @@ pub(crate) fn range_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taff
 pub struct Choice {
     /// The option's node.
     pub view: ViewId,
-    /// Its `value`, or its label when it has none (HTML).
+    /// Its `value`, or its text content with HTML whitespace collapsed, before CSS.
     pub value: String,
-    /// Its text, white space stripped and collapsed (HTML's `option.text`).
+    /// Its display text, with HTML whitespace stripped and collapsed.
     pub label: String,
     /// Whether it may not be chosen.
     pub disabled: bool,
@@ -418,6 +418,11 @@ pub fn is_option_node(node_type: NodeType, props: &crate::PropList) -> bool {
     node_type == NodeType::Text && props.str(PropId::SemanticTag) == Some("option")
 }
 
+/// Collapse HTML's ASCII whitespace in an option's text.
+pub fn option_label(text: &str) -> String {
+    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 impl Kernel {
     /// A select's options in order, from its children (LLP 1069.001 D2);
     /// empty for any other node.
@@ -436,18 +441,31 @@ impl Kernel {
             .filter(is_option)
             .map(|option| {
                 let text: String = option.text_runs().iter().map(|r| &*r.text).collect();
-                let label = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                let label = option_label(&text);
                 Choice {
                     view: option.id,
                     value: option
                         .props
                         .str(PropId::Value)
-                        .map_or_else(|| label.clone(), str::to_owned),
+                        .map_or_else(|| self.option_value(option.id), str::to_owned),
                     label,
                     disabled: disabled || option.props.bool(PropId::Disabled) == Some(true),
                 }
             })
             .collect()
+    }
+
+    // HTML option values read text content, before CSS transforms or text shaping.
+    fn option_value(&self, view: ViewId) -> String {
+        let mut text = String::new();
+        let mut pending = vec![view];
+        while let Some(id) = pending.pop() {
+            if let Some(node) = self.node(id) {
+                text.push_str(node.props.str(PropId::Text).unwrap_or(""));
+                pending.extend(node.children().into_iter().rev());
+            }
+        }
+        option_label(&text)
     }
 
     /// A radio's group, HTML's radio button group: every attached radio of
@@ -733,6 +751,98 @@ mod tests {
             ControlKind::of(NodeType::Control, k.node(2).unwrap().props),
             Some(ControlKind::Select)
         );
+    }
+
+    #[test]
+    fn option_labels_collapse_only_html_whitespace() {
+        let mut k = select();
+        let label = "\u{a0}b\u{a0}c\u{b}\u{2003}";
+        k.apply(
+            0,
+            2,
+            &[
+                Op::SetProp {
+                    id: 4,
+                    prop: PropId::Text,
+                    value: PropValue::Str(format!("\t\n {label}\r\u{c}").into()),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: PropValue::Str(label.into()),
+                },
+            ],
+        )
+        .unwrap();
+        let choices = k.select_choices(2);
+        assert_eq!(choices[1].label, label);
+        assert_eq!(choices[1].value, label);
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
+    }
+
+    #[test]
+    fn option_values_ignore_text_transform() {
+        let mut k = select();
+        let mut style = crate::StyleProps::default();
+        style
+            .set_dynamic(
+                StyleId::TextTransform,
+                &crate::StyleValue::Text("uppercase".into()),
+            )
+            .unwrap();
+        k.apply(
+            0,
+            2,
+            &[
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(style),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: "Dark".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let choices = k.select_choices(2);
+        assert_eq!(choices[0].value, "s");
+        assert_eq!(choices[1].label, "DARK");
+        assert_eq!(choices[1].value, "Dark");
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
+    }
+
+    #[test]
+    fn option_values_include_own_text_and_descendants() {
+        let mut k = select();
+        k.apply(
+            0,
+            2,
+            &[
+                Op::CreateView {
+                    id: 5,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 5,
+                    prop: PropId::Text,
+                    value: "er".into(),
+                },
+                Op::SetChildren {
+                    id: 4,
+                    children: vec![5],
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: "Darker".into(),
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(k.select_choices(2)[1].value, "Darker");
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
     }
 
     #[test]

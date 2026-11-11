@@ -1,6 +1,7 @@
 # A rendered page shows a `select`'s first option when its options have no `value`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both document renderers select the first matching option by explicit value or label, including empty values and labels with nonbreaking spaces.
 **Systems:** host/web/src/document.rs, host/web-js/dom.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
