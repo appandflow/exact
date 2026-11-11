@@ -1,6 +1,7 @@
 # A `:checked` part on a node whose `aria-checked` or `aria-selected` is a quoted `"true"` or `"false"` compiles to a binding that traps
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** :checked parts normalize quoted aria-checked and aria-selected boolean tokens through the property-binding conversion and bake without trapping.
 **Systems:** contract/lower/src/states.rs (`fold_states`), contract/lower/src/values.rs (`aria_bool_literal`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

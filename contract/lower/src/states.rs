@@ -484,6 +484,12 @@ impl Lowerer<'_> {
         let mut checked: Option<Expr> = None;
         for name in ["checked", "aria-checked", "aria-selected", "aria-pressed"] {
             let Some(v) = written(name) else { continue };
+            let v = match tags::attr(name) {
+                Some(tags::AttrTarget::Prop(prop)) => {
+                    values::aria_bool_literal(name, prop, &v).unwrap_or(v)
+                }
+                _ => v,
+            };
             let v = match (name, &v) {
                 ("aria-pressed", Expr::Str(s, sp)) => Expr::Bool(s == "true", *sp),
                 ("aria-pressed", Expr::Bool(..)) => v,
