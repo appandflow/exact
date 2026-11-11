@@ -1,6 +1,7 @@
 # A navigation to a page the kernel-free writer does not cover renders it three times
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A navigation whose tree needs a kernel renders twice, as a buffered request does, without retrying the direct writer.
 **Systems:** host/render/src/serve.rs, host/render/src/direct.rs, host/render/src/lib.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -1270,6 +1270,83 @@ pub(super) fn unchunk(mut body: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn a_navigation_renders_an_uncovered_tree_only_once_more_with_a_kernel() {
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    struct Cards;
+    impl DataSource for Cards {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            assert_eq!(source, "cards");
+            READS.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::list(vec![Value::str("A card")]))
+        }
+    }
+    let plan = contract::compile(
+        r#"
+routes nav
+  tab rem "/rem" render=request
+  tab px "/px" render=request
+  notfound render=build
+
+component Site
+  resource cards = cards() as shape string[]
+  view
+    column
+      for e in stack(nav) key = e.id
+        column
+          if e.name == "rem"
+            for c in cards key = c
+              text c font-size="1.5rem"
+          if e.name == "px"
+            for c in cards key = c
+              text c font-size="24px"
+"#,
+    )
+    .unwrap();
+    super::warm_transport();
+    let dir = dist("navigation-kernel-fallback");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let serve = Serve {
+        dist: dir,
+        port: 0,
+        name: "Cards".into(),
+        origin: None,
+        deadline: BOUND,
+        renders: 1,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    };
+    let served = serving(Server::bind(serve, plan, "").unwrap(), || Cards);
+    for (target, reads) in [("/px", 1), ("/rem", 2)] {
+        for navigate in [false, true] {
+            let dest = if navigate {
+                "Sec-Fetch-Dest: document\r\n"
+            } else {
+                ""
+            };
+            let (status, headers, body) =
+                fetch(served.addr, &format!("GET {target} HTTP/1.1\r\n{dest}\r\n"));
+            assert_eq!(status, 200);
+            assert_eq!(header(&headers, "cache-control"), Some("no-store"));
+            let body = if navigate {
+                assert_eq!(header(&headers, "transfer-encoding"), Some("chunked"));
+                String::from_utf8(unchunk(body.as_bytes())).unwrap()
+            } else {
+                body
+            };
+            assert!(body.contains(">A card<"), "{body}");
+            assert!(body.contains("application/vnd.exact.checkpoint"), "{body}");
+            assert_eq!(
+                READS.swap(0, Ordering::SeqCst),
+                reads,
+                "{target}, navigate={navigate}: source calls per request"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     // @ref LLP 1071 D6 — the early flush (host/render/src/stream.rs).
     super::warm_transport();

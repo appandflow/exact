@@ -15,7 +15,7 @@
 
 use crate::encode::{self, Accepts, Variants};
 use crate::files::{asset_shaped, named_build, percent_decode, static_file, AUTH_CALLBACK};
-use crate::{page, render_as, Ids, Rendered};
+use crate::{page, render_with, Ids, Projection, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
 use exact_web::document::{canonical_location, route_at, Site};
@@ -1223,6 +1223,7 @@ fn document<D: DataSource + 'static>(
     // runner's instance tree and sent as it is written (LLP 1048.004).
     let mut streamed_body = false;
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut projection = Projection::Auto;
         if let Some((out, head, at)) = flush.as_mut() {
             let mut send = |bytes: &[u8]| out.send(bytes);
             let late = |activate: exact_plan::ActivatePolicy| {
@@ -1244,17 +1245,20 @@ fn document<D: DataSource + 'static>(
                 streamed_body = true;
                 return Ok((rendered, head.clone() + &body));
             }
+            // The direct writer requires a kernel; do not settle without one again.
+            projection = Projection::Kernel;
         }
         // A JavaScript page drops the document's view ids (page::for_runtime).
         let ids = if shared.js { Ids::Any } else { Ids::Runtime };
-        render_as(
+        render_with(
             &shared.plan,
-            data,
+            &data,
             viewport,
             location,
             &site,
             serve.deadline,
             ids,
+            projection,
         )
         .and_then(|rendered| {
             let html = match &flush {
