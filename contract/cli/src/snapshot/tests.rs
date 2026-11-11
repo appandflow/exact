@@ -963,6 +963,11 @@ fn snapshot_v1_refusals_have_the_driver_edit() {
             "sRGB colour",
         ),
         (
+            r#"progress value=0.5 accent-color="color(display-p3 1 0 0)""#,
+            "snapshot-color",
+            "sRGB colour",
+        ),
+        (
             r#"view background-color="light-dark(red, oklch(70% 0.3 60))""#,
             "snapshot-color",
             "sRGB colour",
@@ -1048,6 +1053,9 @@ fn snapshot_v1_admitted_paint_and_layout_bake() {
         r#"image "app:/train.png" width=40 height=30"#,
         r#"progress value=0.5 max=1"#,
         r#"progress start=1700000000000 end=1700003600000"#,
+        r##"progress value=0.5 accent-color="#5e5ce6""##,
+        r#"progress start=1700000000000 end=1700003600000 accent-color="auto""#,
+        "view accent-color=\"AccentColor\"\n      progress value=0.5",
         r#"time datetime=1792254600000 format="date-full""#,
         r#"time datetime=1792254600123 format="time-short""#,
         "link href=\"/\"\n      text title",

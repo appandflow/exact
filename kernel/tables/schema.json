@@ -3942,6 +3942,7 @@
     {
       "bit": 145,
       "field": "accent_color",
+      "snapshot": "admit",
       "codec": "auto-color",
       "inherited": true,
       "default": "auto",

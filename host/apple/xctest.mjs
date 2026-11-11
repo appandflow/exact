@@ -22,6 +22,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/sticky-transition.contract'), '-o', env[`${prefix}_STICKY_TRANSITION_PLAN`] = resolve(dir, 'sticky-transition.plan')]);
   // SwipeScrollDragTests': swipeleft and swiperight rows and a scroller's drag events.
   contract([resolve(root, 'host/apple/tests/fixtures/swipe-scroll-drag.contract'), '-o', env[`${prefix}_SWIPE_SCROLL_DRAG_PLAN`] = resolve(dir, 'swipe-scroll-drag.plan')]);
+  // SnapshotDriverTests' live tree: a bar and a ring under an ancestor's accent.
+  contract([resolve(root, 'host/apple/tests/fixtures/live-accent.contract'), '-o', env[`${prefix}_LIVE_ACCENT_PLAN`] = resolve(dir, 'live-accent.plan')]);
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
   contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
   // AgentStickyReveal{Mac,IOS}Tests': rows under a sticky header and dock.
@@ -58,6 +60,12 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   writeFileSync(resolve(refusing, 'app.json'), JSON.stringify({ name: 'Refusing refresh', app: { id: appId, name: 'Refusing refresh' }, widgets: [{ kind: 'refusing', families: ['systemSmall'], component: 'Card', props: 'Props', refresh: 'nextTrains', preview: { title: 'Preview' } }] }));
   // Caltrain's nextTrains answers a different Props shape: the refresh must refuse.
   contract([resolve(refusing, 'app.contract'), '--entry', 'refusing', '-o', env[`${prefix}_SNAPSHOT_REFUSING_PLAN`] = resolve(dir, 'refusing.plan')]);
+  // WidgetGalleryTests: an accented bar at a half through the agent's widget screenshot.
+  const barCard = resolve(dir, 'entries/bar-card');
+  mkdirSync(barCard, { recursive: true });
+  writeFileSync(resolve(barCard, 'app.contract'), 'shape CardProps\n  title: string\ncomponent App\n  view\n    text "App"\ncomponent BarCard\n  props\n    title: string\n  view\n    column background-color="#ffffff" padding=8\n      progress value=0.5 accent-color="#ff0000" width=200\n');
+  writeFileSync(resolve(barCard, 'app.json'), JSON.stringify({ name: 'Bar card', app: { id: appId, name: 'Bar card' }, widgets: [{ kind: 'bar-card', families: ['systemMedium'], component: 'BarCard', props: 'CardProps', refresh: 'nextTrains', preview: { title: 'Preview' } }] }));
+  contract([resolve(barCard, 'app.contract'), '--entry', 'bar-card', '-o', env[`${prefix}_SNAPSHOT_BAR_CARD_PLAN`] = resolve(dir, 'bar-card.plan')]);
   // An activity whose Lock Screen placement has a background and a link (ActivityDriverTests: the tint, the URL).
   const tinted = resolve(dir, 'entries/tinted');
   mkdirSync(tinted, { recursive: true });
@@ -83,6 +91,12 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   cpSync(resolve(root, 'host/apple/tests/fixtures/activity-edges.contract'), resolve(edges, 'app.contract'));
   writeFileSync(resolve(edges, 'app.json'), JSON.stringify({ app: { id: appId, name: 'Activity edges' }, live_activities: [{ kind: 'edges', component: 'Edges', state: 'EdgeState', preview: { title: 'Private account label' } }] }));
   contract([resolve(edges, 'app.contract'), '--entry', 'edges', '-o', env[`${prefix}_SNAPSHOT_EDGES_PLAN`] = resolve(dir, 'edges.plan')]);
+  // WidgetGalleryTests: accented bars through the agent's activity screenshot.
+  const bars = resolve(dir, 'entries/activity-bars');
+  mkdirSync(bars, { recursive: true });
+  cpSync(resolve(root, 'host/apple/tests/fixtures/activity-bars.contract'), resolve(bars, 'app.contract'));
+  writeFileSync(resolve(bars, 'app.json'), JSON.stringify({ app: { id: appId, name: 'Activity bars' }, live_activities: [{ kind: 'bars', component: 'Bars', state: 'BarsState', preview: { start: 0, end: 1 } }] }));
+  contract([resolve(bars, 'app.contract'), '--entry', 'bars', '-o', env[`${prefix}_SNAPSHOT_BARS_PLAN`] = resolve(dir, 'bars.plan')]);
   if (prefix === 'EXACT') {
     const app = resolve(dir, 'SnapshotAssets.app'), resources = resolve(app, 'Contents/Resources');
     const extension = resolve(app, 'Contents/PlugIns/Card.appex');
