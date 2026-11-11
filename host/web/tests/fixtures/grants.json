@@ -506,5 +506,7 @@
   {"spec":"fs.write home:/", "ok":false},
   {"spec":"fs.write bundle:/Resources", "ok":false},
   {"spec":"sqlite.open bundle:/Resources/db", "ok":false},
-  {"spec":"fs.read home:.ssh", "ok":false}
+  {"spec":"fs.read home:.ssh", "ok":false},
+  {"spec":"fs.read doc:/photos//2024", "ok":false},
+  {"spec":"fs.write doc:/a\\\\b", "ok":false}
 ]

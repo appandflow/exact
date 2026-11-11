@@ -1,6 +1,7 @@
 # A `doc:` grant with a doubled slash passes the bake and leaves a native host with no grants
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `exact_grants` refuses a `doc:` path with an empty segment, a backslash or a NUL, as ibex2 does, so the bake names the line rather than building an app whose native hosts hold no grants.
 **Systems:** grants (`PathPrefix`), vendor/ibex ibex2 grant (`PathPrefix`), bake/src/reach.rs, native executors (Apple, Linux)
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)

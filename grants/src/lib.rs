@@ -84,6 +84,14 @@ impl PathPrefix {
         let namespace = ["app:", "doc:", "home:", "bundle:"]
             .into_iter()
             .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)));
+        // A chosen document's path is the host's own, never normalized: an
+        // empty segment, a backslash or a NUL refuses it, as ibex2's parser,
+        // which the native hosts admit by, refuses it (LLP 1069.010 D1).
+        if namespace.is_some_and(|(ns, rest)| {
+            ns == "doc:" && (rest.contains(['\\', '\0']) || rest.contains("//"))
+        }) {
+            return None;
+        }
         let (namespace, path) = if let Some(found) = namespace {
             found
         } else if path.starts_with('/') {
