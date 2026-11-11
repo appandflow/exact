@@ -1,6 +1,7 @@
 # In the harness prompt, ArrowDown from the newest recalled entry shows the oldest instead of the empty draft
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** ArrowDown at the newest recalled entry empties the draft, rather than reading `history.at(-1)`, the oldest.
 **Systems:** apps/harness (terminal.contract)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
