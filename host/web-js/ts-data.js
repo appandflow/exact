@@ -139,36 +139,75 @@ const kind = v => v === null ? 'null' : typeof v === 'boolean' ? 'a bool' : type
 const describe = t => typeof t === 'string' ? { n: 'a number', b: 'a bool', s: 'a string' }[t] ?? 'null'
   : Array.isArray(t) ? t[0] === '?' ? `null or ${describe(t[1])}` : 'an array' : 'an object';
 const omitted = x => x === undefined || typeof x === 'function' || typeof x === 'symbol';
-const enumerable = Object.prototype.propertyIsEnumerable;
-function outside(v, t) {
-  // What `JSON.stringify` makes of it: `toJSON`, null for a non-finite number.
-  if (v !== null && typeof v === 'object' && typeof v.toJSON === 'function') v = v.toJSON();
-  if (omitted(v) || (typeof v === 'number' && !isFinite(v))) v = null;
+const enumerable = Object.prototype.propertyIsEnumerable, tag = Object.prototype.toString;
+// A wrapper's own value, read as JSON reads it (ECMA-262 SerializeJSONProperty step 4).
+const BOXES = [['[object Number]', Number.prototype.valueOf, Number], ['[object String]', String.prototype.valueOf, String],
+  ['[object Boolean]', Boolean.prototype.valueOf, b => Boolean.prototype.valueOf.call(b)]];
+function unboxed(v) {
+  const name = tag.call(v);
+  for (const [n, slot, read] of BOXES) {
+    if (name !== n) continue;
+    try { slot.call(v); } catch { return v; } // a tag alone does not make a wrapper
+    return read(v);
+  }
+  return v;
+}
+// What `JSON.stringify` writes for `v` under `key` (a name, or an array's index): its `toJSON`'s value,
+// a wrapper's primitive, null for a non-finite number, 0 for -0, and undefined for what it leaves out.
+function json(v, key) {
+  if ((v !== null && typeof v === 'object') || typeof v === 'bigint') {
+    if (typeof v.toJSON === 'function') v = v.toJSON(String(key));
+    if (v !== null && typeof v === 'object' && Object.getPrototypeOf(v) !== Object.prototype && !Array.isArray(v)) v = unboxed(v);
+  }
+  if (typeof v === 'number') return isFinite(v) ? v + 0 : null;
+  return omitted(v) ? undefined : v;
+}
+// `v`, already as JSON writes it, checked against `t`, with each part as JSON writes it: a part that JSON
+// leaves as it is stays the same object, so an unchanged or frozen tree converts as an identity. OUT, with
+// the reason in `fault`, when it does not conform.
+const OUT = Symbol('outside');
+let fault = '';
+const refuse = e => { fault = e; return OUT; };
+function written(v, t) {
   if (typeof t === 'string') {
     const ok = t === 'n' ? typeof v === 'number' : t === 'b' ? typeof v === 'boolean' : t === 's' ? typeof v === 'string' : v === null;
-    return ok ? null : `expected ${describe(t)}, got ${kind(v)}`;
+    return ok ? v : refuse(`expected ${describe(t)}, got ${kind(v)}`);
   }
-  if (Array.isArray(t) && t[0] === '?') return v === null ? null : outside(v, t[1]);
+  if (Array.isArray(t) && t[0] === '?') return v === null ? null : written(v, t[1]);
   if (Array.isArray(t)) {
-    if (!Array.isArray(v)) return `expected an array, got ${kind(v)}`;
-    for (let i = 0; i < v.length; i++) { const e = outside(v[i], t[1]); if (e) return e; }
-    return null;
+    if (!Array.isArray(v)) return refuse(`expected an array, got ${kind(v)}`);
+    let out = null;
+    for (let i = 0; i < v.length; i++) {
+      const x = v[i], w = written(json(x, i) ?? null, t[1]);
+      if (w === OUT) return OUT;
+      if (out) out.push(w); else if (!same(w, x)) { out = v.slice(0, i); out.push(w); }
+    }
+    return out ?? v;
   }
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return `expected an object, got ${kind(v)}`;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return refuse(`expected an object, got ${kind(v)}`);
+  let out = null;
   for (const f in t) {
-    if (!enumerable.call(v, f) || omitted(v[f])) return `field \`${f}\` is missing`;
-    const e = outside(v[f], t[f]);
-    if (e) return `field \`${f}\`: ${e}`;
+    const x = enumerable.call(v, f) ? v[f] : undefined, j = json(x, f);
+    if (j === undefined) return refuse(`field \`${f}\` is missing`);
+    const w = written(j, t[f]);
+    if (w === OUT) return refuse(`field \`${f}\`: ${fault}`);
+    if (!out && !same(w, x)) {
+      // Null-prototype, so a field named `__proto__` is a field.
+      out = Object.create(null);
+      for (const g in t) { if (g === f) break; out[g] = v[g]; }
+    }
+    if (out) out[f] = w;
   }
   let extra = null;
-  for (const key of Object.keys(v)) if (!Object.hasOwn(t, key) && !omitted(v[key]) && (extra === null || key < extra)) extra = key;
-  return extra === null ? null : `field \`${extra}\` is not in the shape`;
+  for (const key of Object.keys(v)) if (!Object.hasOwn(t, key) && json(v[key], key) !== undefined && (extra === null || key < extra)) extra = key;
+  return extra === null ? out ?? v : refuse(`field \`${extra}\` is not in the shape`);
 }
-// Revalidate every answer: freezing a proxy does not freeze its serialization behavior
+// The answer as a native host receives it, the text `JSON.stringify` writes (js/src/binary.js), checked as
+// js/value's `decode_tree` checks it. Revalidate every answer: freezing a proxy does not freeze its serialization behavior.
 const checked = (name, v, t) => {
-  const e = outside(v, t);
-  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable', [Shaped]: true });
-  return v;
+  const w = written(json(v, '') ?? null, t);
+  if (w === OUT) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${fault}`), { kind: 'Unavailable', [Shaped]: true });
+  return w;
 };
 export const named = (v, t) => converters(t)[0](v);
 const arrays = (v, t, o) => converters(t)[1](v, o);

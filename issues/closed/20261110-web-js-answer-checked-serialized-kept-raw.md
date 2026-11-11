@@ -1,6 +1,7 @@
 # The web JS target checks an answer as JSON would write it, then keeps the unwritten value
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `checked` returns the answer as `JSON.stringify` writes it (`toJSON`, boxed primitives, non-finite numbers as null, -0 as 0, left-out values gone), made in the same pass that checks it and copying only the parts JSON changes, so the web converts what a native host receives.
 **Systems:** host/web-js/ts-data.js, host/web-js/rt.js
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)
