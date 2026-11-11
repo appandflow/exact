@@ -1,6 +1,7 @@
 # After a capture session's runtime error an Apple camera track stays muted `interrupted` while the camera runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** After a runtime error, once the restarted session reports it is running and no interruption has begun since, the capture's tracks are told the interruption is over, so they unmute.
 **Systems:** packages/media-capture/apple/VideoCapture.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
