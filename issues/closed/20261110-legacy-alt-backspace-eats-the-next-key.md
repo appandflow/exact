@@ -1,6 +1,7 @@
 # Legacy Alt+Backspace and Alt+Enter lose their modifier and turn the next key into Alt+key
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `decode` takes an ESC followed by DEL or a C0 key out of the stream as one Alt chord (`Alt+Backspace`, `Alt+Enter`, `Alt+Tab`, `Control+Alt+<letter>`), so vte never sees the pair and the next key is itself.
 **Systems:** host/terminal (term.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

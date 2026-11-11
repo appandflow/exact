@@ -94,9 +94,10 @@ fn ctrl_of(byte: u8) -> Option<Key> {
 /// the sum of shift 1, alt 2, ctrl 4, super 8, hyper 16, meta 32, caps_lock
 /// 64 and num_lock 128 (the kitty keyboard protocol, "Modifiers",
 /// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#modifiers>; xterm's
-/// PC-style function keys use the first three alike). The locks are state,
-/// not part of a chord, and come with every key that types no text while
-/// they are on, so they are dropped here.
+/// PC-style function keys use the first three alike, ctlseqs,
+/// <https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-PC-Style-Function-Keys>).
+/// The locks are state, not part of a chord, and come with every key that
+/// types no text while they are on, so they are dropped here.
 fn modifiers(param: u16) -> u16 {
     param.saturating_sub(1) & !(64 | 128)
 }
@@ -265,10 +266,29 @@ impl Perform for Decoder {
     }
 }
 
-/// Decode a read: DEL by hand (a terminal parser ignores it), everything
-/// else through vte. A read ending in a lone ESC is held: it is the Escape
-/// key only if nothing follows within [`ESC_WAIT_MS`] (`flush_escape`), and
-/// otherwise the start of a sequence split across reads.
+/// The legacy Alt+key for an ESC followed by this byte, when the byte is
+/// DEL or a C0 key: xterm's `metaSendsEscape` prefixes the key's own byte
+/// with ESC (ctlseqs, "Alt and Meta Keys",
+/// <https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Alt-and-Meta-Keys>).
+fn alt_of(byte: u8) -> Option<Key> {
+    let key = if byte == 0x7f {
+        Key::Named("Backspace")
+    } else {
+        ctrl_of(byte)?
+    };
+    Some(match key {
+        Key::Named(name) => with_mods(name, 2),
+        Key::Ctrl(c) => text_with_mods(c, 6),
+        other => other,
+    })
+}
+
+/// Decode a read: DEL, and ESC before DEL or a C0 key, by hand, everything
+/// else through vte. vte ignores DEL, and it executes a C0 byte inside an
+/// escape sequence without leaving it, which would make the key after it
+/// Alt+key. A read ending in a lone ESC is held: it is the Escape key only
+/// if nothing follows within [`ESC_WAIT_MS`] (`flush_escape`), and otherwise
+/// the start of a sequence split across reads.
 pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<Input> {
     let held = std::mem::take(&mut decoder.escape);
     let joined;
@@ -279,14 +299,32 @@ pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<I
         bytes
     };
     let mut start = 0;
-    for (i, b) in bytes.iter().enumerate() {
-        if *b == 0x7f {
-            parser.advance(decoder, &bytes[start..i]);
-            if decoder.paste.is_none() {
-                decoder.key(Key::Named("Backspace"));
-            }
+    let mut i = 0;
+    while i < bytes.len() {
+        let (key, len) = match bytes[i] {
+            0x7f => (Some(Key::Named("Backspace")), 1),
+            0x1b => match bytes.get(i + 1).and_then(|b| alt_of(*b)) {
+                Some(k) => (Some(k), 2),
+                None => (None, 1),
+            },
+            _ => (None, 1),
+        };
+        let Some(key) = key else {
+            i += 1;
+            continue;
+        };
+        parser.advance(decoder, &bytes[start..i]);
+        if decoder.paste.is_none() {
+            decoder.key(key);
+            start = i + len;
+        } else if len == 1 {
+            // A paste keeps no DEL.
             start = i + 1;
+        } else {
+            // A paste's ESC and control byte are vte's, as any other text.
+            start = i;
         }
+        i += len;
     }
     let rest = &bytes[start..];
     if rest.last() == Some(&0x1b) && decoder.paste.is_none() {
@@ -778,6 +816,35 @@ mod tests {
         assert_eq!(key(b"\x1b[57400;5u"), Some(Key::Ctrl('1')));
         // Another functional key (here Caps Lock itself) types nothing.
         assert_eq!(key(b"\x1b[57358u"), None);
+    }
+
+    #[test]
+    fn legacy_alt_with_backspace_or_a_control_key_is_one_chord() {
+        let chord = |c: &str| Input::Key(Key::Chord(c.into()));
+        let (mut p, mut d) = (Parser::new(), Decoder::default());
+        for (bytes, alt) in [
+            (&b"\x1b\x7f"[..], "Alt+Backspace"),
+            (b"\x1b\x08", "Alt+Backspace"),
+            (b"\x1b\r", "Alt+Enter"),
+            (b"\x1b\t", "Alt+Tab"),
+            (b"\x1b\x01", "Control+Alt+a"),
+        ] {
+            assert_eq!(decode(&mut p, &mut d, bytes), vec![chord(alt)]);
+            // The key after it is itself, not Alt+key.
+            assert_eq!(
+                decode(&mut p, &mut d, b"a"),
+                vec![Input::Key(Key::Char('a'))]
+            );
+        }
+        // Split across reads: the held ESC and the key that follows it.
+        assert_eq!(
+            decode(&mut p, &mut d, b"x\x1b"),
+            vec![Input::Key(Key::Char('x'))]
+        );
+        assert_eq!(
+            decode(&mut p, &mut d, b"\x7fa"),
+            vec![chord("Alt+Backspace"), Input::Key(Key::Char('a'))]
+        );
     }
 
     #[test]
