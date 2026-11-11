@@ -57,10 +57,13 @@ export function associatedDomains(auth, debuggable) {
   return (auth?.associatedDomains ?? []).map((d) => debuggable && passkeys.has(d) ? `${d}?mode=developer` : d);
 }
 
-/** Sign in with Apple's entitlement, which follows the signing, not the grant (LLP 1133.014 D7): a simulator takes it;
- * a device's profile must authorize it, and reading that from the profile is not built, so a device build signs none. */
-export function signInEntitlement(auth, simulator) {
-  return (auth?.signIn?.apple ?? []).length && simulator ? { 'com.apple.developer.applesignin': ['Default'] } : {};
+/** Sign in with Apple's entitlement, which follows the signing, not the grant (LLP 1133.014 D7, D8): a simulator
+ * takes it, and a device build takes it when its profile's entitlements (`allows`) include it. A development profile
+ * and a distribution one carry it alike, when the App ID has the capability. Elsewhere it is left out, since an
+ * entitlement the profile does not authorize stops the app installing. */
+export function signInEntitlement(auth, { simulator = false, team = null, allows = [] } = {}) {
+  const signable = (simulator && !team) || allows.includes('com.apple.developer.applesignin');
+  return (auth?.signIn?.apple ?? []).length && signable ? { 'com.apple.developer.applesignin': ['Default'] } : {};
 }
 
 /** A grant's entitlement's value (`reach.entitlements`): `true`, or the string the build chooses (LLP 1133.028 D15

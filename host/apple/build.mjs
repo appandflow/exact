@@ -373,7 +373,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of grantEntitlements(app, reach?.entitlements)) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
   Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
-  return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
+  return plistFile({ ...dict, ...signInEntitlement(reach?.auth, { simulator, team, allows }) });
 };
 
 /** `reach` as a tvOS build uses it: tvOS bakes the iOS plan, so the keys
