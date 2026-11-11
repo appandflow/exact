@@ -650,8 +650,10 @@ else here was admitted because a real app needed it.
   pixel.
 - **Motion.** CSS transitions, springs, `@keyframes`, follow-and-release gestures (pan,
   swipe, pinch) with release velocity, layout transitions, exit animations, and
-  scroll- or drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
-  [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md)).
+  drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
+  [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md),
+  [LLP 1057.003](llp/1057.003-gesture-timelines.rfc.md)); a scroller is not yet a
+  timeline's source.
 - **Lists.** Virtualized lists, vertical or horizontal, one level deep
   ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)). The rows of a vertical
   `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
