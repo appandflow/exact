@@ -118,7 +118,7 @@ if (host === 'svg') {
   const hosts = argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1].split(',') : ['linux', ...(process.platform === 'darwin' ? ['macos', 'ios'] : [])];
   await svgParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts });
   console.log(`svg smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-  if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
+  if (failures.length) { for (const f of failures) console.error('FAIL ' + f); process.exit(1); }
   process.exit(0);
 }
 
@@ -130,7 +130,7 @@ if (host === 'motion') {
   const hosts = argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1].split(',') : ['linux', ...(process.platform === 'darwin' ? ['macos', 'ios'] : [])];
   await motionParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts });
   console.log(`motion smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-  for (const f of failures) console.error('  ' + f); process.exit(failures.length ? 1 : 0);
+  for (const f of failures) console.error('FAIL ' + f); process.exit(failures.length ? 1 : 0);
 }
 
 // Canvas 2D parity (LLP 1056 §4): apps/canvas-gallery on each native host

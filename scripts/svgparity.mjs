@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { webBuild } from './parity.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 
 const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 3;
@@ -61,7 +62,7 @@ function compare(a, b, dx, dy) {
 
 /** One host's fixtures on every page: `{page: {testId: RGBA crop at 1 px/pt}}`. */
 async function capture(open, host, dir, check) {
-  const s = await open({ host, app: 'svg-gallery', env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
+  const s = await open({ host, app: 'svg-gallery', env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined, ...(host === 'web' ? { webDist: webBuild('svg-gallery') } : {}) });
   try {
     const tree = await s.tree();
     const pages = tree.nodes.map((n) => n.props?.testId).filter((t) => t?.startsWith('page-')).sort();

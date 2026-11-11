@@ -349,3 +349,17 @@ test("this checkout's selection keeps an app's change to that app's suites", () 
   expect(picked(['docs/testing.md'])).toEqual([]);
   expect(picked(['kernel/src/lib.rs'])).toEqual([...watched].sort());
 }, 120_000);
+
+// A parity smoke's Linux leg runs for the paint walk and its own gallery, and for no Apple change.
+test("this checkout's parity suites follow the paint walk and their own gallery", () => {
+  const repo = new Repo(), graph = new Graph(repo);
+  const catalogue = suites(repo).filter(s => s.kind === 'parity');
+  expect(catalogue.map(s => s.id).sort()).toEqual(['parity:motion', 'parity:svg']);
+  const picked = changed => select(graph, changed, catalogue).map(s => s.suite.id).sort();
+  expect(picked(['host/linux/src/paint.rs'])).toEqual(['parity:motion', 'parity:svg']);
+  expect(picked(['apps/svg-gallery/app.contract'])).toEqual(['parity:svg']);
+  // `smoke.mjs`, which both legs run, imports both scripts
+  expect(picked(['scripts/motionparity.mjs'])).toEqual(['parity:motion', 'parity:svg']);
+  expect(picked(['scripts/fixtures/transcript.txt'])).toEqual(['parity:motion', 'parity:svg']);
+  expect(picked(['host/apple/Sources/ExactKit/Session.swift'])).toEqual([]);
+}, 120_000);
