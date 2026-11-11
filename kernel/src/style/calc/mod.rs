@@ -510,5 +510,9 @@ pub(super) fn no_negative_lengths(style: StyleId) -> bool {
             | StyleId::HitSlopRight
             | StyleId::HitSlopBottom
             | StyleId::HitSlopLeft
+            | StyleId::ScrollPaddingTop
+            | StyleId::ScrollPaddingRight
+            | StyleId::ScrollPaddingBottom
+            | StyleId::ScrollPaddingLeft
     )
 }

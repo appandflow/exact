@@ -1,6 +1,7 @@
 # A negative `scroll-padding` compiles; the browser drops it and the native hosts use it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Scroll padding and SVG radii refuse negative literals in every length form; folded negative scroll-padding calculations clamp to zero.
 **Systems:** kernel/src/style (row admission), contract/lower, host/web/src/css.rs, runner/src/runner/collection.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

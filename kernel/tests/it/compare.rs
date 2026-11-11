@@ -621,17 +621,28 @@ fn a_sum_keeps_its_zero_terms_and_each_env() {
     );
 }
 
-/// An SVG radius below zero is SVG's error when written as a number, and a
-/// calculation's is clamped to zero, even where it folds to a number, as a
-/// corner radius's is (CSS Values 4 §10.12).
+/// A calculation clamps to the property's range even when it folds to a
+/// number (CSS Values 4 §10.12).
 #[test]
-fn a_negative_calculated_svg_radius_is_zero() {
-    assert_eq!(
-        text(StyleId::Rx, "calc(0px - 4px)"),
-        Ok(Dimension::Points(0.0))
-    );
-    assert_eq!(text(StyleId::Ry, "calc(-10%)"), Ok(Dimension::Percent(0.0)));
-    assert_eq!(text(StyleId::R, "-4px"), Ok(Dimension::Points(-4.0)));
+fn negative_calculated_scroll_padding_and_svg_radii_are_zero() {
+    for row in [
+        StyleId::ScrollPaddingTop,
+        StyleId::ScrollPaddingRight,
+        StyleId::ScrollPaddingBottom,
+        StyleId::ScrollPaddingLeft,
+        StyleId::R,
+        StyleId::Rx,
+        StyleId::Ry,
+    ] {
+        for value in ["calc(0px - 4px)", "min(-8px, -2px)"] {
+            assert_eq!(text(row, value), Ok(Dimension::Points(0.0)), "{row:?}");
+        }
+        assert_eq!(
+            text(row, "calc(-10%)"),
+            Ok(Dimension::Percent(0.0)),
+            "{row:?}"
+        );
+    }
 }
 
 /// A subtraction writes no number, so it spends none of the 32 values: 24

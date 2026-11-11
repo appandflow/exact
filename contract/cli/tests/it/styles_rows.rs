@@ -15,6 +15,51 @@ impl DataSource for NoData {
     }
 }
 
+#[test]
+fn scroll_padding_and_svg_radii_refuse_negative_literals() {
+    let mut admitted = Vec::new();
+    for (parent, tag, row) in [
+        ("column", "column", "scroll-padding-top"),
+        ("column", "column", "scroll-padding-right"),
+        ("column", "column", "scroll-padding-bottom"),
+        ("column", "column", "scroll-padding-left"),
+        ("column", "column", "scroll-padding"),
+        ("svg", "circle", "r"),
+        ("svg", "rect", "rx"),
+        ("svg", "rect", "ry"),
+    ] {
+        for value in [
+            "\"-10px\"",
+            "\"-5%\"",
+            "-10",
+            "\"-1rem\"",
+            "\"-1em\"",
+            "\"-1vh\"",
+            "\"-1cm\"",
+        ] {
+            let source =
+                format!("component App\n  view\n    {parent}\n      {tag} {row}={value}\n");
+            match contract::compile(&source) {
+                Ok(_) => admitted.push(format!("{tag} {row}={value}")),
+                Err(error) => {
+                    let error = error.to_string();
+                    assert!(error.contains("lower-attr-value"), "{source}: {error}");
+                    assert!(error.contains("nonnegative"), "{source}: {error}");
+                }
+            }
+        }
+        for value in ["0", "10", "\"5%\"", "\"1rem\"", "\"calc(-10px)\""] {
+            let source =
+                format!("component App\n  view\n    {parent}\n      {tag} {row}={value}\n");
+            contract::compile(&source).unwrap_or_else(|error| panic!("{source}: {error}"));
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "negative literals compiled: {admitted:#?}"
+    );
+}
+
 fn check_cleared_flex(attrs: &str, conditional: bool) {
     use exact_kernel::{Dimension, Offer};
     let src = format!(
