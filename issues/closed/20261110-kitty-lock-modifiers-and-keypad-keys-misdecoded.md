@@ -1,6 +1,7 @@
 # Under the kitty keyboard protocol, Caps Lock or Num Lock disables Ctrl-C, Escape and the arrows, and keypad Enter types a private-use character
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The decoder drops the Caps Lock and Num Lock bits from every key's modifiers, spells super, hyper and meta as `Meta` in a chord so they never type text, and maps the keypad's and other functional keys' Private Use Area numbers to the keys they stand for or to nothing.
 **Systems:** host/terminal (term.rs, keys.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -90,7 +90,31 @@ fn ctrl_of(byte: u8) -> Option<Key> {
     }
 }
 
-/// A named key with modifiers (xterm/kitty: 1 + shift 1, alt 2, ctrl 4).
+/// The modifiers a key's modifier parameter holds. The parameter is 1 plus
+/// the sum of shift 1, alt 2, ctrl 4, super 8, hyper 16, meta 32, caps_lock
+/// 64 and num_lock 128 (the kitty keyboard protocol, "Modifiers",
+/// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#modifiers>; xterm's
+/// PC-style function keys use the first three alike). The locks are state,
+/// not part of a chord, and come with every key that types no text while
+/// they are on, so they are dropped here.
+fn modifiers(param: u16) -> u16 {
+    param.saturating_sub(1) & !(64 | 128)
+}
+
+/// The chord's modifier words, in Playwright's spelling. Super (the Command
+/// or Windows key), hyper and meta are all `Meta`: a key event has one such
+/// modifier, as DOM's `metaKey`.
+fn chord_words(mods: u16) -> String {
+    let mut chord = String::new();
+    for (bits, word) in [(4, "Control+"), (2, "Alt+"), (1, "Shift+"), (56, "Meta+")] {
+        if mods & bits != 0 {
+            chord.push_str(word);
+        }
+    }
+    chord
+}
+
+/// A named key with modifiers.
 fn with_mods(name: &'static str, mods: u16) -> Key {
     if mods == 0 {
         return Key::Named(name);
@@ -98,14 +122,57 @@ fn with_mods(name: &'static str, mods: u16) -> Key {
     if mods == 1 && name == "Tab" {
         return Key::BackTab;
     }
-    let mut chord = String::new();
-    for (bit, word) in [(4, "Control+"), (2, "Alt+"), (1, "Shift+")] {
-        if mods & bit != 0 {
-            chord.push_str(word);
-        }
+    Key::Chord(chord_words(mods) + name)
+}
+
+/// A text key with modifiers. The protocol sends the unshifted key with
+/// Shift as a modifier; Control with or without Shift is the control key.
+fn text_with_mods(c: char, mods: u16) -> Key {
+    match mods & !1 {
+        0 => Key::Char(c),
+        4 => Key::Ctrl(c.to_ascii_lowercase()),
+        m => Key::Chord(chord_words(m) + c.encode_utf8(&mut [0; 4])),
     }
-    chord.push_str(name);
-    Key::Chord(chord)
+}
+
+/// The key a kitty keyboard protocol key number names, with modifiers, or
+/// `None` for a key that types nothing here. The keypad's keys and the
+/// other functional keys have numbers in the Private Use Area, 57344 to
+/// 63743 (the protocol's "Functional key definitions"; under "Disambiguate
+/// escape codes" each keypad key that types no text is sent as its number:
+/// <https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions>).
+fn kitty_key(number: u16, mods: u16) -> Option<Key> {
+    let name = match number {
+        27 => "Escape",
+        13 | 57414 => "Enter",
+        9 => "Tab",
+        127 => "Backspace",
+        57417 => "ArrowLeft",
+        57418 => "ArrowRight",
+        57419 => "ArrowUp",
+        57420 => "ArrowDown",
+        57421 => "PageUp",
+        57422 => "PageDown",
+        57423 => "Home",
+        57424 => "End",
+        57426 => "Delete",
+        _ => {
+            let c = match number {
+                57399..=57408 => (b'0' + (number - 57399) as u8) as char,
+                57409 => '.',
+                57410 => '/',
+                57411 => '*',
+                57412 => '-',
+                57413 => '+',
+                57415 => '=',
+                57416 => ',',
+                57344..=63743 => return None,
+                n => char::from_u32(n as u32).filter(|c| !c.is_control())?,
+            };
+            return Some(text_with_mods(c, mods));
+        }
+    };
+    Some(with_mods(name, mods))
 }
 
 impl Perform for Decoder {
@@ -143,7 +210,7 @@ impl Perform for Decoder {
             .map(|p| p.first().copied().unwrap_or(0))
             .collect();
         let first = p.first().copied().unwrap_or(0);
-        let mods = p.get(1).copied().unwrap_or(1).saturating_sub(1);
+        let mods = modifiers(p.get(1).copied().unwrap_or(1));
         if action == '~' && (first == 200 || first == 201) {
             if first == 200 {
                 self.paste = Some(String::new());
@@ -189,23 +256,8 @@ impl Perform for Decoder {
             },
             // The kitty keyboard protocol: a code point and its modifiers.
             (_, 'u') => {
-                let named = match first {
-                    27 => Some("Escape"),
-                    13 => Some("Enter"),
-                    9 => Some("Tab"),
-                    127 => Some("Backspace"),
-                    _ => None,
-                };
-                if let Some(name) = named {
-                    self.key(with_mods(name, mods));
-                } else if let Some(c) = char::from_u32(first as u32) {
-                    if mods & 4 != 0 && mods & !5 == 0 {
-                        self.key(Key::Ctrl(c.to_ascii_lowercase()));
-                    } else if mods & 2 != 0 {
-                        self.key(Key::Chord(format!("Alt+{c}")));
-                    } else {
-                        self.key(Key::Char(c));
-                    }
+                if let Some(k) = kitty_key(first, mods) {
+                    self.key(k);
                 }
             }
             _ => {}
@@ -694,6 +746,38 @@ mod tests {
             keys(b"\x1b[200~x\ny\x1b[201~"),
             vec![Input::Paste("x\ny".into())]
         );
+    }
+
+    #[test]
+    fn kitty_lock_modifiers_and_keypad_keys_decode_as_the_keys_they_are() {
+        let key = |bytes: &[u8]| match &keys(bytes)[..] {
+            [Input::Key(k)] => Some(k.clone()),
+            [] => None,
+            other => panic!("{bytes:?}: {other:?}"),
+        };
+        // Caps Lock (64) and Num Lock (128) ride on every key that types no text.
+        assert_eq!(key(b"\x1b[99;69u"), Some(Key::Ctrl('c')));
+        assert_eq!(key(b"\x1b[99;133u"), Some(Key::Ctrl('c')));
+        assert_eq!(key(b"\x1b[92;133u"), Some(Key::Ctrl('\\')));
+        assert_eq!(key(b"\x1b[27;65u"), Some(Key::Named("Escape")));
+        assert_eq!(key(b"\x1b[9;66u"), Some(Key::BackTab));
+        assert_eq!(key(b"\x1b[1;129B"), Some(Key::Named("ArrowDown")));
+        assert_eq!(key(b"\x1b[3;129~"), Some(Key::Named("Delete")));
+        assert_eq!(
+            key(b"\x1b[1;133A"),
+            Some(Key::Chord("Control+ArrowUp".into()))
+        );
+        // Super, hyper and meta make a chord, never text.
+        assert_eq!(key(b"\x1b[99;9u"), Some(Key::Chord("Meta+c".into())));
+        assert_eq!(key(b"\x1b[13;9u"), Some(Key::Chord("Meta+Enter".into())));
+        assert_eq!(key(b"\x1b[99;7u"), Some(Key::Chord("Control+Alt+c".into())));
+        // The keypad's own numbers are the keys they stand for.
+        assert_eq!(key(b"\x1b[57414u"), Some(Key::Named("Enter")));
+        assert_eq!(key(b"\x1b[57419u"), Some(Key::Named("ArrowUp")));
+        assert_eq!(key(b"\x1b[57426;129u"), Some(Key::Named("Delete")));
+        assert_eq!(key(b"\x1b[57400;5u"), Some(Key::Ctrl('1')));
+        // Another functional key (here Caps Lock itself) types nothing.
+        assert_eq!(key(b"\x1b[57358u"), None);
     }
 
     #[test]
