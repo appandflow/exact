@@ -1,6 +1,7 @@
 # The LLP reader links a citation of a three-level document to its parent
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A citation's number takes every dotted part and links the longest prefix the corpus knows; the index's depth counts every dot.
 **Systems:** apps/llp/data (refs.rs), apps/llp
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
