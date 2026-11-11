@@ -1,6 +1,7 @@
 # With `SFSpeechRecognizer`, a silent stretch of a file ends its transcription `no-speech`, and the reader thread never exits
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A silent request of a file is now a seam, so the file is read to its end, and the reader thread stops once the recognition stops, aborts or ends instead of waiting for a request that never comes.
 **Systems:** packages/speech-recognition/apple/SpeechRecognition.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
