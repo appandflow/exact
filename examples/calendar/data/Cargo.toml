@@ -6,6 +6,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = "0.10"
 exact-data = { path = "../../../data" }
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }

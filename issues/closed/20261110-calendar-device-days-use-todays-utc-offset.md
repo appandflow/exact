@@ -1,6 +1,7 @@
 # The calendar example reads every day at today's UTC offset, so device events across a daylight-saving change show an hour off
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The example passes `time.timeZone` and the local day or month, and the data crate resolves each day's midnights and each instant's local day and time with the zone database (`chrono-tz`), so every read uses the offset in force on that day.
 **Systems:** examples/calendar (src/app.contract, data/src/device.rs, data/src/activity.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
