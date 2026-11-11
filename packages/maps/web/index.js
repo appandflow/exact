@@ -46,7 +46,7 @@ const project = (lat, lon, z) => {
 };
 const unproject = (x, y, z) => {
   const s = TILE * 2 ** z, n = Math.PI - 2 * Math.PI * y / s;
-  return [180 / Math.PI * Math.atan(Math.sinh(n)), ((x / s * 360 + 540) % 360) - 180];
+  return [180 / Math.PI * Math.atan(Math.sinh(n)), ((x / s * 360 % 360) + 360) % 360 - 180];
 };
 const round = (n, places) => Math.round(n * 10 ** places) / 10 ** places;
 const markersOf = text => {

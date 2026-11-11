@@ -1,6 +1,7 @@
 # Panning the web map moves its centre 180° of longitude at every step
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Web map pans preserve the projected longitude and wrap correctly across the date line in either direction.
 **Systems:** packages/maps/web/index.js
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
