@@ -1060,6 +1060,16 @@ test('a declared check refuses a send on the JS target, and leaves its state', a
   clock.agent = false;
 });
 
+// LLP 1133.021 §12: a send with nothing preferred answers its declared default, as the runner's `decide`.
+test('a send with nothing preferred answers its declared default, a copy each time', async () => {
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  modules({ read: ['dflt.read', true, { default: { token: null, status: 0 } }, 'u', 'never', null, false], find: ['dflt.find', true, { default: [] }, 'u', 'never', null, false],
+    bare: ['dflt.bare', true, {}, 'u', 'never', null, false] }, {});
+  const call = send => globalThis.exact.extensions.call({ extension: 'dflt', send, args: {} });
+  (await call('read')).status = 1;
+  expect([await call('read'), await call('find'), await call('bare')]).toEqual([{ token: null, status: 0 }, [], { error: 'NotSupportedError' }]);
+});
+
 // LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.
 test('a command keeps the origin of the commit that queued it, whenever its tail runs', async () => {
   const { commit, C, Hosts, Origin } = await import(resolve(dir, 'rt.js'));
