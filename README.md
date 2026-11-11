@@ -3,6 +3,13 @@
 **Write an app once. It runs natively on the web, macOS, iOS, and Linux, and an AI
 agent can build it, run it, see it, and test it on every one of them.**
 
+**Building an app?** With the tools installed ([Quick start, step 1](#1-install-the-tools)),
+run `bun scripts/exact.mjs setup` once, make the app with `bun scripts/exact.mjs new <path>`,
+and read [`docs/start-here.md`](docs/start-here.md) (for a website,
+[`docs/start-here-site.md`](docs/start-here-site.md)): that guide is the only required
+reading. The rest of this page describes Exact for people deciding whether to use it
+or working on it.
+
 > [!TIP]
 > **Try it with a coding agent.** On a Mac with Xcode, Rust, Bun, and Chrome installed,
 > give Claude Code this prompt:
