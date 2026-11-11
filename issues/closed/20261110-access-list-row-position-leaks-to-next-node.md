@@ -1,6 +1,7 @@
 # The accessibility node after a virtual list is told it is one of the list's rows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Accessibility set positions stay in their declaring subtree, including rows clipped out of virtual lists.
 **Systems:** host/linux/src/presenter/access.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
