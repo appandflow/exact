@@ -330,6 +330,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
+        /// Deliver native Forward at the navigation root, a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_host_forward(rt: u32, root: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_forward(root, now_ms), |n| n)
+        }
+
         /// A received share, a batch. @ref LLP 1133.024 D2–D4
         #[no_mangle]
         pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {

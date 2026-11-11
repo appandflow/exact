@@ -1,6 +1,7 @@
 # A native Forward to a location the stack also holds beneath its top is recorded as a Back, so Forward never runs out
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Native Forward consumes the nearest location ahead even when go pops to an earlier visit at that location.
 **Systems:** runner/src/runner/history.rs, runner/src/runner/router.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

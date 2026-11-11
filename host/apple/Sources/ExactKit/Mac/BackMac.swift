@@ -179,13 +179,11 @@ extension NavigationHost {
         return (root, route)
     }
 
-    /// Where Forward goes (LLP 1115.000 D5.5): the nearest location Back
-    /// left on the selected stack, which the runner keeps as a browser's
-    /// session history does, and the navigation root that hears it.
-    private var ahead: (root: NodeView, location: String)? {
+    /// The root that hears Forward while the runner has a location ahead.
+    private var ahead: NodeView? {
         guard let root = selection.flatMap({ presenter.views[$0.root] }) ?? routerRoot,
-              let location = presenter.session?.runtime.locationAhead() else { return nil }
-        return (root, location)
+              presenter.session?.runtime.locationAhead() != nil else { return nil }
+        return root
     }
 
     /// Whether Forward goes now: somewhere ahead the root offers, and nothing
@@ -200,9 +198,8 @@ extension NavigationHost {
     /// 1038 D7): the root's `navigate` with the location ahead, else the
     /// runner's own `go`.
     @discardableResult func goForward() -> Bool {
-        guard canGoForward, let (root, location) = ahead else { return false }
-        if root.handlers.contains("navigate") { presenter.session?.navigate(location, at: root) }
-        else { presenter.session?.hostGo(location) }
+        guard canGoForward, let root = ahead else { return false }
+        presenter.session?.hostForward(at: root)
         return true
     }
 

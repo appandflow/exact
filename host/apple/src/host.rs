@@ -966,6 +966,13 @@ impl<D: DataSource> Host<D> {
         self.own_navigation(now_ms, |runner| runner.host_go(location))
     }
 
+    /// Native Forward through the root's handler or the runner's own `go`.
+    pub fn host_forward(&mut self, root: ViewId, now_ms: f64) -> String {
+        self.now_ms = now_ms.max(self.now_ms);
+        let a = self.runner.host_forward_at(root, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
     /// Advance the clock to `now_ms` and run `navigate` on the runner, as one
     /// batch.
     pub(crate) fn own_navigation(

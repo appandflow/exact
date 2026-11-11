@@ -92,4 +92,13 @@ impl<D: DataSource> Bridge<D> {
             .map_or_else(not_booted, |h| h.host_go(&location, now_ms));
         self.emit(out)
     }
+
+    /// Deliver native Forward at the navigation root, a batch.
+    pub fn host_forward(&mut self, root: u32, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.host_forward(root, now_ms));
+        self.emit(out)
+    }
 }

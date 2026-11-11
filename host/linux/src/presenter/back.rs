@@ -269,22 +269,13 @@ impl<D: DataSource> Presenter<D> {
         if self.surface_takes_back() {
             return false;
         }
-        let Some(location) = self.host.runner().location_ahead() else {
+        if self.host.runner().location_ahead().is_none() {
             return false;
-        };
+        }
         let Some(root) = self.navigation_root() else {
             return false;
         };
-        let error = match (self.host.runner().handlers_of(root)).contains(&EventKind::Navigate) {
-            true => self
-                .host
-                .dispatch_at(root, Event::Navigate(location), now_ms)
-                .or(self.after_commit()),
-            false => match self.host.host_go(&location, now_ms) {
-                Ok(_) => self.after_commit(),
-                Err(error) => Some(error),
-            },
-        };
+        let error = self.host.host_forward(root, now_ms).or(self.after_commit());
         if let Some(error) = error {
             self.host.log(error);
         }

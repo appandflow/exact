@@ -9,9 +9,9 @@
 //! The compiler checks the route table; its types are checked once at boot.
 //! No host interprets slots.
 
-use super::{Carried, CommitReceipt, DataSource, Runner, RunnerError};
-use exact_kernel::SortedSet;
-use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
+use super::{Carried, CommitReceipt, DataSource, Event, Runner, RunnerError};
+use exact_kernel::{SortedSet, ViewId};
+use exact_plan::{EventKind, Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
 use exact_route::{Entry, Router, Tab, Table};
 use std::cell::RefCell;
 
@@ -85,6 +85,8 @@ pub trait Routing {
     /// The location a native host's Forward goes to, the nearest of the
     /// visits Back left (`history.rs`; LLP 1115.000 D5.5).
     fn ahead(&self) -> Option<&str>;
+    /// Mark the current delivery as native Forward, even if its `go` pops visits.
+    fn set_forward(&mut self, forward: bool);
     /// Whether `location` names a declared route pattern (LLP 1038 §7).
     fn matches_pattern(&self, location: &str) -> bool;
     /// Whether the table declares one location: a single route besides
@@ -131,6 +133,7 @@ pub struct RouterContext {
     /// The locations of the visits Back left, the nearest last: where a
     /// native host's Forward goes (`history.rs`).
     ahead: Vec<String>,
+    forward: bool,
     /// What each `open`, `push`, `replace` or `go` to a location with a
     /// fragment returned in the commit being made, with the visit and
     /// fragment it left on top: an explicit navigation, which scrolls even
@@ -241,6 +244,7 @@ impl RouterContext {
             fragment: None,
             activations: 0,
             ahead: Vec::new(),
+            forward: false,
             navigations: RefCell::new(Vec::new()),
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
@@ -742,7 +746,14 @@ impl Routing for RouterContext {
         self.navigations.borrow_mut().clear();
         if let Some(after) = self.router(&value) {
             let before = self.committed.as_ref().and_then(|v| self.router(v));
-            super::history::step(before.as_ref(), &after, &mut self.ahead);
+            // A successful verb returns a fresh value, even `go` to the
+            // current location. An ignored handler leaves the same object.
+            let forward = std::mem::take(&mut self.forward)
+                && self
+                    .committed
+                    .as_ref()
+                    .is_some_and(|old| !crate::compare::same(old, &value));
+            super::history::step(before.as_ref(), &after, &mut self.ahead, forward);
         }
         self.committed = Some(value);
         if let Some(mut change) = change {
@@ -805,6 +816,10 @@ impl Routing for RouterContext {
 
     fn ahead(&self) -> Option<&str> {
         self.ahead.last().map(String::as_str)
+    }
+
+    fn set_forward(&mut self, forward: bool) {
+        self.forward = forward;
     }
 
     fn take_change(&mut self) -> Option<RouterChange> {
@@ -1047,11 +1062,28 @@ impl<D: DataSource> Runner<D> {
     /// Where the platform's own Forward goes, or `None` (no router, or
     /// nothing ahead): the nearest location Back left on the selected
     /// stack, as a browser's session history keeps it. A native host
-    /// delivers it as the web host delivers a Forward (LLP 1038 D7): to the
-    /// navigation root's `navigate`, else by [`Runner::host_go`] (LLP
-    /// 1115.000 D5.5).
+    /// delivers it with [`Runner::host_forward`] so the commit retains its
+    /// direction even when `go` shortens the stack (LLP 1115.000 D5.5).
     pub fn location_ahead(&self) -> Option<String> {
         self.router.as_deref()?.ahead().map(String::from)
+    }
+
+    /// Deliver native Forward to the root's `navigate`, or the runner's
+    /// own `go` when it has no handler. The direction belongs to this
+    /// delivery alone, including when the handler refuses the commit.
+    pub fn host_forward(&mut self, root: ViewId) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(location) = self.location_ahead() else {
+            return Ok(None);
+        };
+        self.find(root).ok_or(RunnerError::UnknownView(root))?;
+        self.router.as_mut().unwrap().set_forward(true);
+        let result = if self.handlers_of(root).contains(&EventKind::Navigate) {
+            self.dispatch(root, Event::Navigate(location)).map(Some)
+        } else {
+            self.host_navigate(&location, true)
+        };
+        self.router.as_mut().unwrap().set_forward(false);
+        result
     }
 
     /// The platform's own Back from the selected visit `id`, for a route
@@ -1099,14 +1131,22 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The platform's own navigation to `location` under a navigation root
-    /// with no `navigate` handler: the browser's Forward, or a same-origin
-    /// link to a declared route (LLP 1115.000 D4.3). It is the router's
-    /// `go`, written by the runner as one commit of its own, as the app's
+    /// with no `navigate` handler, such as a same-origin link to a declared
+    /// route (LLP 1115.000 D4.3). Native Forward uses [`Runner::host_forward`].
+    /// It is the router's `go`, written as one commit, as the app's
     /// `nav = go(nav, location)` would be — journaled as `host go`, refused
     /// like any commit. `None` (nothing done) without a router, or when
     /// `go` leaves the router as it is: no route matches `location`, or it
     /// is already the selected top.
     pub fn host_go(&mut self, location: &str) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.host_navigate(location, false)
+    }
+
+    fn host_navigate(
+        &mut self,
+        location: &str,
+        forward: bool,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         let Some(context) = self.router.as_deref() else {
             return Ok(None);
         };
@@ -1116,8 +1156,17 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         let next = context
-            .call(&self.plan, Stdlib::Go, &[current, Value::str(location)])
-            .filter(|next| context.read(next).is_some_and(|r| r != router) || context.activated());
+            .call(
+                &self.plan,
+                Stdlib::Go,
+                &[current.clone(), Value::str(location)],
+            )
+            .filter(|next| {
+                context.read(next).is_some_and(|r| r != router)
+                    || context.activated()
+                    // Forward must commit even when only its history changes.
+                    || (forward && !crate::compare::same(&current, next))
+            });
         self.log_router_refusals();
         match next {
             Some(next) => self.host_commit(slot, next, "host go"),

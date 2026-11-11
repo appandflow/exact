@@ -573,6 +573,8 @@ void exact_module_invoke(ExactRuntime rt, size_t len, ExactInvokeReply reply, vo
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* The runner's own go to the UTF-8 location in exact_in, a batch. */
 uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
+/* Native Forward at the navigation root, a batch. */
+uint32_t exact_host_forward(ExactRuntime rt, uint32_t root, double now_ms);
 /* LLP 1075.003 §9.14: build the tab panels exact_in names, comma-separated
  * view ids, selecting none, a batch. */
 uint32_t exact_build_tabs(ExactRuntime rt, size_t len, double now_ms);

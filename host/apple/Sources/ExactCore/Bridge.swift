@@ -728,6 +728,9 @@ package final class Runtime {
     package func hostGo(_ location: String, now: Double) -> Batch {
         on { read(exact_host_go(rt, write(location), now)) }
     }
+    package func hostForward(_ root: UInt32, now: Double) -> Batch {
+        on { read(exact_host_forward(rt, root, now)) }
+    }
     /// Build the tab panels `panels`, selecting none (LLP 1075.003 §9.14).
     package func buildTabs(_ panels: [UInt32], now: Double) -> Batch {
         on { read(exact_build_tabs(rt, write(panels.map(String.init).joined(separator: ",")), now)) }
