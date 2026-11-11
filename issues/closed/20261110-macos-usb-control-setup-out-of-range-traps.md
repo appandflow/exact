@@ -1,6 +1,7 @@
 # On macOS a USB control transfer whose `request`, `value` or `index` is out of range ends the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The macOS setup packet takes `request`, `value` and `index` modulo 2^8 and 2^16, as WebIDL and WebUSB do, instead of trapping in a checked initializer.
 **Systems:** packages/usb/apple/USB.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
