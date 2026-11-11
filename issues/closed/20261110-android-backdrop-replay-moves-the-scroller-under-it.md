@@ -1,6 +1,7 @@
 # On Android 12 and later a `backdrop-filter` box painted after a scroller records the scroller's rows again, displaced by the box's position
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android backdrop replay reuses recorded scroller groups and applies the backdrop offset only when drawing them.
 **Systems:** host/android/canvas/src/main/java/dev/exact/canvas/Player.kt
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -76,7 +76,6 @@ internal class Player(private val fonts: Map<Int, Font>) {
     var group: ((Int) -> android.graphics.RenderNode)? = null
     /** What is drawn in place of a scroller's own node, for one whose edge the reader stretches ([Scrolling]). */
     var holder: ((Int) -> android.graphics.RenderNode?)? = null
-    private var grouped = 0
     var width = 0
     var height = 0
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -162,7 +161,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         val sx = shiftX; val sy = shiftY
         shiftX = sx + l; shiftY = sy + t
         val inner = node.beginRecording()
-        replay(inner, b, from, at)
+        replay(inner, b, from, at, reuseGroups = true)
         node.endRecording()
         shiftX = sx; shiftY = sy
         current.set(here)
@@ -678,7 +677,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         }
     }
 
-    fun replay(canvas: Canvas, b: IntBuffer, from: Int, n: Int) {
+    fun replay(canvas: Canvas, b: IntBuffer, from: Int, n: Int, reuseGroups: Boolean = false) {
         tint = 1f; tintEnd = -1
         val base = canvas.save()
         val matrixBase = matrixDepth
@@ -687,6 +686,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         var c: Canvas = canvas
         var outer: Canvas? = null
         var node: android.graphics.RenderNode? = null
+        var grouped = 0
         var i = from
         while (i < n) {
             when (b.get(i)) {
@@ -885,20 +885,27 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 20 -> {
                     // A scroller's rows: their own node, so a move only translates it.
                     val g = group!!(b.get(i + 1))
-                    g.setPosition(0, 0, width, height)
                     node = g
                     grouped = b.get(i + 1)
-                    outer = c
-                    saveMatrix()
-                    c = g.beginRecording()
-                    current.reset(); c.setMatrix(current)
                     i += 2
+                    if (reuseGroups) {
+                        // A backdrop references the page's group; recording it again would move the page's rows.
+                        while (i < n && b.get(i) != 21) i = walker.end(b, i)
+                    } else {
+                        g.setPosition(0, 0, width, height)
+                        outer = c
+                        saveMatrix()
+                        c = g.beginRecording()
+                        current.reset(); c.setMatrix(current)
+                    }
                 }
                 21 -> {
                     node?.let { g ->
-                        g.endRecording()
-                        c = outer!!
-                        restoreMatrix()
+                        if (!reuseGroups) {
+                            g.endRecording()
+                            c = outer!!
+                            restoreMatrix()
+                        }
                         c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(holder?.invoke(grouped) ?: g); c.restore()
                     }
                     node = null
