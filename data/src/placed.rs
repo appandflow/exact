@@ -57,6 +57,7 @@ enum Job {
         token: u64,
         outcome: Outcome,
         snapshot: Vec<(String, Vec<u8>)>,
+        clock: f64,
         reply: Reply,
     },
 }
@@ -487,9 +488,11 @@ impl<D: DataSource + 'static> Placed<D> {
                             token,
                             outcome,
                             snapshot,
+                            clock,
                             reply,
                         } => {
                             let mut local = Store::new(&grants, snapshot);
+                            local.set_clock_ms(clock);
                             let result = match &mut source {
                                 Ok(source) => source
                                     .module_landed(&mut local, token, outcome)
@@ -1245,6 +1248,7 @@ impl<D: DataSource + 'static> exact_runner::DataSourceWrapper for Placed<D> {
             token: child,
             outcome,
             snapshot: envelope::snapshot(store, &self.grants),
+            clock: store.clock_ms(),
             reply,
         });
         drop(unsent);

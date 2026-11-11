@@ -1,6 +1,7 @@
 # An answer that awaits `setTimeout` fails in the worker-placed child of a `Mixed` source
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Mixed dispatches a worker child's timer continuation as its next ordered turn and parses its reply once.
 **Systems:** data/src/mixed.rs, data/src/placed.rs, ordered sets (LLP 1027.002 D3), answer timers (LLP 1027.000 D1)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

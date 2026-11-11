@@ -17,6 +17,8 @@ type Retain<R> = fn(&R) -> Result<R, DataError>;
 
 /// A call an ordered member recorded, to run at dispatch.
 enum Recorded {
+    /// The worker already recorded its resume while parsing a timer yield.
+    WorkerTurn { key: Key, child: u64 },
     Answer {
         rust: bool,
         target: Option<Target>,
@@ -55,6 +57,7 @@ fn key(rust: bool, target: Option<Target>, source: &str, args: &[Value]) -> Key 
 
 fn recorded_key(recorded: &Recorded) -> Key {
     match recorded {
+        Recorded::WorkerTurn { key, .. } => key.clone(),
         Recorded::Answer {
             rust,
             target,
@@ -338,6 +341,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             return Dispatch::Missing;
         };
         let rust = match &recorded {
+            Recorded::WorkerTurn { key, .. } => key.0,
             Recorded::Answer { rust, .. } | Recorded::Resume { rust, .. } => *rust,
         };
         self.sets[set].busy = true;
@@ -350,6 +354,9 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         if self.child_placement(rust) == Placement::Worker {
             let mut scratch = Store::new(&grants, []);
             let answer = match recorded {
+                Recorded::WorkerTurn { child, .. } => {
+                    Ok(Answer::Later(Request::continuation(child)))
+                }
                 Recorded::Answer {
                     target,
                     source,
@@ -409,7 +416,9 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             };
         }
         let mut local = Store::new(&grants, envelope::snapshot(store, &grants));
+        local.set_clock_ms(store.clock_ms());
         let result = match recorded {
+            Recorded::WorkerTurn { .. } => unreachable!("a worker turn belongs to a worker"),
             Recorded::Answer {
                 target,
                 source,
@@ -441,6 +450,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         self.sets[set].busy = true;
         let grants = self.javascript.grants();
         let mut local = Store::new(grants, envelope::snapshot(store, grants));
+        local.set_clock_ms(store.clock_ms());
         let result = self
             .javascript
             .module_delivery(&mut local, kept, outcome)
@@ -556,8 +566,34 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                     };
                     match answer {
                         Ok(Answer::Later(request)) => {
-                            self.stages.entry(k).or_default().push_back(Stage::Yielded);
-                            self.route_answer(rust, Answer::Later(request))
+                            let worker_turn = request
+                                .due_ms
+                                .and(request.continuation)
+                                .filter(|_| self.child_placement(rust) == Placement::Worker);
+                            let answer = self.route_answer(rust, Answer::Later(request))?;
+                            let stage = if let (Some(child), Answer::Later(request)) =
+                                (worker_turn, &answer)
+                            {
+                                // A timer token names the worker's next turn, whose reply
+                                // is an envelope. It reserves the set again at dispatch.
+                                let token = request.continuation.expect("a routed worker turn");
+                                self.continuations.remove(&token);
+                                self.recorded.insert(
+                                    token,
+                                    (
+                                        set,
+                                        Recorded::WorkerTurn {
+                                            key: k.clone(),
+                                            child,
+                                        },
+                                    ),
+                                );
+                                Stage::Turn
+                            } else {
+                                Stage::Yielded
+                            };
+                            self.stages.entry(k).or_default().push_back(stage);
+                            Ok(answer)
                         }
                         other => other,
                     }
@@ -915,6 +951,7 @@ impl<J: DataSource, R: DataSource> exact_runner::DataSourceWrapper for Mixed<J, 
                             running.get(&t),
                         ) {
                             (Some((owner, child)), _, _) => (*owner == rust).then_some(*child),
+                            (_, Some((_, Recorded::WorkerTurn { child, .. })), _) => Some(*child),
                             // A call recorded here that the child hasn't seen:
                             // what the child still holds for its key is stale.
                             (_, Some((_, Recorded::Answer { .. })), _) => return None,
@@ -940,6 +977,13 @@ impl<J: DataSource, R: DataSource> exact_runner::DataSourceWrapper for Mixed<J, 
     fn discard(&mut self, token: u64) {
         match self.recorded.remove(&token) {
             Some((_, recorded)) => {
+                if let Recorded::WorkerTurn { key, child } = &recorded {
+                    if key.0 {
+                        self.rust.discard(*child);
+                    } else {
+                        self.javascript.discard(*child);
+                    }
+                }
                 let k = recorded_key(&recorded);
                 if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();

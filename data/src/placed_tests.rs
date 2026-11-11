@@ -31,7 +31,7 @@ impl DataSource for Slow {
     }
 
     fn module_landed(&mut self, store: &mut Store, _: u64, _: Outcome) -> Result<(), DataError> {
-        store.set_durable("document", "kept")?;
+        store.set_durable("document", &format!("kept at {}", store.clock_ms()))?;
         Ok(())
     }
 
@@ -660,10 +660,11 @@ fn an_inline_kept_reply_writes_the_store() {
     );
     placed.activate().unwrap();
     let mut store = Store::new("secret.keep document", []);
+    store.set_clock_ms(5000.);
     placed
         .module_landed(&mut store, 9, Dispatch::again_outcome())
         .unwrap();
-    assert_eq!(store.get("document"), Some("kept"));
+    assert_eq!(store.get("document"), Some("kept at 5000"));
     assert!(store.take_writes()[0].durable);
 }
 
@@ -691,6 +692,7 @@ fn a_kept_reply_waits_off_the_host_while_its_owner_has_unrelated_work() {
         let _ = wake.send(());
     }));
     placed.kept.insert(17, Some(9));
+    store.set_clock_ms(5000.);
     // Only this thread can release the unrelated owner turn. Delivery must
     // return without waiting for it, and nothing enters ordered admission.
     let request = placed
@@ -713,6 +715,6 @@ fn a_kept_reply_waits_off_the_host_while_its_owner_has_unrelated_work() {
         .module_delivery(&mut store, 17, reply())
         .unwrap()
         .is_none());
-    assert_eq!(store.get("document"), Some("kept"));
+    assert_eq!(store.get("document"), Some("kept at 5000"));
     assert!(store.take_writes()[0].durable);
 }

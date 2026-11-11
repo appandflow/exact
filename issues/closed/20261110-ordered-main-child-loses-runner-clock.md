@@ -1,6 +1,7 @@
 # A main-thread child ordered behind a worker runs its turns with the clock at zero, so its timers fire at once
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Ordered main-child turns and kept replies preserve the runner clock in their snapshot stores.
 **Systems:** data/src/mixed.rs, ordered sets (LLP 1027.002 D3), answer timers (LLP 1027.000 D1)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
