@@ -1,6 +1,7 @@
 # Three `contract build` refusals hide their cause: a missing Bun, a mistyped widget `preview`, a stale `.shells/app.json`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Build refusals name missing Bun without blaming a source file, identify preview fields with Contract types, and explain stale shell manifests for native modules.
 **Systems:** contract/cli/src/ambient.rs, contract/cli/src/snapshot/entry.rs, contract/cli/src/native.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

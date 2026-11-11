@@ -164,7 +164,7 @@ pub struct CompileError {
     pub message: String,
     /// Original token range, including its compilation-local source identity.
     pub span: Span,
-    /// Resolved file path, absent only when compiling standalone source text.
+    /// Resolved file path, absent for standalone source text or a failure outside a source file.
     pub file: Option<Box<Path>>,
     /// Other authored declarations or bindings involved in this rejection.
     pub related: Box<[RelatedLocation]>,

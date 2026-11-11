@@ -340,6 +340,60 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
 }
 
 #[test]
+fn preview_refusals_name_the_field_and_written_type() {
+    let src = "shape Props\n  count: number\n  tags: string[]\ncomponent Card\n  props\n    count: number\n    tags: string[]\n  view\n    text count.toString()\n";
+    let mut w = widget();
+    w.preview = json!({"count":7,"tags":[]});
+    compile(src, &w).unwrap();
+    for (value, says) in [
+        (
+            json!({"count":"7","tags":[]}),
+            "`count`: \"7\" does not match number",
+        ),
+        (json!({"tags":[]}), "missing `count`; add it to preview"),
+        (json!({"count":7}), "missing `tags`; add it to preview"),
+        (
+            json!({"count":7,"tags":false}),
+            "`tags`: false does not match string[]",
+        ),
+        (
+            json!({"count":7,"tags":[7]}),
+            "`tags`: 7 does not match string",
+        ),
+        (
+            json!({"count":7,"tags":[],"extra":true}),
+            "does not match Props",
+        ),
+        (
+            json!({"tags":[],"extra":true}),
+            "missing `count`; add it to preview",
+        ),
+    ] {
+        w.preview = value;
+        let errors = compile(src, &w).unwrap_err();
+        assert_eq!(errors[0].id, "snapshot-entry", "{errors:?}");
+        assert!(errors[0].message.contains(says), "{errors:?}");
+        assert!(!errors[0].message.contains("Span {"), "{errors:?}");
+    }
+}
+
+#[test]
+fn viewport_refusal_uses_the_written_type() {
+    let errors = compile(
+        &source(
+            "    text title",
+            "",
+            "  inject\n    snapshot_viewport: number[]\n",
+        ),
+        &widget(),
+    )
+    .unwrap_err();
+    assert_eq!(errors[0].id, "snapshot-viewport", "{errors:?}");
+    assert!(errors[0].message.contains("not `number[]`"), "{errors:?}");
+    assert!(!errors[0].message.contains("Span {"), "{errors:?}");
+}
+
+#[test]
 fn manifest_entries_do_not_change_the_app_plan() {
     let temp = TempDir::new();
     let dir = &temp.0;
