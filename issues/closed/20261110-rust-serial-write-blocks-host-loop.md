@@ -1,6 +1,7 @@
 # On the Linux and Windows hosts a serial `write` holds the host's loop until the device takes every byte
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each connection's writer thread writes the calls' bytes in order and answers each write once the device has taken it, so the loop never waits on the device, and `close` fails the writes not yet taken with `AbortError`.
 **Systems:** packages/serial/linux/lib.rs, packages/serial/windows/lib.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
