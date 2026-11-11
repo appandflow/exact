@@ -2,6 +2,7 @@
 
 mod durability;
 mod publisher;
+mod reuse;
 mod store;
 mod support;
 #[cfg(windows)]

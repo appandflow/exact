@@ -109,6 +109,17 @@ impl Embedded {
     }
 }
 
+/// An asset the binary carries under some name: the SHA-256 of its bytes,
+/// and the file that holds them, which the store reads again and checks
+/// against a card before keeping it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedAsset {
+    /// The digest, lowercase hex, as the host hashed the file.
+    pub sha256: String,
+    /// The file that holds them.
+    pub path: PathBuf,
+}
+
 /// What to boot (LLP 1026 D9). `plan` is `None` for entry zero — the bundle in
 /// the binary — which is also what a client falls back to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -756,9 +767,11 @@ impl Store {
     /// negotiation, and the head's file cards resolve against it. `fetch` is
     /// the host's network — this crate opens no socket — and is called once
     /// for the head, then once for each file the store does not already
-    /// have. `embedded_asset` says what the binary itself carries: the digest
-    /// of the embedded asset by that name, or `None`; it is asked only when
-    /// the head's plan is the embedded one, so a host may hash lazily.
+    /// have. `embedded_asset` says what the binary itself carries under an
+    /// asset's name, or `None`: it decides whether entry zero is the head,
+    /// and an embedded file whose bytes are what a card declares is kept
+    /// instead of fetched. It is asked only for what those need, so a host
+    /// may hash lazily.
     ///
     /// Refused, before anything is written: a head over
     /// [`MAX_ENVELOPE_BYTES`](crate::MAX_ENVELOPE_BYTES), an `exact` major this
@@ -776,7 +789,7 @@ impl Store {
         &mut self,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Check, String> {
         let envelope = self.download(head_url, fetch, embedded_asset)?;
         self.finish_check(envelope, head_url, embedded_asset)
@@ -804,7 +817,7 @@ impl Store {
         &self,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Envelope, String> {
         if self.frozen {
             return Err(
@@ -813,7 +826,7 @@ impl Store {
         }
         let envelope = Envelope::parse(&fetch(head_url)?)?;
         if !self.admit_check(&envelope, head_url, embedded_asset)? {
-            self.write_entry(&envelope, head_url, fetch)?;
+            self.write_entry(&envelope, head_url, fetch, embedded_asset)?;
         }
         Ok(envelope)
     }
@@ -825,7 +838,7 @@ impl Store {
         &mut self,
         envelope: Envelope,
         head_url: &str,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Check, String> {
         if self.admit_check(&envelope, head_url, embedded_asset)? {
             let witness = self.entry_dir(&envelope.digest);
@@ -882,7 +895,7 @@ impl Store {
         &self,
         envelope: &Envelope,
         head_url: &str,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<bool, String> {
         if self.frozen {
             return Err(
@@ -970,7 +983,7 @@ impl Store {
                     && envelope
                         .assets
                         .iter()
-                        .all(|a| embedded_asset(&a.name).as_deref() == Some(a.sha256.as_str()))
+                        .all(|a| embedded_asset(&a.name).is_some_and(|e| e.sha256 == a.sha256))
             }
         };
         if current {
@@ -1273,6 +1286,7 @@ impl Store {
         envelope: &Envelope,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
         let target = self.entry_dir(&envelope.digest);
         if let Some(view) = self.validate(Some(envelope.digest.clone())) {
@@ -1287,7 +1301,7 @@ impl Store {
                 .map_err(|e| format!("cannot clear {}: {e}", target.display()))?;
         }
         let tmp = self.entries_dir().join(temporary_name());
-        let filled = self.fill(&tmp, envelope, head_url, fetch);
+        let filled = self.fill(&tmp, envelope, head_url, fetch, embedded_asset);
         if filled.is_err() {
             let _ = std::fs::remove_dir_all(&tmp);
         }
@@ -1331,15 +1345,17 @@ impl Store {
         envelope: &Envelope,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
         std::fs::create_dir_all(tmp).map_err(|e| format!("cannot make {}: {e}", tmp.display()))?;
         let blobs = self.blobs();
-        self.obtain(&envelope.plan, head_url, fetch)?;
+        // Only assets are taken from the binary, never a plan.
+        self.obtain(&envelope.plan, head_url, fetch, &mut |_| None)?;
         blobs.place(&envelope.plan.sha256, &tmp.join("app.plan"))?;
         let mut directories = std::collections::BTreeSet::from([tmp.to_path_buf()]);
         for asset in &envelope.assets {
             safe_name(&asset.name)?;
-            self.obtain(asset, head_url, fetch)?;
+            self.obtain(asset, head_url, fetch, embedded_asset)?;
             let path = tmp.join("assets").join(&asset.name);
             blobs.place(&asset.sha256, &path)?;
             directories.extend(
@@ -1358,18 +1374,27 @@ impl Store {
     }
 
     /// One file into the blob store: kept already under its digest, else
-    /// fetched. Either way the digest and the byte count are what the head
-    /// declared, or nothing is written (LLP 1026 D11, assets by digest).
+    /// copied from the binary's embedded file of that name, else fetched.
+    /// In each case the digest and the byte count are what the head declared,
+    /// or nothing is written (LLP 1026 D11, assets by digest).
     fn obtain(
         &self,
         card: &crate::envelope::FileCard,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
         let url = resolve_url(head_url, &card.url)?;
         let blobs = self.blobs();
         if blobs.holds(card) {
             return Ok(());
+        }
+        // The host's digest only rules a file out; its bytes are read again,
+        // since the file may have changed after the host hashed it.
+        if let Some(embedded) = embedded_asset(&card.name).filter(|e| e.sha256 == card.sha256) {
+            if let Ok(bytes) = read_card(&embedded.path, card) {
+                return blobs.put(&card.sha256, &bytes);
+            }
         }
         let bytes = fetch(&url)?;
         // The closure hands back a whole body, so the declared length is

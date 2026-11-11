@@ -1,6 +1,7 @@
 # The first update over the embedded bundle downloads every asset the binary already carries
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Before fetching an asset the store lacks, `Store::obtain` reads the binary's embedded file of that name and keeps it in `blobs/` when its length and SHA-256 match the head's card.
 **Systems:** update/src/store.rs, update/src/client.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
