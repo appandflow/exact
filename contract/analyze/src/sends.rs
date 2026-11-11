@@ -12,7 +12,8 @@
 //! exclusive too — a key handler's `if k == "1" …` then `if k == "2" …` —
 //! when each tests one name against literals (`k == "m" or k == "M"`, alone
 //! or as a conjunct of an `and`), the literals differ, and nothing assigns
-//! or sends that name between them.
+//! or sends that name between them. A `match` binder and an outer name
+//! with the same spelling have distinct facts (LLP 1089 D3).
 //!
 //! A `queue` mutation is exempt (LLP 1092 D6): its sends wait in order and
 //! each reply reaches its `then`.
@@ -23,7 +24,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// What a path's enclosing conditions say: each tested name is one of these
 /// literals.
-pub(super) type Guard = Vec<(String, BTreeSet<String>)>;
+pub(super) type Guard = Vec<(Tested, BTreeSet<String>)>;
+
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Tested {
+    path: String,
+    // Calls already rename binders; the span distinguishes matches within a frame.
+    binder: Option<Span>,
+}
 
 /// Two guards no one evaluation can satisfy both of.
 pub(super) fn exclusive(a: &Guard, b: &Guard) -> bool {
@@ -77,9 +85,21 @@ pub(super) fn facts(cond: &Expr) -> Guard {
             out.extend(facts(a));
             out.extend(facts(b));
         }
-        _ => out.extend(one_of(cond)),
+        _ => out.extend(one_of(cond).map(|(path, values)| (Tested { path, binder: None }, values))),
     }
     out
+}
+
+pub(super) fn scoped_facts(cond: &Expr, binders: &[(&str, Span)]) -> Guard {
+    let mut guard = facts(cond);
+    for (tested, _) in &mut guard {
+        tested.binder = binders
+            .iter()
+            .rev()
+            .find(|(name, _)| tested.path.split('.').next() == Some(*name))
+            .map(|(_, span)| *span);
+    }
+    guard
 }
 
 /// The call a statement is made in: the callee and the call's span, or
@@ -90,19 +110,21 @@ pub(super) type Frame<'a> = Option<(&'a str, Span)>;
 /// whether an `if` or `match` arm encloses it.
 type Sent<'a> = BTreeMap<&'a str, Vec<(Span, Guard, Frame<'a>, bool)>>;
 
-/// Whether a fact is about `name`, or a member of it.
-pub(super) fn about(name: &str) -> impl Fn(&(String, BTreeSet<String>)) -> bool + '_ {
-    move |(tested, _)| tested.split('.').next() == Some(name)
+/// Assignments and sends target slots, even inside a same-named match binding.
+fn forget<'g>(name: &str, guard: &'g mut Guard, earlier: impl Iterator<Item = &'g mut Guard>) {
+    for g in std::iter::once(guard).chain(earlier) {
+        g.retain(|(tested, _)| {
+            tested.binder.is_some() || tested.path.split('.').next() != Some(name)
+        });
+    }
 }
 
-/// Forget what conditions said of `name`, now that it changed.
 fn changed(name: &str, guard: &mut Guard, sent: &mut Sent<'_>) {
-    guard.retain(|f| !about(name)(f));
-    for sends in sent.values_mut() {
-        for (_, g, _, _) in sends.iter_mut() {
-            g.retain(|f| !about(name)(f));
-        }
-    }
+    forget(
+        name,
+        guard,
+        sent.values_mut().flatten().map(|(_, g, _, _)| g),
+    );
 }
 
 /// Where a send or an assignment is made, for a refusal: in the action's
@@ -125,6 +147,7 @@ struct Walk<'a> {
     frame: Frame<'a>,
     /// The `if` and `match` arms around the statement being walked.
     arms: usize,
+    binders: Vec<(&'a str, Span)>,
     /// The slots the action assigns anywhere, its calls included.
     assigns: BTreeSet<&'a str>,
     errors: Vec<AnalyzeError>,
@@ -248,7 +271,7 @@ impl<'a> Walk<'a> {
                     ..
                 } => {
                     let mut inner = guard.clone();
-                    inner.extend(facts(cond));
+                    inner.extend(scoped_facts(cond, &self.binders));
                     let mut other = sent.clone();
                     let mut outer = guard.clone();
                     self.arms += 1;
@@ -259,11 +282,15 @@ impl<'a> Walk<'a> {
                     // What an arm changed no longer holds after the branch.
                     guard.retain(|f| inner.contains(f) && outer.contains(f));
                 }
-                Stmt::Match { some, none, .. } => {
+                Stmt::Match {
+                    some, none, span, ..
+                } => {
                     let mut other = sent.clone();
                     let (mut a, mut b) = (guard.clone(), guard.clone());
                     self.arms += 1;
+                    self.binders.push((&some.0, *span));
                     self.block(&some.1, &mut a, sent);
+                    self.binders.pop();
                     self.block(none, &mut b, &mut other);
                     self.arms -= 1;
                     merge(sent, other);
@@ -304,6 +331,7 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
             action: &a.name,
             frame: None,
             arms: 0,
+            binders: Vec::new(),
             assigns,
             errors: Vec::new(),
         };
@@ -326,6 +354,7 @@ struct Both<'a> {
     c: &'a Component,
     action: &'a str,
     frame: Frame<'a>,
+    binders: Vec<(&'a str, Span)>,
     /// One warning per mutation an action.
     said: BTreeSet<&'a str>,
     out: Vec<AnalyzeError>,
@@ -377,7 +406,7 @@ impl<'a> Both<'a> {
                     ..
                 } => {
                     let mut inner = guard.clone();
-                    inner.extend(facts(cond));
+                    inner.extend(scoped_facts(cond, &self.binders));
                     let (mut other_sent, mut other_assigned) = (sent.clone(), assigned.clone());
                     let mut outer = guard.clone();
                     self.block(then, &mut inner, sent, assigned);
@@ -386,10 +415,14 @@ impl<'a> Both<'a> {
                     union(assigned, other_assigned);
                     guard.retain(|f| inner.contains(f) && outer.contains(f));
                 }
-                Stmt::Match { some, none, .. } => {
+                Stmt::Match {
+                    some, none, span, ..
+                } => {
                     let (mut other_sent, mut other_assigned) = (sent.clone(), assigned.clone());
                     let (mut a, mut b) = (guard.clone(), guard.clone());
+                    self.binders.push((&some.0, *span));
                     self.block(&some.1, &mut a, sent, assigned);
+                    self.binders.pop();
                     self.block(none, &mut b, &mut other_sent, &mut other_assigned);
                     union(sent, other_sent);
                     union(assigned, other_assigned);
@@ -443,14 +476,8 @@ impl<'a> Both<'a> {
     }
 }
 
-/// Forget what conditions said of `name`, now that it changed.
 fn moved(name: &str, guard: &mut Guard, made: &mut Made<'_>) {
-    guard.retain(|f| !about(name)(f));
-    for v in made.values_mut() {
-        for (_, g, _) in v.iter_mut() {
-            g.retain(|f| !about(name)(f));
-        }
-    }
+    forget(name, guard, made.values_mut().flatten().map(|(_, g, _)| g));
 }
 
 /// The union of two arms' sends or assignments.
@@ -477,6 +504,7 @@ pub(super) fn send_assigned(c: &Component) -> Vec<AnalyzeError> {
             c,
             action: &a.name,
             frame: None,
+            binders: Vec::new(),
             said: BTreeSet::new(),
             out: Vec::new(),
         };

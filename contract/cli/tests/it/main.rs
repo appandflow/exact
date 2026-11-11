@@ -111,6 +111,7 @@ mod local_auth;
 mod local_network;
 mod locals;
 mod markdown_editing;
+mod match_guards;
 mod media;
 mod media_session;
 mod members;

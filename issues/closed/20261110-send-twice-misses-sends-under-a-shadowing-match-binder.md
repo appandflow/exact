@@ -1,6 +1,7 @@
 # Two sends pass `analyze-send-twice` when a `match` binder is spelled like the state the first send tested
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Guard facts distinguish match bindings from outer names, detecting overlapping effects while preserving exclusive paths across shadowing scopes.
 **Systems:** contract/analyze/src/sends.rs, contract/analyze/src/calls.rs, contract/analyze/src/rereads.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

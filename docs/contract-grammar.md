@@ -2836,8 +2836,10 @@ Syntax is only the first layer. In particular:
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice` — unless the
   mutation is `queue`, whose sends each wait their turn (LLP 1092 D6). Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
-  different literals, are separate paths (LLP 1088 D8). The walk reads the root's
-  actions with every call expanded, where a caller and its callees are one commit.
+  different literals, are separate paths (LLP 1088 D8). A `match` binder and an
+  outer name it shadows are different values; their tests do not prove separate
+  paths. The walk reads the root's actions with every call expanded, where a caller
+  and its callees are one commit.
 - A read of a state or mutation slot that the action assigned earlier on the
   same path sees the starting value, since writes land when the action ends: it
   is the warning `analyze-read-after-assign` (LLP 1116.003 D6; LLP 1035.005.002

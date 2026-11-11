@@ -1026,7 +1026,9 @@ An action that sends one mutation twice on one path is refused
 (`analyze-send-twice`) because the second send would forget the first reply, counting
 the sends of the actions it calls. Every `if` is read as one that can run: two
 sends are separate paths only as arms of one `if … else if … else` or `match`,
-or in `if`s testing one unchanged name against different literals. Send one
+or in `if`s testing one unchanged name against different literals. A `match`
+binder and an outer name it shadows are different values; testing them against
+different literals does not make the paths separate. Send one
 combined request, use a mutation per request, or declare the mutation `queue`
 (LLP 1092). A
 `queue` mutation (`mutation wrote as shape Ack queue then afterWrote`) keeps one
