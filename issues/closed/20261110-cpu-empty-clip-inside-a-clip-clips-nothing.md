@@ -1,6 +1,7 @@
 # On the CPU painter a collapsed `overflow: hidden` box inside another clip shows all of its content
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** CPU clip intersections have empty coverage when any box has no area, including inside an existing clip.
 **Systems:** host/linux/src/raster/mask.rs, host/linux/src/raster.rs (the CPU painter)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

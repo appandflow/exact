@@ -260,8 +260,8 @@ impl Raster {
             self.height as f32,
         ));
         let Some(path) = rounded_rect(shape) else {
-            // mask_with skips invalid shapes when it already has a parent.
-            return if self.clips.is_empty() {
+            // mask_with skips invalid nonempty shapes under a parent clip.
+            return if self.clips.is_empty() || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
                 (0.0, 0.0, 0.0, 0.0)
             } else {
                 parent
@@ -1346,6 +1346,9 @@ fn css_clip_intersection_matches_full_mask_for_curves_transforms_and_tiling() {
 #[test]
 fn nested_shape_masks_match_original_intersections() {
     fn original(raster: &Raster, shapes: &[Shape], ts: Transform) -> Option<Mask> {
+        if shapes.iter().any(|s| s.rect.2 <= 0.0 || s.rect.3 <= 0.0) {
+            return Mask::new(raster.width, raster.height);
+        }
         let dev = raster.device(ts);
         let (mut mask, remaining) = if let Some(parent) = raster.active_clip() {
             ((**parent).clone(), shapes)

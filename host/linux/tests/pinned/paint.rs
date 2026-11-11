@@ -269,6 +269,33 @@ fn transforms_turn_about_the_transform_origin() {
 }
 
 #[test]
+fn a_collapsed_box_inside_a_scroll_container_hides_its_content() {
+    let mut p = compiled(
+        r##"component App
+  view
+    box width=400 height=400 background-color="#ffffff"
+      scroll width=300 height=300
+        text "Section" font-size=16
+        box testId="body" height=0 overflow="hidden"
+          box width=100 height=100 flex-shrink=0 background-color="#ff0000"
+        text "Next section" testId="next" font-size=16
+"##,
+        1.,
+        PainterChoice::Cpu,
+    );
+    assert_eq!(rect(&mut p, "body").3, 0.);
+    let next = rect(&mut p, "next");
+    let frame = p.frame();
+    let red = frame
+        .pixels()
+        .iter()
+        .filter(|p| p.red() > 200 && p.green() < 60 && p.blue() < 60)
+        .count();
+    assert_eq!(red, 0, "the collapsed body must hide its red child");
+    assert!(darkest(&frame, next) < 200, "the next section is visible");
+}
+
+#[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
     for choice in painters() {
         let mut p = fixture("scroll", 1.0, choice);
