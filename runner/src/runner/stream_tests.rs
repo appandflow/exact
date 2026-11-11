@@ -1046,3 +1046,88 @@ fn outstanding_answers_the_agent_as_json() {
     let reply = crate::agent::handle(&r, r#"{"op":"outstanding"}"#);
     assert!(reply.starts_with(r#"{"clear":false,"dataReady":true,"poisoned":false,"requests":[],"streams":["progress"]"#), "{reply}");
 }
+
+/// `entropy()` draws randomness and `writer()` keeps a secret, each before
+/// it opens its stream; neither can answer until the source is ready.
+#[derive(Default)]
+struct Deferred {
+    ready: bool,
+}
+
+impl DataSource for Deferred {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!("the fixture implements answer")
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "busy" => return Ok(Answer::Now(args[0].clone())),
+            "entropy" => store.observe_entropy(),
+            _ => store.set("token", "abc").unwrap(),
+        }
+        Ok(Answer::stream(crate::Request::get(&format!(
+            "https://example.test/{source}"
+        ))))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        Ok(Answer::Now(Value::Number(1.)))
+    }
+
+    fn ready(&self) -> bool {
+        self.ready
+    }
+
+    fn grants(&self) -> &str {
+        "secret.keep token\n"
+    }
+}
+
+#[test]
+fn a_stream_asked_at_readiness_is_pending_only_until_its_first_message() {
+    // The writer's write asks the entropy reader again in a second pass of
+    // the same settlement; the writer, asked in the first, is no longer a
+    // stand-in waiting for its source there.
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let boolean = b.primitive(TypeKind::Bool);
+    for name in ["entropy", "writer"] {
+        let resource = b.resource(name, name, &[], number, None);
+        b.set_resource_placeholder_value(resource, &Value::Number(0.));
+        let mut arg = Asm::new();
+        arg.pending_resource(resource);
+        let arg = b.code(arg);
+        b.resource(&format!("{name}Busy"), "busy", &[arg], boolean, None);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        Deferred::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let out = r.take_requests();
+    assert_eq!(out.len(), 2, "one stream each: {out:?}");
+    for asked in &out {
+        r.fulfill(asked.ticket, message("1", 0)).unwrap();
+    }
+    for name in ["entropyBusy", "writerBusy"] {
+        assert_eq!(r.resource(name), Some(&Value::Bool(false)), "{name}");
+    }
+    assert!(r.in_flight().is_empty() && !r.has_pending());
+}

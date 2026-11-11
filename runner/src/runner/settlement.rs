@@ -266,8 +266,11 @@ impl<D: DataSource> Runner<D> {
                         pending_res[i] = false;
                         awaiting[i] = false;
                     }
+                    // Asked in an earlier pass: no longer a stand-in
+                    // waiting for its source, as that pass recorded.
                     RequestEffect::Later { .. } | RequestEffect::Wait { .. } => {
-                        pending_res[i] = true
+                        pending_res[i] = true;
+                        awaiting[i] = false;
                     }
                 }
             }
