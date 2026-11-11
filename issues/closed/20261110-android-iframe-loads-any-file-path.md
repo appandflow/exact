@@ -1,6 +1,7 @@
 # Android's `iframe` loads a `src` outside the asset root as a file, with JavaScript on, and its `video` plays only a file path
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android resolves an `iframe`'s and a `video`'s `src` as Apple does (`Sources.kt`): a scheme-less one only under the asset root, `//` as `https:` for a frame, a video's `http(s)` and `app:/` as a URL and a file, and anything else refused; a frame reads files only for a local page, and its navigations stay in the frame.
 **Systems:** host/android/canvas (`Natives.kt`, `VideoPlayer`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
