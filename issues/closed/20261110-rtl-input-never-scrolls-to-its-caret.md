@@ -1,6 +1,7 @@
 # A right-to-left single-line input never scrolls, so text typed past its width and the caret are not shown
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Painted RTL inputs reveal their caret and map wheels, scrollBy and scrollbar gestures to the requested physical direction.
 **Systems:** host/linux/src/paint/field.rs, host/linux/src/text/field.rs (painted fields: Linux, and Windows where the field is painted)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

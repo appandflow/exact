@@ -46,8 +46,10 @@ pub struct Scroller {
     pub axes: (bool, bool),
     /// The farthest offset on each axis.
     pub max: (f32, f32),
-    /// Where it is.
+    /// Where it is, measured from the right on x when `from_right` is true.
     pub offset: (f32, f32),
+    /// Whether horizontal offsets increase toward the left (a painted RTL input).
+    pub from_right: bool,
     /// The box it shows in, in the viewport: x, y, width, height.
     pub port: [f32; 4],
     /// Whether the painter keeps its rows apart, so a shell that replays
@@ -113,6 +115,7 @@ impl<D: DataSource> Presenter<D> {
             axes: (max.0 > 0.0, max.1 > 0.0),
             max,
             offset: self.page,
+            from_right: false,
             port: [0.0, 0.0, viewport.0, viewport.1],
             node: false,
         }
@@ -144,6 +147,11 @@ impl<D: DataSource> Presenter<D> {
             axes: (scrolls(ox) && max.0 > 0.0, scrolls(oy) && max.1 > 0.0),
             max,
             offset: self.scroll.get(&id).copied().unwrap_or((0.0, 0.0)),
+            from_right: self
+                .brush
+                .field_text
+                .get(&id)
+                .is_some_and(|field| field.scrolls_from_right()),
             port: [0.0; 4],
             node: self.brush.row_groups().iter().any(|g| g.0 == id),
         })
@@ -349,7 +357,8 @@ impl<D: DataSource> Presenter<D> {
             .scroller(id, &limits)
             .ok_or_else(|| format!("view {id} is not a scroller"))?;
         let revision = self.reader_revision(&s);
-        self.reader_scrolled(id, (dx, dy), revision)
+        let by = (if s.from_right { -dx } else { dx }, dy);
+        self.reader_scrolled(id, by, revision)
             .ok_or_else(|| format!("view {id} refused the reader sample"))?;
         Ok(format!(
             "{{\"tapped\":{id},\"wheel\":[{},{}],\"gesture\":true}}",

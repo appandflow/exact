@@ -39,7 +39,7 @@ mod probe;
 mod timers;
 #[cfg(windows)]
 mod url;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod wheel;
 #[cfg(windows)]
 mod window;

@@ -359,10 +359,20 @@ impl<D: DataSource> Presenter<D> {
         });
         let scrolls = |o| matches!(o, Overflow::Scroll | Overflow::Auto);
         let (ox, oy) = bounds.axes;
+        let dx = if self
+            .brush
+            .field_text
+            .get(&id)
+            .is_some_and(|field| field.scrolls_from_right())
+        {
+            -by(1)
+        } else {
+            by(1)
+        };
         let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
         let next = (
             if scrolls(ox) {
-                (off.0 + by(1)).clamp(0.0, bounds.max.0)
+                (off.0 + dx).clamp(0.0, bounds.max.0)
             } else {
                 off.0
             },

@@ -202,6 +202,16 @@ impl<D: DataSource> Presenter<D> {
         dx: f32,
         dy: f32,
     ) -> bool {
+        let dx = if self
+            .brush
+            .field_text
+            .get(&id)
+            .is_some_and(|field| field.scrolls_from_right())
+        {
+            -dx
+        } else {
+            dx
+        };
         let (ox, oy) = bounds.axes;
         let max = bounds.max;
         let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));

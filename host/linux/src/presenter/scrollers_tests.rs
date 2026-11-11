@@ -94,6 +94,7 @@ fn the_scrollers_under_a_point_are_told_innermost_first() {
             axes: (false, true),
             max: (0., 1020.),
             offset: (0., 0.),
+            from_right: false,
             port: [0., 0., 400., 380.],
             node: false,
         }]
