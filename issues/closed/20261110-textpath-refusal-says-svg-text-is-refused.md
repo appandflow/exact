@@ -1,6 +1,7 @@
 # The refusal of `textPath` says text inside `svg` is refused, which it no longer is
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The textPath refusal names stage 11 and recommends positioned text with tspan runs inside svg.
 **Systems:** contract/lower/src/svg.rs (`refused_tag`), contract/lower/src/lint.rs (`unknown_tag`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

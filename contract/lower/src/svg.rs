@@ -335,12 +335,12 @@ fn shared(attr: &str) -> bool {
 /// A named refusal for an SVG tag outside the subset (LLP 1055 D12).
 pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
     Some(match tag {
-        "text" | "tspan" | "textPath" => {
-            "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
+        "textPath" => {
+            "`textPath` (text on a path) is not in exact2's SVG yet \
+             (LLP 1055.000 §4, stage 11); use `text` with `x` and `y` inside `svg`, \
+             with `tspan` for runs"
         }
-        "image" | "feImage" => {
-            "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
-        }
+        "feImage" => "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage",
         "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
             "refused (LLP 1055.000 §7): Chrome does not implement it"
         }

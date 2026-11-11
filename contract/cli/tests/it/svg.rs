@@ -527,6 +527,26 @@ fn attribute_lengths_refuse_finished_bare_exponents() {
 }
 
 #[test]
+fn text_path_refusal_points_to_positioned_svg_text() {
+    let svg =
+        |body: &str| format!("component A\n  view\n    svg width=100 height=40\n      {body}\n");
+    for body in [
+        "text \"hi\" x=10 y=20",
+        "text x=10 y=20\n        tspan \"hi\"",
+    ] {
+        contract::compile(&svg(body)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    let error = contract::compile(&svg("textPath \"hi\"")).unwrap_err();
+    assert_eq!(error.id, "lower-unknown-tag");
+    assert_eq!(
+        error.message,
+        "unknown tag `textPath`; `textPath` (text on a path) is not in exact2's SVG yet \
+         (LLP 1055.000 §4, stage 11); use `text` with `x` and `y` inside `svg`, \
+         with `tspan` for runs"
+    );
+}
+
+#[test]
 fn refusals_are_named() {
     let svg = |body: &str| {
         format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")

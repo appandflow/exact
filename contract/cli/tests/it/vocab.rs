@@ -360,6 +360,26 @@ fn an_unknown_name_gets_the_compilers_suggestion_and_exit_1() {
 }
 
 #[test]
+fn text_path_refusal_names_the_supported_svg_text() {
+    for args in [vec!["textPath"], vec!["textPath", "--json"]] {
+        let output = vocab(&args);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let refusal = if args.contains(&"--json") {
+            let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+            doc["refused"].as_str().unwrap().to_owned()
+        } else {
+            String::from_utf8(output.stderr).unwrap()
+        };
+        assert!(refusal.contains("`textPath` (text on a path)"), "{refusal}");
+        assert!(refusal.contains("LLP 1055.000 §4, stage 11"), "{refusal}");
+        assert!(
+            refusal.contains("use `text` with `x` and `y` inside `svg`, with `tspan` for runs"),
+            "{refusal}"
+        );
+    }
+}
+
+#[test]
 fn json_lists_everything_and_one_entry() {
     let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
     let names = |key: &str| -> Vec<String> {
