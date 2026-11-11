@@ -1,6 +1,7 @@
 # Two colours exactly opposite in hue mix round the far side of the hue wheel
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** One `exact_color::hue_arc`, which the kernel's gradients and Tamber's `color-mix()` share, leaves hues exactly 180° apart unadjusted under `longer` as well as `shorter`, `mix` takes a colour already in the mix space as written, and a pair with a converted end counts a difference within 1e-6° of ±180° as ±180°.
 **Systems:** color/src/mix.rs, kernel/src/gradient.rs, tamber/src/color_fn.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
