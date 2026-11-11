@@ -1,6 +1,7 @@
 # A table's rows past the 10,000th are laid out on top of the 10,000th
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A table's grid raises the engine's highest grid line to `i16::MAX` (Taffy patch 70), so each of its rows up to that bound has a track of its own, while an authored grid keeps the 10,000-track limit and its refusal.
 **Systems:** kernel/src/layout/table.rs, vendor/taffy (grid placement)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

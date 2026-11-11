@@ -40,6 +40,12 @@ pub struct RareStyle<S: CheapCloneStr = DefaultCheapStr> {
     /// The named lines between the rows
     #[cfg(feature = "grid")]
     pub grid_template_row_names: GridTrackVec<GridTrackVec<S>>,
+    /// EXACT PATCH 70: the highest line, in OriginZero coordinates, that the grid places an item
+    /// at, and the largest span of an item: 10,000 (Taffy's limit for an overlarge grid) unless
+    /// raised, and at most `i16::MAX`. Above 22,767 it lowers the lowest line, so that the grid
+    /// has at most `i16::MAX` tracks; at `i16::MAX` it places nothing before its explicit grid.
+    #[cfg(feature = "grid")]
+    pub grid_line_limit: u16,
 
     // Grid child properties
     /// Defines which row in the grid the item should start and end at
@@ -68,6 +74,8 @@ impl<S: CheapCloneStr> RareStyle<S> {
         grid_template_column_names: GridTrackVec::new(),
         #[cfg(feature = "grid")]
         grid_template_row_names: GridTrackVec::new(),
+        #[cfg(feature = "grid")]
+        grid_line_limit: crate::compute::grid::MAX_GRID_TRACKS,
         #[cfg(feature = "grid")]
         grid_auto_rows: GridTrackVec::new(),
         #[cfg(feature = "grid")]
