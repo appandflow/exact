@@ -153,7 +153,11 @@ android {
     }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
     appDir.resolve(".exact/tamber/TamberTokens.kt").takeIf { it.isFile }?.let { sourceSets["main"].kotlin.directories.add(it.parent) }
-    if (compose) buildFeatures { this.compose = true }
+    if (compose) {
+        buildFeatures { this.compose = true }
+        sourceSets["test"].kotlin.directories.add("src/composeTest/java")
+        testOptions { unitTests { isIncludeAndroidResources = true } }
+    }
     // An app's GPU module (-PgpuModule=<file>) is opened by path from the extracted library directory and checked
     // against the digest its bake recorded, so it is extracted and left unstripped.
     val gpuModule = providers.gradleProperty("gpuModule").orNull
@@ -183,5 +187,8 @@ dependencies {
     if (compose) {
         implementation(platform(libs.compose.bom))
         implementation(libs.compose.material3)
+        implementation("androidx.core:core:1.16.0")
+        testImplementation(libs.junit)
+        testImplementation(libs.robolectric)
     }
 }

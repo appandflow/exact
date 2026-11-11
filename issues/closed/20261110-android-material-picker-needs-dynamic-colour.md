@@ -1,6 +1,7 @@
 # On Android TV, and on Android 10 and 11, a date or time control's Material picker reads dynamic colours the device does not have
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Material pickers use the baseline scheme when dynamic colours are unavailable and preserve authored accent tones without API 31 calls.
 **Systems:** host/android/app/src/compose/java/dev/exact/app/Material.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

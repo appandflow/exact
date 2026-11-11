@@ -447,15 +447,16 @@ acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard
 **A date or time control's picker** (D1, D2). A press on an `input type="date"`, `"time"` or `"datetime-local"` is
 request kind 9 (above). The reader asks the node's hatch first, then shows `ExactActivity.pickers`: the shell's
 `MainActivity` gives Compose Material 3's `DatePickerDialog` and `TimePickerDialog` (`app/src/compose`, on the
-device's dynamic colours, in a `ComposeView` added for as long as the dialog is up) when the APK links Compose, and
-the framework's `DatePickerDialog` and `TimePickerDialog` (`FrameworkPickers`) when it does not. `datetime-local` asks
+device's dynamic colours where available, else Material's baseline scheme, in a `ComposeView` added for as long as
+the dialog is up) when the APK links Compose, and the framework's `DatePickerDialog` and `TimePickerDialog`
+(`FrameworkPickers`) when it does not. `datetime-local` asks
 for the day, then the time. The APK links Compose only when the plan has such a control: `agent-android.mjs` reads
 the plan's uses and passes `-Pcompose=1`. The activity stays a plain `Activity`; the Compose picker brings the
 lifecycle and saved-state owners a `ComposeView` looks for. Both pickers offer Clear while the control holds a value
 (the string is the reader's, `res/values*/strings.xml`), and Material's is in the control's `accent-color` where it
-has one, its primary roles that colour's tones. Under the agent a press holds the picker instead (`type @date
-2026-10-23`, `tap @date clear`, `tap @date cancel`). `x_log_requests=1` logs each picker's first frame, from the
-request and from the touch (`Exact.touched`).
+has one, its primary roles that colour's tones, including on Android 10 and 11. Under the agent a press holds the
+picker instead (`type @date 2026-10-23`, `tap @date clear`, `tap @date cancel`). `x_log_requests=1` logs each picker's
+first frame, from the request and from the touch (`Exact.touched`).
 
 **The field** (D6) is painted by exact2 as Material's filled text field, for a text field, a select and a date or
 time control alike. A date control shows its value as the device writes it: `Device.read` sends, with the other
