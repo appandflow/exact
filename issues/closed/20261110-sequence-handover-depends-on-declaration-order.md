@@ -1,6 +1,7 @@
 # Handing over from one sequence to another in one commit plays nothing when the new one is declared first
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rust and JavaScript stop the owner whose gate is false before arming another sequence, so a handover works in either declaration order.
 **Systems:** runner/src/transport.rs, host/web-js/transport.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

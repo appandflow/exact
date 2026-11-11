@@ -508,6 +508,57 @@ fn a_second_sequence_does_not_play_while_one_does() {
 }
 
 #[test]
+fn sequences_handover_at_the_commit_in_either_declaration_order() {
+    let source = format!(
+        r#"{}
+component Seq
+  state pattern = "a"
+  action swap
+    pattern = pattern == "a" ? "b" : "a"
+  sequence a when pattern == "a"
+    play([Track(beats=1, loops=0, offset=0, output="", steps=[hit(0, "assets/kick.wav")])], bpm=60)
+  sequence b when pattern == "b"
+    play([Track(beats=1, loops=0, offset=0, output="", steps=[hit(0, "assets/hat.wav")])], bpm=60)
+  view
+    text pattern
+"#,
+        SOURCE.split_once("component Seq").unwrap().0
+    );
+    let mut r = boot_with(&source);
+    assert!(r.transport().playing());
+    for (t, old, new, src) in [
+        (100.0, "a", "b", "assets/hat.wav"),
+        (200.0, "b", "a", "assets/kick.wav"),
+    ] {
+        r.advance(t).unwrap();
+        let before = said(&r).len();
+        r.act("swap", vec![]).unwrap();
+        assert!(r.transport().playing(), "handover from {old} to {new}");
+        let lines = said(&r);
+        let sequence_lines: Vec<_> = lines[before..]
+            .iter()
+            .filter(|line| line.starts_with("sequence "))
+            .cloned()
+            .collect();
+        assert_eq!(
+            sequence_lines,
+            [
+                format!("sequence {old} stopped (gate)"),
+                format!("sequence {new} starts at beat 0, bpm 60"),
+            ]
+        );
+        assert!(voices(&r)
+            .iter()
+            .any(|v| v.src == src && v.at == t && v.by == By::End));
+    }
+    r.advance(4200.0).unwrap();
+    assert!(r.transport().playing());
+    assert!(voices(&r)
+        .iter()
+        .any(|v| v.src == "assets/kick.wav" && v.at == 4200.0 && v.by == By::End));
+}
+
+#[test]
 fn stop_sounds_stops_what_sounds_and_the_next_steps_play() {
     let mut r = boot();
     r.act("noCountIn", vec![]).unwrap();

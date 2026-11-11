@@ -771,7 +771,8 @@ impl Transport {
     }
 
     /// Apply a gate step's reading at `t`, the commit that read it having
-    /// stood: arm, restart, edit or stop, in plan order.
+    /// stood: stop an owner whose gate is false, then arm, restart or edit
+    /// in plan order.
     pub(crate) fn stood(
         &mut self,
         plan: &Plan,
@@ -781,6 +782,9 @@ impl Transport {
         seen: Vec<Seen>,
         log: &mut Vec<String>,
     ) {
+        if self.owner.is_some_and(|i| !seen[i].on) {
+            self.stop(plan, out, t, "gate", log);
+        }
         for (i, s) in seen.into_iter().enumerate() {
             let (was_on, was_key) = std::mem::replace(&mut self.gates[i], (s.on, s.key.clone()));
             let rising = s.on && (!was_on || s.key != was_key);
@@ -792,9 +796,7 @@ impl Transport {
                 .map_or("", |v| v.text());
             let refollow = self.play.as_ref().is_some_and(|p| p.clock != clock);
             if self.owner == Some(i) {
-                if !s.on {
-                    self.stop(plan, out, t, "gate", log);
-                } else if s.key != was_key || refollow {
+                if s.key != was_key || refollow {
                     // A restart: Stop, then Start at its new beat 0 (rulings #9).
                     out.sounds
                         .batch(|so| so.retract_seq(t, Cut::At(t), By::Edit, log));

@@ -347,14 +347,14 @@ function publish() {
 }
 function stood(seen, t = clock.now) {
   const before = answerKey();
+  if (Owner != null && !seen[Owner].on) stop(t, 'gate');
   seen.forEach((s, i) => {
     const q = Seqs[i], wasOn = q.on, wasKey = q.kt;
     q.on = s.on; q.kt = s.key;
     // The input followed changed (D9): a restart, as a key's (rulings #13).
     const rising = s.on && (!wasOn || s.key !== wasKey), refollow = !!Play && Play.clockIn !== text(s.args[4]);
     if (Owner === i) {
-      if (!s.on) stop(t, 'gate');
-      else if (s.key !== wasKey || refollow) { T().batch(() => T().retract(t)); Midi.retractSeq(t); Midi.endSeq(t); arm(i, t, s.args); } // a restart: Stop, then Start at its new beat 0
+      if (s.key !== wasKey || refollow) { T().batch(() => T().retract(t)); Midi.retractSeq(t); Midi.endSeq(t); arm(i, t, s.args); } // a restart: Stop, then Start at its new beat 0
       else if (Raw.length !== s.args.length || !Raw.every((a, k) => same(a, s.args[k]))) edit(t, s.args);
     } else if (rising) {
       if (Owner != null) say(`sequence ${q.name} did not play: sequence ${Seqs[Owner].name} is playing`);
