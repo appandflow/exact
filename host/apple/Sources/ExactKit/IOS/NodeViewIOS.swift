@@ -769,7 +769,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
-        followingEndAnimated = false
+        followingEndAnimated = false; scrollView.isPagingEnabled = pagesByViewport(scrollView)
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil

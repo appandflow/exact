@@ -3047,7 +3047,11 @@ A carousel or pager that moves one card or one page per fling is `scroll-snap-ty
 (or `y`) on the scroller and `scroll-snap-stop="always"` beside `scroll-snap-align` on each
 card: a fling then rests on the next snap position in its direction and never passes over
 one. iOS reads it when the drag ends; the web writes it through; other hosts still snap to
-the nearest position.
+the nearest position. On iOS a pager whose pages are each one viewport long, at multiples of
+it, with `scroll-snap-stop="always"` on every page, pages as UIKit's `isPagingEnabled`
+(SwiftUI's `.paging`), settle included. Without `scroll-snap-stop`, a hard fling on iOS may
+pass several cards, as SwiftUI's `.viewAligned` does; any quick flick reaches at least the
+next card from where the drag began.
 
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
