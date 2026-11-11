@@ -186,8 +186,10 @@ impl Collection {
         let mut spacer_count = 0;
         for i in 0..=self.mounted.len() {
             let position = self.mounted.get(i).map_or(self.index.len(), |r| r.position);
-            let gap = self.index.prefix(position).unwrap() - self.index.prefix(cursor).unwrap();
-            if gap > 0.0 {
+            let skipped = self.index.prefix(position).unwrap() - self.index.prefix(cursor).unwrap();
+            if skipped > 0.0 {
+                // The list's own gap is laid out on each side of the spacer.
+                let gap = skipped - self.gap;
                 if let Some((view, old)) = self.spacers.get_mut(spacer_count) {
                     if *old != gap {
                         style(u, *view, &[(main_size(self.axis), Value::Number(gap))])?;

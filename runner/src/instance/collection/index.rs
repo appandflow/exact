@@ -113,6 +113,9 @@ pub(crate) struct SizeIndex {
     /// And before its first row: the range starts this far before the
     /// rows' start, so a short list's end can be there.
     leading: f64,
+    /// The list's main-axis `gap`, which each row's height counts after
+    /// it: the rows end that much before their heights' sum.
+    gap: f64,
     #[cfg(test)]
     rebuilds: usize,
     #[cfg(test)]
@@ -142,6 +145,7 @@ impl SizeIndex {
             next_generation: 0,
             trailing: 0.0,
             leading: 0.0,
+            gap: 0.0,
             #[cfg(test)]
             rebuilds: 0,
             #[cfg(test)]
@@ -340,8 +344,18 @@ impl SizeIndex {
         (end <= self.len()).then(|| self.tree.prefix(end))
     }
 
+    /// Where the rows end: their heights' sum, less the gap the last one
+    /// counts after it.
     pub(crate) fn total_height(&self) -> f64 {
-        self.tree.total()
+        if self.rows.is_empty() {
+            return self.tree.total();
+        }
+        (self.tree.total() - self.gap).max(0.0)
+    }
+
+    /// The list's `gap`, counted in each row's height.
+    pub(crate) fn set_gap(&mut self, gap: f64) {
+        self.gap = if gap.is_finite() { gap.max(0.0) } else { 0.0 };
     }
 
     /// Sufficient bound only: caller bounds every candidate leaf and padding by H.

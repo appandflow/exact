@@ -103,7 +103,7 @@ function positive(t, band, out, n = 1, s = 0, e = t.base) {
 }
 
 class SizeIndex {
-  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; this.leading = 0; }
+  constructor(est, gap = 0) { this.est = est; this.gap = gap; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; this.leading = 0; }
   get len() { return this.h.length; }
   replace(keys) {
     if (keys.length === this.order.length && keys.every((k, i) => k === this.order[i])) return;
@@ -119,7 +119,8 @@ class SizeIndex {
     Object.assign(this, { order: keys, pos, h, gen, me });
   }
   prefix(end) { return prefixT(this.t, end); }
-  get total() { return this.t.sums[1]; }
+  // Each row's height counts the list's gap after it (index.rs `total_height`).
+  get total() { return this.h.length ? Math.max(0, this.t.sums[1] - this.gap) : this.t.sums[1]; }
   // Sufficient bound: every candidate leaf and padding <= H. B >= 1 is
   // power-of-two; monotone nonnegative addition bounds each subtree by its
   // leaf count * H using exact doubling. Root <= B*H, either padded order
@@ -251,7 +252,10 @@ class Collection {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
     this.est = o.est ?? ESTIMATED;
     if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
-    this.index = new SizeIndex(this.est);
+    // A row list's `gap`, which each row's extent counts after it; a vertical list is a block, with none (mod.rs `create`).
+    this.gap = o.x && isFinite(o.gap) && o.gap > 0 ? o.gap : 0;
+    this.est += this.gap;
+    this.index = new SizeIndex(this.est, this.gap);
     // The list's literal size along its axis bounds an inner list's first rows.
     const sizes = (o.x ? o.pw : o.ph).filter(n => typeof n === "number" && isFinite(n) && n > 0);
     this.port = sizes.length ? Math.min(...sizes) : null;
@@ -265,7 +269,7 @@ class Collection {
     const g = this.geometry;
     return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}), ...(this.target ? { [this.requestWaits() ? "waiting" : "seeking"]: true, request: this.request } : {}),
       revision: this.revision, scrollSequence: g ? g.scroll_sequence : 0, count: this.index.len, totalExtent: this.index.total,
-      rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
+      rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position] - this.gap, epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
       pending: this.pending || (this.atEnd && this.index.len > 0) || this.portUnknown || (!!this.target && !this.requestWaits()), correction: this.correction }; // opening, an admitted request, or an unknown port owes another report (into_view.rs `asks_report`)
   }
   scrollAnchor() {
@@ -532,8 +536,10 @@ class Collection {
     let cursor = 0, n = 0;
     for (let i = 0; i <= this.mounted.length; i++) {
       const p = i < this.mounted.length ? this.mounted[i].position : this.index.len;
-      const gap = this.index.prefix(p) - this.index.prefix(cursor);
-      if (gap > 0) {
+      const skipped = this.index.prefix(p) - this.index.prefix(cursor);
+      if (skipped > 0) {
+        // The list's own gap is laid out on each side of the spacer.
+        const gap = skipped - this.gap;
         let s = this.spacers[n];
         if (!s) { const el = document.createElement("div"); el.$exactTree = true; el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
         if (s.size !== gap) { s.el.style.setProperty(MAIN[this.axis], num(gap) + "px"); s.size = gap; }
@@ -773,7 +779,7 @@ class Collection {
   // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
   aligned(p, align, current, offset) {
     if (offset != null) return Math.min(Math.max(this.index.prefix(p) + offset, -this.index.leading), this.index.maxOffset(this.geometry?.port_main ?? 0));
-    const [before, after] = this.margins(p);
+    const [before, gapless] = this.margins(p), after = gapless + this.gap;
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
     const [i0, i1] = this.scrollPadding(), low = i0, high = Math.max(i0, port - i1), view = high - low;
     const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
@@ -1067,6 +1073,7 @@ function report(bytes, f, fill) {
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving,
     scrolling: !!fill?.scrolling, gesture: !!fill?.gesture, animating: !!fill?.animating };
   const c = Lists.get(f.view);
+  if (c?.gap) f.measurements = f.measurements.map(m => ({ ...m, size: m.size + c.gap }));
   const byView = c?.prepare(f);
   if (!byView) { publish(); return false; }
   const cats = [f.focus_view != null, f.interaction_view != null];

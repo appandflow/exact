@@ -1275,3 +1275,28 @@ test('a jump that meets a touch fling waits for it and lands at the end', async 
   expect({receding: result.receding, gaps: result.gaps}).toEqual({receding: true, gaps: result.gaps});
   expect(result.pulled).toEqual([]);
 }, 60_000);
+
+// A row list's `gap` is CSS's between its cards: windowed, each card is where the whole strip lays it.
+test('a row list with a gap lays its cards where CSS does, and ends at the last card', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;gap:14px;height:120px;width:400px;overflow-x:scroll;overflow-y:hidden';
+    document.getElementById('exact-root').append(el);
+    const own = rt.scope(() => list.vl(el, rt.sig(Array.from({length:300}, (_, j) => j)), j => j(), (w, j) => {
+      const card = document.createElement('div'); card.dataset.n = String(j()); card.style.cssText = 'width:60px;height:100px;flex:none'; w.append(card);
+    }, {x: true, est: 60, gap: 14, pw: [400], ph: [120]}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    const at = async left => {
+      await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollLeft = left; });
+      await exact.lists.settle();
+      const origin = el.getBoundingClientRect().left - el.scrollLeft;
+      return { left: el.scrollLeft, width: el.scrollWidth, wrong: [...el.querySelectorAll('[data-n]')]
+        .filter(card => card.getBoundingClientRect().left - origin !== Number(card.dataset.n) * 74).map(card => card.dataset.n) };
+    };
+    const out = [await at(3000), await at(30000)];
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  expect(result).toEqual([{ left: 3000, width: 300 * 74 - 14, wrong: [] }, { left: 300 * 74 - 14 - 400, width: 300 * 74 - 14, wrong: [] }]);
+}, 60_000);
