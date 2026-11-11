@@ -1,6 +1,7 @@
 # `verify` does not stop on Ctrl-C or SIGTERM while `contract verify` is running
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `contractVerify`'s signal listener stops `contract verify` and then ends verify with the signal's code, unless `whenEnded` is there to do it.
 **Systems:** scripts/verify-semantics.mjs, scripts/verify.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
