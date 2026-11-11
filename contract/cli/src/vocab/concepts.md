@@ -1046,9 +1046,10 @@ On a button, `-exact-menu` is a literal `about` (directly under About), `app`,
 `file`, `edit`, `view`, `go`, `window`, `help` or `none` (no item; the chord
 stays a shortcut). `dock` beside one of them, or alone, also files the button
 in the app's Dock menu (`-exact-menu="file dock"`). `status` alone presents the
-button as the app's status item: a menu bar item on macOS, a notification-area
-icon on Windows; it takes the button's place, its `popovertarget` menu is the
-item's menu, and with another id it fails `lower-menu-status` (LLP 1133.025).
+button as the app's status item, a menu bar item on macOS (Windows'
+notification-area icon is not built); it takes the button's place, its
+`popovertarget` menu is the item's menu, and with another id it fails
+`lower-menu-status` (LLP 1133.025).
 It adds an item even without a chord and overrides
 `aria-keyshortcuts` chord filing. The item's label is the button's accessible
 label or text; `disabled` disables it. An item in the app menu or Help is the

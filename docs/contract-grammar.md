@@ -2628,11 +2628,11 @@ the virtual clock).
   menu too, above AppKit's own items, in declaration order, from the key
   window's session. `-exact-menu="status"` stands alone (with another id it
   fails `lower-menu-status`) and presents the button as the app's
-  `NSStatusItem` on macOS and its notification-area icon on Windows, taking
-  its place in the page; its `popovertarget` menu is the item's menu. A click
-  on macOS opens the menu when there is one and runs `press` when there is
-  none; on Windows the left button runs `press` (or opens the menu with no
-  `press`) and the right one opens the menu. With
+  `NSStatusItem` on macOS, taking its place in the page; its `popovertarget`
+  menu is the item's menu. A click opens the menu when there is one and runs
+  `press` when there is none. Windows' notification-area icon is accepted and
+  not built (LLP 1133.025 §14): there, as on every other host, the button
+  stays an ordinary button in the window. With
   `host.macos.activationPolicy: "accessory"` the app has no Dock tile and
   opens no window at launch. Bare `focus()` is the window's, as the web's
   `window.focus()`: it shows the session's window if hidden, brings it

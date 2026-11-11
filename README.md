@@ -700,6 +700,8 @@ else here was admitted because a real app needed it.
   [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
+  Notification-area icons are not built: `-exact-menu="status"` stays an
+  ordinary button in the window (LLP 1133.025 §14).
 - **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs
   on an emulator or a phone: `bun exact.mjs android` builds it, `bun exact.mjs test
   android` runs its tests, and `bun exact.mjs agent android …` drives it
