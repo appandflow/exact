@@ -1,6 +1,7 @@
 # On native hosts a module cannot assign over an inherited built-in property: `this.name` in an Error subclass throws, and nothing tells the author
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Inherited writable, configurable built-in prototype properties can be shadowed while the intrinsic remains frozen.
 **Systems:** js/src/lib.rs, vendor/ibex/crates/ibex2/src/bindings/harden.js, docs/reference.md, docs/agent-pitfalls.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

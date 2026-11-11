@@ -1032,8 +1032,13 @@ web APIs, never the DOM's UI types (`Document`, `HTMLElement`, `Window`).
 Imports may name `.ts` files (`import { day } from './dates.ts'`) or leave the
 extension off; `tsconfig.json` contributes only `paths` and `baseUrl`.
 
-The language is the same everywhere. The globals beyond it are the browser's
-on the web and these on Hermes (macOS, iOS, Linux):
+Native hosts freeze the built-in objects and their prototypes. A module cannot
+replace `Array.prototype.map` or `Math.max`. Assignments on an inheriting object
+still create its own property: an Error subclass can set `this.name`, and an
+object can set its own `toString`. Configurable, writable data properties on
+built-in prototypes become accessors to preserve those assignments while
+keeping the built-in fixed.
+The globals beyond the language are the browser's on the web and these on Hermes:
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |

@@ -105,8 +105,6 @@
   // unlocked value to its promise alone, never through the store. A refusal
   // whose message names its error (`InvalidAccessError: …`) carries that name.
   function presence(host, get, refuse) {
-    // Own properties: a hardened realm's frozen `Error.prototype` refuses an
-    // assigned `name`.
     function as(e, name) {
       Object.defineProperty(e, "name", { value: name, writable: true, configurable: true });
       Object.defineProperty(e, "code", { value: name, writable: true, enumerable: true, configurable: true });

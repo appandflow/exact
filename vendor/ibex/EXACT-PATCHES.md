@@ -689,3 +689,14 @@ LLP 1120 §5 records the original baseline and remaining measured gate. Async
 remains off by default. Independent stage-1 code review, controlled TLS
 setup-stall diagnostics, Mac smoke, and the bounded image tests do not replace
 that campaign.
+
+## Local patch 29, assignments over inherited intrinsic properties
+
+`crates/ibex2/src/bindings/harden.js` replaces configurable, writable prototype
+properties with accessors before freezing. Assigning on an inheriting object
+creates its own property; the intrinsic stays fixed. SQLite verifies its captured
+identities before this trusted transformation, then pins the resulting accessors.
+The adapter's value conversions, integrity checks and bootstrap primitives live in
+separate internal headers to keep each source under 1,500 lines.
+Exact's `js/tests/it/pure.rs` covers shadowing and the frozen descriptors;
+its storage tests exercise the SQLite integrity check after hardening.

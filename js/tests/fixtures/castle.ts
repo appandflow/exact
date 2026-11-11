@@ -101,7 +101,6 @@ async function refusedLater(): Promise<Session> {
 async function refusedWhy(offline: string): Promise<Session> {
   await fetch("https://api.castle.xyz/ping");
   const code = offline ? "E_OFFLINE" : "SLOT_FULL", error = Object.assign(new Error(`${code}: no`), { code, reason: code });
-  // `name` is defined, not assigned: Error.prototype's is read-only here (frozen intrinsics).
   throw offline ? Object.defineProperties(error, { name: { value: "FetchError" }, kind: { value: "Network" } }) : error;
 }
 

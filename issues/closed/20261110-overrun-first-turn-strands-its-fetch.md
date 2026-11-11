@@ -1,6 +1,7 @@
 # An answer whose first turn runs over budget after starting a fetch is never let go, so the fetch never settles and its `finally` never runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused first turns release their calls, withdraw queued fetches and run rejection continuations before retry.
 **Systems:** js/src/lib.rs (`Module::begin`), js/src/turns.rs (`forget_calls`), js/src/prelude.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

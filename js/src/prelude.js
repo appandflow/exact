@@ -521,8 +521,6 @@
   var responses = binary.responses(), Response = responses.Response, hostReply = responses.reply;
 
   function FetchError(f) {
-    // Storage hardens Error.prototype. Define own fields instead of assigning
-    // through its frozen inherited name/message properties.
     Object.defineProperties(this, {
       name: { value: "FetchError", configurable: true },
       message: { value: String(f.message), configurable: true },
@@ -815,7 +813,7 @@
   function storageError(message, code) {
     var error = new Error(message);
     error.kind = "Unavailable"; error.code = code || storageCode(String(message));
-    if (/^unsupported: no (home|bundle): directory here$/.test(String(message))) Object.defineProperty(error, "name", { value: "NotSupportedError", writable: true, configurable: true }); // no such directory on iOS, tvOS, Android (LLP 1133.007 D6); its code stays "failed", as "unsupported" is a host with no app storage; defined, as the hardened Error.prototype.name is read only
+    if (/^unsupported: no (home|bundle): directory here$/.test(String(message))) Object.defineProperty(error, "name", { value: "NotSupportedError", writable: true, configurable: true }); // no such directory on iOS, tvOS, Android (LLP 1133.007 D6); its code stays "failed", as "unsupported" is a host with no app storage
     return error;
   }
   function storageCall(receiver, method, args, convert) {
@@ -1191,6 +1189,7 @@
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
     currentCall = call; work.setTurn(call);
+    calls.set(call.id, call);
     try {
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
@@ -1234,7 +1233,6 @@
       if (call.socketOps && result && typeof result.then === "function") handSocketOps(call, 17);
     }
     catch (e) {
-      calls.set(call.id, call);
       if (call.socketConflict) { withdrawFetches(call); e = new Error(SOCKET_AND_FETCH); }
       // A refused socket mutation makes no fetch later either: its
       // continuation's are refused as the second effect.
@@ -1244,7 +1242,6 @@
       return JSON.stringify({ tag: 3, call: call.id });
     }
     if (result && typeof result.then === "function") {
-      calls.set(call.id, call);
       result.then(function (v) {
         if (call.lost) return;
         call.status = "done"; call.value = v;
@@ -1264,7 +1261,6 @@
     // in flight to run it. The owner stays installed while that turn drains.
     // (The reply is serialized at `settle`, as a promised value is: the
     // engine keeps one call's large strings.)
-    calls.set(call.id, call);
     call.status = "done"; call.value = result;
     return JSON.stringify({ tag: 3, call: call.id });
   };
@@ -1283,8 +1279,8 @@
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
     return "";
   };
-  // Calls still tracked: a diagnostic for tests (LLP 1041 §8.4 Q5).
   global.__exact_calls_open = function () { return String(calls.size); };
+  global.__exact_call_id = function () { return String(currentCall ? currentCall.id : 0); };
   global.__exact_settle = function (id, final) {
     timers.checkpoint();
     currentCall = null;
@@ -1304,12 +1300,16 @@
     var moved = work.forgot(call); // its steps waiting for its own turn run in the let-go chain, with no store (LLP 1146 D2)
     // A released resource's socket handle is stale from now on (D7).
     if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }
-    // Not a fetch another answer has since claimed: that one waits on it.
+    // Withdraw any request still unsent; keep a fetch another answer claimed.
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
       // A stream's promise never settles (LLP 1016.000), ended or let go.
-      if (p && p.call === call && !p.module) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
+      if (p && p.call === call && !p.module) {
+        settled(call.tickets[i]);
+        host(16, String(call.tickets[i]), "");
+        if (!p.stream) dropped.push(p);
+      }
     }
     // Rejected now, run at the next drain with no answer current.
     dropped.forEach(function (p) {

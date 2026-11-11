@@ -912,6 +912,7 @@ impl Module {
         let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
         let clock = TurnClock::start(&self.turn_time);
+        let mut begun = None;
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
@@ -926,6 +927,7 @@ impl Module {
                     .ok_or_else(|| {
                         DataError::Unavailable(format!("`{source}`: a call with no id"))
                     })?;
+                begun = Some(call);
                 engine
                     .drain()
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
@@ -937,6 +939,17 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // An interrupt may stop __exact_call before it returns its id.
+        if result.is_err() && begun.is_none() {
+            begun = self
+                .engine
+                .as_mut()
+                .expect("checked above")
+                .call("__exact_call_id", ["", "", ""])
+                .ok()
+                .and_then(|id| id.parse().ok())
+                .filter(|id| *id != 0);
+        }
         let deadline = self.snapshot_deadline.is_some();
         let over = clock.judge(
             budget_ms,
@@ -947,6 +960,7 @@ impl Module {
         );
         if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
+            self.forget_calls(begun.into_iter().collect());
             self.prune_secret_calls();
         }
         // What the turn sent as an answer goes whatever it answers (the

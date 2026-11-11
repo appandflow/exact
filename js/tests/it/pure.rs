@@ -369,3 +369,38 @@ fn universal_hardening_prevents_application_envelope_parser_replacement() {
         );
     }
 }
+
+#[test]
+fn hardened_intrinsics_allow_own_shadowing_assignments() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    module.bind(&contract::compile("component App\n  resource value = shadowIntrinsics() as shape string\n  view\n    text value\n").unwrap());
+    assert_eq!(
+        module
+            .query("shadowIntrinsics", &[])
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        r#"[["MyError","x",true],["$3.50",true,true,true],"Point(3)","Refused",["a","constructor","valueOf"],[7]]"#
+    );
+}
+
+#[test]
+fn shadowing_setters_keep_intrinsics_and_receiver_descriptors_locked() {
+    let mut module = Module::loaded(
+        include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+        "test.pure",
+        "",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    module.bind(&contract::compile("component App\n  resource locked = lockedIntrinsics() as shape string\n  view\n    text locked\n").unwrap());
+    let value = module.query("lockedIntrinsics", &[]).unwrap();
+    let locked: Vec<Vec<bool>> = serde_json::from_str(value.as_str().unwrap()).unwrap();
+    assert_eq!(locked, vec![vec![true; 19]; 4]);
+}
