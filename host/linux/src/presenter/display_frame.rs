@@ -56,7 +56,7 @@ pub(crate) struct SubmittedFrame {
     identity: Rc<Identity>,
     picture: RefCell<Option<Picture>>,
 }
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 impl SubmittedFrame {
     pub(crate) fn fixture(value: u8) -> Self {
         let mut pixels = Pixmap::new(1, 1).unwrap();

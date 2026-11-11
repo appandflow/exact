@@ -21,7 +21,7 @@ use crate::presenter::{Presenter, SubmittedFrame};
 use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
-    connector, crtc, dumbbuffer::DumbBuffer, framebuffer, Device as ControlDevice, Event, Mode,
+    connector, crtc, dumbbuffer::DumbBuffer, framebuffer, Device as ControlDevice, Mode,
     ModeTypeFlags, PageFlipFlags,
 };
 use drm::Device;
@@ -33,7 +33,9 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 use tiny_skia::Pixmap;
 
+mod flip;
 mod pointer;
+use flip::FlipState;
 #[cfg(test)]
 mod tests;
 
@@ -182,103 +184,6 @@ impl Display {
             })
             .map_err(|e| format!("events: {e}"))
     }
-}
-
-// The two buffers and the one submitted owner transition together, only after
-// successful syscalls. A failed copy/ioctl cannot change front or claim a flip.
-struct FlipState {
-    front: usize,
-    first: bool,
-    pending: Option<(usize, SubmittedFrame)>,
-    sequence: Option<u32>,
-    at: Option<std::time::Duration>,
-}
-impl Default for FlipState {
-    fn default() -> Self {
-        Self {
-            front: 0,
-            first: true,
-            pending: None,
-            sequence: None,
-            at: None,
-        }
-    }
-}
-impl FlipState {
-    fn pending(&self) -> bool {
-        self.pending.is_some()
-    }
-    fn submit(
-        &mut self,
-        frame: SubmittedFrame,
-        send: impl FnOnce(usize, bool, &Pixmap) -> Result<(), String>,
-    ) -> Result<Option<SubmittedFrame>, String> {
-        if self.pending() {
-            return Err("display already has a pending flip".into());
-        }
-        let back = 1 - self.front;
-        send(back, self.first, &frame.pixels)?;
-        if self.first {
-            self.first = false;
-            self.front = back;
-            Ok(Some(frame))
-        } else {
-            self.pending = Some((back, frame));
-            Ok(None)
-        }
-    }
-    fn ready(
-        &mut self,
-        crtc: crtc::Handle,
-        read: impl FnOnce() -> std::io::Result<Vec<Event>>,
-    ) -> std::io::Result<Option<SubmittedFrame>> {
-        let Some((sequence, at)) = receive_flip(crtc, self.sequence, read)? else {
-            return Ok(None);
-        };
-        let Some((back, frame)) = self.pending.take() else {
-            return Ok(None);
-        };
-        self.front = back;
-        self.sequence = Some(sequence);
-        self.at = Some(at);
-        Ok(Some(frame))
-    }
-}
-
-// drm::receive_events reads at most 1024 bytes. One bounded read per ready turn
-// lets other FDs/timers run. The locked DRM API exposes CRTC and sequence, not a
-// per-request cookie: this FD has one pending request, with duplicate/old event
-// sequences refused (including the ambiguous half of the wrapping u32 range).
-fn receive_flip(
-    crtc: crtc::Handle,
-    last_sequence: Option<u32>,
-    read: impl FnOnce() -> std::io::Result<Vec<Event>>,
-) -> std::io::Result<Option<(u32, std::time::Duration)>> {
-    let events = match read() {
-        Ok(events) => events,
-        Err(e)
-            if matches!(
-                e.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-            ) =>
-        {
-            return Ok(None)
-        }
-        Err(e) => return Err(e),
-    };
-    Ok(events.into_iter().find_map(|event| match event {
-        Event::PageFlip(e)
-            if e.crtc == crtc
-                && last_sequence.is_none_or(|last| {
-                    let distance = e.frame.wrapping_sub(last);
-                    distance != 0 && distance < 1 << 31
-                }) =>
-        {
-            // `duration` is the kernel's flip timestamp (tv_sec/tv_usec).
-            Some((e.frame, e.duration))
-        }
-        _ => None,
-    }))
 }
 
 impl Drop for Display {

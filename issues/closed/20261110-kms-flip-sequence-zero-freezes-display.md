@@ -1,6 +1,7 @@
 # The KMS display stops after three frames on a driver that reports no vblank sequence
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A page-flip event for the display CRTC completes its pending frame even when every sequence is zero.
 **Systems:** host/linux/src/display.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
