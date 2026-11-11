@@ -1,6 +1,7 @@
 # Two Linux tests expect plaintext passwords in agent state after state masking
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by e59408c0: both tests expect the masked slot in state and the value under reveal, and pass.
 **Systems:** host/linux/src/agent/tests.rs, host/linux/src/presenter/hatch_tests.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
