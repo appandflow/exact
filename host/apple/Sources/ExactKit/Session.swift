@@ -490,9 +490,8 @@ public final class ExactSession {
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
-    private var preferenceObservers: [NSObjectProtocol] = [], pageObservers: [NSObjectProtocol] = [], localeObserver: NSObjectProtocol?
-    var leaveObserver: NSObjectProtocol?
-    var shareInboxObserver: NSObjectProtocol?
+    private var preferenceObservers: [NSObjectProtocol] = [], pageObservers: [NSObjectProtocol] = [], placeObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    var leaveObserver: NSObjectProtocol?, shareInboxObserver: NSObjectProtocol?
     #if os(macOS)
     private var colorObserver: NSObjectProtocol?
     #endif
@@ -566,7 +565,7 @@ public final class ExactSession {
         wire()
         preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferencesSoon() }
         pageObservers = PageFacts.observe { [weak self] in self?.tellPageSoon() }
-        localeObserver = observeFormatLocale()
+        placeObservers = observePlace()
         #if os(macOS)
         // @ref LLP 1095 D5 — the accent or another system colour changed:
         // what was resolved goes, the report is made again, and every view
@@ -1294,9 +1293,10 @@ public final class ExactSession {
 
     /// Drawn once per launch and kept across a dev reload's new runner; its `formatLocale` follows the Region and the hour cycle (`formatLocaleChanged`).
     var launchPlace: LaunchPlace
-    /// The zone's offset last told (`followOffset`, before each advance, so a
-    /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
-    var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
+    /// The date and the zone's offset last told (`followOffset`, before each
+    /// advance, so a DST change or a sleep reaches the timer after it, habits
+    /// F6; `tellAgentOffset`).
+    var toldEpoch: Double?, toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
     /// (`pointer: none` on tvOS sets a different layout).
@@ -1480,7 +1480,7 @@ public final class ExactSession {
         frameHealth.destroy()
         finishHold.moved(false) // its work ends with the runtime
         DisplayPreferences.forget(preferenceObservers)
-        PageFacts.forget(pageObservers); localeObserver.map(NotificationCenter.default.removeObserver)
+        PageFacts.forget(pageObservers); for (center, token) in placeObservers { center.removeObserver(token) }
         leaveObserver.map(NotificationCenter.default.removeObserver)
         shareInboxObserver.map(NotificationCenter.default.removeObserver)
         #if os(macOS)

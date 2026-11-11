@@ -1,6 +1,7 @@
 # On Apple the date an app reads falls behind by the time the system slept, and a system clock change is never told
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Apple session tells the date again whenever it has moved by a second or more from the one last told, at each timer's and frame's check and on Foundation's clock and zone change, AppKit's wake and UIKit's activation and significant time change notices.
 **Systems:** host/apple/Sources/ExactKit/SessionTime.swift, host/apple/Sources/ExactKit/Session.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
