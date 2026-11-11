@@ -1,6 +1,7 @@
 # A derive whose type cannot be inferred is refused as depending on itself when no derive cycle exists
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Untyped literals report type-cannot-infer, dependent derives leave the refusal to its cause, and genuine derive cycles retain type-derive-cycle.
 **Systems:** contract/types/src/component.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
