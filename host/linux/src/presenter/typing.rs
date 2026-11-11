@@ -652,6 +652,10 @@ impl<D: DataSource> Presenter<D> {
         if repeat && code == "Select" && self.page_inert() {
             return;
         }
+        // An open select's menu takes the keys it uses (`select.rs`).
+        if self.menu_key(name) {
+            return;
+        }
         // An open surface of the top layer takes every key (`top.rs`).
         if self.alert_key(name, code, repeat, now_ms) || self.surface_key(name, now_ms) {
             return;
@@ -763,7 +767,8 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         // A radio's arrows and Space (x2apps survey #2).
-        if self.radio_key(id, name, now_ms) || self.range_key(id, name) {
+        if self.radio_key(id, name, now_ms) || self.range_key(id, name) || self.select_key(id, name)
+        {
             return;
         }
         if self.tab_key(id, name, now_ms) {

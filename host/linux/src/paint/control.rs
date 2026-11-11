@@ -220,8 +220,10 @@ pub struct MenuPaint {
     pub row: f32,
     /// Each option's label and whether it is disabled.
     pub rows: Vec<(String, bool)>,
-    /// The chosen row.
+    /// The highlighted row: the one the keys moved to, else the chosen.
     pub chosen: Option<usize>,
+    /// How far the rows are scrolled, in points.
+    pub offset: f32,
     /// The select's inherited text style, which the rows are set in.
     pub style: exact_kernel::StyleProps,
     /// The select's accent, where it sets one.
@@ -399,9 +401,13 @@ impl super::Painter {
         };
         self.backend.fill(&panel.inset(1.0), bg, ts);
         let (accent, on_accent) = accents(menu.accent, dark);
-        let (x, y, w, _) = menu.rect;
+        let (x, y, w, h) = menu.rect;
+        self.backend.push_clip(&panel, ts);
         for (i, (label, disabled)) in menu.rows.iter().enumerate() {
-            let top = y + MENU_PAD + i as f32 * menu.row;
+            let top = y + MENU_PAD + i as f32 * menu.row - menu.offset;
+            if top + menu.row < y || top > y + h {
+                continue;
+            }
             let chosen = menu.chosen == Some(i);
             if chosen {
                 let row = Shape::new((x + 4.0, top, w - 8.0, menu.row), [4.0; 4]);
@@ -428,6 +434,7 @@ impl super::Painter {
             self.backend
                 .text(&mut engine, &paragraph, &palette, (x + 12.0, oy), ts);
         }
+        self.backend.pop_clip();
         self.dark = previous;
     }
 }

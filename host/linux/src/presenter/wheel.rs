@@ -115,7 +115,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.overlay_wheel(x, y, dy) || self.alert_inert() && self.hit(x, y).is_none() {
+        if self.menu_wheel(x, y, dy)
+            || self.overlay_wheel(x, y, dy)
+            || self.alert_inert() && self.hit(x, y).is_none()
+        {
             return;
         }
         self.person_scrolls += 1;

@@ -393,8 +393,13 @@ impl super::Painter {
         );
         let pad = look::px(metric::MENU_PADDING, em);
         let inset = look::px(metric::MENU_ROW_PADDING_INLINE, em);
+        let h = menu.rect.3;
+        self.backend.push_clip(&panel, ts);
         for (i, (label, disabled)) in menu.rows.iter().enumerate() {
-            let top = y + super::control::MENU_PAD + i as f32 * menu.row;
+            let top = y + super::control::MENU_PAD + i as f32 * menu.row - menu.offset;
+            if top + menu.row < y || top > y + h {
+                continue;
+            }
             if menu.chosen == Some(i) {
                 let row = Shape::new(
                     (x + pad, top, w - 2.0 * pad, menu.row),
@@ -423,6 +428,7 @@ impl super::Painter {
                 ts,
             );
         }
+        self.backend.pop_clip();
     }
 
     /// A file field: the outline button, and beside it the words for no

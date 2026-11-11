@@ -75,6 +75,7 @@ mod range;
 mod range_frame;
 #[cfg(test)]
 mod save_tests;
+mod select;
 mod svg_hit;
 mod tabs;
 #[cfg(windows)]
@@ -236,8 +237,11 @@ pub struct Presenter<D: DataSource> {
     /// its bound value last changed, beside that bound value
     /// (`paint::control::choice`, `field_text`).
     pub(crate) chosen: BTreeMap<ViewId, (String, String)>,
-    /// The select whose menu is open (LLP 1069.001 D7).
+    /// The select whose menu is open (LLP 1069.001 D7), the row its keys
+    /// moved to, and how far it is scrolled (`select.rs`).
     pub(crate) menu: Option<ViewId>,
+    menu_row: Option<usize>,
+    menu_scroll: f32,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     /// What the focus's following of the route keeps (`arrive.rs`).
     route_focus: arrive::State,
@@ -531,6 +535,8 @@ impl<D: DataSource> Presenter<D> {
             controls: BTreeMap::new(),
             chosen: BTreeMap::new(),
             menu: None,
+            menu_row: None,
+            menu_scroll: 0.0,
             autofocus_processed: Default::default(),
             route_focus: Default::default(),
             pointer: None,
@@ -1408,7 +1414,7 @@ impl<D: DataSource> Presenter<D> {
         self.field_history = Default::default();
         self.ime = None;
         self.window_focus = None;
-        self.menu = None;
+        self.close_menu();
         self.hovered.clear();
         self.pointer_held = None;
         self.pointer_path.clear();

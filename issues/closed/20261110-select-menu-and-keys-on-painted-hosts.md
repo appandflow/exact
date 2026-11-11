@@ -1,6 +1,7 @@
 # A select on the painted hosts takes no key, and its menu cannot scroll, close on Escape or Back, or reach assistive technology
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A focused select opens on Space, Enter, the arrows and F4 and a letter chooses by its label; an open menu takes the arrows, Home, End, PageUp, PageDown, Enter, Space and letters, closes on Escape, Tab and system Back, and is held to the window and scrolls (`presenter/select.rs`); its accessibility and its presentation as Android's and Windows' platform popup are `issues/20261111-select-menu-reaches-no-assistive-technology.md`.
 **Systems:** host/linux/src/presenter/control.rs, host/linux/src/presenter/typing.rs, host/linux/src/presenter/back.rs, host/linux/src/presenter/access.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
