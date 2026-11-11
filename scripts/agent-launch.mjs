@@ -358,7 +358,10 @@ export function chromiumBuilds(full, platform = process.platform, arch = process
   return { full, shell: [browsers, `chromium_headless_shell-${revision}`, dir, `chrome-headless-shell${exe}`].join(separator) };
 }
 let pinned;
-const playwrightFull = () => pinned ??= createRequire(import.meta.url)('playwright-core').chromium.executablePath();
+// The checkout's own copy, by path. A process Bun started with no node_modules resolves a bare `playwright-core`
+// to the newest version in its cache (https://bun.sh/docs/runtime/autoimport), whose Chromium is another revision,
+// and keeps doing so after `exact setup` installs the pinned one.
+const playwrightFull = () => pinned ??= createRequire(import.meta.url)(resolve(ROOT, 'node_modules/playwright-core')).chromium.executablePath();
 const playwrightVersion = () => JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core'];
 const executableAt = (path) => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } };
 /** What a web drive of `app` (resolveApp's) needs of Chromium: the GPU when the app has a GPU module. */
