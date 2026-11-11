@@ -190,6 +190,18 @@ fn the_paging_columns_recipe_ignores_leave_and_loads_until_the_last_page() {
 fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
     let dir = std::env::temp_dir().join(format!("exact-docs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    let package = dir.join("node_modules/@exact/in-app-browser");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/in-app-browser");
+    for file in [
+        "package.json",
+        "exact.json",
+        "apple/exact.json",
+        "android/exact.json",
+        "web/exact.json",
+    ] {
+        std::fs::create_dir_all(package.join(file).parent().unwrap()).unwrap();
+        std::fs::copy(source.join(file), package.join(file)).unwrap();
+    }
     let path = dir.join("app.contract");
     let (mut compiled, mut parsed) = (0, 0);
     let mut failures = Vec::new();

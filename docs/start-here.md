@@ -120,17 +120,19 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |a video, a looping hero clip, a song (the `video` and `audio` elements, with a `poster`)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media)|
 |a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
+|opening a web page over the app (a checkout, a help page)|`in-app-browser`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |sign in with Google, Microsoft, Auth0, Okta or another OAuth provider|`oauth`|
 |a Convex backend: live queries, mutations, actions|`convex`|
 |a website: serving it (`serve`, which renders a `render=request` page per request), a setting, a deep link|`website`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
+|a release build for a phone: the commands, signing, where the artifact lands|`mobile-build`|
 |a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |an icon: in a button, a tab, beside a label (a symbol, never a character such as ▦ ☏ ★ or an emoji)|`symbols`|
-|a module in Swift that `app.ts` asks; launch arguments|`native-module`|
+|a module in Swift that `app.ts` asks; a value from the launch environment (a resource that reads `native.available` or calls `native.call` keeps its answer across launches)|`native-module`|
 |a canvas drawn in Rust on the GPU (a `Surface`); Rust of the app's own, in its own Cargo workspace|`gpu-module`|
 |app.json keys, `assets/`, the `modules` folder|`app-json`|
 |a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|
