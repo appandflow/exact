@@ -89,7 +89,10 @@ function handle(transport, owner) {
   const turn = () => answering.mapper?.owner === owner ? answering.mapper : answering.call;
   const stage = (op, data, reason, size = 0) => {
     const call = turn(), mapper = !!call && call === answering.mapper, answer = !!call && !mapper && !call.mutation;
-    if (!mapper && !call?.mutation && !answer) throw new Error(`socket.${op} is only available in a mutation's or a resource's synchronous source, or its socket's own mapper`);
+    // An answer's code after an `await` or in its timer runs as that answer
+    // (ts-data.js `__exact_async_context`), but its source has returned and
+    // what it sent has gone to the commit: the page has no turn to send it in.
+    if (!mapper && !call?.turn) throw new Error(`socket.${op} is only available in a mutation's or a resource's synchronous source, or its socket's own mapper (on the web, not after an await or in a timer)`);
     if (owner.signal.aborted || owner.active?.() === false || answer && !owner.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
     if (!mapper && !answer && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
     // Overload fails a mapper's snapshot, caught or not.

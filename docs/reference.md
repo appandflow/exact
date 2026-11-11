@@ -1609,8 +1609,9 @@ in the next answer asked, or in none (and its send refuses) when that is
 the waiting answer's own re-ask. Send before the first `await`, or settle
 waiters from an answer. An answer asked again sends again, so key a
 request that must not repeat. On the web build only the source's
-synchronous call may send; a continuation refuses, since the page cannot
-tell whose it is. An answer
+synchronous call may send: a send after an `await` or in the answer's
+timer throws, saying so, and sends nothing. There a frame that must follow
+awaited work goes from a second mutation, sent by the first's `then`. An answer
 the runner lets go (new arguments, `refresh`, a newer send, leaving the
 view) sends nothing more as its own; what it sent stays sent. It may also
 `fetch`, though a mutation's synchronous source still may not do both. A
