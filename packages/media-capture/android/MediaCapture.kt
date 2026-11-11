@@ -324,7 +324,10 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         ids.forEach(cameras::dispose)
     }
 
-    override fun resumed() { context.changed("media-capture.microphoneStatus") }
+    override fun resumed() {
+        context.changed("media-capture.microphoneStatus")
+        context.changed("media-capture.cameraStatus")
+    }
 
     override fun destroy(done: () -> Unit) {
         tracks.values.toList().forEach { end(it, "the session ended") }
