@@ -81,6 +81,26 @@ pub struct Batch {
 
 pub use exact_runner::agent::quote;
 
+/// A reply whose batch must receive presenter work before it is wrapped.
+pub struct WrappedBatch {
+    pub(crate) batch: String,
+    fields: String,
+}
+
+impl WrappedBatch {
+    pub(crate) fn new(fields: impl Into<String>, batch: String) -> Self {
+        Self {
+            batch,
+            fields: fields.into(),
+        }
+    }
+
+    /// Serialize the reply with its batch under `batch`.
+    pub fn finish(self) -> String {
+        format!("{{{},\"batch\":{}}}", self.fields, self.batch)
+    }
+}
+
 fn string_map(pairs: &[(&str, String)], out: &mut String) {
     out.push('{');
     for (i, (k, v)) in pairs.iter().enumerate() {
@@ -586,7 +606,10 @@ impl Batch {
             return;
         }
         let at = "{\"ops\":[".len();
-        debug_assert!(finished.starts_with("{\"ops\":["));
+        assert!(
+            finished.starts_with("{\"ops\":["),
+            "expected an unwrapped batch"
+        );
         let mut text = self.ops.join(",");
         if finished.as_bytes().get(at) != Some(&b']') {
             text.push(',');

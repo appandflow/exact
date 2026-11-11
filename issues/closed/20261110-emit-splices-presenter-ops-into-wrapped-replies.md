@@ -1,6 +1,7 @@
 # The Apple bridge inserts presenter ops at byte 8 of every reply, which corrupts a transform drag's reply
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Presenter work is added to transform replies' nested batches; mode and live replies keep the batch prefix and replies without a batch leave work pending.
 **Systems:** host/apple/src/abi.rs (`emit`), host/apple/src/batch.rs (`prepend_to`), host/apple/src/transform_drag.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

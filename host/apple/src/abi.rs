@@ -235,6 +235,23 @@ impl<D: DataSource> Bridge<D> {
     }
 
     fn emit(&mut self, mut s: String) -> u32 {
+        self.emit_work(&mut s);
+        self.output = s.into_bytes();
+        self.output.len() as u32
+    }
+
+    fn emit_wrapped(&mut self, mut reply: crate::batch::WrappedBatch) -> u32 {
+        self.emit_work(&mut reply.batch);
+        self.output = reply.finish().into_bytes();
+        self.output.len() as u32
+    }
+
+    fn emit_work(&mut self, s: &mut String) {
+        // Inspection replies have no batch to carry presenter work. Leave it
+        // on the runner for the next call that returns one (LLP 1008 §4).
+        if !s.starts_with("{\"ops\":[") {
+            return;
+        }
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
         // A continuation is dispatched here, on this thread, after the
@@ -314,10 +331,8 @@ impl<D: DataSource> Bridge<D> {
             }
             presenter.presences(h.runner_mut().take_presence_asks());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
-            presenter.prepend_to(&mut s);
+            presenter.prepend_to(s);
         }
-        self.output = s.into_bytes();
-        self.output.len() as u32
     }
 
     fn run_dispatch(
@@ -1081,13 +1096,13 @@ impl<D: DataSource> Bridge<D> {
             Some(host) if len == 120 && self.input.len() >= len => {
                 host.transform_motion(&self.input[..len])
             }
-            Some(host) => format!(
-                "{{\"accepted\":false,\"batch\":{}}}",
-                host.hold_refusal("malformed transform length")
+            Some(host) => crate::batch::WrappedBatch::new(
+                "\"accepted\":false",
+                host.hold_refusal("malformed transform length"),
             ),
-            None => format!("{{\"accepted\":false,\"batch\":{}}}", not_booted()),
+            None => crate::batch::WrappedBatch::new("\"accepted\":false", not_booted()),
         };
-        self.emit(out)
+        self.emit_wrapped(out)
     }
 
     /// Start a generic property hold (0 translate, 1 scale, 2 rotate, 3 opacity).
@@ -1264,15 +1279,13 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// A placement root's margins and its width's authorship (LLP 1126.001
-    /// WP10): a measurement, written to the output as it is, with no batch
-    /// around it (`emit` prepends the presenter's pending ops to a batch).
+    /// WP10): a measurement with no batch or presenter work.
     pub fn placement_box(&mut self, view: u32) -> u32 {
         let out = self
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.placement_box(view));
-        self.output = out.into_bytes();
-        self.output.len() as u32
+        self.emit(out)
     }
 
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
