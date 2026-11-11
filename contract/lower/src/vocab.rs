@@ -301,7 +301,7 @@ pub fn default(row: StyleId) -> Option<&'static str> {
     if matches!(row, StyleId::PressBackgroundColor | StyleId::PressColor) {
         return Some("none (the node's own)");
     }
-    let colour = matches!(row.codec(), StyleCodec::ColorValue | StyleCodec::Rgba8);
+    let colour = matches!(row.codec(), StyleCodec::ColorValue);
     Some(if colour && default == "0" {
         "transparent"
     } else {

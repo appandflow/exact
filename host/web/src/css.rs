@@ -615,8 +615,7 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         {
             false
         }
-        RowValue::Color2(_)
-        | RowValue::Transitions(_)
+        RowValue::Transitions(_)
         | RowValue::Animations(_)
         | RowValue::DragTimeline(_)
         | RowValue::AnimationTimeline(_)
@@ -763,7 +762,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push(')');
         }
         RowValue::Dimension(d) => dimension(out, *d),
-        RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
         // it does so per element against the inherited `color-scheme`, with
         // no work of ours and no repaint pass. This is the whole reason the
@@ -856,7 +854,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 out.push_str("px");
             }
         },
-        RowValue::Color2(_) | RowValue::Transitions(_) | RowValue::Animations(_) => {}
+        RowValue::Transitions(_) | RowValue::Animations(_) => {}
     }
 }
 

@@ -189,10 +189,6 @@ pub(crate) fn style_json_rows(
                 out.push(']');
                 true
             }
-            RowValue::Color(c) => {
-                push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
-                true
-            }
             // A colour a row holds (LLP 1034 D1/D2). A fixed one crosses as
             // the four channels it always did; a `light-dark()` pair crosses
             // as both, because the presenter resolves it against the
@@ -455,7 +451,7 @@ pub(crate) fn style_json_rows(
                     None => false,
                 }
             }
-            RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
+            RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,
                     reason: "grid rows are not lowered in v1",

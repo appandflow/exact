@@ -616,7 +616,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BackdropFilter, BoxShadow, TextShadow, FontVariations, FontFeatures, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, PositionTryFallbacks, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, ColorValue, KeywordColor, Vec2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BackdropFilter, BoxShadow, TextShadow, FontVariations, FontFeatures, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, PositionTryFallbacks, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1273,18 +1273,16 @@ fn generate(schema: &Schema, digest: u64) -> String {
             continue;
         }
         let conv = match parse_codec(&row.codec) {
-            Codec::U8 if row.keywords.is_some() => format!(
+            Codec::U8 => format!(
                 "{}::bits(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?",
-                row.keywords.as_deref().unwrap()
+                row.keywords.as_deref().expect("schema: u8 rows need keywords")
             ),
             Codec::Dimension => format!("value.dimension(id, {})?", row.admits_auto),
             Codec::LineHeight => "value.line_height(id)?".to_string(),
             Codec::F32 => "value.f32(id)?".to_string(),
-            Codec::U8 => "value.int(id, 0.0, u8::MAX as f64)? as u8".to_string(),
             Codec::U16 => "value.int(id, 0.0, u16::MAX as f64)? as u16".to_string(),
             Codec::U32 => "value.int(id, 0.0, u32::MAX as f64)? as u32".to_string(),
             Codec::I32 => "value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32".to_string(),
-            Codec::Rgba8 => "value.color(id)?".to_string(),
             Codec::ColorValue => "value.color_value(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
@@ -1303,7 +1301,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Tracks => "GridTracks::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
             Codec::Placement => "GridPlacement::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
-            Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
             Some((_, rows)) => rows.push((id, at(row))),
@@ -1316,9 +1313,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             .map(|(id, _)| format!("StyleId::{id}"))
             .collect::<Vec<_>>()
             .join(" | ");
-        if conv.is_empty() {
-            writeln!(w, "            {pattern} => return Err(StyleValueError::Unsupported {{ style: id }}),").unwrap();
-        } else if let [(_, f)] = rows.as_slice() {
+        if let [(_, f)] = rows.as_slice() {
             writeln!(w, "            {pattern} => {{ self.{f} = {conv}; }}").unwrap();
         } else {
             writeln!(w, "            {pattern} => {{").unwrap();
@@ -1353,13 +1348,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::F32 | Codec::U8 | Codec::U16 | Codec::U32 | Codec::I32 => {
                 format!("RowValue::Number(self.{f} as f64)")
             }
-            Codec::Rgba8 => format!("RowValue::Color(self.{f})"),
             Codec::ColorValue => format!("RowValue::ColorValue(self.{f})"),
             Codec::KeywordColor(keyword) => {
                 format!("self.{f}.map(RowValue::ColorValue).unwrap_or(RowValue::Enum({keyword:?}))")
             }
             Codec::Vec2 => format!("RowValue::Vec2(self.{f})"),
-            Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
             Codec::Placement => format!("RowValue::Placement(&self.{f})"),

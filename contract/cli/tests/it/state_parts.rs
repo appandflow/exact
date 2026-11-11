@@ -37,8 +37,7 @@ fn refused(src: &str) -> String {
 fn colour(r: &Runner<NoData>, id: &str, style: StyleId) -> String {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
-        RowValue::ColorValue(ColorValue::Fixed(c)) | RowValue::Color(c) => hex(c),
-        RowValue::Color2(c) => hex(c[0]),
+        RowValue::ColorValue(ColorValue::Fixed(c)) => hex(c),
         other => format!("{other:?}"),
     }
 }

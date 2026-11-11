@@ -268,11 +268,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Read two colors.
-    pub fn color2(&mut self) -> Result<[Color; 2], DecodeError> {
-        Ok([self.color()?, self.color()?])
-    }
-
     /// Read and validate a grid template from its canonical CSS text.
     pub fn tracks(&mut self) -> Result<GridTracks, DecodeError> {
         self.tracks_for_style()
@@ -628,12 +623,6 @@ impl Writer {
         }
     }
 
-    /// Append two colors.
-    pub fn color2(&mut self, c: [Color; 2]) {
-        self.color(c[0]);
-        self.color(c[1]);
-    }
-
     /// Append a grid track list.
     pub fn tracks(&mut self, t: &GridTracks) {
         self.string(t.css());
@@ -729,7 +718,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x0c53_0561_2555_e561);
+        assert_eq!(SCHEMA_DIGEST, 0xc933_bf7d_78c2_c36c);
     }
 
     #[test]

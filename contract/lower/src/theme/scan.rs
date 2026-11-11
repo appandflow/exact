@@ -33,8 +33,6 @@ pub(crate) fn colour_codec(row: StyleId) -> bool {
         row.codec(),
         StyleCodec::ColorValue
             | StyleCodec::KeywordColor
-            | StyleCodec::Rgba8
-            | StyleCodec::Color2
             | StyleCodec::SymbolPalette
             | StyleCodec::Paint
             | StyleCodec::BackgroundImage

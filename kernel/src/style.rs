@@ -925,15 +925,11 @@ pub enum RowValue<'a> {
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
     Number(f64),
-    /// A color.
-    Color(Color),
     /// A colour a row holds: fixed, or a `light-dark()` pair a host resolves
     /// (LLP 1034 D1).
     ColorValue(ColorValue),
     /// Two numbers.
     Vec2(Vec2),
-    /// Two colors.
-    Color2([Color; 2]),
     /// An enum value, by its declared (CSS) name.
     Enum(&'static str),
     /// Grid tracks.
@@ -983,9 +979,7 @@ impl RowValue<'_> {
             | RowValue::CornerShape(_)
             | RowValue::RotateAxis(_)
             | RowValue::SymbolPalette(_)
-            | RowValue::Color(_)
             | RowValue::ColorValue(_)
-            | RowValue::Color2(_)
             | RowValue::Enum(_)
             | RowValue::Placement(_) => true,
         }

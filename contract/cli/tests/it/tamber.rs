@@ -40,7 +40,6 @@ fn colour(plan: Plan, id: &str, row: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(row) {
         RowValue::ColorValue(c) => c,
-        RowValue::Color(c) => ColorValue::Fixed(c),
         other => panic!("{id}: {other:?}"),
     }
 }
@@ -458,7 +457,6 @@ pub(super) fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
         RowValue::ColorValue(c) => c,
-        RowValue::Color(c) => ColorValue::Fixed(c),
         other => panic!("{id}: {other:?}"),
     }
 }

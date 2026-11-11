@@ -891,6 +891,16 @@ fn a_profiles_colour_is_the_platforms_to_draw() {
 }
 
 #[test]
+fn every_style_codec_has_a_row() {
+    use crate::generated::StyleCodec;
+
+    let codecs: std::collections::HashSet<_> =
+        StyleId::ALL.into_iter().map(StyleId::codec).collect();
+    // Enum is the last variant; StyleCodec's discriminants start at zero.
+    assert_eq!(codecs.len(), StyleCodec::Enum as usize + 1, "{codecs:?}");
+}
+
+#[test]
 fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
     use crate::generated::StyleCodec;
     // A text of each form a number row's conversion has an arm for.

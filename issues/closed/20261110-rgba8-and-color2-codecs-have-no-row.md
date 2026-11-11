@@ -1,6 +1,7 @@
 # The `rgba8` and `color2` codecs have no row, and their arms are carried in the generator, the wire, the compiler and every host
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Style codecs have schema rows; unused rgba8, color2 and numeric u8 paths are removed, and the codec description matches the schema.
 **Systems:** kernel/build.rs, kernel/build/codec.rs, kernel/tables/schema.json, kernel/src/wire/codec.rs, kernel/src/style.rs, hosts' row readers
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

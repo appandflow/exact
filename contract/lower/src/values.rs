@@ -281,11 +281,7 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
     let colour = rows.iter().any(|row| {
         matches!(
             row.codec(),
-            StyleCodec::ColorValue
-                | StyleCodec::KeywordColor
-                | StyleCodec::Rgba8
-                | StyleCodec::Color2
-                | StyleCodec::Paint
+            StyleCodec::ColorValue | StyleCodec::KeywordColor | StyleCodec::Paint
         )
     });
     let Expr::Ternary(cond, yes, no, span) = &a.value else {
