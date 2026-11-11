@@ -38,9 +38,10 @@ pub(crate) const REPLACE: u32 = 1 << 31;
 /// A record's look word flag: its draw has parts of several materials, which
 /// its vertices number in `uv.x` (merge.rs).
 pub(crate) const NUMBERED: u32 = 1 << 30;
-/// A merged part's entry: tint, glow, its first vertex as bits; then, in a
-/// draw of several materials, its material (merge.rs `PartMaterial`).
-pub(crate) type PartLook = [f32; 16];
+/// A look-table entry: tint, glow, its part's first vertex as bits; then, in a
+/// draw of several materials, its material (merge.rs `PartMaterial`); then the
+/// record's base colour and emission UV offset (`MaterialOverride::uv_offset`).
+pub(crate) type PartLook = [f32; 18];
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 /// What the feed batches one loaded model from.
 pub(crate) struct Draws<'a> {
@@ -124,8 +125,9 @@ pub(crate) struct Models {
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
-    /// Per record, 1 + the first of its merged parts' looks (0: none), and
-    /// those looks (tint, glow, then the part's first vertex as bits; a
+    /// Per record, 1 + the first of its look-table entries (0: none), and
+    /// those entries: one per merged part, or one for a whole record with a
+    /// UV offset (tint, glow, then the part's first vertex as bits; a
     /// `u32::MAX` start ends each record's run), appended after the records.
     pub(crate) part_looks: (Vec<u32>, Vec<PartLook>),
     /// Materials a game's `CustomMaterial` shades (never merged).
@@ -268,12 +270,13 @@ impl Models {
             };
             words.push(at | (look & (REPLACE | NUMBERED)));
         }
-        // A merged part's look is one record-sized entry: its tint and glow,
-        // and in `local`'s first two columns its material, when it has one.
+        // A look-table entry is one record-sized entry: its tint and glow, in
+        // `local`'s first two columns its material, when it has one, and in
+        // the third's first two words its UV offset.
         for look in &self.part_looks.1 {
             words.extend([0; 4]);
             words.extend(look[8..].iter().map(|v| v.to_bits()));
-            words.extend([0; 24]);
+            words.extend([0; 22]);
             words.extend(look[..8].iter().map(|v| v.to_bits()));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {

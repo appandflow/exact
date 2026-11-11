@@ -689,6 +689,18 @@ changed too, until every texture of its new set is
 resident, so a skin never draws with mixed maps; the feed watches the names it waits
 for and rebuilds when one arrives.
 A variant is reclaimed with its material or when one of its textures retires.
+`MaterialOverride.uv_offset` adds to the coordinates the material's base colour and
+emission textures are sampled at on that instance, after the material's
+`KHR_texture_transform` (`MaterialData.uv_transforms`), in the transformed space, so
+an offset of 1 is one repeat of the texture as the material shows it; the sampler's
+wrap mode applies. Normal, metallic-roughness and occlusion maps stay put, and a
+masked material's cutout moves with its base colour. It holds a ribbon's tail
+scrolled each frame in one draw, blended or not. The offset lives in the look
+table, not the instance record: a record with an offset and no merged-part looks
+gets a run of one neutral entry, which adds nothing, and a record with merged-part
+looks carries it in each part's entry. Changing it patches those entries in place;
+its first appearance, or removal, changes the table's shape and rebatches. Instances
+without one draw as before (`surface_tests::cosmetics::a_blended_material_s_uv_offset_scrolls_its_texture_in_place`).
 
 When an entity's `Mesh` names a model that cannot draw yet, the feed keeps drawing the
 rigid model (no skin, no animated parts) that entity drew at its last rebuild, with the

@@ -24,7 +24,7 @@ fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
 }
 fn model_base(input:ModelVarying) -> vec4<f32> {
     var texel=vec4(1.0);
-    if MODEL_TEXTURES { texel=textureSample(base_texture,base_sampler,material_uv(input.uv,0u)); }
+    if MODEL_TEXTURES { texel=textureSample(base_texture,base_sampler,material_uv(input.uv,0u)+input.uv_offset); }
     return texel*select(baked.base,vec4(1.0),input.glow.w>0.5)*input.color;
 }
 fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
@@ -54,7 +54,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     var ao=1.0;
     if MODEL_TEXTURES {
         mr=textureSample(mr_texture,mr_sampler,material_uv(input.uv,2u));
-        emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)).rgb;
+        emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)+input.uv_offset).rgb;
         ao=mix(1.0,textureSample(ao_texture,ao_sampler,material_uv(input.uv,4u)).r,baked.surface.w);
     }
     let n=mapped_normal(input,front);

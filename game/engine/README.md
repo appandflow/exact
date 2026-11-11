@@ -488,7 +488,9 @@ for models, `NodeMaterials`/`MaterialOverrides`. `MaterialOverride.textures` (a
 names) replaces a material's textures on one instance, so one model per shape takes
 every skin: each named `.tex` is requested while an instance names it and released when
 none draws it, and until all of an instance's named textures can draw, it keeps the ones
-it drew before (the model's own the first time). `World::drawn(e)` is the displayed
+it drew before (the model's own the first time). `MaterialOverride.uv_offset` scrolls
+the base colour and emission textures on one instance, after the material's own UV
+transform: a tail running along a ribbon, flowing water. `World::drawn(e)` is the displayed
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
 and gameplay use the simulated pose.
 
