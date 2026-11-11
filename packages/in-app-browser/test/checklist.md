@@ -1,7 +1,8 @@
 # The in-app browser by a person (LLP 1133.024 D11–D13, stage 4)
 
-What no tool can do here: look at Safari's view and a Custom Tab over the
-app, close them, and see the default browser open. `test/excord.mjs` drives
+What the agent cannot do here, and a person or an XCUITest against a normal
+launch can: look at Safari's view and a Custom Tab over the app, close them,
+and see the default browser open. `test/excord.mjs` drives
 the rest under the agent: the `browser` ticket on iOS and Android, and the
 link followed where the page does not show over the app (macOS, the web).
 Write down the commit, the device and its OS version beside each result.
@@ -19,11 +20,15 @@ messages have link embeds:
 1. **Over the conversation.** Open #general and scroll to a message with a
    link preview ("exact: keep the visible row anchored"). Tap its title:
    Safari's view slides up over the conversation with Safari's own bar and
-   a Done button, at github.com.
-2. **Done returns.** Tap Done: the view goes and the conversation is where
-   it was, at the same message.
+   a dismiss control, at github.com.
+2. **Close returns.** On iOS 27, find `Close`, the accessibility label of the
+   default [dismiss style](https://developer.apple.com/documentation/safariservices/sfsafariviewcontroller/dismissbuttonstyle-swift.property)
+   (older systems may show Done). Tap it: the view goes and the conversation is
+   at the same message. If an accessibility tap leaves the sheet up, tap a
+   coordinate at the centre of that button's frame, then assert the sheet is
+   gone and the conversation is back.
 3. **One at a time.** With the page shown, nothing else in Excord can be
-   tapped; the next tap after Done opens again.
+   tapped; the next tap after dismissal opens again.
 4. **The app reads nothing.** Sign in to a site in the page, close it, open
    Safari: Excord never sees the page's cookies (nothing to see; this is
    the platform's).

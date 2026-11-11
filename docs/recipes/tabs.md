@@ -1,6 +1,6 @@
 # Recipe: tabs
 
-`bun exact.mjs pattern tabs` gives native tabs with separate stacks: iOS's bar,
+`bun exact.mjs pattern tabs` (docs/patterns/tabs/app.contract) gives native tabs with separate stacks: iOS's bar,
 a sidebar on wide Mac/web windows.
 
 For an **app-drawn bar**, use `appearance="none"`: iOS lays routes full-height.

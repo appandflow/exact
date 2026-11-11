@@ -40,6 +40,13 @@ bun exact.mjs agent web "tap checkout" "clock settle" "state pending" "tap @1 di
 This command starts a new drive of the example, whose first ticket is `@1`.
 The final settle fills the mutation with that action. The web drive's `logs`
 records `in-app-browser: dismissed https://example.com` (or `opened`).
-A drive proves the request and reply; check the actual browser UI in a normal
-app launch: open the page, close it and confirm the app returns to its prior
-screen. See the package's `test/checklist.md` for platform checks.
+A drive confirms the open request and substituted reply; it cannot see Safari's
+sheet. To inspect the real sheet automatically on a simulator, use XCUITest
+against a normal app launch without the agent.
+
+On iOS 27 in English the dismiss control's accessibility label is `Close`: the
+package leaves Safari's default
+[dismiss style](https://developer.apple.com/documentation/safariservices/sfsafariviewcontroller/dismissbuttonstyle-swift.property)
+unless a call sets one. If its accessibility tap leaves the sheet up, tap a coordinate at the centre of
+that button's frame, then assert the sheet is gone and the prior app screen is
+back. See the package's `test/checklist.md` for platform checks.
