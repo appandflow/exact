@@ -1,6 +1,7 @@
 # The update store deletes an unfinished download's files at the next launch, so an interrupted update starts again from nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Opening the store now removes only entries no role keeps; blobs no kept entry names are collected only as a check finishes, so an unfinished download's verified files and an old cohort's files are reused by digest at the next launch.
 **Systems:** update/src/store.rs, update/src/store/disk.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

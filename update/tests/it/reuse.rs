@@ -1,18 +1,30 @@
-//! What an update takes from the binary instead of the origin: an embedded
-//! asset whose bytes are what the head declares, and nothing else.
+//! What an update takes from the client instead of the origin: an embedded
+//! asset, or a file an earlier launch fetched, whose bytes are what the head
+//! declares, and nothing else.
 //!
 //! @ref LLP 1026 D11 (assets by digest, embedded assets included)
 
 use crate::support::*;
 use exact_update::{sha256_hex, Check, Client, EmbeddedAsset, Outcome};
 
-const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.t","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://o.example"}}"#;
 const CLIENT_ORIGIN: &str = "https://o.example";
-const BASE: &str = "https://o.example/.exact/prod/abc";
 
-/// A head at `seq` naming `plan` and `assets` (name, bytes), and every file
-/// the origin serves for it by URL.
-fn publish(seq: u64, plan: &[u8], assets: &[(&str, &[u8])]) -> Vec<(String, Vec<u8>)> {
+/// The `compat.json` of a binary of cohort `id`.
+fn compat(id: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","inputs":{{"app":"com.exact.t","keys":null,"trust":"development","store":{{"L":"A"}}}},"delivery":{{"activate":"next-launch","channel":"prod","origin":"{CLIENT_ORIGIN}"}}}}"#
+    )
+}
+
+/// Cohort `cohort`'s head at `seq` naming `plan` and `assets` (name, bytes),
+/// and every file the origin serves for it by URL.
+fn publish(
+    cohort: &str,
+    seq: u64,
+    plan: &[u8],
+    assets: &[(&str, &[u8])],
+) -> Vec<(String, Vec<u8>)> {
+    let base = format!("{CLIENT_ORIGIN}/.exact/prod/{cohort}");
     let head = serde_json::json!({
         "exact": 1, "app": {"id": "com.exact.t"},
         "plan": {"url": "./app.plan", "sha256": sha256_hex(plan), "bytes": plan.len()},
@@ -20,19 +32,19 @@ fn publish(seq: u64, plan: &[u8], assets: &[(&str, &[u8])]) -> Vec<(String, Vec<
             "name": name, "url": format!("./{name}"),
             "sha256": sha256_hex(bytes), "bytes": bytes.len(),
         })).collect::<Vec<_>>(),
-        "stream": {"channel": "prod", "compatibilityId": "abc", "seq": seq},
+        "stream": {"channel": "prod", "compatibilityId": cohort, "seq": seq},
     });
     let mut files = vec![
         (
-            format!("{BASE}/exact.json"),
+            format!("{base}/exact.json"),
             serde_json::to_vec(&head).unwrap(),
         ),
-        (format!("{BASE}/app.plan"), plan.to_vec()),
+        (format!("{base}/app.plan"), plan.to_vec()),
     ];
     files.extend(
         assets
             .iter()
-            .map(|(name, bytes)| (format!("{BASE}/{name}"), bytes.to_vec())),
+            .map(|(name, bytes)| (format!("{base}/{name}"), bytes.to_vec())),
     );
     files
 }
@@ -40,9 +52,21 @@ fn publish(seq: u64, plan: &[u8], assets: &[(&str, &[u8])]) -> Vec<(String, Vec<
 /// One check over `files`; returns its outcome and the last segment of each
 /// URL fetched, in order.
 fn check(client: &mut Client, files: &[(String, Vec<u8>)]) -> (Outcome, Vec<String>) {
+    check_losing(client, files, None)
+}
+
+/// [`check`], with the connection lost on the URL ending in `lost`.
+fn check_losing(
+    client: &mut Client,
+    files: &[(String, Vec<u8>)],
+    lost: Option<&str>,
+) -> (Outcome, Vec<String>) {
     let mut asked = Vec::new();
     let outcome = client.check(&mut |url| {
         asked.push(url.rsplit('/').next().unwrap().to_string());
+        if lost.is_some_and(|lost| url.ends_with(lost)) {
+            return Err(format!("{url}: the connection was lost"));
+        }
         files
             .iter()
             .find(|(u, _)| u == url)
@@ -76,12 +100,12 @@ fn the_first_update_takes_unchanged_assets_from_the_bundle() {
     let mut client = Client::open_at(
         base.path(),
         bundle.path(),
-        COMPAT,
+        &compat("abc"),
         b"plan v1",
         Some(CLIENT_ORIGIN),
     )
     .unwrap();
-    let (outcome, asked) = check(&mut client, &publish(1, b"plan v2", &assets));
+    let (outcome, asked) = check(&mut client, &publish("abc", 1, b"plan v2", &assets));
     assert_eq!(
         (outcome.to_string(), asked),
         (
@@ -134,4 +158,114 @@ fn an_embedded_file_changed_after_it_was_hashed_is_fetched() {
         candidate.assets.resolve("mark.png").unwrap().as_deref(),
         Some(b"a mark".as_slice())
     );
+}
+
+/// One launch of a binary of `cohort` over the store under `base`, with no
+/// embedded assets. Drop it before the next launch opens, so that one owns
+/// the store.
+fn launch(base: &Temp, cohort: &str) -> Client {
+    Client::open_at(
+        base.path(),
+        &base.path().join("no-bundle"),
+        &compat(cohort),
+        b"plan v1",
+        Some(CLIENT_ORIGIN),
+    )
+    .unwrap()
+}
+
+/// The outcome without a refusal's reason, and what was fetched.
+fn summary((outcome, asked): (Outcome, Vec<String>)) -> (String, Vec<String>) {
+    let outcome = match outcome {
+        Outcome::Refused(_) => "refused".to_string(),
+        outcome => outcome.to_string(),
+    };
+    (outcome, asked)
+}
+
+fn expect(outcome: &str, asked: &[&str]) -> (String, Vec<String>) {
+    (
+        outcome.to_string(),
+        asked.iter().map(|s| s.to_string()).collect(),
+    )
+}
+
+/// A launch that ends before its download finishes keeps what it fetched:
+/// the next launches fetch only what is missing, and fetch again a kept
+/// file whose bytes no longer match the head.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn an_interrupted_download_resumes_at_the_next_launch() {
+    let base = Temp::new("reuse-resume");
+    let assets: [(&str, &[u8]); 3] = [("a1", b"one"), ("a2", b"two"), ("a3", b"three")];
+    let files = publish("abc", 1, b"plan v2", &assets);
+
+    let mut client = launch(&base, "abc");
+    assert_eq!(
+        summary(check_losing(&mut client, &files, Some("/a3"))),
+        expect("refused", &["exact.json", "app.plan", "a1", "a2", "a3"])
+    );
+    let blobs = client.dir().join("blobs");
+    drop(client);
+
+    // Between launches a2's kept file takes other bytes of the same length.
+    std::fs::write(blobs.join(sha256_hex(b"two")), b"TWO").unwrap();
+    let mut client = launch(&base, "abc");
+    assert_eq!(
+        summary(check_losing(&mut client, &files, Some("/a3"))),
+        expect("refused", &["exact.json", "a2", "a3"])
+    );
+    drop(client);
+
+    let mut client = launch(&base, "abc");
+    assert_eq!(
+        summary(check(&mut client, &files)),
+        expect("staged seq 1", &["exact.json", "a3"])
+    );
+    let candidate = client.prepare_activation().unwrap().unwrap();
+    for (name, bytes) in assets {
+        assert_eq!(
+            candidate.assets.resolve(name).unwrap().as_deref(),
+            Some(bytes),
+            "{name}"
+        );
+    }
+}
+
+/// A new binary over a store an old cohort filled fetches only its head
+/// when the head names the files the old cohort fetched.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn a_new_cohort_reuses_the_files_an_old_one_fetched() {
+    let base = Temp::new("reuse-cohort");
+    let assets: [(&str, &[u8]); 3] = [("a1", b"one"), ("a2", b"two"), ("a3", b"three")];
+    let mut client = launch(&base, "abc");
+    assert_eq!(
+        summary(check(&mut client, &publish("abc", 1, b"plan v2", &assets))),
+        expect(
+            "staged seq 1",
+            &["exact.json", "app.plan", "a1", "a2", "a3"]
+        )
+    );
+    drop(client);
+
+    let mut client = launch(&base, "def");
+    assert_eq!(
+        summary(check(&mut client, &publish("def", 1, b"plan v2", &assets))),
+        expect("staged seq 1", &["exact.json"])
+    );
+    let candidate = client.prepare_activation().unwrap().unwrap();
+    for (name, bytes) in assets {
+        assert_eq!(
+            candidate.assets.resolve(name).unwrap().as_deref(),
+            Some(bytes),
+            "{name}"
+        );
+    }
 }

@@ -20,8 +20,9 @@
 //! A Current head keeps only `exact.json` as its durable signed floor witness.
 //!
 //! Only the selected, pending, last-good and running entries, the head
-//! accepted at the floor, and an entry another process runs are kept, and
-//! only the blobs they name.
+//! accepted at the floor, and an entry another process runs are kept. A blob
+//! none of them names is kept until a check finishes: it may be part of a
+//! download that a launch did not finish.
 //!
 //! Three rules hold the whole thing up:
 //!
@@ -427,9 +428,10 @@ impl Store {
         if store.record.compatibility_id != store.embedded.compatibility_id
             || store.record.channel != store.embedded.channel
         {
-            // A new binary over an old store: the old cohort's entries stay on
-            // disk (their files are still reusable by digest) but none of them
-            // is selectable here, so this cohort starts at entry zero.
+            // A new binary over an old store: none of the old cohort's entries
+            // is selectable here, so this cohort starts at entry zero. The
+            // entries go below; their files stay in `blobs/`, reusable by
+            // digest, until this cohort's first check finishes.
             store.record = Record::fresh(&store.embedded);
         }
         // The floor is the highest seq this client has admitted. A record lost
@@ -521,7 +523,7 @@ impl Store {
         if rewrite || store.record != before {
             store.write_record()?;
         }
-        store.collect();
+        store.collect_entries();
         Ok(store)
     }
 
@@ -1335,15 +1337,26 @@ impl Store {
         Blobs::at(&self.dir)
     }
 
-    /// Remove what no role keeps: every entry but the selected, pending,
-    /// last-good and running ones, the head accepted at the floor (its
-    /// signed witness) and one a reader runs, then every blob none of them
-    /// names. Best effort. It runs where no download of this store can be in
-    /// flight — at open, and as a check finishes — and never touches a
-    /// temporary.
+    /// Remove what no role keeps: [`Store::collect_entries`], then every blob
+    /// none of the kept entries names. It runs as a check finishes, where the
+    /// store knows what the head names: until then a blob no entry names may
+    /// be part of a download an earlier launch did not finish, or a file
+    /// another cohort fetched that this cohort's head also names.
     fn collect(&self) {
+        if let Some(digests) = self.collect_entries() {
+            self.blobs().collect(&digests);
+        }
+    }
+
+    /// Remove every entry but the selected, pending, last-good and running
+    /// ones, the head accepted at the floor (its signed witness) and one a
+    /// reader runs. Returns the digests the kept entries name, or `None`
+    /// when this store writes nothing or cannot list its entries. Best
+    /// effort. It runs where no download of this store can be in flight — at
+    /// open, and as a check finishes — and never touches a temporary.
+    fn collect_entries(&self) -> Option<std::collections::BTreeSet<String>> {
         if self.read_only().is_some() {
-            return;
+            return None;
         }
         let keep: std::collections::BTreeSet<&String> = [
             &self.record.selected,
@@ -1357,7 +1370,7 @@ impl Store {
         .collect();
         let mut digests = std::collections::BTreeSet::new();
         let Ok(read) = std::fs::read_dir(self.entries_dir()) else {
-            return;
+            return None;
         };
         for item in read.flatten() {
             let name = item.file_name().to_string_lossy().into_owned();
@@ -1377,7 +1390,7 @@ impl Store {
                 digests.extend(envelope.assets.into_iter().map(|a| a.sha256));
             }
         }
-        self.blobs().collect(&digests);
+        Some(digests)
     }
 }
 
