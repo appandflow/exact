@@ -920,7 +920,7 @@ impl Kernel {
     pub fn has_hairlines(&self) -> bool {
         use crate::style::relative::Unit;
         let arena = &self.arena;
-        (arena.relative_slots.iter()).any(|slot| {
+        (arena.relative.all.iter()).any(|slot| {
             let rows = &arena.style(slot).relative;
             rows.iter().any(|(_, unit, _)| unit == Unit::Hairline)
         })

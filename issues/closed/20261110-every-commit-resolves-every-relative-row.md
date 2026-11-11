@@ -1,6 +1,7 @@
 # Every commit resolves every `rem`, `em`, text-style and hairline row again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Relative rows resolve only after style, ancestry, inherited font or host metric changes, in parent order.
 **Systems:** kernel/src/txn/relative.rs, kernel/src/arena.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

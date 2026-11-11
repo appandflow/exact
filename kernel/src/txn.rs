@@ -23,6 +23,8 @@ use crate::segmented;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
 mod defaults;
+mod inherited;
+use inherited::{inherited_changed, propagate_inherited};
 mod text_style;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
@@ -712,6 +714,7 @@ pub(crate) fn continue_document(
                         continue;
                     }
                     let starts = defaults::before_prop(arena, slot, *prop);
+                    let font = relative::before_prop(arena, slot);
                     let old = arena.set_prop(slot, *prop, value.clone());
                     if *prop == PropId::TestId {
                         selectors.update(
@@ -752,6 +755,7 @@ pub(crate) fn continue_document(
                         }
                     }
                     defaults::after_prop(arena, layout, starts, touched, receipt);
+                    relative::after_prop(arena, layout, slot, font, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
                     text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                     receipt.layout_invalidated |=
@@ -763,6 +767,7 @@ pub(crate) fn continue_document(
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
                     let starts = defaults::before_prop(arena, slot, *prop);
+                    let font = relative::before_prop(arena, slot);
                     if let Some(old) = arena.remove_prop(slot, *prop) {
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
@@ -793,6 +798,7 @@ pub(crate) fn continue_document(
                             }
                         }
                         defaults::after_prop(arena, layout, starts, touched, receipt);
+                        relative::after_prop(arena, layout, slot, font, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
                         text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                         receipt.layout_invalidated |=
@@ -1361,6 +1367,9 @@ fn style_changed(
     mask: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
+    if mask.has(crate::StyleId::FontSize) {
+        arena.relative.invalidate(slot);
+    }
     if (mask.has(crate::StyleId::Appearance) && arena.node_type(slot) == NodeType::TextInput)
         || (mask.has(crate::StyleId::ControlSize) && arena.is_native_button(slot))
     {
@@ -1405,73 +1414,9 @@ fn style_changed(
     }
 }
 
-/// CSS inheritance: an inherited row that changed on `slot` changes the
-/// computed value of every logical descendant that does not set the row
-/// itself. Mark and touch them, stopping under a descendant that overrides
-/// every changed row, so the receipt names what changed and no host has to
-/// re-derive descendants per frame (LLP 1035.000 D4).
-fn propagate_inherited(
-    arena: &mut NodeArena,
-    layout: &mut dyn LayoutMirror,
-    slot: u32,
-    changed: StyleMask,
-    touched: &mut Vec<NodeKey>,
-    receipt: &mut CommitReceipt,
-) {
-    let changed = changed.intersect(StyleMask::INHERITED);
-    if changed.is_empty() {
-        return;
-    }
-    let mut stack: Vec<(u32, StyleMask)> =
-        arena.children(slot).iter().map(|c| (*c, changed)).collect();
-    while let Some((s, rows)) = stack.pop() {
-        let stopped = arena
-            .style_starts(s)
-            .fold(StyleMask::EMPTY, |rows, start| rows.union(start.mask))
-            .minus(arena.style(s).written);
-        let pass = rows.minus(arena.style(s).mask).minus(stopped);
-        if pass.is_empty() {
-            continue;
-        }
-        inherited_changed(arena, layout, s, pass, receipt);
-        touched.push(arena.key(s));
-        stack.extend(arena.children(s).iter().map(|c| (*c, pass)));
-    }
-}
-
-/// What a changed inherited value does at a node: text rows remeasure its
-/// paragraph (the nearest measure owner); layout rows such as direction
-/// also rederive the engine style of containers.
-fn inherited_changed(
-    arena: &mut NodeArena,
-    layout: &mut dyn LayoutMirror,
-    slot: u32,
-    rows: StyleMask,
-    receipt: &mut CommitReceipt,
-) {
-    if rows.intersects(StyleMask::LAYOUT) {
-        if let Some(node) = arena.taffy(slot) {
-            layout.restyle(arena, slot, node);
-        }
-        receipt.layout_invalidated = true;
-    }
-    if rows.intersects(StyleMask::TEXT)
-        && matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput)
-    {
-        invalidate_text(arena, layout, slot);
-        receipt.layout_invalidated = true;
-    }
-    symbol_font_changed(arena, slot, rows, receipt);
-    if !rows.minus(StyleMask::TEXT).is_empty() {
-        arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
-        if !rows.intersects(StyleMask::TEXT) {
-            arena.revise_text(slot, false);
-        }
-    }
-}
-
 /// A control's computed starting style changed outside an authored commit.
 pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    arena.relative.invalidate(slot);
     arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
     arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
     invalidate_text(arena, layout, slot);
