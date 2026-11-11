@@ -26,7 +26,7 @@ test('a table generation publishes with zero spawns and preserves the admitted p
   const start = source.indexOf('const tableGenerations = new Map();'), end = source.indexOf('\nlet dev = null;', start);
   const make = new Function('createHash','canonicalBytes','webEnvelope','resolve','filesystem','devGenerationDigest','sealEnvelope',`
     const typescript=true,portableRust=true,currentModule=new Map([['app.plan',Buffer.from('unpublished')],['plans/pending.plan',Buffer.from('pending')]]),currentRust=null,app={},dist='unused';
-    const epoch='a'.repeat(32),program='program',seq=2;let retentionToken=null;
+    const epoch='a'.repeat(32),program='program',seq=2;let retentionToken=null;const generated=()=>{};
     let current={files:new Map([['app.plan',Buffer.from('plan')],['assets/exact-tables.json',Buffer.from('old')],['assets/other',Buffer.from('sibling')],['plans/admitted.plan',Buffer.from('admitted')]]),envelope:{assets:[{name:'assets/exact-tables.json',sha256:'old'},{name:'assets/other',sha256:'sibling'},{name:'plans/admitted.plan',sha256:'admitted'}]}};
     const classifyGeneration=()=>[],announcePlan=()=>{},keepMap=()=>{},console={log(){}};
     const retainDevGeneration=()=>{throw Error('table publication used the disk helper');};
