@@ -6,13 +6,12 @@ android {
     compileSdk { version = release(37) { minorApiLevel = 2 } }
     defaultConfig { minSdk = 29; consumerProguardFiles("proguard-rules.pro") }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-}
-
-// Exercise the alarm receivers and service without linking the package into the reader.
-androidComponents.onVariants { variant ->
-    variant.hostTests.values.forEach { test ->
-        test.sources.kotlin?.addStaticSourceDirectory("../../../packages/alarms/android")
-        test.sources.kotlin?.addStaticSourceDirectory("../../../packages/alarms/test")
+    // A package's unit tests compile its Kotlin into this module's tests; the reader links none of it.
+    sourceSets {
+        getByName("test").kotlin.directories.addAll(listOf(
+            "../../../packages/alarms/android", "../../../packages/alarms/test",
+            "../../../packages/calendar/android", "../../../packages/contacts/android",
+        ))
     }
 }
 

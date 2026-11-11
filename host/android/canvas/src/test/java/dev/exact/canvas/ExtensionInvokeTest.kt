@@ -21,6 +21,10 @@ object Native {
     private val host = ThreadLocal<String>()
     var invokeAvailable = true
     var received: String? = null
+    var onChanged: (String) -> Unit = {}
+    @JvmStatic fun changed(topic: String) = onChanged(topic)
+    @JvmStatic fun underAgent(name: String) = false
+    @JvmStatic fun appFile(path: String): String? = null
     fun start() { host.set("running") }
     fun stop() { host.remove(); received = null }
     @JvmStatic fun invoke(body: String): Int {

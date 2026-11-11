@@ -1,6 +1,7 @@
 # On Android, a contacts or calendar access change made in Settings is announced only while a list is being read
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android announces contacts and calendar access changes on foreground return even when no list has been read.
 **Systems:** packages/calendar/android/Calendar.kt, packages/contacts/android/Contacts.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
