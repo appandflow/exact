@@ -58,7 +58,7 @@ const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
 const { chromium } = await import('./agent-launch.mjs');
-const { androidSdk } = await import('./agent-android.mjs');
+const { androidLockCommand, androidSdk } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
@@ -891,6 +891,8 @@ export function add(args, say = console.log) {
   if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
   const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
   say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and in app.ts grant ${grantAdvice(grants)} (exact docs a capability that asks permission)` : ''}.`);
+  const maven = read(resolve(ROOT, 'packages', short, 'android/exact.json'))?.maven ?? [];
+  if (maven.length) say(`For Android, after importing the package, run: ${androidLockCommand(app)}`);
 }
 
 /** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):

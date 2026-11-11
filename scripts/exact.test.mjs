@@ -1333,6 +1333,7 @@ test('add installs a standard package by pathFrom from an outside app with an ab
     cwd: app, encoding: 'utf8', env: { ...process.env, EXACT2: root },
   });
   assert.equal(added.status, 0, added.stdout + added.stderr);
+  assert.equal(added.stdout.trim().split('\n').at(-1), `For Android, after importing the package, run: in '${realpathSync(app)}': bun exact.mjs android --write-locks`);
   const spec = JSON.parse(readFileSync(resolve(app, 'package.json'), 'utf8')).dependencies['@exact/in-app-browser'];
   assert.equal(spec, `file:${pathFrom(app, resolve(root, 'packages/in-app-browser'))}`);
   assert.equal(JSON.parse(readFileSync(resolve(app, 'node_modules/@exact/in-app-browser/package.json'), 'utf8')).name, '@exact/in-app-browser');
@@ -1341,4 +1342,10 @@ test('add installs a standard package by pathFrom from an outside app with an ab
   assert.equal(JSON.parse(readFileSync(resolve(app, 'package.json'), 'utf8')).dependencies['@exact/in-app-browser'], spec);
   const frozen = spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: app, encoding: 'utf8' });
   assert.equal(frozen.status, 0, frozen.stdout + frozen.stderr);
+  rmSync(resolve(app, 'exact.mjs'));
+  const fromRepo = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'add', '@exact/in-app-browser'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app },
+  });
+  assert.equal(fromRepo.status, 0, fromRepo.stdout + fromRepo.stderr);
+  assert.equal(fromRepo.stdout.trim().split('\n').at(-1), `For Android, after importing the package, run: in '${root}': bun scripts/agent-android.mjs build 'shop' --apk --write-locks, with EXACT_APP_DIR set to '${realpathSync(app)}'`);
 }));

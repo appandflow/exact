@@ -447,7 +447,9 @@ export function runGradle(args, options, platform = process.platform) {
  * Linux bake is (`buildBake`): the module first, then the library with the module's digest baked in, so the module
  * ships beside it and must reach the device byte for byte (the Gradle shell extracts it and keeps its symbols).
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
-function buildApk(app, env, profile, writeLocks = false) {
+export function buildApk(app, env, profile, writeLocks = false) {
+  const maven = mavenLibraries(app);
+  if (!writeLocks && !mavenLocksPresent(app, maven)) return null;
   const crate = app.crate('android');
   if (!app.manifest.game && !crateManifest(app, 'android')) throw new Error(`${app.dir} has no android/ crate, the app's library for the Canvas host: bun exact.mjs update adds one to an app that names android in app.json (apps/shelf/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
@@ -493,7 +495,7 @@ function buildApk(app, env, profile, writeLocks = false) {
   const development = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).embedded?.trust !== 'production';
   // The token names its hatches read (LLP 1121 D12), beside them in the build.
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
-  const graph = mavenGraph(app, writeLocks);
+  const graph = mavenGraph(app, writeLocks, maven);
   if (!graph) return null;
   let assembled;
   try {
@@ -522,17 +524,29 @@ function buildApk(app, env, profile, writeLocks = false) {
  * reader's own AndroidX, locked to the app's `gradle.lockfile` and verified against its `gradle-verification.xml`,
  * both beside its other locks. The verification file is Gradle's, which it reads only from the reader's `gradle/`:
  * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
- * (`kept` copies the verification back). null, said why, when the app names libraries but not their lock. */
-function mavenGraph(app, writeLocks) {
-  const maven = [...new Set(androidImplementations(app.dir).flatMap((b) => b.maven ?? []))].sort();
+ * (`kept` copies the verification back). Missing locks are refused before Rust compiles. */
+const mavenLibraries = app => [...new Set(androidImplementations(app.dir).flatMap(b => b.maven ?? []))].sort();
+
+/** Where to run the lock-writing command, through the app's launcher or this repository. */
+export function androidLockCommand(app) {
+  if (existsSync(resolve(app.dir, 'exact.mjs'))) return `in ${quote(app.dir)}: bun exact.mjs android --write-locks`;
+  // The name alone finds only `apps/<name>`; any other directory is named in EXACT_APP_DIR, said in words
+  // because a shell and PowerShell assign a variable differently.
+  const root = resolve(READER, '../..'), named = resolve(app.dir) === resolve(root, 'apps', app.name);
+  return `in ${quote(root)}: bun scripts/agent-android.mjs build ${quote(app.name)} --apk --write-locks${named ? '' : `, with EXACT_APP_DIR set to ${quote(app.dir)}`}`;
+}
+
+function mavenLocksPresent(app, maven) {
+  if (!maven.length || ['gradle.lockfile', 'gradle-verification.xml'].every(file => existsSync(resolve(app.dir, file)))) return true;
+  console.error(`${app.name}: its modules name Maven libraries (${maven.join(', ')}); before compiling, write gradle.lockfile and gradle-verification.xml by running ${androidLockCommand(app)}, and keep them with the app`);
+  return false;
+}
+
+function mavenGraph(app, writeLocks, maven) {
   const placed = resolve(READER, 'gradle/verification-metadata.xml');
   const none = { args: [], kept() {}, done() {} };
   if (!maven.length) return none;
   const lock = resolve(app.dir, 'gradle.lockfile'), checksums = resolve(app.dir, 'gradle-verification.xml');
-  if (!writeLocks && !(existsSync(lock) && existsSync(checksums))) {
-    console.error(`${app.name}: its modules name Maven libraries (${maven.join(', ')}), whose one Gradle graph is locked and verified: write ${basename(lock)} and ${basename(checksums)} beside the app's other locks with bun scripts/agent-android.mjs build ${app.name} --apk --write-locks, and keep them with the app`);
-    return null;
-  }
   rmSync(placed, { force: true });
   if (existsSync(checksums)) copyFileSync(checksums, placed);
   return {

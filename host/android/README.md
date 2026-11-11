@@ -546,9 +546,12 @@ Gradle's own means:
   copies it to `gradle/verification-metadata.xml` for the run and takes it away after (ignored by Git), and passes
   `--dependency-verification=strict`. `gradle.properties` leaves verification off for every other build.
 - **Written** once, and again when a module's coordinates change:
-  `bun scripts/agent-android.mjs build <app> --apk --write-locks` (Gradle's `--write-locks` and
+  in the repository directory, `bun scripts/agent-android.mjs build <app> --apk --write-locks` (Gradle's `--write-locks` and
   `--write-verification-metadata sha256`); the app keeps both files with its source. Without them, an app whose
-  modules name libraries is refused before Gradle runs, with that command.
+  modules name libraries is refused before Rust compiles. The refusal and `exact add` name the directory and
+  command: `in <app dir>: bun exact.mjs android --write-locks` when the app has its own launcher, otherwise
+  the repository directory and command above, with `EXACT_APP_DIR` set to the app's directory unless it is
+  `apps/<app>`.
 
 An app with no Maven libraries resolves as before, unlocked and unverified. Two such builds at once on one checkout
 would share the placed verification file. A library that is not on those repositories stays LLP 1133.001 D9's pinned

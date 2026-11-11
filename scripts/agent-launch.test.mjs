@@ -2,7 +2,7 @@
 // defaults and overrides are host/web/agent.test.mjs's "launch setup" test.
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, resolve } from 'node:path';
 import { PINNED_RUST } from './app.mjs';
@@ -386,7 +386,7 @@ test("a Chrome that dies at launch is reported by its first fatal line, before t
 test.skipIf(!hasSnapback)('a web test run asks the backend its app fetches first', async () => {
   const { backendPreflight, loopbackOrigins, fetchOrigins } = await import('./agent-test.mjs');
   const { createServer } = await import('node:net');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-preflight-')), server = createServer().listen(0, '127.0.0.1');
@@ -416,7 +416,7 @@ test.skipIf(!hasSnapback)('a web test run asks the backend its app fetches first
 test.skipIf(!hasSnapback)('device preflight refuses server skew, stale provenance and empty wasm before a drive', async () => {
   const { devicePreflight, deviceHash, readDeviceStamp, validateDevice } = await import('../snapback4/web/device-build.mjs');
   const { createServer } = await import('node:http');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-device-'));
@@ -500,7 +500,7 @@ test.skipIf(!hasSnapback)('Firefox and WebKit refuse missing and skewed devices 
   const { open } = await import('./agent.mjs');
   const { createApp, wireSnapback } = await import('../game/new.mjs');
   const { deviceHash } = await import('../snapback4/web/device-build.mjs');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-carrier-preflight-'));
@@ -528,7 +528,7 @@ test.skipIf(!hasSnapback)('Firefox and WebKit refuse missing and skewed devices 
 test('fresh empties each snapback4 dev server through its reset door, and refuses one without it', async () => {
   const { resetBackends, freshRows } = await import('./agent-test.mjs');
   const { createServer } = await import('node:http');
-  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const posted = [];
@@ -1352,4 +1352,39 @@ test('a drive asks its Chrome to quit and kills its group after it exits, or aft
   const hung = fixture({});
   expect(await quit(hung, 200)).toEqual(['Browser.close', 'kill']);
   expect(hung.said.at(-1)[1]).toBeGreaterThanOrEqual(195);
+});
+
+
+test('an APK with Maven libraries refuses missing locks before any native build work', async () => {
+  const { androidLockCommand, buildApk } = await import('./agent-android.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-maven-')), error = console.error, said = [];
+  try {
+    console.error = line => said.push(line);
+    mkdirSync(resolve(dir, 'node_modules/@exact'), { recursive: true });
+    symlinkSync(resolve(import.meta.dir, '../packages/in-app-browser'), resolve(dir, 'node_modules/@exact/in-app-browser'), 'dir');
+    writeFileSync(resolve(dir, 'package.json'), JSON.stringify({ dependencies: { '@exact/in-app-browser': '*' } }));
+    writeFileSync(resolve(dir, 'app.ts'), 'import { openBrowser } from "@exact/in-app-browser";');
+    const app = { dir, name: 'shop', crate() { throw new Error('native build reached'); } };
+    for (const game of [false, true]) {
+      app.manifest = game ? { game: {} } : {};
+      expect(buildApk(app, {}, 'release')).toBeNull();
+    }
+    const root = resolve(import.meta.dir, '..');
+    expect(said.at(-1)).toContain(`by running in '${root}': bun scripts/agent-android.mjs build 'shop' --apk --write-locks, with EXACT_APP_DIR set to '${dir}',`);
+    // An app inside the checkout that is not `apps/<name>` is named by its directory too.
+    expect(androidLockCommand({ dir: resolve(root, 'packages/camera/test/fixture'), name: 'fixture' })).toBe(`in '${root}': bun scripts/agent-android.mjs build 'fixture' --apk --write-locks, with EXACT_APP_DIR set to '${resolve(root, 'packages/camera/test/fixture')}'`);
+    expect(androidLockCommand({ dir: resolve(root, 'apps/caltrain'), name: 'caltrain' })).toBe(`in '${root}': bun scripts/agent-android.mjs build 'caltrain' --apk --write-locks`);
+    writeFileSync(resolve(dir, 'exact.mjs'), '');
+    expect(buildApk(app, {}, 'host-dev')).toBeNull();
+    expect(said.at(-1)).toContain(`by running in '${dir}': bun exact.mjs android --write-locks,`);
+    for (const file of ['gradle.lockfile', 'gradle-verification.xml']) {
+      writeFileSync(resolve(dir, file), 'locked');
+      if (file === 'gradle.lockfile') expect(buildApk(app, {}, 'release')).toBeNull();
+    }
+    expect(() => buildApk(app, {}, 'release')).toThrow('native build reached');
+    rmSync(resolve(dir, 'gradle.lockfile'));
+    expect(() => buildApk(app, {}, 'release', true)).toThrow('native build reached');
+    writeFileSync(resolve(dir, 'app.ts'), '');
+    expect(() => buildApk(app, {}, 'release')).toThrow('native build reached');
+  } finally { console.error = error; rmSync(dir, { recursive: true, force: true }); }
 });
