@@ -1,6 +1,7 @@
 # `contract test` panics when a property's app file declares no component
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Every expansion entry point refuses a file without a component with analyze-no-component, so property checks exit with a diagnostic instead of panicking.
 **Systems:** contract/syntax (`inline::expand`), contract/cli (`properties.rs`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

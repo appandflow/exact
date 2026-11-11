@@ -35,6 +35,8 @@ count as entries. Most bodies may be empty (a shape, a style, `props`, an action
 a `for` body, a `case` arm, a test). The bodies of `if`/`else`,
 a `keyframes` or `font` block, and a component need at least one entry.
 
+- A UTF-8 file may begin with one byte order mark (U+FEFF). Formatting preserves
+  it; source spans count its three bytes in the first line's columns.
 - A name starts with `[A-Za-z_]`, followed by ASCII alphanumerics/underscores or
   a hyphen immediately followed by an ASCII letter. Thus `font-size` is a name,
   `a-b` is a name, and `a - b` is subtraction.

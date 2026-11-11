@@ -1,6 +1,7 @@
 # A Contract file that starts with a UTF-8 byte order mark is refused, naming a character no one can see
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Contract accepts one leading UTF-8 byte order mark, preserves its source byte offsets, and retains it when formatting.
 **Systems:** contract/syntax (lexer)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

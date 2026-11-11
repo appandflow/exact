@@ -78,7 +78,7 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
 /// `state`s and `action`s of every stateful child use, renamed apart with
 /// the use's number, each owned by the instance it belongs to ([`Owner`]);
 /// a child's `derive` is an expression substituted at each read.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Expanded {
     /// The root, with the children's declarations appended.
     pub root: Component,
@@ -158,7 +158,8 @@ fn first((expanded, mut errors): (Expanded, Vec<SyntaxError>)) -> Result<Expande
 /// of an unknown component (or one nested too deeply) is left out, and a
 /// prop, provider, or derive it lacks reads as `?`, so what depends on it is
 /// a consequence the checker does not repeat. The expansion is complete only
-/// when no error is returned; `mapped` keeps source provenance.
+/// when no error is returned; a file without a component returns an empty
+/// expansion and a refusal. `mapped` keeps source provenance.
 pub fn expand_all(file: &File, mapped: bool) -> (Expanded, Vec<SyntaxError>) {
     let (mut expanded, errors) = expand_with_sites(file, mapped, false);
     hygiene(&mut expanded, file);
@@ -252,7 +253,16 @@ fn expand_with_sites(
     // 1089 D7): lifting then substitutes caller and callee alike.
     let (called, called_errors) = calls::expand_file(file);
     let file: &File = &called;
-    let source = &file.components[0];
+    let Some(source) = file.components.first() else {
+        return (
+            Expanded::default(),
+            vec![SyntaxError {
+                id: "analyze-no-component",
+                message: "a file needs a component".into(),
+                span: crate::Span::point(1, 1),
+            }],
+        );
+    };
     // Expansion replaces the view; retain only the root declarations here.
     let mut root = Component {
         name: source.name.clone(),

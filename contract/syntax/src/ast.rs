@@ -409,7 +409,7 @@ impl TypeExpr {
     }
 }
 /// A component.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Component {
     /// The name.
     pub name: String,

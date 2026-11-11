@@ -131,6 +131,18 @@ fn the_test_command_reports_errors_at_their_source() {
     let with_import = "use Broken from \"./broken.contract\"\ncomponent App\n  state count = 0\n  view\n    Broken()\n";
     let cases = [
         (
+            "",
+            "",
+            &app,
+            "1:1 [analyze-no-component] a file needs a component",
+        ),
+        (
+            "shape Data\n  n: number\nfn one(): number = 1\n",
+            "",
+            &app,
+            "1:1 [analyze-no-component] a file needs a component",
+        ),
+        (
             "component App\n  state count = 0\n  view\n    text \"hi\" oops=\n",
             "",
             &app,

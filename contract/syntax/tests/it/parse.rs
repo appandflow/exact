@@ -368,6 +368,56 @@ fn unknown_declarations_name_atom_among_expected_forms() {
 }
 
 #[test]
+fn a_leading_byte_order_mark_keeps_source_byte_columns() {
+    for ending in ["\n", "\r\n"] {
+        let src = format!("\u{feff}component App{ending}  view{ending}    text \"x\"{ending}");
+        let file = contract_syntax::parse_source(&src, 7).unwrap();
+        assert_eq!(file.components[0].name, "App");
+        let tokens = Lexer::tokenize_at(
+            &src,
+            Span {
+                source_id: 7,
+                ..Span::point(1, 1)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            tokens[0].span,
+            Span {
+                line: 1,
+                col: 4,
+                end_col: 13,
+                source_id: 7
+            }
+        );
+        for token in tokens.iter().filter(|t| t.span.col < t.span.end_col) {
+            let line = src.lines().nth(token.span.line as usize - 1).unwrap();
+            assert!(
+                !line[token.span.col as usize - 1..token.span.end_col as usize - 1]
+                    .contains('\u{feff}')
+            );
+        }
+    }
+    for (src, origin) in [
+        ("\u{feff}component App", Span::point(2, 1)),
+        ("\u{feff}component App", Span::point(1, 2)),
+        ("\n\u{feff}component App", Span::point(1, 1)),
+        (" \u{feff}component App", Span::point(1, 1)),
+        ("\u{feff}\u{feff}component App", Span::point(1, 1)),
+    ] {
+        assert_eq!(
+            Lexer::tokenize_at(src, origin).unwrap_err().id,
+            "syntax-unexpected-char"
+        );
+    }
+    let src = "component App\n  view\n    text \"\u{feff}\"\n";
+    assert!(Lexer::tokenize(src, 1)
+        .unwrap()
+        .iter()
+        .any(|t| matches!(&t.kind, contract_syntax::TokenKind::Str(s) if s == "\u{feff}")));
+}
+
+#[test]
 fn an_unexpected_character_is_named_whole_and_spans_its_bytes() {
     for (c, len) in [("@", 1), ("é", 2), ("—", 3), ("🙂", 4)] {
         let src = format!("component A\n  view\n    text {c} x\n");

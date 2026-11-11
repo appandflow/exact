@@ -48,6 +48,25 @@ fn preserved(src: &str) -> String {
 }
 
 #[test]
+fn formatting_preserves_a_leading_byte_order_mark() {
+    for prefix in [
+        "",
+        "// comment\n",
+        "  // comment\n",
+        "    // comment\n",
+        "\n",
+        "  \n",
+        "  // comment\r\n",
+    ] {
+        let src = format!("\u{feff}{prefix}component App\n    view\n        text \"\u{feff}\"\n");
+        let expected = format!("\u{feff}{}", format(&src['\u{feff}'.len_utf8()..]).unwrap());
+        assert_eq!(format(&src).unwrap(), expected);
+        assert_eq!(format(&expected).unwrap(), expected);
+    }
+    assert_eq!(format("\u{feff}").unwrap(), "\u{feff}\n");
+}
+
+#[test]
 fn resource_context_preserves_the_call_boundary_nested_values_and_else() {
     use contract_syntax::{parse, Span, VisitSpans};
     let src = r#"component App
