@@ -1,7 +1,7 @@
-//! Render on demand and the frame-rate cap: presentation only, never the
-//! world.
+//! Render on demand, the frame-rate cap and runtime scene samples:
+//! presentation only, never the world.
 use super::*;
-use exact_game::Quality;
+use exact_game::{Quality, SceneSamples};
 
 #[derive(Default, exact_game::Args)]
 struct DiceArgs {
@@ -27,6 +27,13 @@ impl Game for Dice {
     }
     fn max_fps(_: &World, args: &DiceArgs) -> u32 {
         args.fps
+    }
+    fn samples(args: &DiceArgs) -> SceneSamples {
+        if args.rough == 1 {
+            SceneSamples::One
+        } else {
+            Self::SAMPLES
+        }
     }
     fn setup(w: &mut World, _: &DiceArgs) {
         w.spawn_named("die", (Transform::at(0., 0.5, 0.), Mesh::cube(1.)));
@@ -71,6 +78,12 @@ fn live_dice(rolling: bool) -> WorldSurface<Dice> {
 
 fn tick(s: &WorldSurface<Dice>) -> u64 {
     s.sim().unwrap().world().tick()
+}
+
+fn state(s: &mut WorldSurface<Dice>) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(&s.agent(r#"{"op":"state"}"#).unwrap()).unwrap()
+        ["world"]
+        .clone()
 }
 
 #[test]
@@ -148,5 +161,32 @@ fn the_lower_cap_stands() {
     assert_eq!(s.max_fps(), 24, "the game's is lower");
     s.bind(&args(true, 0, 0), None).unwrap();
     assert_eq!(s.max_fps(), 30, "the game has none");
+}
+
+#[test]
+fn new_scene_samples_make_the_renderer_again_under_the_same_world() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Dice>::default();
+    s.bind(&args(true, 0, 0), None).unwrap();
+    for i in 0..3 {
+        fixture::render(&gpu, &mut s, &frame(i as f64 * 100.)).unwrap();
+    }
+    assert_eq!(state(&mut s)["quality"]["samples"], 4);
+    assert_eq!(s.samples, Some(SceneSamples::Four));
+    let world = state(&mut s);
+    s.bind(&args(true, 1, 0), None).unwrap();
+    assert!(s.render.is_none(), "released at the bind");
+    let after = state(&mut s);
+    assert_eq!(
+        (&after["hash"], &after["tick"]),
+        (&world["hash"], &world["tick"])
+    );
+    fixture::render(&gpu, &mut s, &frame(300.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    assert_eq!(s.samples, Some(SceneSamples::One));
+    assert_eq!(state(&mut s)["quality"]["samples"], 1);
+    // Unchanged samples keep the renderer.
+    s.bind(&args(false, 1, 0), None).unwrap();
+    assert!(s.render.is_some());
 }
 

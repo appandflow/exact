@@ -26,7 +26,7 @@ impl Now {
 }
 /// A stateless game; components and resources hold every bit of simulation state.
 pub trait Game: 'static {
-    /// Scene sampling, fixed for the GPU renderer's lifetime.
+    /// Scene sampling, unless [`samples`](Self::samples) says otherwise.
     const SAMPLES: crate::SceneSamples = crate::SceneSamples::Four;
     /// Camera depth before colour, for opaque overdraw. Requires one scene sample.
     const DEPTH_PREPASS: bool = false;
@@ -125,6 +125,13 @@ pub trait Game: 'static {
     /// saved or hashed.
     fn max_fps(_world: &World, _args: &Self::Args) -> u32 {
         0
+    }
+    /// Scene sampling for the arguments, [`SAMPLES`](Self::SAMPLES) by default:
+    /// a change, such as a `#[live]` "smooth edges" setting, makes the GPU
+    /// renderer again (targets, pipelines and hooks) under the same world.
+    /// The quality ladder's `Low` rung still draws one sample.
+    fn samples(_args: &Self::Args) -> crate::SceneSamples {
+        Self::SAMPLES
     }
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);

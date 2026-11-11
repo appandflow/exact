@@ -57,6 +57,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             rung: None,
             resting: false,
             idle_tick: None,
+            samples: None,
         }
     }
 }
@@ -111,7 +112,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     device,
                     queue,
                     format,
-                    crate::quality::samples(self.rung, G::SAMPLES),
+                    *self
+                        .samples
+                        .insert(crate::quality::samples(self.rung, G::samples(sim.args()))),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -272,7 +275,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     device,
                     queue,
                     format,
-                    crate::quality::samples(self.rung, G::SAMPLES),
+                    *self
+                        .samples
+                        .insert(crate::quality::samples(self.rung, G::samples(sim.args()))),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),

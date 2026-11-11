@@ -325,7 +325,9 @@ millisecond as before. `Game::max_fps(world, args)` caps the drawn frames per
 second (0, the default, for the display's rate), changeable at any frame: 60 at
 rest, say, and 0 while the dice fly. The simulation still ticks at `HZ`; a render
 hook's `Hooks::max_fps` can cap lower (a budget or a thermal cap), and the lower
-non-zero cap stands. Neither is saved or hashed. The web, iOS,
+non-zero cap stands. `Game::samples(args)` chooses scene sampling (by default
+`Game::SAMPLES`); a change makes the renderer again under the same world, as a
+"smooth edges" setting needs. None of the three is saved or hashed. The web, iOS,
 macOS and Android hosts rest and cap a canvas; the Linux and Windows desktop
 hosts draw a mounted world every display frame and take no cap
 ([GPU module ABI](../gpu/README.md#frame-pacing)).
