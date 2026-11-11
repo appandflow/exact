@@ -25,7 +25,8 @@ pub(super) struct Landed {
     pub(super) reply: Value,
     /// The sequence when it landed: an answer asked later can retire it.
     pub(super) at: u64,
-    /// The refreshed resources it still shows in.
+    /// The refreshed resources it still shows in, with lists expanded to
+    /// their member rows.
     pub(super) showing: Vec<usize>,
 }
 
@@ -152,6 +153,19 @@ impl<D: DataSource> Runner<D> {
         let showing: Vec<usize> = self
             .declared_refreshes(m)
             .into_iter()
+            .flat_map(|r| {
+                if self.is_family(r) {
+                    self.members
+                        .rows
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, row)| row.as_ref().is_some_and(|m| m.family == r && !m.gone))
+                        .map(|(i, _)| i)
+                        .collect()
+                } else {
+                    vec![r]
+                }
+            })
             .filter(|r| {
                 !exact_plan::runner_owned_source(self.plan.str(self.plan.resources[*r].source))
             })
@@ -220,14 +234,50 @@ impl<D: DataSource> Runner<D> {
 
     /// The records showing in resource `i`, in send order.
     fn writes_for(&self, i: usize) -> Vec<&WriteRecord> {
+        let declared = self.member(i).map_or(i, |m| m.family);
         self.writes
             .records
             .iter()
             .filter(|r| match &r.landed {
-                Some(l) => l.showing.contains(&i),
-                None => self.declared_refreshes(r.mutation).contains(&i),
+                Some(l) => l
+                    .showing
+                    .iter()
+                    .any(|&r| r == i || self.member(r).is_some_and(|m| m.family == i)),
+                None => self.declared_refreshes(r.mutation).contains(&declared),
             })
             .collect()
+    }
+
+    /// While a list still shows a landed write, its joining members show it too.
+    pub(super) fn join_member_writes(&mut self, family: usize, member: usize) {
+        for w in &mut self.writes.records {
+            if let Some(l) = &mut w.landed {
+                if !l.showing.contains(&member)
+                    && l.showing.iter().any(|&i| {
+                        self.members.rows[i]
+                            .as_ref()
+                            .is_some_and(|m| m.family == family)
+                    })
+                {
+                    l.showing.push(member);
+                }
+            }
+        }
+    }
+
+    /// A removed member no longer holds a landed write over its answer.
+    pub(super) fn forget_member_writes(&mut self, leaving: &[usize]) {
+        if leaving.is_empty() {
+            return;
+        }
+        for w in &mut self.writes.records {
+            if let Some(l) = &mut w.landed {
+                l.showing.retain(|i| !leaving.contains(i));
+            }
+        }
+        self.writes
+            .records
+            .retain(|w| w.landed.as_ref().is_none_or(|l| !l.showing.is_empty()));
     }
 
     /// Whether any write shows in resource `i` (it is not carried).

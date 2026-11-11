@@ -25,7 +25,7 @@ export function answers(resources, types, sourceTypes) {
     // `Runner::document_checkpoint` leaves it out.
     if (args === undefined || r.owned) return;
     const params = sourceTypes[r.source]?.[0] ?? [];
-    out.push(`[${JSON.stringify(r.name)},${JSON.stringify(r.source)},[${args.map((a, k) => encode(a, params[k] ?? 's')).join(',')}],${encode(r.each ? g() : r.value, types[i])}]`);
+    out.push(`[${JSON.stringify(r.name)},${JSON.stringify(r.source)},[${args.map((a, k) => encode(a, params[k] ?? 's')).join(',')}],${encode(r.value, types[i])}]`);
   });
   return `[${out.join(',')}]`;
 }

@@ -1,6 +1,7 @@
 # A mutation that `refreshes` a resource over a list leaves a write record for every send, and its overlay is never asked
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** List members receive overlays and retire landed writes independently after refresh or removal in Rust and JS.
 **Systems:** runner/src/runner/writes.rs, runner/src/runner/settlement.rs, runner/src/runner/each.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

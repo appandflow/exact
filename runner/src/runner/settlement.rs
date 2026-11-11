@@ -401,11 +401,24 @@ impl<D: DataSource> Runner<D> {
                                 &self.resource_values[i],
                                 Some(old) if Held::same(old, &shown)
                             );
-                            resources[i] = Some(shown.clone());
+                            let answer = Value::list(
+                                order
+                                    .iter()
+                                    .map(|&m| {
+                                        states[m]
+                                            .as_ref()
+                                            .expect("settled")
+                                            .value
+                                            .get(&self.plan)
+                                            .clone()
+                                    })
+                                    .collect(),
+                            );
+                            resources[i] = Some(shown);
                             states[i] = Some(ResourceState {
                                 inspection_generation: 0,
                                 args: Vec::new(),
-                                value: shown,
+                                value: Held::new(answer),
                                 store_revision: self.store.revision(),
                                 placeholder: false,
                                 kept_seed: false,

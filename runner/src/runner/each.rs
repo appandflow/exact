@@ -111,6 +111,9 @@ impl<D: DataSource> Runner<D> {
                     m
                 }
             };
+            if self.resources[m].is_none() {
+                self.join_member_writes(i, m);
+            }
             // A repeated key reads the first element's request.
             if !order.contains(&m) {
                 if let Some(Some(row)) = self.members.rows.get_mut(m) {
@@ -212,7 +215,7 @@ impl<D: DataSource> Runner<D> {
         self.forget_resource_row(m);
     }
 
-    /// Family `i`'s value from its members' this pass: their answers as a
+    /// Family `i`'s value from its members' this pass: their shown values as a
     /// list, pending when any is, failed (with the first failure) when any
     /// is.
     pub(super) fn gather(
@@ -258,6 +261,7 @@ impl<D: DataSource> Runner<D> {
             self.awaiting[m] = false;
             self.refresh_next.retain(|r| *r != m);
         }
+        self.forget_member_writes(leaving);
         self.sync_pending_flags();
     }
 

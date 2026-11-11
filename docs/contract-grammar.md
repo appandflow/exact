@@ -538,7 +538,10 @@ repeats an earlier one's reads that one's answer. `pending(r)` and
 and `failure(r)` is the first failure. It takes no `with` or `else`
 (`syntax-resource-for-with`, `syntax-resource-for-else`), and asks a data
 source, not one the runner answers (`lower-resource-for-source`). A
-mutation's `refreshes r` asks every element again.
+mutation's `refreshes r` shows the source's overlay over each element from
+the send, and asks every element again when the reply lands. Each element
+retires the write independently once its answer was asked after the landing,
+unless its overlay keeps it; leaving the list also retires it.
 
 A resource's `else` is a placeholder. `else empty()` is the resource type's zero,
 with `field=constant` overrides for a record. `else source(values…)` names a source

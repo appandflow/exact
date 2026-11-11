@@ -29,7 +29,7 @@ export function accept(m, source, args) {
 export function land(m, reply, write) {
   const w = pending(m, write); if (!w) return;
   // The runner's own resources show their facts, never a write (`owned`, from the plan's `RUNNER_OWNED_SOURCES`)
-  const showing = m.refreshes.filter(r => !r.owned);
+  const showing = m.refreshes.flatMap(r => r.each ? r.members() : [r]).filter(r => !r.owned);
   // Shown nowhere, it has nothing to wait for
   if (showing.length) w.landed = { reply, at: tick(), showing }; else Writes.list.splice(Writes.list.indexOf(w), 1);
 }
@@ -39,7 +39,16 @@ export function end(m, write) { const w = pending(m, write); if (!w) return null
 export function endPending(m, except) { const n = Writes.list.length; Writes.list = Writes.list.filter(w => w.m !== m || w.landed || w === except); return n === Writes.list.length ? [] : reconcile(m); }
 // Each refreshed resource no other pending write shows in (that one's own end asks).
 const reconcile = m => m.refreshes.filter(r => !Writes.list.some(w => !w.landed && w.m.refreshes.includes(r)));
-const showing = r => Writes.list.filter(w => w.landed ? w.landed.showing.includes(r) : w.m.refreshes.includes(r));
+const showing = r => Writes.list.filter(w => w.landed ? w.landed.showing.some(x => x === r || x.family === r) : w.m.refreshes.includes(r.family ?? r));
+/** While a list still shows a landed write, its joining members show it too. */
+export function join(r) {
+  for (const w of Writes.list) if (w.landed?.showing.some(x => x.family === r.family)) w.landed.showing.push(r);
+}
+/** A removed member no longer holds a landed write over its answer. */
+export function forget(r) {
+  for (const w of Writes.list) if (w.landed) w.landed.showing = w.landed.showing.filter(x => x !== r);
+  Writes.list = Writes.list.filter(w => !w.landed || w.landed.showing.length);
+}
 /** Whether any write shows in `r`. */
 export const written = r => showing(r).length > 0;
 /** What `r` shows: `answer` (asked at `origin`, for `args`), or its source's overlay of the writes showing in

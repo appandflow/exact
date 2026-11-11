@@ -14,6 +14,93 @@ function runtimeServer(development = false) {
   } });
 }
 
+test.each([true, false])('writes over list members retire independently (overlay: %s)', async overlay => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    await page.evaluate(async overlay => {
+      globalThis.__exactRender = true;
+      const rt = await import('/host/web-js/rt.js'), { resEach } = await import('/host/web-js/each.js');
+      const { answers } = await import('/host/web-js/checkpoint.js');
+      const urls = rt.sig(['a', 'b']), saved = rt.sig(null), refusing = rt.sig(false), completions = [], overlaid = [];
+      const options = { later: false, keep: false, showLanded: false };
+      rt.clock.agent = true;
+      rt.data.answer = (source, args) => source === 'look' && !options.later ? { v: 'server' }
+        : { promise: new Promise(resolve => completions.push({ key: source === 'save' ? 'save' : args[0], resolve })) };
+      rt.data.overlay = !overlay ? undefined : (_, args, answer, writes) => {
+        overlaid.push(args[0]);
+        const keep = writes.filter(w => options.keep && args[0] === 'b' && w.answered).map(w => w.id);
+        return { value: options.showLanded || keep.length || writes.some(w => !w.answered) ? 'writing' : answer, keep };
+      };
+      let got, one, mutation;
+      rt.mount(root => {
+        got = resEach('got', 'look', urls, x => x, x => [x], '[s', 's', '');
+        one = rt.res('one', 'look', () => ['z'], undefined, undefined, 's', '');
+        mutation = rt.mut('saved', saved, [got, one], 'b');
+        rt.memo(() => { if (refusing()) throw new rt.Refusal('refused removal'); });
+        rt.hd(root, { headTitle: () => got().join(',') + one() });
+      });
+      window.fixture = { rt, got, options, overlaid, completions,
+        snapshot: () => JSON.parse(answers([got, one], [['[', 's'], 's'], {})),
+        save: () => rt.commit(() => rt.M(mutation, 'save', [])),
+        change: value => rt.commit(() => rt.W(urls, value)),
+        refuse: value => rt.commit(() => { rt.W(urls, value); rt.W(refusing, true); }),
+        finish: key => {
+          const ticket = key === 'save' ? mutation.ticket : rt.Resources.find(r => r.ticket?.args[0] === key).ticket;
+          const i = completions.findLastIndex(c => c.key === key);
+          completions.splice(i, 1)[0].resolve(key === 'save' ? true : 'fresh');
+          return ticket.id;
+        },
+        state: () => ({ got: got(), one: one(), writes: rt.writeRecords().length }) };
+    }, overlay);
+    const finish = async key => {
+      const ticket = await page.evaluate(key => fixture.finish(key), key);
+      await page.waitForFunction(ticket => [...fixture.rt.Resources, ...fixture.rt.Mutations].every(r => r.ticket?.id !== ticket), ticket);
+    };
+    const checkpoint = [['got', 'look', [], ['server', 'server']], ['one', 'look', ['z'], 'server']];
+    for (const showLanded of [false, true, false]) {
+      await page.evaluate(showLanded => { fixture.options.showLanded = showLanded; fixture.overlaid.length = 0; fixture.save(); }, showLanded);
+      const shown = overlay ? 'writing' : 'server';
+      expect(await page.evaluate(() => fixture.state())).toEqual({ got: [shown, shown], one: shown, writes: 1 });
+      expect(await page.evaluate(() => fixture.snapshot())).toEqual(checkpoint);
+      expect(await page.evaluate(() => fixture.overlaid.sort())).toEqual(overlay ? ['a', 'b', 'z'] : []);
+      expect(await page.evaluate(() => fixture.completions.map(c => c.key))).toEqual(['save']);
+      await finish('save');
+      const settled = overlay && showLanded ? 'writing' : 'server';
+      expect(await page.evaluate(() => fixture.state())).toEqual({ got: [settled, settled], one: settled, writes: 0 });
+      expect(await page.evaluate(() => fixture.snapshot())).toEqual(checkpoint);
+    }
+    if (!overlay) return;
+    await page.evaluate(() => {
+      fixture.options.later = fixture.options.keep = true;
+      fixture.save(); fixture.change(['b', 'a', 'c', 'b']);
+    });
+    await finish('c');
+    expect(await page.evaluate(() => fixture.snapshot())).toEqual([
+      ['got', 'look', [], ['server', 'server', 'fresh', 'server']], ['one', 'look', ['z'], 'server'],
+    ]);
+    await finish('save');
+    await finish('a');
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['writing', 'fresh', 'writing', 'writing'], one: 'writing', writes: 1 });
+    await finish('b');
+    await finish('c');
+    await finish('z');
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['writing', 'fresh', 'fresh', 'writing'], one: 'fresh', writes: 1 });
+    expect(await page.evaluate(() => fixture.refuse(['b', 'd']))).toBe(false);
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['writing', 'fresh', 'fresh', 'writing'], one: 'fresh', writes: 1 });
+    await page.evaluate(() => fixture.change(['b', 'd']));
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['writing', 'writing'], one: 'fresh', writes: 1 });
+    await finish('d');
+    expect(await page.evaluate(() => fixture.refuse([]))).toBe(false);
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['writing', 'fresh'], one: 'fresh', writes: 1 });
+    await page.evaluate(() => fixture.change(['d']));
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: ['fresh'], one: 'fresh', writes: 0 });
+    await page.evaluate(() => { fixture.change([]); fixture.options.later = false; fixture.save(); });
+    await finish('save');
+    expect(await page.evaluate(() => fixture.state())).toEqual({ got: [], one: 'server', writes: 0 });
+  } finally { await browser.close(); server.stop(true); }
+}, 30000);
+
 test.each([false, true])('list members ask independently of the aggregate checkpoint (arguments: %s)', async withArgs => {
   const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
   try {
