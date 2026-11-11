@@ -1004,3 +1004,110 @@ fn a_store_pins_the_compiled_module_and_its_hash_is_required_without_one_too() {
     assert_eq!(stored_module(&meta, &manifest, "ios"), Ok(None));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Writes a crate named `name` at `dir` whose manifest ends with `deps`.
+fn krate(dir: &Path, name: &str, deps: &str) {
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub const A: u8 = 1;\n").unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{deps}"),
+    )
+    .unwrap();
+}
+
+/// The binary links the path crates its data crate depends on: an edit to
+/// one moves the id, as an edit to `data/` does; a dev-dependency's does not.
+#[test]
+fn the_data_crates_path_dependencies_are_identity() {
+    let dir = app("path-deps");
+    let inputs = || {
+        let m = Manifest::read(&dir).unwrap();
+        compatibility_with_trust(
+            &dir,
+            "ios",
+            "aarch64-apple-ios",
+            &m,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .inputs
+    };
+    assert!(inputs()["dataCrate"].get("crates").is_none());
+    let workspace = "[workspace]\nmembers = [\"data\"]\nresolver = \"2\"\n";
+    std::fs::write(dir.join("Cargo.toml"), workspace).unwrap();
+    krate(
+        &dir.join("data"),
+        "app-data",
+        "[dependencies]\nparse = { path = \"../parse\" }\n\
+         [dev-dependencies]\ntool = { path = \"../tool\" }\n",
+    );
+    let leaf = "[build-dependencies]\nleaf = { path = \"../leaf\" }\n";
+    krate(&dir.join("parse"), "parse", leaf);
+    krate(&dir.join("leaf"), "leaf", "");
+    krate(&dir.join("tool"), "tool", "");
+    let crates = inputs()["dataCrate"]["crates"].clone();
+    let names: Vec<&String> = crates.as_object().unwrap().keys().collect();
+    assert_eq!(
+        names,
+        ["leaf", "parse"],
+        "the closure, less dev-dependencies"
+    );
+    let first = id(&dir, "ios");
+    std::fs::write(dir.join("tool/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_eq!(first, id(&dir, "ios"), "a dev-dependency is not linked");
+    std::fs::write(dir.join("parse/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    let parse = id(&dir, "ios");
+    assert_ne!(first, parse, "a path dependency's edit moves it");
+    std::fs::write(dir.join("leaf/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_ne!(parse, id(&dir, "ios"), "so does a transitive one's");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A path crate outside the app's workspace is no member of it, so the
+/// closure is read from Cargo's full graph.
+#[test]
+fn a_path_dependency_outside_the_workspace_is_identity() {
+    let root = app("outside-deps");
+    let dir = root.join("app");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::rename(root.join("app.json"), dir.join("app.json")).unwrap();
+    std::fs::remove_dir_all(root.join("data")).unwrap();
+    let workspace = "[workspace]\nmembers = [\"data\"]\nresolver = \"2\"\n";
+    std::fs::write(dir.join("Cargo.toml"), workspace).unwrap();
+    let shared = "[dependencies]\nshared = { path = \"../../shared\" }\n";
+    krate(&dir.join("data"), "app-data", shared);
+    krate(&root.join("shared"), "shared", "");
+    let first = id(&dir, "ios");
+    assert_eq!(first, id(&dir, "ios"), "stable across computations");
+    std::fs::write(root.join("shared/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_ne!(first, id(&dir, "ios"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// exact2's own crates stay out of the closure, since the id's other inputs
+/// name them; another app's crates are this app's code.
+#[test]
+fn the_closure_leaves_out_exact2s_own_crates() {
+    let apps = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps");
+    let names = |app: &str| -> Vec<String> {
+        super::path_crates(&apps.join(app).join("data"))
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    };
+    assert_eq!(names("markdown"), ["markdown-parse"]);
+    assert_eq!(
+        names("exact-live"),
+        [
+            "completion-storm-data",
+            "interaction-gallery-data",
+            "markdown-parse",
+            "markdown-stress-data",
+            "messages-stress-data"
+        ]
+    );
+    assert!(names("caltrain").is_empty());
+}

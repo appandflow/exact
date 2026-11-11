@@ -1,6 +1,7 @@
 # The compatibility id does not move when a data crate's path dependency changes, and target-specific code in `data/` is not refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The data crate's identity hashes each path crate it is built from, less exact2's own, as `cargo metadata` lists them, so an edit to one moves the id; the `cfg(target_*)` refusal needs a ruling first and is issues/20261111-cfg-target-in-data-is-not-refused.md.
 **Systems:** bake/src/compat.rs (data_crate), scripts/app.mjs (classifyArtifacts)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
