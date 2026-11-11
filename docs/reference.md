@@ -1435,6 +1435,8 @@ second later; without one they are the upload's, as they are a fetch's
 (URLSession's 60 s without data; the portable transport's 30 s for the whole
 exchange, 15 s for the reply's head and 15 s for its body), so give a
 deadline to an upload that may take longer. An empty body tells no progress.
+If the mapper awaits, progress still leaves the upload pending, and the
+reply's eventual mapped value is the answer kept for those arguments.
 No `Accept: text/event-stream` is added. It is in flight until that reply:
 `pending(…)` reads true, `state.pending` lists it, and every clock waits for
 it, as for a fetch, while each progress event commits as it comes. No answer

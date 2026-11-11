@@ -249,7 +249,7 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
-    /// An upload's stream ([`Request::upload_progress`]): in flight until its reply.
+    /// An upload's answer ([`Request::upload_progress`]), including its reply's later turns.
     upload: bool,
     /// The upload has begun to go out (`UPLOAD_SENDING`, or its first bytes
     /// sent): a failure before that never reached the network (D10).

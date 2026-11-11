@@ -1083,14 +1083,6 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Whether resource `i` has a stream open that has delivered: it is not
-    /// pending, but a newer answer must still let its ticket go.
-    pub(super) fn streaming(&self, i: usize) -> bool {
-        self.pending
-            .iter()
-            .any(|p| p.target == Target::Resource(i) && !p.in_flight())
-    }
-
     /// Whether request `ticket` is still wanted. A host asks after each
     /// commit and lets go of the work for any it holds that isn't (LLP 1016
     /// D5): a superseded or forgotten reply would only be dropped here.
@@ -1430,6 +1422,10 @@ impl<D: DataSource> Runner<D> {
                     next.reasks = p.reasks;
                     next.effects |= next.continuation.is_some() && effects;
                     next.replay_unsafe |= p.replay_unsafe;
+                    if p.upload {
+                        self.uploads
+                            .continue_at(p.ticket, next, p.sent || !failed_end);
+                    }
                 }
                 return self.update();
             }
@@ -1456,7 +1452,7 @@ impl<D: DataSource> Runner<D> {
                 self.keep_answer(i, &p.args, &value);
                 // An upload's end is the answer it stands on at its arguments;
                 // one that never reached the network is an ordinary answer (D10).
-                if p.upload && !message {
+                if p.upload && !message && !turn {
                     let end = super::UploadEnd::Answered(value.clone());
                     self.upload_over(p.ticket, p.sent || !failed_end, end);
                 }

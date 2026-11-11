@@ -9,7 +9,7 @@
 //! none: an app records what an upload answered in its store and stops
 //! showing the resource, or the launch asks it again.
 
-use super::{DataSource, Runner, Target};
+use super::{DataSource, PendingReq, Runner, Target};
 use crate::failure::{Failure, FailureCode};
 use exact_plan::Value;
 use std::rc::Rc;
@@ -97,7 +97,19 @@ impl Uploads {
         });
     }
 
-    /// Every mark on its way under `ticket` ends as `end`, and of each
+    /// The reply's later rounds keep every argument set that shared its
+    /// upload. A failure before it went out leaves no upload to remember.
+    pub(super) fn continue_at(&mut self, ticket: u64, next: &mut PendingReq, sent: bool) {
+        if sent {
+            next.upload = true;
+            next.sent = true;
+            self.end(ticket, &UploadEnd::Sent(next.ticket));
+        } else {
+            self.unmark(ticket);
+        }
+    }
+
+    /// Every mark on its way under `ticket` becomes `end`, and of each
     /// resource's ended uploads only the newest [`ANSWERS_KEPT`] keep how
     /// they ended.
     pub(super) fn end(&mut self, ticket: u64, end: &UploadEnd) {

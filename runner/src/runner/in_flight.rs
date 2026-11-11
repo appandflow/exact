@@ -5,6 +5,14 @@
 use super::*;
 
 impl<D: DataSource> Runner<D> {
+    /// Whether resource `i` has a stream open that has delivered: it is not
+    /// pending, but a newer answer must still let its ticket go.
+    pub(super) fn streaming(&self, i: usize) -> bool {
+        self.pending
+            .iter()
+            .any(|p| p.target == Target::Resource(i) && !p.in_flight())
+    }
+
     /// The pending flags `pending(x)` reads, from the tickets in flight and
     /// what waits for its source.
     pub(super) fn sync_pending_flags(&mut self) {

@@ -36,6 +36,7 @@ mod secret_state;
 mod sockets;
 mod tabs;
 mod transform_binding;
+mod uploads;
 mod uses;
 mod viewport;
 

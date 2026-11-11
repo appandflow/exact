@@ -1,6 +1,7 @@
 # An upload whose mapper awaits is recorded with the wrong end: a progress value as its answer, or no answer at all
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Upload marks follow the reply through mapper turns, preserving its final answer or failure without recording progress as the end.
 **Systems:** `runner/src/runner/commit.rs`, `runner/src/runner/mapper_turns.rs`, `runner/src/runner/uploads.rs`
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
