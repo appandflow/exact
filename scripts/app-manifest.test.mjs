@@ -221,6 +221,17 @@ test('host.web.head takes script, link and meta entries and refuses the rest by 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a misspelt key beside host.web.head is refused as any unknown key is', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-manifest-'));
+  try {
+    for (const key of ['headers', 'heads']) {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head', app: { id: 'test.head', name: 'Head' }, host: { web: { [key]: [] } } }));
+      assert.throws(() => readManifest(dir, 'fixture'), new RegExp(`host\\.web\\.${key}: not a known key`));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('readManifest names the game.presentation rename instead of an unknown key', async () => {
   const { readManifest } = await import('./app.mjs');
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
