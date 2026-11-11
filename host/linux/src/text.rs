@@ -586,6 +586,8 @@ pub struct GlyphRun {
 pub struct TextEngine {
     catalog: catalog::Lease,
     paragraphs: cache::Cache,
+    /// Hosted field files by this catalog's stack, weight and slant (LLP 1019 D4).
+    pub(crate) field_faces: HashMap<(u16, u16, bool), String>,
     /// Canonical shaped-source builds, independent of width layout.
     pub shape_calls: usize,
     layout_calls: usize,
@@ -643,6 +645,7 @@ impl TextEngine {
             held: HashMap::new(),
             catalog: Rc::new(RefCell::new(catalog)),
             paragraphs: cache::Cache::default(),
+            field_faces: HashMap::new(),
             shape_calls: 0,
             layout_calls: 0,
             measures: 0,

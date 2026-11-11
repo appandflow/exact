@@ -1,6 +1,7 @@
 # A hosted text field is told the previous plan's font file after a dev reload
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Hosted field font files are cached by the owning text engine, so reloads and fresh boots resolve each plan's own faces.
 **Systems:** host/linux/src/fields.rs, Android reader (LLP 1115.001 D8)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
