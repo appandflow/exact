@@ -359,6 +359,18 @@ fn sqlite_preserves_int64_and_blobs_shares_backing_data_and_rolls_back_transacti
         inserted[2]["rows"],
         json!([[{"integer":"9007199254740993"},{"bytes":[0,128,255]},"from portable"]])
     );
+    // A request has no foreignKeys mode: naming one is refused, never run enforced.
+    let got = run(
+        &mut host,
+        storage::request(
+            "sqlite.transaction",
+            json!({"path":"app:/data/test.db","foreignKeys":"check","commands":[
+                {"kind":"execute","sql":"INSERT INTO items VALUES(3,NULL,'refused')","params":[]}
+            ]}),
+        ),
+    )
+    .unwrap_err();
+    assert!(got.contains("has no foreignKeys mode"), "{got}");
     assert!(sql(&mut host,"sqlite.transaction",json!([
         {"kind":"execute","sql":"INSERT INTO items VALUES(2,NULL,'must rollback')","params":[]},
         {"kind":"execute","sql":"INSERT INTO items VALUES(9007199254740993,NULL,'duplicate')","params":[]}

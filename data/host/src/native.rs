@@ -80,6 +80,11 @@ fn value(v: sqlite::Value) -> Value {
     }
 }
 fn commands(args: &Value) -> Result<Vec<(String, sqlite::Command)>, String> {
+    // `storage.sqlite`'s `foreignKeys: "check"` has no form here; refused,
+    // so a request that names it never runs enforced.
+    if args.get("foreignKeys").is_some() {
+        return Err("storage: a Rust source's SQLite request has no foreignKeys mode; run the migration from app.ts with transaction(statements, { foreignKeys: \"check\" })".into());
+    }
     let rows = args["commands"]
         .as_array()
         .ok_or("storage: commands must be an array")?;

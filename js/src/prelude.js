@@ -883,7 +883,7 @@
         var error = value;
         // The host's grant refusal names no path: name it, and the lines that would admit it.
         if (method === "open" && typeof argv[0] === "string" && /^denied: sqlite\.open$/.test(error && error.message || String(error))) error = storageError(deniedPath("sqlite.open", argv[0]), "denied");
-        else if (!error || !error.kind) error = storageError(error && error.message || String(error), error && error.code);
+        else if (!error || !error.kind) error = storageError(error && error.message || String(error), error && (error.code || (error instanceof TypeError || error instanceof RangeError ? "failed" : undefined))); // a binding's argument error may carry the app's words: read no code from them
         else if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
         // Every failed operation is journaled, an answer's or the
         // background's, so one nobody catches is still seen (D8).
@@ -919,6 +919,7 @@
       journal("storage: " + h.path + " is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)");
     });
   }
+  function batchNow(c) { return Array.isArray(c) ? c.map(function (e) { if (!e || typeof e !== "object") return e; var sql = e.sql, params = e.params; return { sql: sql, params: Array.isArray(params) ? params.map(function (v) { return v instanceof Uint8Array ? new Uint8Array(v) : v; }) : params }; }) : c; } function optionsNow(o) { if (o === null || typeof o !== "object") return o; var r = Object.create(null), f = o.foreignKeys; Object.keys(o).forEach(function (k) { if (k !== "foreignKeys") Object.defineProperty(r, k, { value: true, enumerable: true }); }); if (f !== undefined) r.foreignKeys = f; return r; } // a transaction's batch and options as they are at the call: each entry's sql and params read once, `foreignKeys` read once, other keys kept by name (in a record with no prototype, so `__proto__` is a key) for the binding to refuse
   function database(raw, path, by) {
     var handle = { path: path, by: by, told: false };
     openDatabases.add(handle);
@@ -926,7 +927,7 @@
       execute: function (sql, params) { return storageCall(raw, "execute", [sql, params]); },
       query: function (sql, params) { return storageCall(raw, "query", [sql, params]); },
       prepare: function (sql) { return storageCall(raw, "prepare", [sql], statement); },
-      transaction: function (commands) { return storageCall(raw, "transaction", [commands]); },
+      transaction: function (commands, options) { var args; try { args = [batchNow(commands), optionsNow(options)]; } catch (e) { return Promise.reject(storageError(String(e && e.message || e), "failed")); } return storageCall(raw, "transaction", args); }, // read now, not when a queued call is issued: what the caller changes after the call never changes what runs
       // A close counts once issued; one refused or failed leaves the database open, and tracked.
       close: function () {
         openDatabases.delete(handle);

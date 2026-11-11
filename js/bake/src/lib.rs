@@ -1140,7 +1140,7 @@ fn bake_in(
     let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
         // The prelude runtime it needs, which a push to an older binary checks (LLP 1016.000 D10).
-        "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script),
+        "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script, &grants),
         "surfaces": surfaces,
         "rustSources": rust_sources,
         "bytecodeVersion": exact_js::BYTECODE_VERSION,

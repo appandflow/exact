@@ -387,10 +387,32 @@ function storageOf(grants) {
   const wrap = (o, convert, path) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
     [m, (...args) => queued(`${m} ${path}`, () => o[m](...args)).then(then ? v => then(v, path) : undefined)])));
   const statement = (s, path) => wrap(s, { execute: null, query: null, close: null }, path);
+  // Each entry's sql and params read once; options as a record with no
+  // prototype, so `__proto__` stays a key the validation refuses.
+  const batchNow = c => Array.isArray(c) ? c.map(e => {
+    if (!e || typeof e !== 'object') return e;
+    const { sql, params } = e;
+    return { sql, params: Array.isArray(params) ? params.map(v => v instanceof Uint8Array ? new Uint8Array(v) : v) : params };
+  }) : c;
+  const optionsNow = o => {
+    if (o === null || typeof o !== 'object') return o;
+    const f = o.foreignKeys, r = Object.create(null);
+    for (const k of Object.keys(o)) if (k !== 'foreignKeys') Object.defineProperty(r, k, { value: true, enumerable: true });
+    if (f !== undefined) r.foreignKeys = f;
+    return r;
+  };
   const database = (d, path, call) => {
     const handle = { path, call, told: false };
     openDatabases.add(handle);
-    const db = wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+    const wrapped = wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+    // A transaction's batch and options as they are at the call, not when the
+    // queue reaches it (js/src/prelude.js `batchNow`, `optionsNow`).
+    const db = { ...wrapped, transaction: (commands, options) => {
+      let args;
+      try { args = [batchNow(commands), optionsNow(options)]; }
+      catch (e) { return Promise.reject(Object.assign(new Error(String(e?.message ?? e)), { kind: 'Unavailable', code: 'failed' })); }
+      return wrapped.transaction(...args);
+    } };
     // A close counts once issued; one refused or failed leaves the database open, and tracked.
     return Object.freeze({ ...db, close: (...args) => {
       openDatabases.delete(handle);

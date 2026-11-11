@@ -791,3 +791,26 @@ for (const source of ['/abs/other.js', './unrecorded', 'pkg'])
         String::from_utf8_lossy(&checked.stderr)
     );
 }
+
+/// A module that may ask a transaction to check foreign keys needs the
+/// prelude runtime that honours the option (`compat.rs` `TYPESCRIPT_RUNTIME`
+/// 10), as an older one would drop it and run the rebuild enforced. Its
+/// options can be data (here a migration's, parsed from JSON, with no
+/// `foreignKeys` in the bundle), so the `sqlite.open` grant decides.
+#[test]
+fn a_module_that_may_check_foreign_keys_needs_the_runtime_that_honours_it() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    for (grants, needs) in [("sqlite.open app:/data/a.db", 10), ("", 0)] {
+        let app = App::new(&format!("foreign-keys-{needs}"));
+        app.put(
+            "app.ts",
+            &format!("import type {{ Sources, Answer }} from './app.contract.d.ts';\nexport const appId = 'test.exact.logic';\nexport const grants = '{grants}';\nconst migration = JSON.parse('{{\"commands\": [], \"options\": {{\"foreign\\\\u004beys\": \"check\"}}}}');\nconst sources: Sources = {{ message: ([count], _store, storage) => storage.sqlite.open('app:/data/a.db').then(db => db.transaction(migration.commands, migration.options)).then(() => String(count), () => String(count)) }};\nexport const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);\n"),
+        );
+        let baked = bake(&app.0, &Tools::default()).unwrap();
+        assert!(!String::from_utf8_lossy(&baked.bytecode).contains("foreignKeys"));
+        let receipt: Json = serde_json::from_str(&baked.receipt).unwrap();
+        assert_eq!(receipt["typescriptRuntime"], needs, "{grants}");
+    }
+}

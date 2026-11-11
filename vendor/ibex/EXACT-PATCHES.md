@@ -523,6 +523,28 @@ admitted nothing. exact2's `grants` crate refuses the same lines, and the
 shared corpus (`host/web/tests/fixtures/grants.json`) holds them. Replay on a
 refresh.
 
+## Local patch 29, a batch that checks foreign keys at commit
+
+`stdlib::sqlite::Connection::transaction` takes a `ForeignKeys` mode, and
+`Database::transaction_with` passes it; the JS binding's
+`transaction(batch, { foreignKeys: "check" })` sends it as the operation's
+second argument (`sqlite_abi`); `undefined` or `null` options are none,
+and any other key or value is a `TypeError` (exact2's prelude gives a
+binding's `TypeError` or `RangeError` the code `failed`). In `Check`, `ibex2-sqlite` turns enforcement
+off (`SQLITE_DBCONFIG_ENABLE_FKEY`) before `BEGIN`, runs the batch with the
+batch's own `PRAGMA foreign_keys` lines authorized as no-ops
+(`Authorization::Ignore`), runs `PRAGMA main.foreign_key_check` and
+`PRAGMA temp.foreign_key_check` before `COMMIT` (unqualified, the pragma
+reads only `main`), stepping through the rows and keeping the three to
+name, ordered by table (by code point), rowid and referenced table,
+and rolls back on any, and turns enforcement
+back on in a drop guard on every path; a connection that cannot have it
+back is closed. The connection's lock is held throughout. exact2's web
+worker does the same, and exact2's bake moves `typescriptRuntime` to 10 for
+a module whose grants admit `sqlite.open`, as an older prelude drops the
+option and the options may be data.
+Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

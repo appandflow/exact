@@ -67,7 +67,13 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// where older preludes stringify the stream.
 /// 9: `fetch`'s `exactIdleTimeout` (LLP 1016.000 D11), which an older
 /// prelude would ignore, leaving a quiet socket open.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 9;
+/// 10: `storage.sqlite`'s `transaction(commands, { foreignKeys: "check" })`,
+/// whose options an older prelude drops, running a migration's rebuild with
+/// enforcement on: the drop deletes a cascading child's rows and the batch
+/// commits. The options can come from data (a migration read from JSON) and
+/// the method through an alias, so no text in the bundle shows the call: a
+/// module whose grants admit `sqlite.open` needs 10 ([`typescript_runtime_of`]).
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 10;
 
 /// What each runtime past the first added that a bundle names to use (see
 /// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
@@ -76,7 +82,8 @@ pub(crate) const TYPESCRIPT_RUNTIME: u32 = 9;
 /// the `Response` itself and what it newly has, however a bundle reaches them
 /// (`globalThis.Response`, a `clone` taken apart and called through `.call`).
 /// `Response` now needs 8, as do constructors whose readable side can become
-/// a request body. `structuredClone` names none of them.
+/// a request body. `structuredClone` names none of them. 10 is read from the
+/// grants, not the bundle.
 const RUNTIME_OPTIONS: [(u32, &str); 23] = [
     (9, "exactIdleTimeout"),
     (8, "Response"),
@@ -108,12 +115,24 @@ const RUNTIME_OPTIONS: [(u32, &str); 23] = [
 /// records it, so a module that uses nothing newer still goes to a binary
 /// whose prelude is older (LLP 1016.000 D10). A name in a string or a
 /// comment counts too: such a module asks for more than it needs, never less.
-pub fn typescript_runtime_of(bundle: &[u8]) -> u32 {
+/// A module whose `grants` admit `sqlite.open` needs 10: only such a module
+/// can open a database (the host refuses any other), and none of its code
+/// can show whether a transaction's options will ask to check foreign keys.
+/// A line's capability is its first word, as `exact-grants` parses it.
+pub fn typescript_runtime_of(bundle: &[u8], grants: &str) -> u32 {
     let text = String::from_utf8_lossy(bundle);
-    RUNTIME_OPTIONS
+    let named = RUNTIME_OPTIONS
         .iter()
         .find(|(_, option)| text.contains(option))
-        .map_or(0, |(runtime, _)| *runtime)
+        .map_or(0, |(runtime, _)| *runtime);
+    let sqlite = grants.lines().map(str::trim).any(|line| {
+        !line.starts_with('#') && line.split_whitespace().next() == Some("sqlite.open")
+    });
+    if sqlite {
+        named.max(10)
+    } else {
+        named
+    }
 }
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";

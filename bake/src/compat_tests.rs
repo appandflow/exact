@@ -899,7 +899,7 @@ fn production_trust_requires_keys_and_has_a_distinct_cohort() {
 /// so one that uses nothing newer goes to a binary whose prelude is older.
 #[test]
 fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
-    use super::typescript_runtime_of as needs;
+    let needs = |bundle: &[u8]| super::typescript_runtime_of(bundle, "");
     assert_eq!(needs(b"export const answer = () => 'idle';"), 0);
     assert_eq!(needs(b"fetch(u, {exactBodyFrom: p})"), 1);
     assert_eq!(needs(b"fetch(u, {exactBodyTo: p, exactBodyFrom: q})"), 4);
@@ -927,8 +927,23 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
     // LLP 1016.000 D11's idle timeout.
     assert_eq!(
         needs(b"fetch(u, {exactStream: m, exactIdleTimeout: 6e4})"),
+        9
+    );
+    // A transaction's options are data: what decides 10 is the grant.
+    assert_eq!(needs(b"await db.transaction(m.commands, m.options)"), 0);
+    let with = |grants: &str| {
+        super::typescript_runtime_of(b"await db.transaction(m.commands, m.options)", grants)
+    };
+    assert_eq!(
+        with("sqlite.open app:/data/a.db"),
         super::TYPESCRIPT_RUNTIME
     );
+    assert_eq!(
+        with("fs.read app:/data\n  sqlite.open app:/data"),
+        super::TYPESCRIPT_RUNTIME
+    );
+    assert_eq!(with("# sqlite.open app:/data/a.db\nfs.read app:/data"), 0);
+    assert_eq!(with("fs.write app:/data/sqlite.open"), 0);
 }
 
 #[test]
@@ -941,7 +956,7 @@ fn stream_bodies_require_a_runtime_that_reads_or_refuses_them() {
         "fetch(url, {method: 'POST', body: new TransformStream().readable})",
     ] {
         assert_eq!(
-            super::typescript_runtime_of(bundle.as_bytes()),
+            super::typescript_runtime_of(bundle.as_bytes(), ""),
             8,
             "{bundle}"
         );

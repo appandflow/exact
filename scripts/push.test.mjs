@@ -5,16 +5,17 @@ import {tmpdir, homedir} from 'node:os';
 import {resolve, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {classifyArtifacts} from './app.mjs';
+import {spawnSync as realSpawnSync} from 'node:child_process';
 import {channelOf} from './deploy.mjs';
 
 // The publisher's functions with boundary doubles, for an app at a fresh
 // root whose cohort's binary has prelude runtime 4 and whose baked module
 // needs `runtime` (its receipt's). Bun's native subprocess import bypasses
 // module mocks; explicit bindings also isolate deployment tests.
-function harness(classify=()=>({bundle:true}), runtime=4) {
+function harness(classify=()=>({bundle:true}), runtime=4, {bake, cohortRuntime=4, grants=''}={}) {
   const root=fs.mkdtempSync(resolve(tmpdir(),'exact-push-profile-'));
   const app={id:'fixture',name:'fixture',dir:root,target:root,manifest:{app:{origin:root},deploy:{signing:{keys:{test:'public'}}}}};
-  const compat={id:'a'.repeat(32),target:'fixture',inputs:{app:'fixture',platform:'linux',store:{L:'A'},rustMode:'native',grantCeiling:'',keys:{test:'public'},typescriptRuntime:4}};
+  const compat={id:'a'.repeat(32),target:'fixture',inputs:{app:'fixture',platform:'linux',store:{L:'A'},rustMode:'native',grantCeiling:grants,keys:{test:'public'},typescriptRuntime:cohortRuntime}};
   const graph={artifacts:[{name:'app.plan',requires:{sources:{}},sha256:'plan'}]};
   const cohort={version:1,compat,binary:'binary',sources:{}};
   const build={trust:'production',compat,graph};
@@ -46,6 +47,8 @@ function harness(classify=()=>({bundle:true}), runtime=4) {
       if(tool==='git')return {status:0,stdout:'b'.repeat(40)};
       const name=tool==='cargo'?'tools':args[0]==='graph'?'graph':'typescript';
       sealed(name,opts.env);
+      // `bake` runs the real one (its receipt's runtime is the bake's own).
+      if(name==='typescript'&&bake)return realSpawnSync(bake,args,{...opts,env:{...process.env,...opts.env}});
       if(name==='typescript'){
         const out=args[args.indexOf('--out')+1];fs.mkdirSync(out,{recursive:true});
         fs.writeFileSync(resolve(out,'app.plan'),'plan');
@@ -126,6 +129,33 @@ test('push refuses a TypeScript module that needs a newer prelude than the cohor
     expect(calls).not.toContain('publish');
   } finally {fs.rmSync(root,{recursive:true,force:true})}
 });
+
+// The real bake and classifier: a module that may open a database needs
+// runtime 10, as its transaction's options may ask to check foreign keys and an
+// older prelude would drop them (bake/src/compat.rs). Here they are data, a
+// migration parsed from JSON, and a cohort on runtime 9 is refused.
+test('push refuses a SQLite module whose transaction options are data to a cohort on runtime 9', async () => {
+  const ROOT=fileURLToPath(new URL('..',import.meta.url));
+  // The bake the lane built (docs/testing.md: a test runs a built binary, it
+  // builds none), in Cargo's target directory, the lane's own if it set one.
+  const bake=resolve(ROOT,process.env.CARGO_TARGET_DIR||'target','debug/exact-js-bake');
+  if(!fs.existsSync(bake))throw new Error('build the bake first: cargo build -p exact-js-bake');
+  const grants='sqlite.open app:/data/a.db';
+  const {root,calls,pusher}=harness(classifyArtifacts,undefined,{bake,cohortRuntime:9,grants});
+  try {
+    fs.writeFileSync(resolve(root,'app.json'),JSON.stringify({name:'fixture',app:{id:'fixture',name:'fixture'}}));
+    fs.writeFileSync(resolve(root,'app.contract'),'component App\n  state count = 0\n  resource message = message(count) as shape string\n  view\n    text message\n');
+    fs.writeFileSync(resolve(root,'app.ts'),`import type { Sources, Answer } from './app.contract.d.ts';
+export const appId = 'fixture';
+export const grants = '${grants}';
+const migration = JSON.parse('{"commands": [], "options": {"foreign\\\\u004beys": "check"}}');
+const sources: Sources = { message: ([count], _store, storage) => storage.sqlite.open('app:/data/a.db').then(db => db.transaction(migration.commands, migration.options)).then(() => String(count), () => String(count)) };
+export const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);
+`);
+    await expect(pusher({_:[root],origin:root,keys:root})).rejects.toThrow(/typescriptRuntime \(requires a prelude of runtime 10 or later; this cohort's is 9\).*It needs a new binary/);
+    expect(calls).not.toContain('publish');
+  } finally {fs.rmSync(root,{recursive:true,force:true})}
+}, 120000);
 
 test('push refuses incomplete values and reserved channels before publishing', () => {
   const source = fs.readFileSync(new URL('./push.mjs', import.meta.url), 'utf8');

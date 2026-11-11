@@ -1268,10 +1268,55 @@ and every `PRAGMA` but `user_version`, `application_id`, `table_info`, `table_xi
 `index_list`, `index_info`, `foreign_key_list`, `foreign_key_check`,
 `integrity_check` and `quick_check` are refused with `Unavailable`; the message names
 what was refused, the rule, and in a `transaction` the statement's place and SQL.
-Remove such lines from generated migrations. Drizzle's `PRAGMA foreign_keys=OFF;`
-would do nothing in a `transaction` anyway, as SQLite ignores it while a transaction
-is open ([pragma foreign_keys](https://sqlite.org/pragma.html#pragma_foreign_keys)),
-so a migration that rebuilds a table other rows reference must not rely on it.
+Remove such lines from generated migrations, except `PRAGMA foreign_keys` in the mode
+below.
+
+A migration that rebuilds a table other rows reference (create a new table, copy the
+rows, drop the old one, rename the new one) cannot run with foreign keys enforced:
+dropping the old table deletes its rows first, which fails for a child's reference or
+runs the child's `ON DELETE CASCADE` or `SET NULL`. SQLite's procedure turns
+enforcement off around the transaction and checks every reference before it commits
+([Making Other Kinds Of Table Schema Changes](https://sqlite.org/lang_altertable.html#otheralter)),
+and `transaction(statements, { foreignKeys: 'check' })` does that for you: the host
+turns enforcement off before the transaction begins, runs the statements, runs
+`PRAGMA foreign_key_check`, and commits only if no row names a missing row; then it
+turns enforcement back on, whether the batch committed or not. While the batch runs,
+dropping a table runs no `ON DELETE` action, so every child row and reference is kept.
+The batch's own `PRAGMA foreign_keys` lines, which migrators write around a rebuild,
+are accepted and do nothing. A migration as Drizzle generates it runs unchanged:
+
+```ts
+await db.transaction([
+  'PRAGMA foreign_keys=OFF',
+  'CREATE TABLE `__new_t` (`id` integer PRIMARY KEY, `name` text, `extra` text)',
+  'INSERT INTO `__new_t`("id", "name") SELECT "id", "name" FROM `t`',
+  'DROP TABLE `t`',
+  'ALTER TABLE `__new_t` RENAME TO `t`',
+  'PRAGMA foreign_keys=ON',
+].map(sql => ({ sql })), { foreignKeys: 'check' });
+```
+
+A row that names a missing row fails the batch, which rolls back whole. The message
+counts violations, one per broken reference (a row with two counts twice), and names
+each by the row's table and rowid and the table it references, for example
+`foreign key check failed, the batch is rolled back: 1 foreign-key violation: plain
+row 11 (references t)`, or the first three and how many more. It covers
+temporary tables as well as the database's own. The check reads rows, not the schema. A parent made again without a primary key or unique index on the
+columns its children name fails the check with SQLite's `foreign key mismatch`. A
+parent dropped for good passes when no row names it, and leaves its children's table
+refusing every write (`no such table`) until the parent exists again, so drop or
+rebuild those children in the same batch. Other batches on the database wait for this
+one, so none runs with enforcement off. Options of `undefined` or `null` are none;
+any other option, or a `foreignKeys` other than `'check'`, is refused before SQLite
+runs, as any invalid argument to storage is, with `Unavailable` and code `'failed'`,
+so a misspelt option never runs a migration enforced. `foreignKeys` is read once,
+from the object or its prototype (a class's getter counts). A native binary's prelude
+older than this option would drop it and run the rebuild enforced, and the options
+may be data (a migration read from JSON), so a TypeScript data module whose `grants`
+include a `sqlite.open` line needs `typescriptRuntime` 10, whether or not it uses the
+option: `exact push` refuses such an update for a cohort on an older binary, which
+needs a new binary first. A web page always runs its own current code. A Rust source's `sqlite.transaction` request
+has no such mode and refuses a `foreignKeys` field.
 
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
