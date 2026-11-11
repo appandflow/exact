@@ -558,7 +558,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
-            if symbolView == nil { symbolView = leaf; addSubview(leaf) }
+            if symbolView == nil { symbolView = leaf; (clipBox ?? self).addSubview(leaf) }
             // What the image says is its node's (`aria-label`), never the
             // name UIKit gives the symbol, which a cell gathering its
             // children's words would read ("checkmark.circle" is "selected").

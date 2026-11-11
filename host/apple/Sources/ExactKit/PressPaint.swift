@@ -217,6 +217,10 @@ extension NodeView {
         layer.add(fade, forKey: kCATransition)
     }
 
+    /// A CATransition holds the whole subtree's old pixels. End it when a
+    /// batch changes that subtree, so stale content cannot fade over the new.
+    func endPressCrossFade() { paintLayer?.removeAnimation(forKey: kCATransition) }
+
     /// The views under `view` whose text colour is the pressed node's: none
     /// written of their own, and either one this press already colours or
     /// the same value as the pressed node's (a control's own colour is not
@@ -524,5 +528,44 @@ extension NodeView {
         paintLayer?.removeAnimation(forKey: "nativeActiveOpacity")
         paintLayer?.removeAnimation(forKey: "nativeActiveScale")
         pressPaint = PressPaint()
+    }
+}
+
+
+extension Presenter {
+    /// Read sizes before applying the batch. Moving a snapshot with its node
+    /// preserves the colour fade; changing the pixels it holds invalidates it.
+    func pressPaintChanges(_ batch: Batch) -> [UInt32] {
+        var changed: [UInt32] = []
+        for op in batch.ops {
+            switch op.op {
+            case .props, .style, .children, .paragraph, .flow, .svg, .fieldContent: break
+            case .frame:
+                #if os(iOS) || os(tvOS)
+                let size = views[op.id]?.layoutBounds.size ?? flats.leaves[op.id]?.layout.size
+                #else
+                let size = views[op.id]?.layoutBounds.size
+                #endif
+                if size == CGSize(width: op.w, height: op.h) {
+                    // Its own snapshot moves with it; an ancestor's keeps
+                    // the pixels at the child's old position.
+                    var parent = views[op.id]?.superview
+                    while let view = parent {
+                        if let node = view as? NodeView { changed.append(node.id); break }
+                        parent = view.superview
+                    }
+                    #if os(iOS) || os(tvOS)
+                    if let host = flats.hostID(of: op.id) { changed.append(host) }
+                    #endif
+                    continue
+                }
+            default: continue
+            }
+            changed.append(op.id)
+            #if os(iOS) || os(tvOS)
+            if let host = flats.hostID(of: op.id) { changed.append(host) }
+            #endif
+        }
+        return changed
     }
 }

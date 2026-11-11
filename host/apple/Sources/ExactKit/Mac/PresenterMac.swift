@@ -1003,6 +1003,11 @@ package final class Presenter {
     }
 
     func apply(_ batch: Batch) {
+        let pressChanged = pressPaintChanges(batch)
+        // Keep the surface's explicit transactions inside the batch: a top-level
+        // commit can submit its size before the following sibling transforms.
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch); toolbar.languageApplied(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         PaintOrder.begin()
@@ -1265,6 +1270,7 @@ package final class Presenter {
         // passes them: a full pass sorted every view in the session on
         // every batch, a list's scroll included.
         let changed = touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)).union(reparented)
+        for id in touchedAndAbove(pressChanged) { views[id]?.endPressCrossFade() }
         let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
         let disabledRoots = Set(ariaProps).union(reparented.filter { id in
             guard let node = views[id] else { return false }

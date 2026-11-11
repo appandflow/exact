@@ -371,7 +371,18 @@ extension NodeView {
     /// The children into a clipping box of their own, or back out of it, as
     /// a scroll view takes them.
     func syncClipBox(_ wanted: Bool) {
-        defer { placeClipBox() }
+        let scrolls = ["overflow_x", "overflow_y"].contains { ["auto", "scroll"].contains(style[$0]?.string ?? "") }
+        if scrolls { surface?.madeClipBox = false }
+        let wanted = wanted || surface?.madeClipBox == true
+        #if os(iOS) || os(tvOS)
+        let previous = clipBox
+        #endif
+        defer {
+            placeClipBox()
+            #if os(iOS) || os(tvOS)
+            if previous !== clipBox { presenter?.flats.containerChanged(id) }
+            #endif
+        }
         if wanted, clipBox == nil {
             let box = ClipBox(frame: bounds)
             #if os(iOS) || os(tvOS)
@@ -385,14 +396,22 @@ extension NodeView {
                 // The box is in the window before the children move into it,
                 // so they never leave it: UIKit cancels the touches of a
                 // view that does, and AppKit its first responder.
-                let children = subviews.filter { $0 is NodeView || $0 === glassGroupView }
+                let children = subviews.filter {
+                    #if os(iOS)
+                    $0 is NodeView || $0 === glassGroupView || $0 === textArea || $0 === symbolView || $0 === field || $0 === searchChrome
+                    #elseif os(tvOS)
+                    $0 is NodeView || $0 === glassGroupView || $0 === textArea || $0 === symbolView || $0 === field
+                    #else
+                    $0 is NodeView || $0 === glassGroupView || $0 === textAreaScroll || $0 === symbolClip
+                    #endif
+                }
                 addSubview(box)
                 for child in children { box.addSubview(child) }
             }
             clipBox = box
         } else if !wanted, let box = clipBox {
             GlassGroups.moving(in: self) {
-                for child in box.subviews where child is NodeView || child === glassGroupView { addSubview(child) }
+                for child in box.subviews { addSubview(child) }
                 box.removeFromSuperview()
             }
             clipBox = nil

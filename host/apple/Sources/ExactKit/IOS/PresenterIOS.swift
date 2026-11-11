@@ -781,6 +781,11 @@ package final class Presenter {
     }
 
     func apply(_ batch: Batch) {
+        let pressChanged = pressPaintChanges(batch)
+        // Keep the surface's explicit transactions inside the batch: a top-level
+        // commit can submit its size before the following sibling transforms.
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         session?.fieldChrome.presented(batch.layoutProvisional)
         let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
         defer { fieldsWaiting = outerWaiting }
@@ -1057,6 +1062,7 @@ package final class Presenter {
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         geometryApplied = []
+        for id in touchedAndAbove(pressChanged) { views[id]?.endPressCrossFade() }
         swipeActions.sync(changed: changed, reshaped: touchedAndAbove(reshapedIDs)); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
