@@ -274,5 +274,6 @@ function pinnedTo(api, g, pin) {
 function typeFor(name) {
   const ext = name.toLowerCase().split('.').pop();
   return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
+    bmp: 'image/bmp', ico: 'image/vnd.microsoft.icon',
     svg: 'image/svg+xml', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' }[ext] ?? 'application/octet-stream';
 }

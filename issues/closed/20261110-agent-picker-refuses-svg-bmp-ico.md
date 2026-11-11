@@ -1,6 +1,7 @@
 # The agent's file picker refuses an SVG, BMP or ICO file for an input that accepts images
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Agent pickers accept SVG, BMP and ICO by image MIME type, deliver those types on the web, and recognize PDF in the runner.
 **Systems:** `runner/src/runner/picker.rs`, `host/web-js/files.js`
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
