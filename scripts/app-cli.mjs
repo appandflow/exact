@@ -120,6 +120,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     android: ['scripts/agent-android.mjs', 'build', name, '--apk', '--install'],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
+    add: ['scripts/exact.mjs', 'add'],
     contract: ['scripts/exact.mjs', 'contract'],
     tamber: ['scripts/exact.mjs', 'tamber'],
     hatch: ['scripts/exact.mjs', 'hatch'],
@@ -146,7 +147,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
 export const beforeBuild = {
   status: false, web: true, 'web-build': true, serve: true, test: false, agent: false, verify: true, ios: true, mac: true, share: true,
   linux: true, windows: true, android: true, update: false, lock: false, hatch: false, snapback: true, backend: false, docs: false,
-  feedback: false,
+  feedback: false, add: false,
   contract: ([command, ...rest]) => ['build', 'types', 'rust', 'verify', 'test', 'lean', 'symbols', 'gallery'].includes(command)
     || command === 'tamber' && checksDesign(rest),
   tamber: (rest) => checksDesign(rest),

@@ -433,13 +433,14 @@ completion.`,
   },
   add: {
     line: 'a standard module (geolocation): its dependency in package.json, installed',
-    usage: 'exact add <module> <app>',
+    usage: 'bun exact.mjs add <module> [<app>]',
     flags: [],
-    body: `<module> is one of exact2's (geolocation, or @exact/geolocation): a path into this checkout,
-so it compiles against the SDK the app uses. Then name what you use, and its grant line:
-docs/recipes/permissions.md.
+    body: `In an app, omit <app>; from the checkout, name it. <module> is one of exact2's
+(geolocation, or @exact/geolocation): a path into this checkout,
+so it compiles against the SDK the app uses. Then name what you use; when the module
+has grants, add their line: docs/recipes/permissions.md.
 Ports    none. Runs to completion.`,
-    example: 'bun <exact2>/scripts/exact.mjs add geolocation .',
+    example: 'bun exact.mjs add @exact/in-app-browser',
   },
   hatch: {
     line: 'an access hatch: a stub per target the app builds, and its app.json entry',

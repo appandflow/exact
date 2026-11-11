@@ -134,6 +134,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const webBuild = ['field-log'], ios = ['ios', '--app', 'field-log'];
     for (const [command, args, built = null] of [
       [['web-build'], ['field-log']],
+      [['add', '@exact/in-app-browser'], ['add', '@exact/in-app-browser']],
       [['test'], testArgs('web'), webBuild],
       [['test', 'web'], testArgs('web'), webBuild],
       // An iOS drive shows UIKit's bars, and an Apple agent drive's screenshots are a pixel a point.
@@ -300,6 +301,23 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
 }, 60_000); // Two offline Cargo resolutions.
 
 // A verb added to exact.mjs decides whether it reads what before_build makes, rather than skipping it unasked.
+test('an app forwards add with its own directory, from any working directory, without before_build', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-add-'));
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk');
+    createApp(dir);
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, before_build: ['no-build-for-add'] }));
+    withCli(sdk);
+    writeFileSync(resolve(sdk, 'scripts/exact.mjs'), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
+    const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'add', '@exact/in-app-browser'], {
+      cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { args: ['add', '@exact/in-app-browser'], app: realpathSync(dir) });
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
 test('every verb of exact.mjs says whether it runs before_build first', () => {
   const verbs = new Set([false, true].flatMap((game) => Object.keys(appVerbs('app', '/app', { game }))));
   assert.deepEqual([...verbs].filter((verb) => !(verb in beforeBuild)), [], 'verbs app-cli.mjs\'s beforeBuild does not name');
@@ -607,7 +625,9 @@ test('a new app refuses a name no host crate can carry, and a directory that is 
     assert.throws(() => createApp(resolve(parent, 'Field_Log')), /lowercase-hyphenated/);
     assert.throws(() => createApp(resolve(parent, 'field-web')), /no host suffix/);
     // A folder named after the SDK would write exact-apple, exact-linux and exact-web beside exact2's own.
-    assert.throws(() => createApp(resolve(parent, 'exact')), /the folder's name exact would make the crate exact-apple, which is one of exact2's own/);
+    assert.throws(() => createApp(resolve(parent, 'exact')), {
+      message: `exact new ${resolve(parent, 'exact')}: the folder's name exact would make the crate exact-apple, which is one of exact2's own; name the app directory something else, e.g. exact new ${resolve(parent, 'exact-app')}`,
+    });
     assert.throws(() => createApp(resolve(parent, 'exact-js')), /would make the crate exact-js-web/);
     assert.ok(!existsSync(resolve(parent, 'exact')) && !existsSync(resolve(parent, 'exact-js')), 'a refused name writes nothing');
     mkdirSync(resolve(parent, 'field-log'));

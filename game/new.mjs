@@ -150,7 +150,7 @@ export function createApp(destination, options = {}) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
   const taken = ['apple', 'linux', 'web'].map(host => `${name}-${host}`).filter(crate => SDK_CRATES.has(crate));
-  if (taken.length) throw new Error(`exact new ${destination}: the folder's name ${name} would make the crate ${taken[0]}, which is one of exact2's own; name the folder after the app (my-${name}, ${name}-app)`);
+  if (taken.length) throw new Error(`exact new ${destination}: the folder's name ${name} would make the crate ${taken[0]}, which is one of exact2's own; name the app directory something else, e.g. exact new ${resolve(dir, '..', `${name}-app`)}`);
   if (options.update) return updateApp(dir, name, options);
   if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
   if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
