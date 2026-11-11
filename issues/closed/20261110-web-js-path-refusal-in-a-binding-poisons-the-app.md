@@ -1,6 +1,7 @@
 # On the web JS target a `path()` binding whose parameter becomes empty poisons the app; the runner unsets the binding
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web JS target traps empty and dot path parameters as PathParameter, so bindings unset, journal once, and recover without poisoning later updates.
 **Systems:** host/web-js/budget.js, host/web-js/router.js, semantics/corpus/routes/binding-trap.contract
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
