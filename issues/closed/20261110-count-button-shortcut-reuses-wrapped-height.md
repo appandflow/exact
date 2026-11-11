@@ -1,6 +1,7 @@
 # A count button's measurement shortcut answers a wrapped button's height for a count that fits
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Count-button shortcuts use an unconstrained reference, so wrapped counts cannot supply a fitting count's width or height.
 **Systems:** host/apple/Sources/ExactKit/IOS/ButtonMeasureIOS.swift (ButtonMeasureCache)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
