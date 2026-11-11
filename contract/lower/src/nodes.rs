@@ -62,6 +62,14 @@ impl Lowerer<'_> {
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
         let kept = swipe_rows::stray(attrs);
         let attrs = kept.as_ref().unwrap_or(attrs);
+        // The props the tag's package declares, written on the tag, are the
+        // module's; nothing below sees them, so a class's rows of the same
+        // names stay its box's (LLP 1024 D1).
+        let split = native::split_declared(tag, attrs);
+        let (declared, attrs) = match &split {
+            Some((declared, rest)) => (declared.as_slice(), rest),
+            None => (&[][..], attrs),
+        };
         // A class choice's side that sets no row leaves it as the node has
         // it unwritten: its tag's fixed rows, then a link's colour.
         let unwritten: Vec<(exact_kernel::StyleId, Expr)> = t
@@ -782,6 +790,7 @@ impl Lowerer<'_> {
             let rest: Vec<&Attr> = expanded
                 .iter()
                 .filter(|a| native::leftover(tag, a))
+                .chain(declared)
                 .collect();
             let made =
                 self.native_bindings(tag, &rest, scope, locals, &mut bindings, &mut handlers);

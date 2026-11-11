@@ -659,6 +659,7 @@ fn lint_components(file: &File, checked: impl Fn(usize) -> bool) -> Vec<LowerErr
                                 && a.name != "slot"
                                 && a.name != crate::row_look::ROW_LOOK
                                 && !native::leftover(tag, a)
+                                && !native::declared(tag, a)
                                 && !names.imported.contains(&a.name.as_str())
                         }) {
                             if let Some(e) = native::refused(tag, a) {

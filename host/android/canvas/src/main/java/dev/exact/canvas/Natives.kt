@@ -728,7 +728,12 @@ class Natives(
                 byView[view] = e
                 if (e.w > 0 && e.h > 0) place(e)
             }
-            else -> modules[e.module]?.update(e.view, moduleProps(json))
+            else -> {
+                modules[e.module]?.update(e.view, moduleProps(json))
+                // An update that asked for a layout (an ImageView's scale type takes effect only at its next layout)
+                // is laid out before it is recorded: at an unchanged size nothing else lays the view out first.
+                if (e.view.isLayoutRequested && e.w > 0 && e.h > 0) place(e)
+            }
         }
         e.dirty = true
     }

@@ -2440,7 +2440,11 @@ makes it in each session, the same instance that answers its names: Swift
 web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view declared
 `"displayed": true` is told `displayed(id, shown, origin)` when it shows or hides, and a
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
-`tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
+`tool` or `wake`, that of the commit that did it. A declared prop may take a known
+attribute's name where it means what CSS means by it (`exact-camera`'s `object-fit`): written
+on the tag it goes to the view and not to the box, so declare no name the box needs (`width`
+on the tag would no longer size it). A class's rows stay the box's, and a renamed spelling
+(`fontSize`) is refused whatever is declared. `packages/fixtures/swatch` is a whole one.
 
 ### A package's native module, library and web assets
 
@@ -3332,7 +3336,10 @@ others) and implemented by the module; its unknown attributes pass through
 unchecked as the module's props. A known attribute binds to the module's box, which
 takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA, `disabled`
 and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
-so give the module prop another name. Do not
+so give the module prop another name. A package's view is the exception: a prop its
+package declares for the view (`exact-camera`'s `object-fit`) goes to the view when
+written on the tag, even where the name is a known attribute. A class's rows stay
+the box's style, and a renamed spelling (`fontSize`) is refused whatever is declared. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
 Apple native modules can include asset catalogs beside their Swift sources:

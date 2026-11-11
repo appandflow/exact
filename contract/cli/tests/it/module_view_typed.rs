@@ -5,7 +5,7 @@
 //! declares beyond the nine runs its handler with the typed record the
 //! implementation sent.
 
-use exact_kernel::PropId;
+use exact_kernel::{Dimension, PropId, StyleId};
 use exact_runner::{Event, Runner, Value};
 use serde_json::json;
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ const INTERFACE: &str = r#"{
   },
   "views": {
     "pin-board": {
-      "props": { "latitude": "number", "zoomLevel": "option<number>", "pins": "option<Pin[]>", "focus": "option<Pin>" },
+      "props": { "latitude": "number", "zoomLevel": "option<number>", "pins": "option<Pin[]>", "focus": "option<Pin>", "object-fit": "option<string>", "fontSize": "option<number>", "width": "option<number>" },
       "events": ["change", { "event": "moveend", "args": ["Camera"] }]
     }
   },
@@ -110,6 +110,72 @@ fn a_record_list_prop_reaches_the_view_as_its_json() {
             { "id": "ferry", "latitude": 37.7955, "longitude": -122.3937, "title": "Ferry \"Building\"" },
             { "id": "pier", "latitude": 37.8087, "longitude": -122.4098 }
         ])
+    );
+}
+
+/// A prop the view declares is the module's even where the known attribute
+/// table names it too (`exact-camera`'s `object-fit`); a known word the view
+/// does not declare still binds to its box.
+#[test]
+fn a_declared_prop_the_table_also_names_reaches_the_view() {
+    let app = App::new(
+        "table",
+        &APP.replace(
+            "  state picked = \"\"\n",
+            "  state picked = \"\"\n  state fit = \"cover\"\n",
+        )
+        .replace(
+            "testId=\"board\"",
+            "testId=\"board\" object-fit=fit height=200",
+        ),
+    );
+    let r = boot(&app);
+    let props = props(&r);
+    assert_eq!(props["object-fit"], "cover", "{props}");
+    assert!(props.get("height").is_none(), "{props}");
+}
+
+/// A declared prop is the module's where it is written on the tag; a class's
+/// row of the same name is its box's style.
+#[test]
+fn a_declared_prop_written_on_the_tag_is_the_views_and_a_classs_row_its_boxs() {
+    let width = |r: &Runner<NoData>| {
+        let key = r.kernel().find_by_test_id("board")[0];
+        let style = &r.kernel().node_by_key(key).unwrap().style;
+        style.mask.has(StyleId::Width).then_some(style.width)
+    };
+    let written = App::new(
+        "written",
+        &APP.replace("testId=\"board\"", "testId=\"board\" width=200"),
+    );
+    let r = boot(&written);
+    assert_eq!(props(&r)["width"], "200");
+    assert_eq!(width(&r), None);
+    let classed = App::new(
+        "classed",
+        &APP.replace(
+            "\ncomponent App",
+            "\nstyle Wide\n  width=\"100%\"\n\ncomponent App",
+        )
+        .replace("testId=\"board\"", "testId=\"board\" class=Wide"),
+    );
+    let r = boot(&classed);
+    assert!(props(&r).get("width").is_none(), "{}", props(&r));
+    assert_eq!(width(&r), Some(Dimension::Percent(100.0)));
+}
+
+/// A renamed spelling is refused with its CSS name even where the view
+/// declares it: `fontSize` is `font-size` whatever a package says.
+#[test]
+fn a_declared_prop_under_a_renamed_spelling_is_still_refused() {
+    let app = App::new(
+        "renamed",
+        &APP.replace("testId=\"board\"", "testId=\"board\" fontSize=16"),
+    );
+    let refused = app.compile().unwrap_err();
+    assert!(
+        refused.iter().any(|e| e.message.contains("`font-size`")),
+        "{refused:?}"
     );
 }
 

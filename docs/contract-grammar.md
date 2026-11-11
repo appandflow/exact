@@ -1242,7 +1242,10 @@ its unknown attributes, and an SVG element's own props, pass to the module as on
 object. A known attribute binds to the module's box, and the box takes only layout,
 box and paint rows, handlers, `testId`, `id`, `class`, `data-*`, `role`, ARIA,
 `disabled` and `inert`; any other known name (`color`, `value`, `command`, `href`)
-is `lower-native-attr` (LLP 1024 D1, LLP 1088 D7.2). A capitalized name is a component use, not a
+is `lower-native-attr` (LLP 1024 D1, LLP 1088 D7.2). A prop a package declares for
+its view goes to the view when written on the tag, even under a known name
+(`exact-camera`'s `object-fit`); a class's rows are still the box's styles, and a
+renamed spelling (`fontSize`) is refused whatever is declared. A capitalized name is a component use, not a
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
