@@ -1,6 +1,7 @@
 # The starter's production `app.js` is over its 44 KiB budget
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** focus, blur, setScheme, copyText and haptic link into an app only where an action names them, and the starter's budget is 45 KiB (Charlie, 2026-11-11); it ships 44.2 KiB.
 **Systems:** host/web-js, host/web/navigation.js, scripts/metrics.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the fix lanes of the 2026-11-10 project review

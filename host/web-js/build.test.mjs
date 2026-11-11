@@ -3,12 +3,124 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { createServer, get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
-import { brotliDecompressSync } from 'node:zlib';
+import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler, fresh, freshCompiler } from './module.mjs';
 import { spawnOwned } from '../../scripts/test-children.mjs';
 import { open } from '../../scripts/agent.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+
+test('the production starter stays within its 45 KiB budget and its header button works', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/starter-bytes-'));
+  const app = resolve(dir, 'starter'), dev = resolve(dir, 'development'), dist = resolve(dir, 'production');
+  let browser, server;
+  try {
+    const run = (args, env = {}) => {
+      const result = spawnSync(process.execPath, args, { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+    };
+    run(['scripts/exact.mjs', 'new', app, '--bundle-id', 'com.example.starter']);
+    run(['host/web/build.mjs', 'starter-web'], { EXACT_APP_DIR: app, EXACT_WEB_DIST: dev });
+    run(['host/web-js/build.mjs', 'starter', '--plan', resolve(dev, 'app.plan'), '--out', dist, '--production'], { EXACT_APP_DIR: app });
+    const entry = readFileSync(resolve(dist, 'app.js'));
+    const bytes = brotliCompressSync(entry, { params: {
+      [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: entry.length,
+    } }).length;
+    // scripts/metrics.mjs JS_TARGET_KIB: the production artifact, compressed as it ships.
+    expect(bytes).toBeLessThanOrEqual(45 * 1024);
+    expect(entry.toString()).not.toContain('focus window');
+    expect(entry.toString()).not.toContain('clipboard');
+    expect(entry.toString()).not.toContain('vibrate');
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage(), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => document.querySelector('[data-testid=greeting]')?.textContent === 'Hello from Starter.');
+    await page.getByTestId('like').click();
+    expect(await page.getByTestId('like').getAttribute('aria-label')).toBe('Unlike');
+    await page.getByTestId('like').click();
+    expect(await page.getByTestId('like').getAttribute('aria-label')).toBe('Like');
+    expect(errors).toEqual([]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);
+
+test.each([false, true])('named focus, blur, scheme, clipboard and haptic commands work (production: %s)', async production => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/linked-commands-'));
+  const dist = resolve(dir, 'dist');
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Commands', app: { id: 'test.linked-commands', name: 'Commands' } }));
+    writeFileSync(resolve(dir, 'app.contract'), `component Commands
+  action apply
+    focus("field")
+    blur("other")
+    setScheme("dark")
+    copyText("copied")
+    haptic("selection")
+  action clear
+    blur("field")
+    setScheme("system")
+  action windowFocus
+    focus()
+    blur()
+    haptic("success")
+  view
+    column
+      input id="field" testId="field"
+      input id="other"
+      button "Apply" press=apply testId="apply"
+      button "Clear" press=clear testId="clear"
+      button "Window" press=windowFocus testId="window"
+`);
+    const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'commands', '--out', dist, '--render', 'none',
+      ...(production ? ['--production'] : [])], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage(), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      globalThis.calls = [];
+      window.focus = () => calls.push('window');
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: text => calls.push(text) } });
+      Object.defineProperty(navigator, 'vibrate', { value: ms => calls.push(ms) });
+    });
+    // Production refuses agent mode even when the URL asks for it.
+    await page.goto(server.url.href + '?agent');
+    await page.getByTestId('apply').waitFor();
+    await page.getByTestId('apply').dispatchEvent('click');
+    expect(await page.evaluate(() => [document.activeElement.id, document.documentElement.style.colorScheme, calls]))
+      .toEqual(['field', 'dark', production ? ['copied', 5] : [5]]);
+    await page.getByTestId('clear').dispatchEvent('click');
+    expect(await page.evaluate(() => [document.activeElement === document.body, document.documentElement.style.colorScheme]))
+      .toEqual([true, '']);
+    await page.getByTestId('field').focus();
+    await page.getByTestId('window').dispatchEvent('click');
+    expect(await page.evaluate(() => [document.activeElement === document.body, calls]))
+      .toEqual([true, production ? ['copied', 5, 'window', 12] : [5, 12]]);
+    if (!production) expect(await page.evaluate(() => exact.journal.some(line => line.endsWith(' focus window')))).toBe(true);
+    await page.evaluate(() => { exact.held = { scheme: true }; });
+    await page.getByTestId('apply').dispatchEvent('click');
+    expect(await page.evaluate(() => [document.documentElement.style.colorScheme, exact.asked.scheme.value])).toEqual(['', 'dark']);
+    await page.evaluate(() => exact.asked.scheme.apply());
+    expect(await page.evaluate(() => document.documentElement.style.colorScheme)).toBe('dark');
+    expect(errors).toEqual([]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);
 
 test.each([
   ['empty list first', [], false],

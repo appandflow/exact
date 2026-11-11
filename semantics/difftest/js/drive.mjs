@@ -220,7 +220,11 @@ async function drive(code, c, hostSources) {
     },
     set: f => { applySounds = f; },
   });
-  Object.setPrototypeOf(Hosts, new Proxy({}, { get: (_, name) => typeof name === 'string' ? record(name) : undefined }));
+  Object.setPrototypeOf(Hosts, new Proxy({}, {
+    get: (_, name) => typeof name === 'string' ? record(name) : undefined,
+    // Commands linked at boot must keep the recorder instead of running their host effects.
+    set: () => true,
+  }));
 
   const out = ['== boot'];
   const mark = () => journal.start + journal.length;

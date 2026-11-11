@@ -133,7 +133,9 @@ if (process.argv.includes('--stress-url')) {
 // host commands an action names, and the dialog, alert and menu glue, link by use; 11.9 and 42.7 KiB shipped,
 // Caltrain 42.6, RealWorld 61.7 and the video player 27.2, all three still over); the starter 45 → 44 the same day
 // (D3's second cut: sources with no network grant bind a `fetch` of the asset path and the refusal; 41.7 KiB shipped).
-const JS_TARGET_KIB = { hello: 14, starter: 44, realworld: 45, 'video-player': 17, caltrain: 25 };
+// 2026-11-11 (Charlie): the starter 44 → 45. Runtime fixes since had carried it past 44; with five more commands
+// linked by use it ships 44.2 KiB.
+const JS_TARGET_KIB = { hello: 14, starter: 45, realworld: 45, 'video-player': 17, caltrain: 25 };
 
 const brotli = (b) => brotliCompressSync(b, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: b.length } }).length;
 const sizesOf = (file) => { const b = readFileSync(file); return { raw: b.length, gzip: gzipSync(b, { level: 9 }).length, brotli: brotli(b) }; };
