@@ -96,6 +96,17 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::AnimationTimeline, "auto", "auto"),
         (StyleId::AnimationRange, "-300 300px", "-300px 300px"),
         (StyleId::AnimationRange, "normal", "normal"),
+        (
+            StyleId::AnimationRange,
+            "exit -100% exit 0%",
+            "exit -100% exit 0%",
+        ),
+        (StyleId::AnimationRange, "EXIT", "exit 0% exit 100%"),
+        (
+            StyleId::AnimationRange,
+            "entry 10% cover",
+            "entry 10% cover 100%",
+        ),
         (StyleId::TimelineScope, "--a,--b", "--a, --b"),
         (StyleId::TimelineScope, "all", "all"),
         (StyleId::TimelineScope, "none", "none"),
@@ -118,6 +129,10 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::AnimationRange, "0px"),
         (StyleId::AnimationRange, "10px 10px"),
         (StyleId::AnimationRange, "0% 100%"),
+        (StyleId::AnimationRange, "exit 50"),
+        (StyleId::AnimationRange, "exit 20px exit 0%"),
+        (StyleId::AnimationRange, "exit 0% exit 0%"),
+        (StyleId::AnimationRange, "entry exit cover"),
         (StyleId::TimelineScope, "--a --b"),
         (StyleId::TimelineScope, "--a, all"),
     ] {
@@ -167,7 +182,10 @@ fn the_rows_round_trip_through_the_wire() {
         style.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
-    assert_eq!(style.animation_range, AnimationRange(Some([-40.0, 260.5])));
+    assert_eq!(
+        style.animation_range,
+        AnimationRange(Some([-40.0, 260.5]), None)
+    );
     assert_eq!(
         style.rare.timeline_scope,
         TimelineScope::Names("--pan, --dismiss".into())

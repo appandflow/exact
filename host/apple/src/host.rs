@@ -120,6 +120,9 @@ mod svg_tests;
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
 mod transform_drag_wire;
+#[cfg(test)]
+#[path = "view_range_tests.rs"]
+mod view_range_tests;
 #[path = "view_scroll.rs"]
 mod view_scroll;
 use crate::store::Platform;

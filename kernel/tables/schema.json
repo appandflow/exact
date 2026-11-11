@@ -4007,7 +4007,7 @@
       "bit": 149,
       "field": "animation_range",
       "codec": "animation-range",
-      "_comment": "@ref LLP 1057.003 D1: CSS `animation-range`, `normal | <length> <length>`: where on the timeline the animations run 0% to 100%.",
+      "_comment": "@ref LLP 1057.003 D1: CSS `animation-range`, `normal | <length> <length>` on a drag timeline, or a view timeline's named ranges (`[cover | contain | entry | exit] <percentage>?`, each end): where on the timeline the animations run 0% to 100%.",
       "cold": true
     },
     {
