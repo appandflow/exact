@@ -22,9 +22,9 @@ final class ScrollSnapIOSTests: XCTestCase {
         let node = try XCTUnwrap(p.views[1])
         return (node, try XCTUnwrap(node.scroll))
     }
-    private func rest(_ node: NodeView, _ scroll: UIScrollView, from x: CGFloat) -> CGFloat {
+    private func rest(_ node: NodeView, _ scroll: UIScrollView, from x: CGFloat, velocity: CGFloat = 0) -> CGFloat {
         var target = CGPoint(x: x, y: 0)
-        node.scrollViewWillEndDragging(scroll, withVelocity: .zero, targetContentOffset: &target)
+        node.scrollViewWillEndDragging(scroll, withVelocity: CGPoint(x: velocity, y: 0), targetContentOffset: &target)
         return target.x
     }
 
@@ -55,6 +55,16 @@ final class ScrollSnapIOSTests: XCTestCase {
         let (free, freeScroll) = try strip(areas)
         freeScroll.contentOffset.x = 20
         XCTAssertEqual(rest(free, freeScroll, from: 520), 450, "`normal` passes over positions")
+    }
+
+    func testAFlickReachesTheNextAreaHoweverShortItsTravel() throws {
+        let (node, scroll) = try strip((0..<3).map { ("start", Double($0) * 300, 300.0) })
+        scroll.contentOffset.x = 30
+        XCTAssertEqual(rest(node, scroll, from: 90), 0, "a slow release returns")
+        XCTAssertEqual(rest(node, scroll, from: 90, velocity: 0.8), 300)
+        scroll.contentOffset.x = 280
+        XCTAssertEqual(rest(node, scroll, from: 240, velocity: -0.8), 0)
+        XCTAssertEqual(rest(node, scroll, from: 500, velocity: 0.8), 600, "a long fling still rests where it projects")
     }
 
     func testAgentRevealAndWheelRestAtAPagesSnapPosition() throws {
