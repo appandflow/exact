@@ -801,6 +801,73 @@ test('update fails, with Cargo\'s words, when the workspace does not load', asyn
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 60_000);
 
+// The issue's manifest (#163): the GPU module recipe's `<exact2>/contract/cli`, which names no exact-* crate.
+test('update resolves every <exact2>/ path an app\'s manifests write, and leaves the app\'s own crates and comments', async () => {
+  const { createApp } = await import('../game/new.mjs');
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-paths-'));
+  const dir = resolve(scratch, 'app'), exact2 = resolve(import.meta.dir, '..');
+  const write = (file, text, root = dir) => { mkdirSync(dirname(resolve(root, file)), { recursive: true }); writeFileSync(resolve(root, file), text); };
+  const crate = (name, deps = '') => `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n${deps}`;
+  try {
+    write('app.contract', 'component App\n  view\n');
+    pinned(dir);
+    write('Cargo.toml', '[workspace]\nmembers = ["web", "data"]\nresolver = "2"\n');
+    const web = crate('paths-app-web', `
+[dependencies]
+exact-logic = { path = "<exact2>/logic" }
+paths-app-data = { path = "../data" }
+types = { package = "contract-types", path = '<exact2>/contract/types' }
+# lower = { package = "contract-lower", path = "<exact2>/contract/lower" }
+
+[build-dependencies.contract]
+path = "<exact2>/contract/cli"
+`);
+    write('web/Cargo.toml', web);
+    // The app's own crate named contract, at a real path.
+    write('data/Cargo.toml', crate('paths-app-data', '\n[dependencies]\ncontract = { path = "../../shared/contract" }\n'));
+    for (const member of ['web', 'data']) write(`${member}/src/lib.rs`, '');
+    write('shared/contract/Cargo.toml', crate('contract'), scratch);
+    write('shared/contract/src/lib.rs', '', scratch);
+    createApp(dir, { update: true });
+    const loads = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(loads.status, 0, loads.stderr);
+    const updated = readFileSync(resolve(dir, 'web/Cargo.toml'), 'utf8'), parsed = Bun.TOML.parse(updated);
+    const at = (path) => realpathSync(resolve(dir, 'web', path)), ours = (path) => realpathSync(resolve(exact2, path));
+    assert.deepEqual([parsed.dependencies['exact-logic'], parsed.dependencies.types, parsed['build-dependencies'].contract].map(d => at(d.path)), ['logic', 'contract/types', 'contract/cli'].map(ours));
+    assert.match(updated, /^types = \{ package = "contract-types", path = '[^']+' \}$/m);
+    assert.match(updated, /^# lower = \{ package = "contract-lower", path = "<exact2>\/contract\/lower" \}$/m);
+    assert.equal(Bun.TOML.parse(readFileSync(resolve(dir, 'data/Cargo.toml'), 'utf8')).dependencies.contract.path, '../../shared/contract');
+    // A form it does not resolve is named, not left in silence.
+    write('web/Cargo.toml', crate('paths-app-web', '\n[build-dependencies]\ncontract = { path = "<exact2>\\\\contract\\\\cli" }\n'));
+    assert.throws(() => createApp(dir, { update: true }), /<exact2> left unresolved in web\/Cargo\.toml/);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}, 60_000);
+
+// What the placeholder rewrite reads as TOML: strings in all four forms, and comments outside them.
+test('update rewrites exactly the strings whose value begins <exact2>/, and names one written another way', async () => {
+  const { exact2Placeholders } = await import('../game/new.mjs');
+  const from = resolve(import.meta.dir, '../apps/caltrain/web'), to = (path) => `../../../${path}`;
+  const cases = [
+    // Text that only mentions the token: inside a string of the other quote, or later in a string.
+    [`description = 'Compiler example: "<exact2>/contract/cli"'`, `description = 'Compiler example: "<exact2>/contract/cli"'`, false],
+    [`description = "sample is <exact2>/apps/sparkline"`, `description = "sample is <exact2>/apps/sparkline"`, false],
+    // A # inside an earlier string is no comment; one outside every string is.
+    [`contract = { git = "ssh://host/exact.git#main", path = "<exact2>/contract/cli" }`, `contract = { git = "ssh://host/exact.git#main", path = "${to('contract/cli')}" }`, false],
+    [`# contract = { path = "<exact2>/contract/cli" }`, `# contract = { path = "<exact2>/contract/cli" }`, false],
+    // An escaped quote before the token ends no string.
+    [String.raw`contract = { description = "a \"quoted\" word", path = "<exact2>/contract/cli" }`, String.raw`contract = { description = "a \"quoted\" word", path = "` + to('contract/cli') + '" }', false],
+    // Both multiline forms, and a literal string, keep their quotes.
+    [`runner = { path = """<exact2>/runner""" }`, `runner = { path = """${to('runner')}""" }`, false],
+    [`plan = { path = '''<exact2>/plan''' }`, `plan = { path = '''${to('plan')}''' }`, false],
+    [`types = { path = '<exact2>/contract/types' }`, `types = { path = '${to('contract/types')}' }`, false],
+    // The token written another way is not rewritten, and said.
+    [String.raw`contract = { path = "<exact2>\\contract\\cli" }`, String.raw`contract = { path = "<exact2>\\contract\\cli" }`, true],
+    // A multiline basic string's line-ending backslash: its value is the token's, which is not decoded here, so it is said.
+    ['contract = { path = """\\\n<exact2>/contract/cli""" }', 'contract = { path = """\\\n<exact2>/contract/cli""" }', true],
+  ];
+  for (const [text, expected, unresolved] of cases) assert.deepEqual(exact2Placeholders(text, from), { text: expected, unresolved }, text);
+});
+
 test('update notes a lock it could not check offline, and does not call the workspace unloadable', async () => {
   const { createApp } = await import('../game/new.mjs');
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-app-offline-'));

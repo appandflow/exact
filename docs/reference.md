@@ -930,6 +930,11 @@ ships), bake production trust: with an update store (`deploy.store.ios` not
 `"0"`) each needs `EXACT_UPDATE_RECEIPT` or `EXACT_UPDATE_GENESIS=1`. A cold
 build takes tens of minutes, most of it Rust and the Swift host. Keeping the
 app's `target/` and `~/.cache/exact` between runs makes the next one minutes.
+Export compliance is the developer's answer, so a production iOS or tvOS build
+(`--release`, `--archive`, `--distribution`) writes `ITSAppUsesNonExemptEncryption`
+into Info.plist only when `EXACT_NON_EXEMPT_ENCRYPTION` is `true` or `false` in its
+environment (`false` when the app's only encryption is HTTPS and the system's);
+without it App Store Connect asks at each upload. A development build never writes it.
 
 ## Open the same development URL on Apple hosts
 
@@ -2956,6 +2961,18 @@ A data crate answers the view's sources in Rust instead of `app.ts`: an app's
 | `parse(store, source, args, outcome)` | What the host brought back for that request: answer, or hand back one more request. |
 | `app_id()` | The app's identity, which names its storage: `com.example.my-app-3f9a2c` (`exact new` writes the name and six random hex digits), or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
 | `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
+
+An app `exact new` made outside this checkout that answers in Rust writes its own Cargo workspace
+(LLP 1153 D1.4). Read its crates from [Sparkline](../apps/sparkline)'s `data/`, `web/` and `apple/`:
+each `Cargo.toml`, `build.rs` and `src/lib.rs`, not the TypeScript ones `.exact/shells/` holds. Sparkline's
+paths into exact2 are relative to this checkout: in the copies, write each as `<exact2>/…` before running
+`bun exact.mjs update`, `contract` as `<exact2>/contract/cli` too. `update` points `exact-*` crates at this
+checkout by name, and any other path only through that placeholder. The web build copies the source
+`web/build.rs` passes to `contract::bake(plan, …)` into a module of its own, where build.rs's `use`s and
+locals are not: write it as a path from the data crate (`my_app_data::MyApp`), or that path's `::default()`
+or `::new()` with no arguments, with no comma after it (rustfmt adds one when it breaks the call across
+lines). A source built with arguments is exported by a crate of the app's own
+instead, named in app.json's `rust.module.package` (Update Lab's `logic/`).
 
 A source that wraps another implements `exact_runner::DataSourceWrapper`.
 Every method is required, so adding a data-source method cannot silently use

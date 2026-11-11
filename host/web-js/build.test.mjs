@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { moduleGrants, webCompiler, fresh, freshCompiler } from './module.mjs';
+import { buildModule, moduleGrants, webCompiler, fresh, freshCompiler } from './module.mjs';
 import { spawnOwned } from '../../scripts/test-children.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
@@ -859,6 +859,29 @@ test('package declarations over the cap are named by package, size and the captu
     for (const root of [app, stage]) write(resolve(root, 'page/main.ts'), "import { Heavy } from 'diagram';\nexport const h: Heavy = 1;\n");
     write(resolve(stage, '__exact_paths.json'), JSON.stringify({ app, mounts: [] }));
     expect(() => stagePackages(stage)).toThrow(/^package declarations exceed 64 MiB: heavy 69\.0 MiB \(through diagram, from page\/main\.ts\), diagram 0\.0 MiB \(from page\/main\.ts\)\. .*whose name starts with a dot$/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a web build.rs whose data source the module cannot copy is named, with the forms it copies and the way for any other', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-source-'));
+  const script = (text) => writeFileSync(resolve(dir, 'web/build.rs'), `fn main() {\n${text}\n}\n`);
+  const fails = () => { try { buildModule('mail', resolve(dir, 'out'), false, dir); } catch (e) { return e.message; } return null; };
+  try {
+    mkdirSync(resolve(dir, 'web'));
+    writeFileSync(resolve(dir, 'app.json'), '{}');
+    // A source built with arguments, and the call rustfmt writes across lines with a comma after the source.
+    for (const text of ['    let baked = contract::bake(plan, mail_data::Mail::new(true)).unwrap();', '    let baked = contract::bake(\n        plan,\n        mail_data::Mail::default(),\n    )\n    .unwrap();']) {
+      script(text);
+      const said = fails();
+      expect(said).toContain(`${resolve(dir, 'web/build.rs')} passes contract::bake a source the web build does not copy`);
+      expect(said).toContain('`contract::bake(plan, <data crate>::<Type>)`, `<data crate>::<Type>::default()` or `<data crate>::<Type>::new()` with no arguments, written with no comma after the source (rustfmt adds one when it breaks the call across lines)');
+      expect(said).toContain("name it in app.json's rust.module.package");
+    }
+    // A call only in a comment is no call: the build has no Rust source to copy and says that.
+    for (const text of ['    // let baked = contract::bake(plan, mail_data::Mail::new(true));', '    /* contract::bake(plan, mail_data::Mail::new(true)) */', '']) {
+      script(text);
+      expect(fails()).toContain('its web build bakes with no Rust data source');
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
