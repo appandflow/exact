@@ -96,6 +96,7 @@ test('a Rust request copies a document only into an app file it may write', asyn
 // that expects what an earlier write replaced is refused.
 test('a document held in memory keeps its modification time until it is written', async () => {
   globalThis.exact = {};
+  const realNow = Date.now;
   try {
     await import(`./documents-glue.js?expect=${Date.now()}`);
     let doc;
@@ -106,14 +107,20 @@ test('a document held in memory keeps its modification time until it is written'
     const read = await fs.stat(doc);
     await later();
     expect((await fs.stat(doc)).modifiedMs).toBe(read.modifiedMs);
+    const frozen = realNow();
+    Date.now = () => frozen;
     await fs.writeFile(doc, bytes('hello, world'), { expect: { modifiedMs: read.modifiedMs, size: read.size } });
     const written = await fs.stat(doc);
     expect([written.size, written.modifiedMs > read.modifiedMs]).toEqual([12, true]);
     await expect(fs.writeFile(doc, bytes('x'), { expect: { modifiedMs: read.modifiedMs, size: read.size } })).rejects.toMatchObject({ code: 'ECHANGED' });
-    // Each write moves it on, even one in the same millisecond as the last.
+    // Equal sizes and a frozen clock make the version depend on the monotonic step.
     await fs.writeFile(doc, bytes('hello, again'), { expect: { modifiedMs: written.modifiedMs, size: written.size } });
-    expect((await fs.stat(doc)).modifiedMs).toBeGreaterThan(written.modifiedMs);
-  } finally { delete globalThis.exact; }
+    const rewritten = await fs.stat(doc);
+    expect(rewritten.size).toBe(written.size);
+    expect(rewritten.modifiedMs).toBeGreaterThan(written.modifiedMs);
+    await expect(fs.writeFile(doc, bytes('hello, stale'), { expect: { modifiedMs: written.modifiedMs, size: written.size } })).rejects.toMatchObject({ code: 'ECHANGED' });
+    expect(new TextDecoder().decode(await fs.readFile(doc))).toBe('hello, again');
+  } finally { Date.now = realNow; delete globalThis.exact; }
 });
 
 // The real store in a browser: the File kept in IndexedDB reads back as the document's bytes.
