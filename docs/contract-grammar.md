@@ -1786,6 +1786,7 @@ says so in the journal (LLP 1010 §6.11).
 `scroll-padding` (or its four physical sides) insets any scroll container’s
 alignment port. `scroll-margin` expands the target element’s border box for
 `scrollIntoView`; its signed lengths change neither layout nor scroll range.
+Scroll margins refuse percentages, including inside `calc()`, `min()`, `max()` and `clamp()`.
 Padding percentages use the corresponding scrollport dimension on ordinary
 scrollers; a virtual list still requires resolvable main-axis lengths.
 Negative offsets preserve padding showing before the row. With `row=`, only

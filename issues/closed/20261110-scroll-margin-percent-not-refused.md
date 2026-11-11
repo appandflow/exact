@@ -1,6 +1,7 @@
 # `scroll-margin` accepts a percentage because its schema rows misspell `refusesPercent`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** All four scroll-margin sides refuse percentages, including in calculations, during compilation, dynamic updates and wire decoding.
 **Systems:** kernel/tables/schema.json, kernel/build.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

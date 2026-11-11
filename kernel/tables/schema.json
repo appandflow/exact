@@ -4409,7 +4409,7 @@
       "bit": 207,
       "field": "scroll_margin_top",
       "rare": true,
-      "refuses_percent": true,
+      "refusesPercent": true,
       "codec": "dimension",
       "default": 0
     },
@@ -4417,7 +4417,7 @@
       "bit": 208,
       "field": "scroll_margin_right",
       "rare": true,
-      "refuses_percent": true,
+      "refusesPercent": true,
       "codec": "dimension",
       "default": 0
     },
@@ -4425,7 +4425,7 @@
       "bit": 209,
       "field": "scroll_margin_bottom",
       "rare": true,
-      "refuses_percent": true,
+      "refusesPercent": true,
       "codec": "dimension",
       "default": 0
     },
@@ -4433,7 +4433,7 @@
       "bit": 210,
       "field": "scroll_margin_left",
       "rare": true,
-      "refuses_percent": true,
+      "refusesPercent": true,
       "codec": "dimension",
       "default": 0
     },

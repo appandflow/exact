@@ -281,3 +281,28 @@ fn scroll_padding_applies_to_any_scroller_and_takes_lengths() {
         "component App\n  view\n    scroll height=200 scroll-padding-top=92\n      box height=1000 scroll-margin=\"8 12 16 20\"\n",
     ).unwrap();
 }
+
+#[test]
+fn scroll_margins_take_signed_lengths_and_refuse_percentages() {
+    for name in [
+        "scroll-margin",
+        "scroll-margin-top",
+        "scroll-margin-right",
+        "scroll-margin-bottom",
+        "scroll-margin-left",
+    ] {
+        let source = |value| format!("component App\n  view\n    text \"a\" {name}={value}\n");
+        for value in ["10", "\"-4px\"", "\"calc(10px + 4px)\""] {
+            contract::compile(&source(value)).unwrap();
+        }
+        for value in ["\"10%\"", "\"calc(10% + 4px)\"", "\"min(10%, 4px)\""] {
+            let result = contract::compile(&source(value));
+            assert!(result.is_err(), "{name}={value} compiled");
+            let error = result.unwrap_err().to_string();
+            assert!(
+                error.contains("CSS takes no percentage"),
+                "{name}={value}: {error}"
+            );
+        }
+    }
+}
