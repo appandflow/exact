@@ -952,6 +952,26 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
+- **An npm package builds, then stops the page at boot.** The build names a
+  clock or randomness read in the app's own modules by file and line; a
+  package's is found only when it runs. `convex`'s `ConvexHttpClient` builds
+  and throws `Math.random() is unavailable in data sources` from its default
+  logger's constructor, so the page never boots: construct it with `{ logger:
+  false }`. Its reactive client (`ConvexClient`, `BaseConvexClient`) also
+  opens its own socket and arms timers no answer owns: use `@exact/convex`
+  (`bun exact.mjs docs convex live queries`). Drive a new package once (`agent web "clock
+  data" logs`) before building on it. (LLP 1157 §1, 2026-11-10.)
+
+- **A native drive against a real Convex deployment: the second launch's
+  writes do nothing.** A mutation replies ok and the data does not change.
+  Cause: under the driver a native host's `crypto.getRandomValues` is seeded
+  (`EXACT_AGENT_SEED`, 1 by default), so every launch draws the same session
+  id, and Convex answers a request id it has seen from that session with the
+  first answer, without running it. Fix: a new `--seed` for each launch
+  (`agent macos --seed 7 …`), or drive against the stand-in
+  (`bun exact.mjs docs convex live queries`). The web draws the browser's entropy, and a
+  launch outside the driver the system's. (LLP 1157 §6, 2026-11-10.)
+
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement

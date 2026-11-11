@@ -1,0 +1,126 @@
+// Mosaic: one board of tiles that everyone paints together, live, on Convex
+// (LLP 1157). `live` is the one socket; the board and the newest strokes are
+// two Convex queries that take its `rev`, so a stroke anyone paints shows in
+// both in the same commit. Nothing polls.
+use ConvexLive from "@exact/convex"
+
+routes nav
+  home "/"
+
+shape Tile
+  at: number
+  hue: number
+
+shape Board
+  tiles: Tile[]
+  strokes: number
+  painters: number
+
+shape Stroke
+  id: string
+  by: string
+  index: number
+  hue: number
+
+shape Reply
+  ok: bool
+  error: string
+
+// A tile's hue is a platform colour role, so the board follows light and dark.
+fn hueColor(h: number): string = h == 1 ? "-exact-system-red" : h == 2 ? "-exact-system-orange" : h == 3 ? "-exact-system-yellow" : h == 4 ? "-exact-system-green" : h == 5 ? "-exact-system-blue" : h == 6 ? "-exact-system-purple" : "-exact-secondary-fill"
+fn hueName(h: number): string = h == 1 ? "red" : h == 2 ? "orange" : h == 3 ? "yellow" : h == 4 ? "green" : h == 5 ? "blue" : h == 6 ? "purple" : "blank"
+fn strokesText(n: number): string = `${n} ${n == 1 ? "stroke" : "strokes"}`
+fn paintersText(n: number): string = `${n} ${n == 1 ? "painter" : "painters"}`
+fn statusText(status: string): string = status == "ready" ? "Live" : status == "closed" ? "Offline. Reconnecting…" : status == "failed" ? "Can’t talk to Convex" : "Connecting…"
+
+component App
+  state hue = 1 persist
+  state painter = "" persist
+  resource live = live() as shape ConvexLive else empty(status="connecting")
+  resource board = board("lobby", live.rev) as shape Board else empty()
+  resource recent = recent("lobby", live.rev) as shape Stroke[] else empty()
+  mutation painted as shape Reply
+  mutation cleared as shape Reply
+  derive by = painter.trim() == "" ? "Someone" : painter.trim()
+  // Before the board arrives it is drawn blank, at its size.
+  derive tiles = board.tiles.length == 0 ? range(64).map(i => Tile(at=i, hue=0)) : board.tiles
+  derive problem = match painted { case some(r) => r.error, case none => "" }
+
+  // Keeping the connection (LLP 1157 D6). A closed socket is opened again after 1, 2, 4, 8,
+  // then every 16 seconds; the wait starts over once results arrive. A socket that has
+  // carried no frame for a minute is opened again too: Convex pings a quiet one every 15 s.
+  state waited = 0
+  state wait = 1
+  state heard = 0
+  state quiet = 0
+  task reconnect when live.status == "closed"
+    every(1000, retry)
+  task recovered when live.status == "ready" and wait > 1
+    after(1000, calm)
+  task watch when live.status == "ready"
+    every(15000, listen)
+  action retry
+    if waited + 1 >= wait
+      waited = 0
+      wait = min(wait * 2, 16)
+      refresh live
+    else
+      waited = waited + 1
+  action calm
+    wait = 1
+    waited = 0
+  action listen
+    if live.beat == heard
+      if quiet >= 3
+        quiet = 0
+        refresh live
+      else
+        quiet = quiet + 1
+    else
+      heard = live.beat
+      quiet = 0
+
+  action pick(h: number)
+    hue = h
+  action rename(v: string)
+    painter = v
+  action paint(i: number)
+    send painted = paint("lobby", i, hue, by)
+  action clear
+    send cleared = clear("lobby")
+  action follow(url: string)
+    nav = go(nav, url)
+
+  view
+    main testId="root" navigationKey=`${top(nav).id}` navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
+          header display="flex" align-items="center" flex-wrap="wrap" padding="8px 16px"
+            text "Mosaic" role="heading" aria-level=1 flex=1
+            button press=clear testId="clear"
+              text "Clear"
+          scroll id="content" flex=1 min-height=0
+            column gap=16 padding=16 max-width="30rem" margin="0 auto"
+              row gap=8 align-items="center"
+                box width=8 height=8 border-radius=4 background-color=(live.status == "ready" ? "-exact-system-green" : "-exact-system-orange")
+                text statusText(live.status) font="-exact-footnote" color="-exact-secondary-label" flex=1 testId="status"
+                text `${strokesText(board.strokes)} · ${paintersText(board.painters)}` font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums" testId="tally"
+              // The board: every tile is a button that paints it with the chosen hue.
+              box display="grid" grid-template-columns="repeat(8, 1fr)" gap=2 role="group" aria-label="Board" testId="board"
+                for t in tiles key=t.at
+                  button press=paint(t.at) appearance="none" width="100%" aspect-ratio="1" border-radius=4 background-color=hueColor(t.hue) aria-label=`Tile ${t.at + 1}, ${hueName(t.hue)}` testId=`tile-${t.at}`
+              if problem != "" and not pending(painted)
+                text problem font="-exact-footnote" color="-exact-system-red" testId="problem"
+              // The palette: a drawn radio group, since each choice is its colour.
+              row role="radiogroup" appearance="none" aria-label="Hue" gap=8 justify-content="space-between"
+                for h in [1, 2, 3, 4, 5, 6, 0] key=h
+                  button role="radio" aria-checked=(hue == h) press=pick(h) appearance="none" flex=1 aspect-ratio="1" border-radius="50%" background-color=hueColor(h) border=(hue == h ? "3px solid -exact-label" : "3px solid transparent") aria-label=hueName(h) testId=`hue-${h}`
+              input value=painter input=rename placeholder="Your name" aria-label="Your name" testId="painter"
+              column gap=4
+                text "Latest" font="-exact-footnote" color="-exact-secondary-label"
+                if recent.length == 0
+                  text "Nobody has painted yet. Tap a tile." color="-exact-secondary-label" testId="empty"
+                for s in recent key=s.id
+                  row gap=8 align-items="center" testId=`stroke-${s.id}`
+                    box width=12 height=12 border-radius=3 background-color=hueColor(s.hue)
+                    text `${s.by} painted tile ${s.index + 1} ${hueName(s.hue)}`

@@ -147,6 +147,10 @@
       "name": "@exact/contacts",
       "version": "1.0.0",
     },
+    "packages/convex": {
+      "name": "@exact/convex",
+      "version": "0.1.0",
+    },
     "packages/device": {
       "name": "@exact/device",
       "version": "1.0.0",
@@ -360,6 +364,8 @@
     "@exact/compose": ["@exact/compose@workspace:packages/compose"],
 
     "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
+
+    "@exact/convex": ["@exact/convex@workspace:packages/convex"],
 
     "@exact/device": ["@exact/device@workspace:packages/device"],
 

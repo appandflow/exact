@@ -1,0 +1,53 @@
+// Mosaic against server.ts, the stand-in `test` starts: the socket, both
+// queries and both mutations, through @exact/convex. One server serves the
+// whole run, so a test that counts strokes clears the board first.
+
+test "the board arrives over the socket, blank"
+  clock data
+  expect text "status" == "Live"
+  expect text "tally" == "0 strokes · 0 painters"
+  expect tree has "empty"
+  expect state board.tiles.63 .hue == 0
+  expect state live.status == "ready"
+
+test "a stroke shows in the board and in the latest strokes together"
+  clock data
+  tap "clear"
+  clock data
+  type "painter" "Ada"
+  tap "hue-6"
+  tap "tile-13"
+  clock data
+  expect state board.tiles.13 .hue == 6
+  expect text "tally" == "1 stroke · 1 painter"
+  expect state recent.0 .by == "Ada"
+  expect state recent.0 .index == 13
+  expect state painted.ok == true
+  expect tree missing "empty"
+  tap "hue-1"
+  tap "tile-0"
+  clock data
+  expect text "tally" == "2 strokes · 1 painter"
+  expect state recent.0 .index == 0
+  expect state recent.1 .index == 13
+
+test "clear empties the board for everyone"
+  clock data
+  tap "clear"
+  clock data
+  tap "tile-7"
+  clock data
+  expect text "tally" == "1 stroke · 1 painter"
+  tap "clear"
+  clock data
+  expect text "tally" == "0 strokes · 0 painters"
+  expect state board.tiles.7 .hue == 0
+  expect tree has "empty"
+
+test "the hue chosen is kept across a launch"
+  clock data
+  tap "hue-4"
+  reload
+  clock data
+  expect state hue == 4
+  expect text "status" == "Live"

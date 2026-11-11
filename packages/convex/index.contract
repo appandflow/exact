@@ -1,0 +1,15 @@
+// @exact/convex's shape (LLP 1157 D4): what its `live()` answers, for
+// `as shape` in an app's Contract.
+
+shape ConvexLive
+  // "connecting" until the socket opens, "open" until the first results
+  // arrive, "ready" from then, "closed" once it has ended.
+  status: string
+  // Rises when a query's answer may have changed: every query takes it.
+  rev: number
+  // Rises with every frame Convex sends, its 15-second Ping included.
+  beat: number
+  // Why the socket ended; "" otherwise.
+  error: string
+  // Convex's words when it refused the token; "" otherwise.
+  authError: string

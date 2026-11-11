@@ -628,6 +628,14 @@ native hosts has it; D7 lists the host deviations and what remains. D7's
 amendments let the mapper answer its own frames (2026-10-16) and an answer
 in flight send its own requests (2026-10-18).
 
+**Expanded (Charlie, 2026-11-10; LLP 1157):** `@exact/convex`, a standard
+module that speaks Convex's sync protocol over that socket, and `apps/mosaic`,
+its example. Charlie, while the design was in review: "When you're happy with the
+approach, go ahead and implement it and then make a cool example app and
+commit and push everything." No take named. It adds no runner surface, global
+or grant kind. A data module's own way to announce a change (LLP 1157 §8
+question 1) is not admitted.
+
 **Expanded (Daehyeon Mun, 2026-10-23; LLP 1133.005):** a local listener,
 `exactListen("unix:<path>", options)`: a data capability in `fetch`'s shape
 whose connections reach the stream mapper with LLP 1016.000 D7's sends, under

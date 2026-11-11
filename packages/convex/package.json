@@ -1,0 +1,15 @@
+{
+  "name": "@exact/convex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convex for data code: live queries, mutations and actions over the socket the runner owns (LLP 1157).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "contract": "./index.contract",
+      "default": "./index.ts"
+    },
+    "./test/server.ts": "./test/server.ts"
+  }
+}

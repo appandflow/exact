@@ -1358,6 +1358,54 @@ test "signs in, shows the person, and is still signed in after a relaunch"
   expect text "status" == "Signed in"
 ```
 
+### Convex live queries (`@exact/convex`)
+
+The `convex` recipe is the code; this is what it leaves out (LLP 1157).
+
+- **`live.status`.** `connecting`, `open`, `ready` (results have arrived),
+  `closed` (the socket ended or never opened: refresh `live`, as the recipe's
+  `retry` does) or `failed` (Convex said something this client cannot follow;
+  `live.error` says what, and a new connection would meet it again, so nothing
+  retries it).
+- **A quiet socket.** Convex pings one every 15 seconds, and `live.beat` rises
+  with every frame. `apps/mosaic` refreshes `live` when `beat` has not moved
+  for a minute.
+- **A query's lifetime.** Its identity is its function and arguments. One a
+  screen no longer asks for is dropped at the second change after its last
+  ask. One asked while the socket is closed, with nothing delivered for it,
+  fails and is asked again when results arrive.
+- **Values.** A Contract shape is closed (every field, no others) and holds no
+  `bigint` or bytes: map a result with `cx.query`'s fourth argument. A value
+  outside its shape fails that resource; the socket goes on.
+- **Failures.** A failed query throws `ConvexFailure`: the resource fails and
+  keeps what it showed. A mutation or an action rejects with one when Convex
+  refuses it (`message` is Convex's, `data` a `ConvexError`'s payload), when
+  the socket is not open (nothing was sent), and when the socket closes before
+  the answer. That last one may have run, and nothing is sent again on the
+  next connection: a write that must not repeat carries its own key.
+- **A person's token.** `cx.setAuth(jwt)` from a mutation's source, with a JWT
+  the deployment accepts (its `auth.config.ts`); `cx.setAuth(undefined)` signs
+  out. No answer computed for the person before is given again, but the screen
+  keeps what it showed until the new answers land: gate a signed-in screen on
+  your own session, as with any backend. A refused token is `live.authError`,
+  and Convex closes the socket.
+- **Tests** run with no Convex. `server.ts` beside `app.ts` gives
+  `@exact/convex/test/server.ts` the app's functions as plain JavaScript over
+  memory, and `test` and `verify` start it (`apps/mosaic/server.ts`). Keep the
+  rules both run in a file with no Convex import (`convex/tiles.ts`). One
+  server serves a whole run: a test that counts clears first.
+- **Driving a native host against a real deployment.** The driver seeds a
+  native host's randomness (`EXACT_AGENT_SEED`, 1 by default), so two launches
+  draw the same session id and Convex answers the second's writes with the
+  first's answers, without running them. Give each launch a new seed: `agent
+  macos --seed 7 …`.
+- **Hosts.** The web, macOS, iOS, Linux and Windows. A worker-placed source
+  and any other host have no socket to send on. There, and for a read that
+  need not be live, use Convex's HTTP client under `net.fetch`: `new
+  ConvexHttpClient(CONVEX, { logger: false })` from `convex/browser` (its
+  default logger calls `Math.random()`, which a data module refuses), then
+  `await http.query(api.messages.list, { channel })`.
+
 ### Child processes (`@exact/child-process`)
 
 A desktop app's data code starts a program with Node's names (LLP 1133.007).

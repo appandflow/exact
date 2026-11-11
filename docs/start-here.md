@@ -122,6 +122,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |sign in with Google, Microsoft, Auth0, Okta or another OAuth provider|`oauth`|
+|a Convex backend: live queries, mutations, actions|`convex`|
 |a website: serving it (`serve`, which renders a `render=request` page per request), a setting, a deep link|`website`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
