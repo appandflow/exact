@@ -1,6 +1,7 @@
 # The painting host leaves held work parked when it is woken with no reply, so a secret lease's continuation never runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The painting host releases ready held continuations on a pump wake even when no reply or topic change is queued.
 **Systems:** host/linux/src/presenter/pump.rs, host/linux/src/presenter.rs (`after_commit`)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

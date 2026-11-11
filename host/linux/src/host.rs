@@ -836,7 +836,7 @@ impl<D: DataSource> Host<D> {
         self.runner.native_work(request)
     }
 
-    /// Work a source held at dispatch that the last commit released.
+    /// Work a source held at dispatch that is now ready to run.
     pub fn release_work(&mut self) -> Vec<(u64, exact_runner::Dispatch)> {
         self.runner.release_work()
     }

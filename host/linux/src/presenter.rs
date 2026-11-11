@@ -304,7 +304,7 @@ pub struct Presenter<D: DataSource> {
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
-    /// Requests held at dispatch, released after a later commit (LLP 1027.002 D3).
+    /// Requests held at dispatch until a commit or source wake releases them (LLP 1027.002 D3).
     parked: BTreeMap<u64, exact_runner::RequestOut>,
     refusal_turn: bool,
     collection: collection::State,
@@ -835,7 +835,7 @@ impl<D: DataSource> Presenter<D> {
         self.hatches.stale = true;
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
-        // is parked and released after a later commit.
+        // is parked until a later commit or source wake releases it.
         // An app's aborted fetches first (any method), then what the runner let go.
         self.executor
             .cancel(&self.host.runner_mut().take_explicit_aborts());
@@ -887,11 +887,7 @@ impl<D: DataSource> Presenter<D> {
             };
             self.run_dispatch(r, dispatch);
         }
-        for (token, dispatch) in self.host.release_work() {
-            if let Some(r) = self.parked.remove(&token) {
-                self.run_dispatch(r, dispatch);
-            }
-        }
+        self.release_held_work();
         // An abort made in this batch's turns is answered at the next pump: wake it.
         if self.host.runner_mut().collected_aborts() {
             self.executor.notify();
