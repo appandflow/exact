@@ -1,7 +1,8 @@
 # On Hermes, `console.error(error)` logs `{}`, and logging a cyclic value or a BigInt fails the answer
 
-**Status:** Open
-**Systems:** js/src/shim.cc (`render`, `install_console`)
+**Status:** Closed
+**Resolution:** Hermes console preserves errors, abort-listener diagnostics and record boundaries, handles unserializable values, and propagates execution interrupts.
+**Systems:** js/src/console.js (`render`), js/src/shim.cc (`install_console`, `exact_js_take_log`), js/src/engine.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
 **Date:** 2026-11-10

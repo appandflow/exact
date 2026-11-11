@@ -66,9 +66,9 @@ fn interrupted(result: &Result<Answer, DataError>, source: &str) -> bool {
 }
 
 /// Told by a spinning call, through its native module, that it has started:
-/// a channel for each test that spins, so none hears another's (here, then
-/// `render.rs`).
-pub static SPINNING: [Mutex<Option<Sender<()>>>; 2] = [Mutex::new(None), Mutex::new(None)];
+/// a channel for each test that spins, so none hears another's.
+pub static SPINNING: [Mutex<Option<Sender<()>>>; 3] =
+    [Mutex::new(None), Mutex::new(None), Mutex::new(None)];
 
 /// The native module that tells `SPINNING[TEST]`.
 pub struct Announcer<const TEST: usize>;
@@ -112,6 +112,42 @@ fn a_spinning_call_is_stopped_from_another_thread_and_the_module_answers_again()
     );
     assert_eq!(m.in_flight(), 0);
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn console_formatting_does_not_swallow_an_interrupt() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target")
+        .join(format!("console-interrupt-{}", std::process::id()));
+    let mut failures = Vec::new();
+    for name in ["console-json", "console-stack", "console-string"] {
+        let (spinning, started) = channel();
+        *SPINNING[2].lock().unwrap() = Some(spinning);
+        let mut m = unloaded().with_native(|_| Box::new(Announcer::<2>));
+        m.configure_storage(root.join("data"), root.join("cache"), root.join("tmp"))
+            .unwrap();
+        m.activate().unwrap();
+        let mut store = Store::new("", []);
+        let stop = m.interrupt().unwrap();
+        let interrupter = std::thread::spawn(move || {
+            let said = started.recv_timeout(Duration::from_secs(30));
+            stop.trigger();
+            said.expect("the formatter never said it was spinning");
+        });
+        let result = m.answer(&mut store, "words", &named(name));
+        interrupter.join().unwrap();
+        if !interrupted(&result, "words") {
+            failures.push(format!("{name}: {result:?}"));
+        } else {
+            assert!(crate::authored_logs(m.take_logs()).is_empty());
+            assert_eq!(
+                words(m.answer(&mut store, "words", &named("calm"))),
+                ["hello", "calm"]
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(root);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

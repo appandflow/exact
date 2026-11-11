@@ -189,37 +189,20 @@ char *dup(const std::string &s) {
   return p;
 }
 
-std::string render(jsi::Runtime &rt, const jsi::Value &v) {
-  if (v.isObject()) {
-    jsi::Function stringify =
-        rt.global().getPropertyAsObject(rt, "JSON").getPropertyAsFunction(rt, "stringify");
-    jsi::Value text = stringify.call(rt, v);
-    if (text.isString()) return text.getString(rt).utf8(rt);
-  }
-  return v.toString(rt).utf8(rt);
-}
-
 void install_console(State *state) {
   jsi::Runtime &rt = *state->rt;
-  jsi::Object console(rt);
-  for (const char *level : {"log", "info", "warn", "error", "debug"}) {
-    console.setProperty(
-        rt, level,
-        jsi::Function::createFromHostFunction(
-            rt, jsi::PropNameID::forAscii(rt, level), 1,
-            [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
-                    size_t count) -> jsi::Value {
-              std::string line;
-              for (size_t i = 0; i < count; i++) {
-                if (i) line += ' ';
-                line += render(rt, args[i]);
-              }
-              if (state->log.size() >= kLogLines) state->log.erase(state->log.begin());
-              state->log.push_back(std::move(line));
-              return jsi::Value::undefined();
-            }));
-  }
-  rt.global().setProperty(rt, "console", console);
+  rt.global().setProperty(rt, "__exact_log",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "__exact_log"), 1,
+          [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
+            if (count != 1 || !args[0].isString())
+              throw jsi::JSError(rt, "console requires a formatted string");
+            auto line = args[0].getString(rt).utf8(rt);
+            if (state->log.size() >= kLogLines) state->log.erase(state->log.begin());
+            state->log.push_back(std::move(line));
+            return jsi::Value::undefined();
+          }));
 }
 
 // `__exact_host(op, a, b)`: the one door into Rust — the prelude takes it
@@ -295,6 +278,7 @@ int fail(char **out, const std::string &message, int code) {
 extern "C" {
 
 void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void *ctx,
+                      const uint8_t *console, size_t console_len,
                       const void *queue, const Ibex2Bindings *bindings,
                       const void *grants,
                       const ibex2::jsi_adapter::CompiledScript *scripts,
@@ -311,6 +295,7 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
     auto state = std::make_unique<State>(State{std::move(rt), {}, host, bytes, ctx, nullptr,
                                                grants, max_heap_bytes, 0, {}});
     install_console(state.get());
+    state->rt->evaluateJavaScript(kept_bytecode(console, console_len), "console.hbc");
     install_host(state.get());
     install_bytes(state.get());
     install_capture(state.get());
@@ -513,17 +498,14 @@ int exact_js_drain(void *h, char **out) {
   }
 }
 
-// The console lines since the last take, newline-separated, and their length.
-void exact_js_take_log(void *h, char **out, size_t *len) {
+// Borrow each record for the synchronous callback, keeping NULs and line endings.
+void exact_js_take_log(void *h, void *ctx,
+                       void (*record)(void *, const uint8_t *, size_t)) {
   auto *state = static_cast<State *>(h);
-  std::string joined;
-  for (size_t i = 0; i < state->log.size(); i++) {
-    if (i) joined += '\n';
-    joined += state->log[i];
+  for (const auto &line : state->log) {
+    record(ctx, reinterpret_cast<const uint8_t *>(line.data()), line.size());
   }
   state->log.clear();
-  *len = joined.size();
-  *out = dup(joined);
 }
 
 void exact_js_free(char *p) { std::free(p); }

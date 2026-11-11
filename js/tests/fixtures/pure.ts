@@ -25,6 +25,69 @@ export function exercise(source: string): string {
   if (source === 'streamBody') return streamBody() as unknown as string;
   if (source === 'streamBodyBrands') return streamBodyBrands() as unknown as string;
   if (source === 'streamUpload') return streamUpload() as unknown as string;
+  if (source === 'consoleAbortListeners') {
+    const controller = new AbortController();
+    controller.signal.onabort = () => { throw new Error('boom'); };
+    controller.signal.addEventListener('abort', () => { throw new RangeError('listener'); });
+    controller.signal.addEventListener('abort', () => { console.log('later listener'); });
+    controller.abort();
+    return 'reached the return';
+  }
+  if (source === 'consoleTrailingNewline') {
+    console.log('done\n');
+    return 'reached the return';
+  }
+  if (source === 'consoleTrailingCarriageReturn') {
+    console.log('100%\r');
+    return 'reached the return';
+  }
+  if (source === 'consoleLineEndings') {
+    for (const entry of ['done\n', '100%\r', 'next', '', '\n', 'a\r\nb\n', 'x\0é😀\n', 'end\n\n']) {
+      console.log(entry);
+    }
+    return 'reached the return';
+  }
+  if (source === 'consoleErrors') {
+    const error = new TypeError('boom');
+    console.error(error);
+    console.error('load failed', error);
+    return error.stack!;
+  }
+  if (source === 'consoleCycle') {
+    const row: any = { id: 1, children: [] };
+    row.children.push({ parent: row });
+    console.log('row', row);
+    console.log('after');
+    return 'reached the return';
+  }
+  if (source === 'consoleBigInt') {
+    console.info('bigint', 1n, { n: 1n });
+    return 'reached the return';
+  }
+  if (source === 'consoleFallback') {
+    const error = new RangeError('no stack');
+    Object.defineProperty(error, 'stack', { get() { throw new Error('stack getter'); } });
+    console.warn(error);
+    console.debug({
+      toJSON() { throw new Error('Javascript execution has timed out.'); },
+      toString() { return 'fallback'; },
+    });
+    console.log({
+      toJSON() { throw new Error('JSON hook'); },
+      toString() { throw new Error('string hook'); },
+    }, 'after');
+    console.info(null, undefined, true, 42, Symbol('label'), { ok: true });
+    return 'reached the return';
+  }
+  if (source === 'consoleEmpty' || source === 'consoleEmptyBatch') {
+    console.log('');
+    if (source === 'consoleEmptyBatch') {
+      console.log('middle');
+      console.log('');
+      console.log();
+    }
+    return 'reached the return';
+  }
   const encoder = new TextEncoder();
   if(source==='text') {
     const labels=['UTF-8',' utf8 ','unicode-1-1-utf-8','unicode11utf8','unicode20utf8','x-unicode20utf8'].map(s=>new TextDecoder(s).encoding);

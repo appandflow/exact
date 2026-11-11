@@ -46,6 +46,8 @@ mod real {
             host: HostFn,
             bytes: BytesFn,
             ctx: *mut c_void,
+            console: *const u8,
+            console_len: usize,
             queue: *const c_void,
             bindings: *const c_void,
             grants: *const c_void,
@@ -92,7 +94,11 @@ mod real {
         ) -> i32;
         fn exact_js_drain(h: *mut c_void, out: *mut *mut c_char) -> i32;
         fn exact_js_interrupt(h: *mut c_void);
-        fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char, len: *mut usize);
+        fn exact_js_take_log(
+            h: *mut c_void,
+            ctx: *mut c_void,
+            record: unsafe extern "C" fn(*mut c_void, *const u8, usize),
+        );
         fn exact_js_free(p: *mut c_char);
         fn exact_js_destroy(h: *mut c_void);
     }
@@ -132,20 +138,6 @@ mod real {
         s
     }
 
-    /// An owned shim string of `len` bytes, which may hold U+0000.
-    fn take_len(out: *mut c_char, len: usize) -> String {
-        if out.is_null() {
-            return String::new();
-        }
-        // SAFETY: the shim malloc'd `len` bytes (and a NUL) and handed us
-        // ownership; it is freed exactly once, here.
-        let s =
-            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(out as *const u8, len) })
-                .into_owned();
-        unsafe { exact_js_free(out) };
-        s
-    }
-
     fn c(s: &str) -> Result<CString, String> {
         CString::new(s).map_err(|_| "a NUL byte in a string crossing the seam".to_string())
     }
@@ -178,15 +170,19 @@ mod real {
                     len: script.bytes.len(),
                 })
                 .collect::<Vec<_>>();
+            let console = include_bytes!(concat!(env!("OUT_DIR"), "/console.hbc"));
             // SAFETY: the shim returns null or a pointer we own until destroy;
             // `ctx` and Context outlive the engine. Installation consumes the
-            // script descriptors synchronously and retains its own JSI roots.
+            // script descriptors synchronously and retains its own JSI roots;
+            // the console bytecode is static.
             let h = unsafe {
                 exact_js_create(
                     max_heap_bytes,
                     host,
                     bytes,
                     ctx,
+                    console.as_ptr(),
+                    console.len(),
                     context.state_ptr(),
                     context.bindings_ptr().cast(),
                     context.grants_ptr(),
@@ -421,15 +417,25 @@ mod real {
         }
 
         pub fn take_log(&mut self) -> Vec<String> {
-            let (mut out, mut len): (*mut c_char, usize) = (std::ptr::null_mut(), 0);
-            // SAFETY: `out` receives an owned string of `len` bytes.
-            unsafe { exact_js_take_log(self.0, &mut out, &mut len) };
-            let text = take_len(out, len);
-            if text.is_empty() {
-                Vec::new()
-            } else {
-                text.lines().map(str::to_string).collect()
+            unsafe extern "C" fn record(ctx: *mut c_void, bytes: *const u8, len: usize) {
+                // SAFETY: the shim borrows each record for this call, even when
+                // empty; `ctx` exclusively borrows the Vec until the drain returns.
+                let (logs, text) = unsafe {
+                    (
+                        &mut *ctx.cast::<Vec<String>>(),
+                        String::from_utf8_lossy(std::slice::from_raw_parts(bytes, len)),
+                    )
+                };
+                if text.is_empty() {
+                    logs.push(String::new());
+                } else {
+                    logs.extend(text.lines().map(str::to_string));
+                }
             }
+            let mut logs = Vec::<String>::new();
+            // SAFETY: the live engine calls `record` synchronously with this Vec.
+            unsafe { exact_js_take_log(self.0, (&mut logs as *mut Vec<String>).cast(), record) };
+            logs
         }
     }
 
