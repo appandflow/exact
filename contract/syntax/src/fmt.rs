@@ -335,25 +335,41 @@ impl<'a> Layout<'a> {
             }
             for resource in &component.resources {
                 self.ty(&resource.shape);
-                // A list's `key=`, tight as a `for` row's: the first `key`
-                // and `=` after its `for`.
-                let each = resource.each.as_ref().filter(|e| e.key.is_some());
-                if let Some(at) = each.and_then(|e| self.position(e.span)) {
-                    let word = (at..self.tokens.len()).find(|&j| {
-                        self.tokens[j].kind == TokenKind::Ident("key".into())
-                            && self.tokens.get(j + 1).map(|t| &t.kind)
-                                == Some(&TokenKind::Punct("="))
-                    });
-                    if let Some(j) = word {
-                        self.attributes.insert(self.tokens[j].span);
-                    }
+                if let Some(each) = &resource.each {
+                    self.keys(each.span);
                 }
             }
             for mutation in &component.mutations {
                 self.ty(&mutation.shape);
             }
+            for span in component
+                .tasks
+                .iter()
+                .map(|t| t.span)
+                .chain(component.sequences.iter().map(|s| s.span))
+            {
+                self.keys(span);
+            }
             self.nodes(&component.view);
         }
+    }
+
+    fn keys(&mut self, span: Span) {
+        let Some(start) = self.position(span) else {
+            return;
+        };
+        // A header can also contain named `key=` arguments; all stay tight.
+        // Stop at its logical newline so a body's `key = value` stays an assignment.
+        self.attributes.extend(
+            self.tokens[start..]
+                .windows(2)
+                .take_while(|pair| !matches!(pair[0].kind, TokenKind::Newline | TokenKind::Eof))
+                .filter(|pair| {
+                    matches!(&pair[0].kind, TokenKind::Ident(name) if name == "key")
+                        && pair[1].kind == TokenKind::Punct("=")
+                })
+                .map(|pair| pair[0].span),
+        );
     }
 
     fn ty(&mut self, ty: &TypeExpr) -> usize {
@@ -368,7 +384,12 @@ impl<'a> Layout<'a> {
                 self.type_angles.insert(self.tokens[end].span);
                 end + 1
             }
-            TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
+            TypeExpr::List(inner, _) => {
+                let end = self.ty(inner);
+                self.type_angles.insert(self.tokens[end].span);
+                end + 2
+            }
+            TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);
                 self.type_angles.insert(self.tokens[end].span);
@@ -436,7 +457,10 @@ impl<'a> Layout<'a> {
                     self.header(*span, args, true, None);
                     self.nodes(children);
                 }
-                Node::Each { body, .. } => self.nodes(body),
+                Node::Each { body, span, .. } => {
+                    self.keys(*span);
+                    self.nodes(body);
+                }
                 Node::When {
                     then, otherwise, ..
                 } => {

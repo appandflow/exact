@@ -260,6 +260,82 @@ test "é test"
 }
 
 #[test]
+fn nested_list_types_keep_their_brackets_tight() {
+    for ty in [
+        "number[]",
+        "option<number[]>",
+        "string[][]",
+        "option<string>[]",
+        "number[][][]",
+        "option<number[][]>",
+        "option<option<number[]>[]>[]",
+        "enum<\"a\", \"b\">[][]",
+    ] {
+        let src = format!(
+            r#"shape Record
+  values: {ty}
+
+fn identity(values: {ty}): {ty} = values
+
+component App
+  props
+    values: {ty}
+  inject
+    other: {ty}
+  resource rows = source() as shape {ty}
+  mutation result as shape {ty}
+  action set(next: {ty})
+    values = next
+  view
+    text "ready"
+"#
+        );
+        assert_eq!(preserved(&src), src, "type: {ty}");
+    }
+}
+
+#[test]
+fn loop_and_gate_keys_use_attribute_spacing() {
+    let src = r#"component App
+  state xs = [1, 2]
+  state on = true
+  state key = 0
+  action tick
+    key = key + 1
+  resource rows = source(x) for x in xs key=x as shape Row
+  resource selected = source(x) for x in select(key=key) key=x as shape Row
+  resource unkeyed = source(x) for x in xs as shape Row
+  task t when on key=key
+    after(1000, tick)
+  task keyed key=key
+    after(1000, tick)
+  task conditional when check(key=key) key=(key + 1)
+    after(1000, tick)
+  task mounted mount
+    after(1000, tick)
+  sequence s when on key=key
+    play(xs, bpm=120)
+  sequence keyed key=key
+    play(xs, bpm=120)
+  sequence conditional when check(key=key) key=(key + 1)
+    play(xs, bpm=120)
+  sequence unkeyed when on
+    play(xs, bpm=120)
+  view
+    column
+      for x in xs key=x
+        text `${x}${key}`
+      for x, i in select(key=key) key=(x + i)
+        for y in xs key=(
+          x + y
+        )
+          text y
+"#;
+    assert_eq!(preserved(src), src);
+    assert_eq!(preserved(&src.replace("key=", "key = ")), src);
+}
+
+#[test]
 fn argument_equals_on_the_next_line_keeps_attribute_spacing() {
     let src = "component A\n  view\n    Row(\n      first\n      = \"雪\",\n      second\n      = 2\n    )\n";
     let expected = "component A\n  view\n    Row(\n      first\n      =\"雪\",\n      second\n      =2\n    )\n";

@@ -262,7 +262,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
     }
     assert_eq!(
         contract_syntax::fmt::format("component App\n  resource keys = keys(false) as shape string[]\n  view\n    column\n      for k ,  i in keys key=k\n        text k\n").unwrap(),
-        "component App\n  resource keys = keys(false) as shape string[]\n  view\n    column\n      for k, i in keys key = k\n        text k\n"
+        "component App\n  resource keys = keys(false) as shape string[]\n  view\n    column\n      for k, i in keys key=k\n        text k\n"
     );
 }
 

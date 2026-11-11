@@ -1,6 +1,7 @@
 # `contract fmt` writes `key = x` on a `for` row and a gate, and `string[] []` and `option<number[] >` for a list inside a type
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The formatter keeps loop and gate keys tight and consumes both list brackets before formatting an enclosing type.
 **Systems:** contract/syntax/src/fmt.rs (`Layout`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
