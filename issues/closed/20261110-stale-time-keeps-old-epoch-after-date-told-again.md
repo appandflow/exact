@@ -1,6 +1,7 @@
 # A stale time an answer named stays at the old epoch when the host tells the date again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Live sources retain Unix stale times and use the current epoch for refreshes and host wake deadlines.
 **Systems:** `runner/src/runner/modules/stale.rs`, `runner/src/runner/time.rs`
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

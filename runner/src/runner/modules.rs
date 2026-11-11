@@ -156,8 +156,8 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
-    /// When each live source's last answer goes stale, on the session's
-    /// clock; infinite once asked (`stale.rs`).
+    /// When each live source's last answer goes stale, as Unix milliseconds;
+    /// infinite once asked (`stale.rs`).
     stale: BTreeMap<String, f64>,
     /// What each package view's implementation was told (`views.rs`).
     views: views::Views,
