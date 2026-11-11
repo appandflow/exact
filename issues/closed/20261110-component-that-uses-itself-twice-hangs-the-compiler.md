@@ -1,6 +1,7 @@
 # A component that uses itself twice hangs `contract build` while its memory grows without bound
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The inliner keeps the components on the current expansion path and refuses a use of one already on it, at once, naming the cycle; a slot's fill is inlined with its use site's path.
 **Systems:** contract/syntax/src/inline/use_node.rs, contract build
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -306,6 +306,12 @@ fn expand_with_sites(
         discarded_slots: &discarded_slots,
         counter: &mut counter,
         depth: 0,
+        path: file
+            .components
+            .first()
+            .map(|c| c.name.clone())
+            .into_iter()
+            .collect(),
         site_depth: 0,
         provides: Vec::new(),
         fill: None,
@@ -398,6 +404,9 @@ struct Ctx<'a> {
     discarded_slots: &'a BTreeSet<String>,
     counter: &'a mut u32,
     depth: u32,
+    /// The components whose views are being inlined, outermost first: a use
+    /// of one of them is recursion, which never terminates.
+    path: Vec<String>,
     /// Emitted view/region sites above the node being expanded. A component
     /// use and a slot's `children` are replaced, so neither consumes a site.
     site_depth: usize,
@@ -443,6 +452,8 @@ struct Fill {
     provides: Vec<(String, Expr)>,
     outer: Option<Rc<Fill>>,
     instance: u32,
+    /// The use site's component path: a use in the fill is that site's.
+    path: Vec<String>,
 }
 
 impl Ctx<'_> {
@@ -501,12 +512,14 @@ fn inline_nodes(
                     let provides = std::mem::replace(&mut ctx.provides, fill.provides.clone());
                     let outer_fill = std::mem::replace(&mut ctx.fill, fill.outer.clone());
                     let outer_instance = std::mem::replace(&mut ctx.instance, fill.instance);
+                    let outer_path = std::mem::replace(&mut ctx.path, fill.path.clone());
                     let mut site =
                         Subst::new(&fill.subst, ctx.records).with_value_only(&fill.value_only);
                     let nodes = inline_nodes(&fill.nodes, &mut site, ctx);
                     ctx.provides = provides;
                     ctx.fill = outer_fill;
                     ctx.instance = outer_instance;
+                    ctx.path = outer_path;
                     out.extend(nodes?);
                 }
                 None => ctx.refuse(

@@ -2,6 +2,29 @@
 
 use super::*;
 
+/// Refuse a use of `name`, which `ctx.path` holds at `at`: out of line, so
+/// `inline_use`'s frame, which recursion repeats, stays small.
+#[cold]
+#[inline(never)]
+fn refuse_recursion(ctx: &mut Ctx<'_>, name: &str, at: usize, span: crate::Span) {
+    let via = match &ctx.path[at + 1..] {
+        [] => String::new(),
+        names => format!(
+            " (through {})",
+            names
+                .iter()
+                .map(|n| format!("`{n}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    ctx.refuse(
+        "syntax-inline-depth",
+        format!("component `{name}` uses itself{via}: a component cannot recurse (LLP 1017.002); draw a tree's levels as rows of a `for` over its flattened list"),
+        span,
+    );
+}
+
 #[inline(never)]
 pub(super) fn inline_use(
     node: &Node,
@@ -30,6 +53,12 @@ pub(super) fn inline_use(
         ctx.refuse("syntax-unknown-component", message, *span);
         return Ok(Vec::new());
     };
+    // A use of a component already being inlined above it never ends; with
+    // two such uses, expansion doubled for 32 levels before the depth bound.
+    if let Some(at) = ctx.path.iter().position(|c| c == name) {
+        refuse_recursion(ctx, name, at, *span);
+        return Ok(Vec::new());
+    }
     // Renaming walks the child's authored tree while the caller's inline
     // frames remain live. Refuse an over-deep expansion before that walk.
     if exceeds_site_budget(&c.view, ctx.file, ctx.discarded_slots, ctx.site_depth) {
@@ -353,6 +382,7 @@ pub(super) fn inline_use(
             provides: ctx.provides.clone(),
             outer: ctx.fill.clone(),
             instance: ctx.instance,
+            path: ctx.path.clone(),
         })
     });
     // Rename only the view: declarations were lifted above.
@@ -367,7 +397,9 @@ pub(super) fn inline_use(
             .push((b.name.clone(), subst_expr(&b.expr, &mut child)));
     }
     ctx.depth += 1;
+    ctx.path.push(name.clone());
     let body = inline_nodes(&renamed, &mut child, ctx);
+    ctx.path.pop();
     ctx.depth -= 1;
     ctx.provides.truncate(outer_provides);
     ctx.fill = outer_fill;
