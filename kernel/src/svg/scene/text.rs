@@ -113,7 +113,7 @@ impl Resolver<'_, '_> {
         let mut space = true;
         self.runs(node, style, vp, &mut chunks, &mut space, true);
         for chunk in &mut chunks {
-            if let Some(last) = chunk.runs.last_mut() {
+            if let Some(last) = chunk.runs.iter_mut().rev().find(|r| !r.text.is_empty()) {
                 if last.text.ends_with(' ') {
                     last.text.pop();
                 }

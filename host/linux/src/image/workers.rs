@@ -468,8 +468,8 @@ impl Backend {
                             source.clone(),
                         )))
                     }
-                    svg_picture::Decoded::Later(scene) => {
-                        later = Some((scene, scale, plan, source.clone()));
+                    svg_picture::Decoded::Later(scene, fonts) => {
+                        later = Some((scene, fonts, scale, plan, source.clone()));
                         Err(Refusal::Paused)
                     }
                 };
@@ -508,10 +508,11 @@ impl Backend {
             Err(Refusal::Paused) if later.is_some() => {
                 // A picture with text waits for the paint thread, its permit
                 // with it (LLP 1011.001 D3).
-                let (scene, scale, plan, source) = later.unwrap();
+                let (scene, fonts, scale, plan, source) = later.unwrap();
                 self.pictures.lock().unwrap().push(svg_picture::Pending {
                     permit,
                     scene,
+                    fonts,
                     css: svg_picture::css_size(plan.pixels, scale),
                     scale,
                     natural: plan.natural(),

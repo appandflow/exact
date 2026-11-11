@@ -8,7 +8,11 @@
 
 mod css;
 mod lower;
+mod values;
 mod xml;
+
+#[cfg(test)]
+mod text_tests;
 
 pub use lower::{MAX_DEPTH, MAX_ELEMENTS};
 
@@ -106,6 +110,10 @@ impl Natural {
 /// A length with an absolute unit in CSS pixels; `None` for a percentage
 /// or a unit no picture resolves. `em` and `rem` are the initial 16 px.
 fn absolute_length(text: &str) -> Option<f32> {
+    length_pixels(text, true).filter(|n| *n > 0.0)
+}
+
+fn length_pixels(text: &str, initial_font: bool) -> Option<f32> {
     let text = text.trim();
     // The longest prefix that is a number: `2em` is 2 and `em`, not `2e` and `m`.
     let split = (1..=text.len())
@@ -113,20 +121,22 @@ fn absolute_length(text: &str) -> Option<f32> {
         .find(|&i| text.is_char_boundary(i) && exact_num::parse_f64(&text[..i]).is_ok())?;
     let (number, unit) = text.split_at(split);
     let n = exact_num::parse_f64(number).ok()? as f32;
-    if !n.is_finite() || n <= 0.0 {
+    if !n.is_finite() || n < 0.0 {
         return None;
     }
-    let per = match unit.trim() {
+    let per = match unit.trim().to_ascii_lowercase().as_str() {
         "" | "px" => 1.0,
         "pt" => 4.0 / 3.0,
         "pc" => 16.0,
         "mm" => 96.0 / 25.4,
         "cm" => 96.0 / 2.54,
         "in" => 96.0,
-        "em" | "rem" => 16.0,
+        "q" => 96.0 / 101.6,
+        "em" | "rem" if initial_font => 16.0,
         _ => return None,
     };
-    Some(n * per)
+    let pixels = n * per;
+    pixels.is_finite().then_some(pixels)
 }
 
 /// A parsed document: the ops that build it in a scratch kernel, under a
@@ -145,6 +155,9 @@ pub struct Document {
     /// Whether the picture has text, which a host draws where its fonts
     /// are (D3).
     pub text: bool,
+    /// Image-local font stacks, indexed from 8 after the built-in generics.
+    /// Each member is `(installed_family, name)`; false names a generic.
+    pub fonts: Vec<Vec<(bool, String)>>,
 }
 
 /// Whether `bytes` begin an SVG document: optional BOM, white space,
@@ -233,6 +246,8 @@ pub fn load(text: &str) -> Result<Loaded, Error> {
 impl Loaded {
     /// The scene at a concrete object size of `width` × `height` CSS pixels
     /// (D3): user units to that box, `preserveAspectRatio` honoured.
+    /// Runs use the image-local stack ids in [`Document::fonts`]; the host
+    /// installs those stacks before drawing.
     pub fn scene(&self, width: f32, height: f32) -> Scene {
         let node = self
             .kernel
@@ -275,11 +290,10 @@ impl Loaded {
 mod tests {
     use super::*;
 
-    /// A refused value is shortened by characters for its warning: a byte slice
-    /// inside a CJK family name panicked, and a panic aborts the app.
+    /// Warning truncation must not split a multibyte character.
     #[test]
     fn a_long_refused_value_with_wide_characters_loads() {
-        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><text x="0" y="15" font-family="'游ゴシック体', YuGothic, '游ゴシック Medium', 'Yu Gothic Medium', sans-serif">こんにちは</text></svg>"#;
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><text x="0" y="15" font-style="'游ゴシック体', YuGothic, '游ゴシック Medium', 'Yu Gothic Medium', sans-serif">こんにちは</text></svg>"#;
         assert!(load(svg).is_ok());
     }
 

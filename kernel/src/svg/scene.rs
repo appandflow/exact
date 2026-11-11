@@ -341,7 +341,31 @@ type Rect4 = (f32, f32, f32, f32);
 fn cascade(node: &NodeRef<'_>, inherited: &StyleProps) -> StyleProps {
     let mut style = node.style.clone();
     style.copy_rows(inherited, StyleMask::INHERITED.minus(node.style.mask));
+    if let Some(weight) = node
+        .props
+        .str(PropId::SvgRelativeFontWeight)
+        .and_then(|keyword| relative_font_weight(keyword, inherited.font_weight))
+    {
+        style.font_weight = weight;
+    }
     style
+}
+
+/// CSS Fonts 4 §2.2.1: a relative weight against the parent's computed weight.
+pub fn relative_font_weight(keyword: &str, inherited: u16) -> Option<u16> {
+    match keyword {
+        "bolder" => Some(match inherited {
+            0..350 => 400,
+            350..550 => 700,
+            _ => inherited.max(900),
+        }),
+        "lighter" => Some(match inherited {
+            0..550 => inherited.min(100),
+            550..750 => 400,
+            _ => 700,
+        }),
+        _ => None,
+    }
 }
 
 impl Resolver<'_, '_> {

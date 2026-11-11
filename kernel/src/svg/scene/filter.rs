@@ -439,8 +439,7 @@ impl Resolver<'_, '_> {
             (true, Some(b)) => (b.2, b.3),
             _ => (1.0, 1.0),
         };
-        let inherited = f.arena.computed_rows(f.slot, StyleMask::INHERITED);
-        let fstyle = cascade(f, &inherited);
+        let fstyle = f.arena.computed_rows(f.slot, StyleMask::INHERITED);
         let base = chain.primitives.len() as u16;
         let source = chain.source();
         let mut names: Vec<(&str, u16)> = Vec::new();

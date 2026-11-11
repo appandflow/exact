@@ -813,14 +813,15 @@ fn text_resolves_into_chunks_of_runs() {
     let b = d.node(
         SvgTSpan,
         &[(StyleId::Fill, "#16a34a")],
-        &[(PropId::Text, "+4%"), (PropId::TextDx, "2")],
+        &[(PropId::Text, "+4% "), (PropId::TextDx, "2")],
     );
     let c = d.node(
         SvgTSpan,
         &[],
         &[(PropId::Text, "next"), (PropId::TextY, "30")],
     );
-    d.children(text, &[a, b, c]);
+    let blank = d.node(SvgTSpan, &[], &[(PropId::Text, " \n ")]);
+    d.children(text, &[a, b, blank, c]);
     d.children(svg, &[text]);
     let k = d.kernel(&[svg], 400.0);
     let s = resolve(&k, svg);

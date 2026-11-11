@@ -1,6 +1,7 @@
 # Text in an SVG image loses the `tspan`s beside character data, and the spaces between spans
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** SVG images preserve mixed character data and tspans in document order, collapse spaces across runs, and trim only each text chunk's edges.
 **Systems:** host/svg-file/src/lower.rs, kernel/src/svg/scene/text.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

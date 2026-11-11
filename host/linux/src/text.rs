@@ -687,6 +687,13 @@ impl TextEngine {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
     }
 
+    /// A picture owns its stack ids independently of the app's catalog.
+    pub(crate) fn for_svg(families: &[Vec<(bool, String)>]) -> Shared {
+        let mut catalog = catalog::Catalog::new();
+        catalog.install_picture(families);
+        Rc::new(RefCell::new(Self::with_catalog(catalog)))
+    }
+
     /// Add newly interned installed-family lists before the next measure.
     pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
         let added = self.catalog.borrow_mut().install_runtime(compiled, lists);

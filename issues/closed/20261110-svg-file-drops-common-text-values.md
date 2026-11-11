@@ -1,6 +1,7 @@
 # Text in an SVG image draws `font-weight="bold"` at regular weight and ignores every `font-family`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** SVG images resolve their own font stacks and convert weight keywords, absolute font sizes, oblique style, and percentage opacities for native drawing.
 **Systems:** host/svg-file/src/lower.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

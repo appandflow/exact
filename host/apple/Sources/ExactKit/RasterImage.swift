@@ -532,7 +532,7 @@ final class RasterImage: @unchecked Sendable {
     /// An SVG drawn at the plan's size (LLP 1011.001 D3, D4): the file
     /// parsed and resolved in Rust at the plan's size in CSS pixels, its scene
     /// rendered as an island is (`SvgIsland.render`), on the main thread when
-    /// it has text (where the session's fonts are) and here otherwise, into
+    /// it has text and here otherwise, using the image's own font stacks, into
     /// the plan's storage. Animation is ignored and nothing is dark: a
     /// picture does not follow the page's scheme, as a browser's `<img>`
     /// does not.
@@ -557,7 +557,7 @@ final class RasterImage: @unchecked Sendable {
                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             }
             return SvgIsland.render(els, rect: CGRect(origin: .zero, size: css), w: plan.width, h: plan.height, k: plan.scale,
-                                    transform: transform, flip: true, dark: false, fonts: nil)
+                                    transform: transform, flip: true, dark: false, fonts: flags & 1 != 0 ? SvgText.imageFonts(spec["fonts"]) : nil)
         }
         let context = flags & 1 != 0 && !Thread.isMainThread ? DispatchQueue.main.sync(execute: render) : render()
         guard let context else { throw RasterFailure.svg("the picture did not render at \(plan.width)×\(plan.height)") }

@@ -13,7 +13,7 @@
 //! the referencing element's user space (a mask) or in pattern space (a
 //! pattern's tile). How the items become pixels is each host's.
 
-use super::{cascade, Item, Kind, Resolver, Transform, Viewport};
+use super::{Item, Kind, Resolver, Transform, Viewport};
 use crate::generated::{MaskType, NodeType, PropId, StyleId, StyleMask};
 use crate::kernel::NodeRef;
 use crate::style::Dimension;
@@ -219,10 +219,9 @@ impl Resolver<'_, '_> {
         let transform = prop(PropId::PatternTransform)
             .and_then(TransformList::parse)
             .map_or(tf::IDENTITY, |t| t.matrix());
-        let inherited = holder
+        let style = holder
             .arena
             .computed_rows(holder.slot, StyleMask::INHERITED);
-        let style = cascade(holder, &inherited);
         let inner = match vb {
             Some(b) => Viewport {
                 width: b.width,
