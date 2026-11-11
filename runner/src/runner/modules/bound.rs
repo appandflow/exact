@@ -171,9 +171,14 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let key = self.key(row);
-        let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
-        if self.route(row) == Route::Agent {
-            if let Some(preferred) = self.extensions.preferred.get(&key) {
+        let member = self.member_forward(row, &args);
+        let (name, implementation) = member
+            .as_ref()
+            .map(|(option, member)| (option.as_str(), member))
+            .unwrap_or((self.plan.str(row.declared), row));
+        let mut body = json!({ "extension": self.plan.str(implementation.extension), verb: name, "args": args });
+        if self.route(implementation) == Route::Agent {
+            if let Some(preferred) = self.extensions.preferred.get(&self.key(implementation)) {
                 body["preferred"] = preferred.clone();
             }
         }

@@ -1151,6 +1151,14 @@ impl<D: DataSource> Runner<D> {
                 let mut body = self.as_origin(origin, |r| r.forward_body(&row, args, None));
                 if let Some(n) = v["request"].as_u64() {
                     body = numbered(&body, n);
+                    let ticket = self
+                        .extensions
+                        .sent
+                        .iter()
+                        .find_map(|(t, (_, sent))| (*sent == n).then_some(*t));
+                    if let Some(ticket) = ticket {
+                        self.note_send(ticket, &body);
+                    }
                 }
                 let anchored = self.anchor_body(&row, &body, origin);
                 // A reply carrying handles grants them the handlers its call
