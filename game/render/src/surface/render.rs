@@ -58,6 +58,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             resting: false,
             idle_tick: None,
             samples: None,
+            timing: Default::default(),
         }
     }
 }
@@ -371,6 +372,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let hook_time = if H::ENABLED {
             self.hook_clock.frame(
                 frame,
+                &self.timing,
                 sim.world().presentation_generation(),
                 G::paused(sim.args()),
             )

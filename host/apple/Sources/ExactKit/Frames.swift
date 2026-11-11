@@ -60,6 +60,10 @@ package final class Frames: NSObject {
         // can remain the nominal base interval. The target interval is actual;
         // canvases quantizes it and republishes this session’s stable class before rendering.
         s.canvases.period((link.targetTimestamp - link.timestamp) * 1000)
+        if s.clock == nil {
+            s.canvases.hostFrame(raw: (link.timestamp - ExactEnv.t0) * 1000, callback: (CACurrentMediaTime() - ExactEnv.t0) * 1000,
+                fastest: 1000 / Double(max(1, maximumFramesPerSecond)))
+        }
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }

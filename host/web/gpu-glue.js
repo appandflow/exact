@@ -442,6 +442,8 @@ function frame(now) {
   // Bootstrap and subsequent stable fits reach the module once per real change.
   const period = pace.period_ms;
   if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
+  // The callback's own time and when it ran, for a world's FrameView.time; the web has no thermal state.
+  gpu?.gpu_host_frame?.(now, performance.now(), 0, 0);
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id || entry.terminal) continue;

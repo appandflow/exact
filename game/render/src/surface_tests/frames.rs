@@ -1,5 +1,5 @@
-//! Render on demand, the frame-rate cap and runtime scene samples:
-//! presentation only, never the world.
+//! Render on demand, the frame-rate cap, runtime scene samples and the
+//! frame's timing facts: presentation only, never the world.
 use super::*;
 use exact_game::{Quality, SceneSamples};
 
@@ -144,19 +144,58 @@ fn the_agents_clock_never_rests() {
 }
 
 #[derive(Default)]
-struct Capped;
+struct Capped {
+    seen: Option<exact_gpu::FrameTiming>,
+}
 impl crate::Hooks for Capped {
+    fn prepare(
+        &mut self,
+        _: &crate::HookGpu<'_>,
+        view: &crate::FrameView<'_>,
+        _: &crate::RenderWorld<'_>,
+    ) -> Result<(), crate::RenderError> {
+        let t = view.time;
+        self.seen = Some(exact_gpu::FrameTiming {
+            interval_ms: t.interval_ms,
+            display_period_ms: t.display_period_ms,
+            host: t.host,
+            thermal_state: t.thermal_state,
+        });
+        Ok(())
+    }
     fn max_fps(&self) -> u32 {
-        30
+        if self
+            .seen
+            .is_some_and(|t| t.thermal_state >= exact_gpu::ThermalState::Serious)
+        {
+            30
+        } else {
+            0
+        }
     }
 }
 
 #[test]
-fn the_lower_cap_stands() {
+fn the_lower_cap_stands_and_the_hooks_read_the_frames_timing() {
+    let Some(gpu) = gpu() else { return };
     let mut s = WorldSurface::<Dice, (), false, Capped>::default();
     s.bind(&args(true, 0, 60), None).unwrap();
     use exact_gpu::Surface as _;
-    assert_eq!(s.max_fps(), 30, "the hook's is lower");
+    assert_eq!(s.max_fps(), 60, "the game's alone");
+    let timing = exact_gpu::FrameTiming {
+        interval_ms: 16.5,
+        display_period_ms: PERIOD,
+        host: exact_gpu::HostTiming {
+            raw_ms: 99.0,
+            callback_ms: 100.5,
+            fastest_period_ms: 1000.0 / 120.0,
+        },
+        thermal_state: exact_gpu::ThermalState::Serious,
+    };
+    s.timing(&timing);
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    assert_eq!(s.render_hooks().seen, Some(timing));
+    assert_eq!(s.max_fps(), 30, "the hook's thermal cap is lower");
     s.bind(&args(true, 0, 24), None).unwrap();
     assert_eq!(s.max_fps(), 24, "the game's is lower");
     s.bind(&args(true, 0, 0), None).unwrap();
@@ -190,3 +229,32 @@ fn new_scene_samples_make_the_renderer_again_under_the_same_world() {
     assert!(s.render.is_some());
 }
 
+/// A live argument steps the raster scale at the next frame: the module reads
+/// `render_scale` at every render.
+#[test]
+fn a_live_render_scale_steps_at_the_next_frame() {
+    #[derive(Default, exact_game::Args)]
+    struct Scaled {
+        #[live]
+        quarter: bool,
+    }
+    struct Stepper;
+    impl Game for Stepper {
+        const ID: &'static str = "frames-render-scale";
+        type Args = Scaled;
+        fn render_scale(args: &Scaled) -> f32 {
+            if args.quarter {
+                0.25
+            } else {
+                1.0
+            }
+        }
+        fn setup(_: &mut World, _: &Scaled) {}
+        fn tick(_: &mut World, _: &Input, _: &Scaled) {}
+    }
+    let mut s = WorldSurface::<Stepper>::default();
+    s.bind(&[Value::Bool(false)], None).unwrap();
+    assert_eq!(exact_gpu::Surface::render_scale(&s), 1.0);
+    s.bind(&[Value::Bool(true)], None).unwrap();
+    assert_eq!(exact_gpu::Surface::render_scale(&s), 0.25);
+}

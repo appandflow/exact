@@ -130,7 +130,10 @@ final class GpuModule {
 
     typealias SeekableFn = @convention(c) (Bool) -> Void
     typealias PeriodFn = @convention(c) (Double) -> Void
+    typealias HostFrameFn = @convention(c) (Double, Double, Double, UInt32) -> Void
     typealias DueFn = @convention(c) (UInt32, Double) -> UInt32
+    /// The display callback (raw timestamp, when it ran, fastest period) and the thermal state's code.
+    var hostFrame: HostFrameFn?
     /// Whether a canvas's next frame is due at a frame time under its cap (`Module::due`), and its cap.
     var due: DueFn?
     var maxFps: WantsFn?
@@ -321,6 +324,7 @@ final class GpuModule {
         module.observeDevice()
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
+        module.hostFrame = sym("gpu_host_frame", HostFrameFn.self)
         module.due = sym("gpu_due", DueFn.self)
         module.maxFps = sym("gpu_max_fps", WantsFn.self)
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)

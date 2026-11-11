@@ -1,9 +1,71 @@
-//! A canvas's draw cadence: a frame-rate cap ([`crate::Surface::max_fps`])
-//! held by a draw deadline on the lattice of the cap's interval, so a cap
-//! below the display's rate draws on a steady share of its callbacks. Nothing
-//! here reaches saved state.
+//! A canvas's draw cadence and the timing facts its surface reads: a
+//! frame-rate cap ([`crate::Surface::max_fps`]) held by a draw deadline on the
+//! lattice of the cap's interval, so a cap below the display's rate draws on
+//! a steady share of its callbacks; and the last frame's interval, the
+//! display's period, the host's callback timing and the device's thermal
+//! state ([`FrameTiming`]). Nothing here reaches saved state.
 
 use crate::Module;
+
+/// The device's thermal state as the platform reports it: Apple's
+/// `ProcessInfo.ThermalState` with an unknown below it. A host without a
+/// cheap source reports `Unknown`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum ThermalState {
+    /// The host does not say.
+    #[default]
+    Unknown = 0,
+    /// Within normal limits.
+    Nominal = 1,
+    /// Slightly elevated.
+    Fair = 2,
+    /// High: the system is reducing performance.
+    Serious = 3,
+    /// Critical: the app should reduce its work at once.
+    Critical = 4,
+}
+
+impl ThermalState {
+    /// The host ABI's code, 0 unknown to 4 critical; any other is unknown.
+    pub fn from_code(code: u32) -> Self {
+        match code {
+            1 => Self::Nominal,
+            2 => Self::Fair,
+            3 => Self::Serious,
+            4 => Self::Critical,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The host's display callback that drew a frame, on the host's clock in
+/// milliseconds (the clock of [`crate::Frame::now_ms`]); zero while unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HostTiming {
+    /// The callback's own timestamp before any pacing: a web frame's
+    /// `requestAnimationFrame` time, a `CADisplayLink`'s `timestamp`.
+    pub raw_ms: f64,
+    /// When the host's callback began to run; less `raw_ms`, how late it ran.
+    pub callback_ms: f64,
+    /// The display's fastest period (Apple's `maximumFramesPerSecond`).
+    pub fastest_period_ms: f64,
+}
+
+/// What a surface may adapt to (a render-scale controller, a thermal cap),
+/// delivered before each frame it draws ([`crate::Surface::timing`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FrameTiming {
+    /// Milliseconds since this canvas's previous drawn frame; 0 for its first
+    /// and for the first after it rested.
+    pub interval_ms: f64,
+    /// The display's period as the host knows it ([`crate::Frame::period_ms`]).
+    pub display_period_ms: f64,
+    /// The host's callback.
+    pub host: HostTiming,
+    /// The device's thermal state.
+    pub thermal_state: ThermalState,
+}
 
 /// One canvas's draws: when its next is due under the cap, and when its last was.
 #[derive(Debug, Default, Clone, Copy)]
@@ -97,6 +159,10 @@ impl Cadence {
         *self = Self::default();
     }
 
+    /// The interval a frame at `now` would report.
+    pub(crate) fn interval(&self, now: f64) -> f64 {
+        self.last_ms.map_or(0.0, |last| (now - last).max(0.0))
+    }
 }
 
 /// The lower of two caps, either 0 for none.
@@ -130,6 +196,31 @@ impl Module {
                 .is_none_or(|i| i.cadence.due(i.surface.max_fps(), now_ms, self.period_ms))
     }
 
+    /// The host's display callback for the frames that follow; codes as [`ThermalState::from_code`].
+    pub fn set_host_timing(&mut self, host: HostTiming, thermal: ThermalState) {
+        let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+        self.host = (
+            HostTiming {
+                raw_ms: finite(host.raw_ms),
+                callback_ms: finite(host.callback_ms),
+                fastest_period_ms: finite(host.fastest_period_ms).max(0.0),
+            },
+            thermal,
+        );
+    }
+
+    /// The facts canvas `id`'s frame at `now_ms` reads.
+    pub(crate) fn timing(&self, id: u32, now_ms: f64) -> FrameTiming {
+        FrameTiming {
+            interval_ms: self
+                .instances
+                .get(&id)
+                .map_or(0.0, |i| i.cadence.interval(now_ms)),
+            display_period_ms: self.period_ms,
+            host: self.host.0,
+            thermal_state: self.host.1,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -258,9 +349,11 @@ mod tests {
         let mut c = Cadence::default();
         c.drew(30, 0.0, period);
         assert!(!c.due(30, period, period));
+        assert_eq!(c.interval(period), period);
         // Resting, then dirty at any moment: the frame draws now.
         c.rest();
         assert!(c.due(30, 3.0, period));
+        assert_eq!(c.interval(3.0), 0.0, "no interval after a rest");
         c.drew(30, 3.0, period);
         assert!(!c.due(30, 3.0 + 2.0 * period, period));
         // Raised to 120: the next frame is due one new interval after the last draw.
@@ -272,6 +365,24 @@ mod tests {
         assert!(c.due(30, 3.0 + 5.0 * period, period));
         // No cap: every frame.
         assert!(c.due(0, 3.0 + 1.5 * period, period));
+    }
+
+    #[test]
+    fn thermal_codes_are_the_hosts_and_any_other_is_unknown() {
+        for (code, state) in [
+            (0, ThermalState::Unknown),
+            (1, ThermalState::Nominal),
+            (2, ThermalState::Fair),
+            (3, ThermalState::Serious),
+            (4, ThermalState::Critical),
+            (5, ThermalState::Unknown),
+            (u32::MAX, ThermalState::Unknown),
+        ] {
+            assert_eq!(ThermalState::from_code(code), state);
+            if state != ThermalState::Unknown {
+                assert_eq!(state as u32, code);
+            }
+        }
     }
 
     #[test]

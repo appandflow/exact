@@ -93,6 +93,8 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     idle_tick: Option<u64>,
     /// The scene samples the renderer was made with (`Game::samples`).
     samples: Option<exact_game::SceneSamples>,
+    /// This frame's timing facts (`Surface::timing`), for the hooks' `FrameView.time`.
+    timing: exact_gpu::FrameTiming,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     /// Bake-owned development capability; production modules refuse live edits.
@@ -312,6 +314,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn max_fps(&self) -> u32 {
         let game = (self.sim.as_ref()).map_or(0, |sim| G::max_fps(sim.world(), sim.args()));
         exact_gpu::lower_cap(game, crate::Hooks::max_fps(&self.hooks))
+    }
+    fn timing(&mut self, timing: &exact_gpu::FrameTiming) {
+        self.timing = *timing;
     }
     fn retier(&mut self) -> bool {
         self.retier_rung()

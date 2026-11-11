@@ -313,6 +313,9 @@ HUD children keep native resolution. Bind a `#[live]` argument through this meth
 for an app setting. This is the presented raster's size, and a look frame's; a
 fixture's or a readback's size is the one its caller asks for.
 
+`Game::render_scale` is read again at every frame, so a `#[live]` argument steps
+it while the world runs.
+
 `Game::render_idle(world, args)` lets a world that has come to rest stop
 drawing. Return true when nothing it shows is changing (the dice lie still). The
 canvas draws until both ticks it interpolates between are idle, then asks the
@@ -330,7 +333,7 @@ non-zero cap stands. `Game::samples(args)` chooses scene sampling (by default
 "smooth edges" setting needs. None of the three is saved or hashed. The web, iOS,
 macOS and Android hosts rest and cap a canvas; the Linux and Windows desktop
 hosts draw a mounted world every display frame and take no cap
-([GPU module ABI](../gpu/README.md#frame-pacing)).
+([GPU module ABI](../gpu/README.md#frame-pacing-and-timing)).
 
 `Game::quality(args)` picks the renderer's rung of the quality ladder, read once,
 when the renderer is made, and never saved: the world hash is the same on every

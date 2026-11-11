@@ -516,6 +516,12 @@ extension CanvasesHost.Entry {
 }
 
 extension CanvasesHost {
+    /// The display callback this tick runs in, and the device's thermal state,
+    /// for each module's surfaces (`FrameView.time` of a world's hooks).
+    func hostFrame(raw: Double, callback: Double, fastest: Double) {
+        let thermal = Thermal.code
+        for m in modules.values { m.hostFrame?(raw, callback, fastest, thermal) }
+    }
     /// The highest cap of the canvases that want frames; 0 when one is uncapped.
     var frameCap: Int {
         var cap = 0
@@ -525,6 +531,18 @@ extension CanvasesHost {
         }
         return cap
     }
+}
+
+/// `ProcessInfo.thermalState` as the module's code (0 unknown, 1 nominal …
+/// 4 critical), kept current by its notification rather than read each frame.
+private enum Thermal {
+    nonisolated(unsafe) static var code: UInt32 = {
+        NotificationCenter.default.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main) { _ in
+            Thermal.code = Thermal.read()
+        }
+        return Thermal.read()
+    }()
+    static func read() -> UInt32 { UInt32(ProcessInfo.processInfo.thermalState.rawValue) + 1 }
 }
 
 // A live surface asks for the session once per process; its category is the

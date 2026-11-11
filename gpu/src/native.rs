@@ -643,6 +643,18 @@ pub fn period(period_ms: f64) {
     with(|m| m.set_period(period_ms));
 }
 
+/// The host's display callback for the frames after: its raw timestamp, when
+/// it began to run and the display's fastest period, in milliseconds on the
+/// frame clock, and the thermal state's code ([`crate::ThermalState`]).
+pub fn host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) {
+    let host = crate::HostTiming {
+        raw_ms,
+        callback_ms,
+        fastest_period_ms,
+    };
+    with(|m| m.set_host_timing(host, crate::ThermalState::from_code(thermal)));
+}
+
 /// Whether a canvas's next frame is due at `now_ms` under its cap ([`crate::Module::due`]).
 pub fn due(id: u32, now_ms: f64) -> bool {
     with(|m| m.due(id, now_ms)).unwrap_or(true)
@@ -1105,6 +1117,9 @@ macro_rules! module {
         /// The display's frame period in milliseconds, 0 while unknown.
         #[no_mangle]
         pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
+        /// The host's display callback, on the frame clock, and the thermal state's code (0 unknown … 4 critical).
+        #[no_mangle]
+        pub extern "C" fn gpu_host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) { $crate::native::host_frame(raw_ms, callback_ms, fastest_period_ms, thermal); }
         /// 1 when a canvas's next frame is due at `now_ms` under its frame-rate cap.
         #[no_mangle]
         pub extern "C" fn gpu_due(id: u32, now_ms: f64) -> u32 { u32::from($crate::native::due(id, now_ms)) }

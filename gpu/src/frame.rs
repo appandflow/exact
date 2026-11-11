@@ -83,6 +83,7 @@ impl Module {
         // A canvas renders once per frame: a second render submits the first.
         self.settle(id);
         let scale = self.render_scale(id);
+        let timing = self.timing(id, frame.now_ms);
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
@@ -222,6 +223,7 @@ impl Module {
         if let Some(s) = inst.scratch.as_mut().filter(|s| retry && !s.continues) {
             s.clear(&mut open.encoder);
         }
+        inst.surface.timing(&timing);
         let wants = inst.surface.render(
             &frame,
             &gpu.device,
@@ -272,6 +274,7 @@ impl Module {
     #[cfg(target_os = "android")]
     fn render_to_buffer(&mut self, id: u32, frame: &Frame) -> Option<bool> {
         let (w, h) = frame.pixels();
+        let timing = self.timing(id, frame.now_ms);
         let gpu = self.gpu.as_ref()?;
         let inst = self.instances.get_mut(&id)?;
         if inst
@@ -322,6 +325,7 @@ impl Module {
                 }),
             canvases: Vec::new(),
         });
+        inst.surface.timing(&timing);
         let wants = inst.surface.render(
             &frame,
             &gpu.device,

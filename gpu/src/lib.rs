@@ -46,7 +46,7 @@ mod frame;
 mod hdr_tests;
 mod input;
 mod pace;
-pub use pace::lower_cap;
+pub use pace::{lower_cap, FrameTiming, HostTiming, ThermalState};
 #[cfg(not(target_arch = "wasm32"))]
 mod readback;
 mod release;
@@ -213,6 +213,8 @@ pub trait Surface {
     fn max_fps(&self) -> u32 {
         0
     }
+    /// The timing facts of the frame about to render, just before `render`.
+    fn timing(&mut self, _timing: &FrameTiming) {}
     /// Device work follows visibility: a hidden chart stops its ticker, a video
     /// stops decoding, and both resume when shown. This never advances saved
     /// state; events still arrive when the agent owns the clock.
@@ -450,6 +452,8 @@ pub struct Module {
     error: String,
     seekable: bool,
     period_ms: f64,
+    /// The host's last display callback and the device's thermal state ([`pace`]).
+    host: (HostTiming, ThermalState),
     /// The tick's commands, recorded by every canvas rendered since the last
     /// flush (LLP 1009 D7).
     open: Option<frame::Open>,
@@ -612,6 +616,7 @@ impl Module {
             error: String::new(),
             seekable: false,
             period_ms: 0.0,
+            host: Default::default(),
             open: None,
             retired: Vec::new(),
         }
