@@ -1,6 +1,7 @@
 # An invalid emitter journals the same refusal every tick, and the line names no field
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Emitter refusals name the failing field and its limits, and simulation and rendering journal each reason once until it changes or recovers.
 **Systems:** game/engine/src/emitter.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

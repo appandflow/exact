@@ -280,6 +280,9 @@ where it was born instead, at the emitter's pose and scale that tick (a rocket's
 trail is one emitter). `WorldSpace` saves those birth poses, so a restored trail
 draws where the continuous one does. `Shape::Box(size)` emits over an
 area (rain, snow).
+Invalid emitters do not emit or draw. The journal names the failing field and its
+limits once per refusal, and again if the reason changes or recurs after recovery.
+`spread` is a half-angle in radians, from zero through π.
 `ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
 (`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
 lifetime) and stretches them along their motion (`stretch`: seconds of velocity

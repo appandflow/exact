@@ -222,6 +222,8 @@ pub struct World {
     pub(crate) followed: std::cell::Cell<bool>,
     // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
     pub(crate) emitted: std::cell::Cell<bool>,
+    // Last emitter refusal per entity; diagnostics only, never saved or hashed.
+    pub(crate) emitter_errors: RefCell<BTreeMap<Entity, String>>,
     // Inside Game::present: only presentation components may change.
     pub(crate) presenting: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
@@ -284,6 +286,7 @@ impl World {
             followed: std::cell::Cell::new(false),
             presenting: std::cell::Cell::new(false),
             emitted: std::cell::Cell::new(false),
+            emitter_errors: RefCell::default(),
             attachments: None,
             detach: None,
             state: State {

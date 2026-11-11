@@ -285,13 +285,8 @@ impl Quads {
             .feed(w, initial, next_tick, parent_changed)?;
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
         feed(w, &mut self.looks, initial, next_tick, parent_changed);
-        self.particles.retain(|item| match item.value.validate() {
-            Ok(()) => true,
-            Err(error) => {
-                w.log(format!("{error} #{}", item.entity.index()));
-                false
-            }
-        });
+        self.particles
+            .retain(|item| item.value.validate_for(w, item.entity));
         if ASSETS {
             feed(w, &mut self.sprites, initial, next_tick, parent_changed);
             self.sprites.retain(|item| match item.value.validate() {
