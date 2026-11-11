@@ -1,6 +1,7 @@
 # `contract migrate` puts `:active` ahead of an element's continued attribute lines, which then become rows of the part
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Press migration inserts a new :active block after continued attributes, preserving their ownership and multiline values.
 **Systems:** contract/syntax/src/migrate/press.rs, contract migrate
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
