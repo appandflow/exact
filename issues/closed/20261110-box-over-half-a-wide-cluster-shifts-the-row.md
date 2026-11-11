@@ -1,6 +1,7 @@
 # A box painted over half of a wide cluster shifts the rest of the row by a column
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Painting over any part of a wide cluster clears the whole cluster, preserves uncovered backgrounds, and keeps subsequent cells aligned.
 **Systems:** host/terminal (grid.rs, paint.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

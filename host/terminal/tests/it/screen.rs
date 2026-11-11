@@ -59,6 +59,43 @@ fn boot(cols: usize, rows: usize) -> (Host<()>, Vt) {
 }
 
 #[test]
+fn a_dialog_over_half_a_wide_cluster_keeps_the_screen_aligned() {
+    for (cols, line, expected) in [
+        (24, "日本語日本語日本語日本語", "日本語 │hello  │語日本語"),
+        (
+            28,
+            "abcdefghijklmnopq🚀 shipped",
+            "abcdefghi│hello  │  shipped",
+        ),
+    ] {
+        let source = format!(
+            r##"component App
+  view
+    column width="100%" height="100%"
+      text "{line}"
+      text "{line}"
+      text "{line}"
+      button commandfor="d" command="show-modal" testId="open"
+        text "open"
+      dialog id="d" closedby="any" border="thin solid" width="7ch" background-color="#202020"
+        text "hello"
+"##
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, cols, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        let initial = vt.text(false);
+        press(&mut host, &mut vt, "open");
+        let screen = vt.text(false);
+        assert_eq!(screen.lines().nth(2), Some(expected), "{screen}");
+        assert_eq!(screen, host.frame().grid.text());
+        read(&mut host, &mut vt, &[Key::Named("Escape")]);
+        assert_eq!(vt.text(false), initial);
+    }
+}
+
+#[test]
 fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
     let path = std::env::temp_dir().join(format!("terminal-late-image-{}.png", std::process::id()));
     let file = std::fs::File::create(&path).unwrap();
