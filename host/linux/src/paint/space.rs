@@ -335,3 +335,62 @@ impl Painter {
         true
     }
 }
+
+// A painted box in a scroll container's coordinates (`presenter/reveal.rs`, `presenter/links.rs`).
+impl PaintedBox {
+    /// The complete mapping from this box's scroll coordinates to the viewport.
+    pub(crate) fn scroll_mapping(&self) -> Option<[f32; 9]> {
+        let ts = self.affine.map_or(Transform::identity(), |(ts, _)| ts);
+        let affine = [ts.sx, ts.kx, ts.tx, ts.ky, ts.sy, ts.ty, 0., 0., 1.];
+        match self.projective {
+            Some((inv, ..)) => Some(space::mul3(&crate::placement::inverse(inv)?, &affine)),
+            None => Some(affine),
+        }
+    }
+
+    pub(crate) fn scroll_rect(&self) -> Rect4 {
+        self.affine.map_or_else(
+            || self.projective.map_or(self.rect, |(_, rect, ..)| rect),
+            |(_, rect)| rect,
+        )
+    }
+
+    /// Bounds in a scroll container's plane, retaining the painter's depth clipping.
+    pub(crate) fn scroll_bounds(&self, mapping: &[f32; 9]) -> Option<Rect4> {
+        let Some((_, _, _, planes)) = self.projective else {
+            return space::mapped_bounds(mapping, self.scroll_rect());
+        };
+        // Depth planes are in the projective island, after the affine transform.
+        let planes = planes.map(|[x, y, z]| {
+            self.affine.map_or([x, y, z], |(ts, _)| {
+                [
+                    x * ts.sx + y * ts.ky,
+                    x * ts.kx + y * ts.sy,
+                    x * ts.tx + y * ts.ty + z,
+                ]
+            })
+        });
+        let bounds = crate::placement::clipped_bounds(mapping, planes, self.scroll_rect());
+        (bounds != (0., 0., 0., 0.)
+            && [bounds.0, bounds.1, bounds.2, bounds.3]
+                .iter()
+                .all(|n| n.is_finite()))
+        .then_some(bounds)
+    }
+
+    /// An inline run replaces the paragraph's local box while keeping its transforms.
+    pub(crate) fn with_scroll_rect(mut self, rect: Rect4) -> Option<Self> {
+        let local = if let Some((ts, local)) = self.affine.as_mut() {
+            *local = rect;
+            bbox(*ts, rect)
+        } else {
+            rect
+        };
+        if let Some((_, bounds, _, _)) = self.projective.as_mut() {
+            *bounds = local;
+        }
+        self.rect = rect;
+        self.rect = self.scroll_bounds(&self.scroll_mapping()?)?;
+        Some(self)
+    }
+}

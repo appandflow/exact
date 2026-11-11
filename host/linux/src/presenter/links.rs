@@ -169,13 +169,13 @@ impl<D: DataSource> Presenter<D> {
         }
         let (x, y, right, bottom) = bounds?;
         painted.id = id;
-        painted.rect = (
-            painted.rect.0 + content.0 + x,
-            painted.rect.1 + content.1 + down + y,
+        let local = painted.scroll_rect();
+        painted.with_scroll_rect((
+            local.0 + content.0 + x,
+            local.1 + content.1 + down + y,
             right - x,
             bottom - y,
-        );
-        Some(painted)
+        ))
     }
 
     /// Follow `href` from `from`: a path naming a declared route navigates

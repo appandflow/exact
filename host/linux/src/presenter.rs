@@ -259,6 +259,7 @@ pub struct Presenter<D: DataSource> {
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
+    boxes_page: (f32, f32),
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
     /// The fields `rangeFrame` reads, as painted beside `boxes`.
@@ -539,6 +540,7 @@ impl<D: DataSource> Presenter<D> {
             pads: Default::default(),
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
+            boxes_page: (0., 0.),
             boxes_serial: 0,
             ranges: Default::default(),
             dirty: true,

@@ -1,6 +1,7 @@
 # With a display attached, scrolling a node into view moves each outer scroller as if the inner one had not moved
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Reveal uses each box snapshot's page offset and projects clamped, pending scrolls through affine and projective transforms and sticky positioning before aligning outer scrollers.
 **Systems:** host/linux/src/presenter/reveal.rs, host/linux/src/presenter.rs, host/linux/src/presenter/display_frame.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

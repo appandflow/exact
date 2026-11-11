@@ -43,6 +43,7 @@ struct Seen {
 struct Picture {
     paint: Presentation,
     boxes: Vec<PaintedBox>,
+    page: (f32, f32),
     witness: Witness,
     /// The runner it was painted for (`rangeFrame`'s reader).
     session: u64,
@@ -204,6 +205,7 @@ impl<D: DataSource> Presenter<D> {
         // afterward moves B into its receipt, without deep-copying any payload.
         let old_paint = self.brush.presentation();
         let old_boxes = std::mem::take(&mut self.boxes);
+        let old_page = self.boxes_page;
         let old_shown = self.ranges.shown.get();
         self.boxes_serial += 1;
         self.display.active = true;
@@ -255,6 +257,7 @@ impl<D: DataSource> Presenter<D> {
         let picture = Picture {
             paint: self.brush.replace_presentation(old_paint),
             boxes: std::mem::replace(&mut self.boxes, old_boxes),
+            page: std::mem::replace(&mut self.boxes_page, old_page),
             witness,
             session: self.ranges.session(),
         };
@@ -288,6 +291,7 @@ impl<D: DataSource> Presenter<D> {
                 let model_scroll = std::mem::take(&mut picture.witness.model_scroll);
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
+                self.boxes_page = picture.page;
                 self.boxes_serial += 1;
                 self.ranges.shown.set(picture.session);
                 self.publish_ranges();
