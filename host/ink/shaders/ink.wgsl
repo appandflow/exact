@@ -106,6 +106,24 @@ fn rounded_distance(p: vec2<f32>, rect: vec4<f32>, r: vec4<f32>) -> f32 {
 }
 
 fn shape_coverage(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>, pixel: vec2<f32>) -> f32 {
+    // Deep inside the shape and off every corner arc, the evaluation below
+    // gives exactly 1, so return it early. There all three samples take the
+    // straight-edge branch with q < 0, so each distance is max(q.x, q.y). With
+    // coordinates under 2^15, f32 rounding keeps each component of `normal`
+    // within 0.015, so `width` is at most 1.5 * (pixel.x + pixel.y) or 0.00001;
+    // -distance is at least 2 * (pixel.x + pixel.y) and 0.05, so
+    // 0.5 - distance / width is at least 1.83 and clamps to exactly 1. Being
+    // 0.05 clear of every radius on one axis keeps the samples, 0.01 away, off
+    // the corner branches. A NaN fails a comparison and takes the full path.
+    let lo = rect.xy;
+    let hi = lo + rect.zw;
+    let q = abs(p - (lo + hi) * 0.5) - rect.zw * 0.5;
+    let depth = max(q.x, q.y);
+    if depth <= -2.0 * (pixel.x + pixel.y) && depth <= -0.05
+        && all(vec4<f32>(min(q.x, q.y)) <= -0.05 - radii)
+        && all(abs(vec4<f32>(lo, hi)) < vec4<f32>(32768.0)) {
+        return 1.0;
+    }
     let distance = rounded_distance(p, rect, radii);
     let normal = vec2<f32>(rounded_distance(p + vec2<f32>(0.01, 0.0), rect, radii),
                           rounded_distance(p + vec2<f32>(0.0, 0.01), rect, radii)) - vec2<f32>(distance);
@@ -358,13 +376,25 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
     let flags = v.data.y;
     var alpha = 1.0;
     var color = brush(v, dx, dy);
+    var clip1 = 1.0;
+    if (flags & 128u) != 0u {
+        clip1 = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw), vec2<f32>(1.0));
+    }
     switch kind {
         case 0u: { alpha = shape_coverage(v.local, v.rect, v.radii, pixel); }
         case 1u: {
             alpha = max(0.0, shape_coverage(v.local, v.rect, v.radii, pixel) - shape_coverage(v.local, v.uv, v.param, pixel));
         }
         case 2u: {
-            alpha = shadow(v.local, v.uv, v.radii, v.param.x, pixel);
+            // An outer shadow is multiplied by 1 - clip1 below, which is 0
+            // where its border box covers the pixel, so the integral is skipped
+            // there. The integral is finite for sigma at most 0 or at least
+            // 1e-30; below that 0.39894228 / sigma can overflow and make a NaN,
+            // which the 0 would not cancel.
+            let sigma = v.param.x;
+            if (flags & 128u) == 0u || clip1 < 1.0 || (sigma > 0.0 && sigma < 1.0e-30) {
+                alpha = shadow(v.local, v.uv, v.radii, sigma, pixel);
+            }
         }
         case 3u: {
             let uv = mapped(v.local, v.rect, v.uv);
@@ -392,7 +422,7 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy), vec2<f32>(1.0));
     }
     if (flags & 128u) != 0u {
-        var clip = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw), vec2<f32>(1.0));
+        var clip = clip1;
         // Shadow's second slot is its border box, excluded for an outer shadow.
         if kind == 2u { clip = 1.0 - clip; }
         alpha *= clip;
