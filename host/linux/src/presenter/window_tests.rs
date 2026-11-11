@@ -399,18 +399,18 @@ fn a_phone_with_no_bars_has_no_margin() {
 }
 
 #[test]
-fn the_status_bar_hides_while_the_declaration_on_top_says_hidden() {
+fn the_status_bar_hides_while_the_declaration_on_top_hides_the_system_bars() {
     let mut p = boot(
         r##"component App
   state sheet = false
   action open
     sheet = true
   view
-    column width="100%" height="100%" status-bar-style="auto"
-      box height=300 background-color="#000000" status-bar-style="hidden"
+    column width="100%" height="100%" system-bars-hidden=false
+      box height=300 background-color="#000000" system-bars-hidden=true
       box height=100 press=open testId="open"
       if sheet
-        box position="absolute" inset=0 background-color="#ffffff" status-bar-style="dark-content"
+        box position="absolute" inset=0 background-color="#ffffff" system-bars-hidden=false
 "##,
     );
     let _ = p.frame();

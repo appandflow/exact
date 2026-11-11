@@ -52,8 +52,8 @@ pub struct Chrome {
     pub background: [u8; 4],
     /// Whether the page's scheme is dark: the bars' icons are light then.
     pub dark: bool,
-    /// Whether the status bar is hidden: `status-bar-style="hidden"` on the
-    /// declaring node painted on top, as iOS resolves it.
+    /// Whether the status bar is hidden: `system-bars-hidden` on the
+    /// declaring node painted on top, `false` declaring too, as iOS resolves it.
     pub status_hidden: bool,
 }
 
@@ -243,7 +243,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Whether the last painted node that declares a `status-bar-style` (the
+    /// Whether the last painted node that declares `system-bars-hidden` (the
     /// one on top) hides the status bar.
     fn status_bar_hidden(&self) -> bool {
         let kernel = self.host.kernel();
@@ -251,12 +251,7 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .rev()
             .filter(|b| self.display.allows(kernel, b.id))
-            .find_map(|b| {
-                let value = kernel.node(b.id)?.props.str(PropId::StatusBarStyle)?;
-                ["light-content", "dark-content", "auto", "hidden"]
-                    .contains(&value)
-                    .then_some(value == "hidden")
-            })
+            .find_map(|b| kernel.node(b.id)?.props.bool(PropId::SystemBarsHidden))
             .unwrap_or(false)
     }
 

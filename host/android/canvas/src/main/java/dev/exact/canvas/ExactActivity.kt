@@ -404,7 +404,7 @@ open class ExactActivity : Activity() {
     /** What the host says to draw around the page ([Native.chrome]): the page's place in the window (x, y, width and
      * height in pixels), where the view and the hosted views under it are put; the colour behind the page and in the
      * edges it keeps out of, which is the window's background; whether its scheme is dark, which the bars' icons
-     * follow (light icons over a dark page); and whether the status bar is hidden, as `status-bar-style="hidden"`
+     * follow (light icons over a dark page); and whether the status bar is hidden, as `system-bars-hidden`
      * asks, where a swipe from the edge shows it for a moment. */
     private fun chrome(c: IntArray) {
         for (child in listOfNotNull<View>(view, natives ?: return, fields)) {

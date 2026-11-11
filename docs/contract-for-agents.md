@@ -5258,7 +5258,9 @@ presentation to land. The status bar hides and shows at once unless the
 winning declaration has `status-bar-animation="fade"` (when none wins any more,
 the one that went); a style change still fades by its own winner's. On a phone with no notch or Dynamic Island the status bar's 20 pt
 leave the safe area, so the content of a route moves up to the screen's top;
-elsewhere the top inset stays and nothing moves. Other hosts ignore it.
+elsewhere the top inset stays and nothing moves. Android hides its status bar
+for the declaration painted on top (a swipe from the edge shows it for a
+moment; the top inset stays). Other hosts ignore it.
 `wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
 "none")`), keeps the display awake while that node is displayed; a hidden or
 unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
