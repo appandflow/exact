@@ -66,6 +66,34 @@ fn reading_hides_every_marker() {
 }
 
 #[test]
+fn inline_delimiters_keep_matched_pairs_separate_from_literal_runs() {
+    for (source, expected) in [
+        ("😀 **x**", vec![(3, 5, 6, 8)]),
+        ("~~one~~~~two~~", vec![(0, 2, 12, 14)]),
+        ("``one````two``", vec![(0, 2, 12, 14)]),
+        ("~~x~~**later**", vec![(0, 2, 3, 5), (5, 7, 12, 14)]),
+        ("**`x`**", vec![(0, 2, 5, 7), (2, 3, 4, 5)]),
+        ("~~~\nx\n~~~", vec![]),
+        ("[x](u)", vec![]),
+    ] {
+        for reveal in [None, Some(Range::caret(0))] {
+            let mut pairs: Vec<_> = style(source, reveal)
+                .delimiters
+                .iter()
+                .map(|(open, close)| (open.start, open.end, close.start, close.end))
+                .collect();
+            pairs.sort_unstable();
+            assert_eq!(pairs, expected, "{source}");
+        }
+    }
+    let atoms = Atoms::parse(r#"[{"name":"citation","link":"cite:"}]"#, "[]");
+    let source = "**[**label**](cite:1)**";
+    let styled = style_with(source, None, &atoms);
+    assert_eq!(styled.atoms.len(), 1);
+    assert_eq!(styled.delimiters, [(Range::new(0, 2), Range::new(21, 23))]);
+}
+
+#[test]
 fn the_selection_reveals_its_paragraph_and_no_other() {
     let source = "a **bold** and *italic*\n\nother **paragraph**";
     let caret = Range::caret(5);

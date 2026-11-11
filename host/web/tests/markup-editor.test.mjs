@@ -270,6 +270,50 @@ for (const engine of engines) {
     });
   }, 60000);
 
+  engineTest[engine](`${engine}: emptying inline Markdown leaves no rule or code fence`, async () => {
+    await editor(engine, '', async (page, field) => {
+      await field.focus();
+      await page.keyboard.press('ControlOrMeta+B');
+      await page.keyboard.type('hi');
+      expect(await field.evaluate(el => el.value)).toBe('**hi**');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Backspace');
+      expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual(['', 0, 0]);
+      expect(await field.locator('.md-rule, .md-code').count()).toBe(0);
+      await page.keyboard.type('x');
+      expect(await field.evaluate(el => el.value)).toBe('x');
+    });
+    for (const [source, expected] of [
+      ['intro\n\n~~x~~\n\nnext paragraph', 'intro\n\n\n\nnext paragraph'],
+      ['~~**_`x`_**~~\n\n**later**', '\n\n**later**'],
+      ['**~~_`x`_~~**\n\n**later**', '\n\n**later**'],
+      ['~~x~~ **later**', ' **later**'],
+      ['~~x~~ [later](https://example.com)', ' [later](https://example.com)'],
+      ['   ~~x~~ ~~later~~', '    ~~later~~'],
+      ['``x`` **later**', ' **later**'],
+      ['~~**_`x`_**~~ [later](https://example.com)', ' [later](https://example.com)'],
+      ['~~x~~**later**', '**later**'],
+      ['**x**~~later~~', '~~later~~'],
+      ['> x\n> keep', '\n> keep'],
+      ['> **x**\n> keep', '\n> keep'],
+      ['`x`\n``\nnext', '\n``\nnext'],
+      ['**`x`**\n``\nnext', '\n``\nnext'],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate(el => {
+          const at = el.value.indexOf('x') + 1;
+          el.setSelectionRange(at, at);
+        });
+        await page.keyboard.press('Backspace');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+        expect(await field.locator('.md-rule, .md-code').count()).toBe(0);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+      });
+    }
+  }, 60000);
+
   engineTest[engine](`${engine}: Return in formatted Markdown keeps links and a Unicode caret`, async () => {
     for (const [source, start, end, expected, position] of [
       ['- [docs](https://example.com) here', 3, 3, '- \n- [docs](https://example.com) here', 5],

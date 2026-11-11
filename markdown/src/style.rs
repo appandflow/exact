@@ -102,6 +102,9 @@ pub struct Styled {
     pub footnotes: Vec<Footnote>,
     /// Every bracketed link and image that is not an atom, in source order.
     pub links: Vec<LinkSyntax>,
+    /// Matched (opener, closer) ranges for emphasis, code and strikethrough,
+    /// excluding syntax inside atoms.
+    pub delimiters: Vec<(Range, Range)>,
     /// The inline atoms (LLP 1045.000 D1), sorted, never overlapping. No
     /// hidden range lies inside one, and an atom link is not in `links`.
     pub atoms: Vec<Atom>,
@@ -483,6 +486,18 @@ pub fn style_with(source: &str, reveal: Option<Range>, atoms: &Atoms) -> Styled 
             })
             .collect(),
         links,
+        delimiters: analysis
+            .constructs
+            .iter()
+            .filter(|c| c.kind & (crate::BOLD | crate::ITALIC | crate::CODE | crate::STRIKE) != 0)
+            .filter(|c| !in_atom(&c.outer))
+            .map(|c| {
+                (
+                    offsets.range16(&(c.outer.start..c.inner.start)),
+                    offsets.range16(&(c.inner.end..c.outer.end)),
+                )
+            })
+            .collect(),
         atoms: analysis
             .atoms
             .iter()

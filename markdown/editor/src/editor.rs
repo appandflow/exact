@@ -171,7 +171,7 @@ const COALESCE_MS: f64 = 1500.0;
 /// and the host's words.
 const UNDO_STEPS: usize = 200;
 const UNDO_UNITS: usize = 1 << 22;
-/// Syntax left visible by an edit that used to be hidden is removed.
+/// Characters eligible for cleanup when their hidden syntax no longer holds.
 const ORPHANS: &[u8] = b"*_~`[]()#>-+.! ";
 
 struct Sim {
@@ -974,9 +974,17 @@ impl Editor {
         self.commit(sim.result, (c, c), false, kind)
     }
 
-    /// Apply replacements, then remove syntax that was hidden before and is
-    /// visible after (half a bold pair, say): it would read as stray text.
+    /// Remove emptied inline pairs before reparsing, then hidden syntax exposed
+    /// by the edit. Otherwise the empty pair can become a rule, fence or new span.
     fn simulate(&self, reps: &[Rep], cleanup: bool) -> Sim {
+        let move_pair = |&(open, close): &(Range, Range), map: &Map| {
+            let moved = |r: Range| {
+                let start = map.char(r.start)?;
+                let end = map.char(r.end - 1)? + 1;
+                (end - start == r.end - r.start).then_some(Range::new(start, end))
+            };
+            Some((moved(open)?, moved(close)?))
+        };
         let (mut text, first) = splice(&self.source, reps);
         let mut sim = Sim {
             result: Vec::new(),
@@ -991,22 +999,35 @@ impl Editor {
         } else {
             Vec::new()
         };
-        sim.maps.push(first);
-        for _ in 0..3 {
-            if survivors.is_empty() {
-                break;
-            }
-            let styled = md::style_with(&utf8(&text), None, &self.atoms);
-            let proj = Projection::new(&text, &styled);
-            let orphans: Vec<u32> = survivors
+        let mut pairs: Vec<_> = if cleanup {
+            self.styled
+                .delimiters
                 .iter()
-                .copied()
-                .filter(|&i| {
-                    text.get(i as usize)
-                        .is_some_and(|&c| c < 128 && ORPHANS.contains(&(c as u8)))
-                        && !proj.is_hidden(i)
-                })
+                .filter_map(|pair| move_pair(pair, &first))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        sim.maps.push(first);
+        while !survivors.is_empty() {
+            let mut orphans: Vec<u32> = pairs
+                .iter()
+                .filter(|(open, close)| open.end == close.start)
+                .flat_map(|(open, close)| open.start..close.end)
                 .collect();
+            if orphans.is_empty() {
+                let styled = md::style_with(&utf8(&text), None, &self.atoms);
+                let proj = Projection::new(&text, &styled);
+                orphans = survivors
+                    .iter()
+                    .copied()
+                    .filter(|&i| {
+                        text.get(i as usize)
+                            .is_some_and(|&c| c < 128 && ORPHANS.contains(&(c as u8)))
+                            && !proj.is_hidden(i)
+                    })
+                    .collect();
+            }
             if orphans.is_empty() {
                 break;
             }
@@ -1015,6 +1036,10 @@ impl Editor {
             let (next, map) = splice(&text, &reps);
             text = next;
             survivors = survivors.iter().filter_map(|&i| map.char(i)).collect();
+            pairs = pairs
+                .iter()
+                .filter_map(|pair| move_pair(pair, &map))
+                .collect();
             sim.maps.push(map);
         }
         sim.result = text;

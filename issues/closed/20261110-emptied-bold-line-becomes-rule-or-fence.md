@@ -1,6 +1,7 @@
 # Deleting the only word of a bold or struck line leaves markers that become a rule or an open code fence
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Deleting the contents of an inline pair removes its markers without creating a rule or fence or changing later formatting.
 **Systems:** markdown/editor/src/editor.rs, markdown/src/block.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

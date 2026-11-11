@@ -346,6 +346,158 @@ fn emptying_a_bold_word_removes_its_markers() {
 }
 
 #[test]
+fn emptying_inline_text_removes_its_markers_without_changing_other_blocks() {
+    let before = "intro😀\n\n";
+    let after = "\n\n**next paragraph**\n\n---\n\n```rs\ncode\n```";
+    for (open, close) in [
+        ("**", "**"),
+        ("__", "__"),
+        ("***", "***"),
+        ("~~", "~~"),
+        ("``", "``"),
+        ("*", "*"),
+        ("_", "_"),
+        ("`", "`"),
+        ("~~**_`", "`_**~~"),
+        ("**~~_`", "`_~~**"),
+    ] {
+        for (prefix, remaining) in [
+            ("", ""),
+            ("> ", ""),
+            ("- ", "- "),
+            ("# ", "# "),
+            ("a ", "a "),
+        ] {
+            for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+                let word = if input == Input::OtherBackward {
+                    "word"
+                } else {
+                    "x"
+                };
+                let source = format!("{before}{prefix}{open}{word}{close}{after}");
+                let mut p = Page::open(&source);
+                let caret = u(&format!("{before}{prefix}")).len() as u32;
+                let start = caret + open.len() as u32;
+                let end = start + word.len() as u32;
+                match input {
+                    Input::Backward => p.caret(end),
+                    Input::Forward => p.caret(start),
+                    _ => {
+                        p.e.set_selection(start, end);
+                    }
+                }
+                let selection = p.e.selection();
+                assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+                let expected = format!("{before}{remaining}{after}");
+                let caret = u(&format!("{before}{remaining}")).len() as u32;
+                assert_eq!(p.source(), expected, "{input:?}: {source}");
+                assert_eq!(p.e.selection(), (caret, caret));
+                assert_ne!(p.e.lines()[2].deco, Some(Deco::Rule));
+                assert_eq!(p.e.lines()[4].flags, 0);
+                p.tool("undo");
+                assert_eq!(p.source(), source);
+                assert_eq!(p.e.selection(), selection);
+                p.tool("redo");
+                assert_eq!(p.source(), expected);
+                assert_eq!(p.e.selection(), (caret, caret));
+                p.type_("z");
+                assert_eq!(p.source(), format!("{before}{remaining}z{after}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn emptying_inline_text_preserves_following_formatting_on_the_same_line() {
+    for (open, close) in [
+        ("~~", "~~"),
+        ("``", "``"),
+        ("~~**_`", "`_**~~"),
+        ("**~~_`", "`_~~**"),
+    ] {
+        for prefix in ["", " ", "   "] {
+            for later in ["**later**", "[later](https://example.com)", "~~later~~"] {
+                for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+                    let source = format!("{prefix}{open}x{close} {later}");
+                    let expected = format!("{prefix} {later}");
+                    let mut p = Page::open(&source);
+                    let start = (prefix.len() + open.len()) as u32;
+                    match input {
+                        Input::Backward => p.caret(start + 1),
+                        Input::Forward => p.caret(start),
+                        _ => {
+                            p.e.set_selection(start, start + 1);
+                        }
+                    }
+                    let selection = p.e.selection();
+                    assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+                    let caret = prefix.len() as u32;
+                    assert_eq!(p.source(), expected, "{input:?}: {source}");
+                    assert_eq!(p.e.selection(), (caret, caret));
+                    p.tool("undo");
+                    assert_eq!(p.source(), source);
+                    assert_eq!(p.e.selection(), selection);
+                    p.tool("redo");
+                    assert_eq!(p.source(), expected);
+                    p.type_("z");
+                    assert_eq!(p.source(), format!("{prefix}z {later}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn emptying_a_line_preserves_syntax_on_the_next_line() {
+    for (source, expected, visible) in [
+        ("> x\n> keep", "\n> keep", "\nkeep"),
+        ("> **x**\n> keep", "\n> keep", "\nkeep"),
+        ("`x`\n``\nnext", "\n``\nnext", "\n``\nnext"),
+        ("**`x`**\n``\nnext", "\n``\nnext", "\n``\nnext"),
+    ] {
+        for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+            let mut p = Page::open(source);
+            let start = source.find('x').unwrap() as u32;
+            match input {
+                Input::Backward => p.caret(start + 1),
+                Input::Forward => p.caret(start),
+                _ => {
+                    p.e.set_selection(start, start + 1);
+                }
+            }
+            let selection = p.e.selection();
+            assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+            assert_eq!(p.source(), expected, "{input:?}: {source}");
+            assert_eq!(p.e.visible_text(), visible);
+            assert_eq!(p.e.selection(), (0, 0));
+            p.tool("undo");
+            assert_eq!(p.source(), source);
+            assert_eq!(p.e.selection(), selection);
+            p.tool("redo");
+            assert_eq!(p.source(), expected);
+            p.type_("z");
+            assert_eq!(p.source(), format!("z{expected}"));
+        }
+    }
+}
+
+#[test]
+fn emptying_a_line_typed_in_bold_leaves_a_plain_line() {
+    let mut p = Page::open("");
+    p.tool("bold");
+    p.type_("hi");
+    assert_eq!(p.source(), "**hi**");
+    p.backspace();
+    assert_eq!(p.source(), "**h**");
+    p.backspace();
+    assert_eq!(p.source(), "");
+    assert_eq!(p.e.selection(), (0, 0));
+    assert_eq!(p.e.lines()[0].deco, None);
+    p.type_("x");
+    assert_eq!(p.source(), "x");
+}
+
+#[test]
 fn backspace_at_a_heading_start_drops_the_heading() {
     let mut p = Page::open("para\n# Title");
     p.caret(7);
