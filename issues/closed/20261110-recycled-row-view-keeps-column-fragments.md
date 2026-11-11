@@ -1,6 +1,7 @@
 # iOS: a list row's view parked with column fragments keeps them, so the next row's text is painted and hit through the old row's cut
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Recycling a row clears its column fragments and column-rule layers before another row takes its views.
 **Systems:** host/apple/Sources/ExactKit/IOS/NodePoolIOS.swift, host/apple/Sources/ExactKit/Columns.swift, host/apple/src/layout.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
