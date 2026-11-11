@@ -2957,7 +2957,7 @@ A data crate answers the view's sources in Rust instead of `app.ts`: an app's
 | Method | What it does |
 |---|---|
 | `query(source, args)` | Answer now, with no I/O: the build bakes this into the plan for the first frame. `Err(DataError::Unavailable(…))` leaves the resource unbaked; every host asks again at launch. |
-| `answer(store, source, args)` | At run time: `Answer::Now(value)`, or `Answer::Later(request)` for the host to run (storage, `fetch`). The default is `query`. |
+| `answer(store, source, args)` | At run time: `Answer::Now(value)`, or `Answer::Later(request)` for the host to run (storage, `fetch`). The default is `query`. A resource the build left unbaked is asked at boot, before the host has started storage. There `Err(DataError::Unavailable(…))`, `UnknownSource`, `BadArguments` or `Interface` refuses the boot: the app does not start (the agent says `the app booted with an error`; a release build shows no view). On a resource with something to show (its type's zero, or a declared placeholder), `Failed(code, …)` boots with the resource failed (`failure(x)`); `DeferredAtBake` and `Answer::Later` boot with it pending; `Overrun` boots with it pending and asks again twice, at 250 ms and 1 s, and a third fails the resource while the app runs on. A row that is another resource's `else source()` has nothing to show and must answer now: there each of these refuses the boot too. A source that needs storage answers `Answer::Later` and finishes in `parse`. |
 | `parse(store, source, args, outcome)` | What the host brought back for that request: answer, or hand back one more request. |
 | `app_id()` | The app's identity, which names its storage: `com.example.my-app-3f9a2c` (`exact new` writes the name and six random hex digits), or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
 | `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
@@ -3064,7 +3064,9 @@ in a file per secret only the user can read (`0600`, under
 `$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), and the web in
 `localStorage`; Windows keeps them in memory for now. The host reads them into a snapshot before boot, so a
 read is synchronous, and a scripted drive never keeps them. A best time is not
-a secret: keep it in app storage.
+a secret: keep it in app storage. A lease on a secret (`SharedSecrets::acquire`,
+from `configure_secrets`) needs the same grant: on Apple a name the grants do not
+keep reads and writes as `denied: secret.keep`.
 
 ## The six checks
 
