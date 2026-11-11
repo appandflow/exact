@@ -68,6 +68,7 @@ mod routes;
 mod row_look;
 mod scale;
 mod scroll_bounds;
+mod shape_types;
 mod shorthands;
 mod sites;
 mod sounds;
@@ -576,10 +577,7 @@ fn lower_body(
     l.check_anatomy(file);
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
-    // Shapes first, in declaration order, so type ids are stable.
-    for s in &file.shapes {
-        l.ty_id(&Ty::Record(s.name.clone()))?;
-    }
+    l.declare_shapes(file)?;
     // Ids for every declaration before any body, so bodies may reference any
     // of them; each starts with the one placeholder body its own replaces.
     let placeholder = l.b.constant(&Value::Unit);

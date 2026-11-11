@@ -2983,7 +2983,13 @@ a leaf's default in a wrapper. Forward each call or handle it explicitly.
 
 A record is positional: `Value::record(vec![…])` takes its fields in the order
 the shape declares them. `bun exact.mjs contract rust app.contract -o
-/tmp/shapes.rs` writes each shape as a struct with its fields in that order;
+/tmp/shapes.rs` writes each shape as a struct with its fields in that order.
+It includes native-module call records only when an authored shape or a data
+source's parameter or result type reaches them; `contract::module_rust`
+generates the module bindings. For a build script,
+`contract::compile_path_for_rust` returns the plan and call-record names to
+pass to `contract::rust`; the names are compiler metadata, outside the binary
+plan. Both map scoped names such as `Point__exact` to `PointExact`.
 `Value::Number`, `Value::str`, `Value::Bool` and `Value::list` are the rest.
 
 ### Where data lives: app storage, not secrets

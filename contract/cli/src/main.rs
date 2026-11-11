@@ -122,11 +122,16 @@ fn run() -> ExitCode {
         Some("gallery") => gallery(&args[1..]),
         Some("tamber") => tamber::run(&args[1..]),
         // The union of tokens a binding may name follows the design's `exports` (LLP 1121 D7).
-        Some("types") => types(&args[1..], "types", "app.d.ts", |plan, path| {
-            contract::typescript_exporting(plan, contract::design_exports(path).as_deref())
+        Some("types") => types(&args[1..], "types", "app.d.ts", |path| {
+            let (plan, _) = contract::compile_path_all_unchecked(path, false)
+                .map_err(|mut all| all.swap_remove(0).to_string())?;
+            contract::typescript_exporting(&plan, contract::design_exports(path).as_deref())
+                .map_err(|e| format!("{}: {e}", path.display()))
         }),
-        Some("rust") => types(&args[1..], "rust", "shapes.rs", |plan, _| {
-            contract::rust(plan)
+        Some("rust") => types(&args[1..], "rust", "shapes.rs", |path| {
+            let (plan, call_records) = contract::compile_path_for_rust(path)
+                .map_err(|mut all| all.swap_remove(0).to_string())?;
+            contract::rust(&plan, &call_records).map_err(|e| format!("{}: {e}", path.display()))
         }),
         _ => {
             eprintln!("{}", usage());
@@ -335,7 +340,7 @@ fn types(
     args: &[String],
     command: &str,
     out: &str,
-    generate: fn(&exact_plan::Plan, &std::path::Path) -> Result<String, String>,
+    generate: fn(&std::path::Path) -> Result<String, String>,
 ) -> ExitCode {
     let usage = format!(
         "usage: contract {command} <file.contract> [-o <{out}>]{}",
@@ -374,9 +379,7 @@ fn types(
             eprintln!("warning: {finding}");
         }
     }
-    let result = contract::compile_path_all_unchecked(path, false)
-        .map_err(|mut all| all.swap_remove(0).to_string())
-        .and_then(|(plan, _)| generate(&plan, path).map_err(|e| format!("{}: {e}", args[0])));
+    let result = generate(path);
     match result {
         Ok(declarations) => {
             if check {

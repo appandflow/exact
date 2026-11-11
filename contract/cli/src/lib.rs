@@ -74,7 +74,7 @@ pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use module_rust::module_rust;
 pub use resolve::Origin;
-pub use rust::rust;
+pub use rust::{compile_path_for_rust, rust};
 pub use sources::{
     code_beside, design_path, with_contract_texts, with_design_text, GraphBase, Package, Source,
     SourceGraph,

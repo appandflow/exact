@@ -1,6 +1,7 @@
 # `contract rust` writes a struct for every native-module call record, under the compiler's `name__options` names
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rust data bindings omit unused module call records, preserve records reached by authored shapes and data source signatures, and use camel case for scoped names
 **Systems:** contract/cli/src/rust.rs, contract/cli/src/modules.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -207,7 +207,7 @@ fn stmts(
 
 /// The records a call of `m` builds: its options, with a field per
 /// platform that has words for it, and each platform's words.
-fn records(m: &ModuleDecl) -> Vec<ShapeDecl> {
+pub(crate) fn records(m: &ModuleDecl) -> Vec<ShapeDecl> {
     if takes_nothing(m) || m.kind == ModuleKind::Event {
         return Vec::new();
     }
