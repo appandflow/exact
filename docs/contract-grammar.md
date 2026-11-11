@@ -2642,6 +2642,19 @@ the virtual clock).
   `keepRunning` setting. The login package stores `hidden`, but Windows does
   not yet honor it at launch (LLP 1133.025 §14).
 
+  `@exact/global-shortcuts` on Windows accepts `PrintScreen` and modified
+  chords such as `Control+PrintScreen`. Bare `PrintScreen` answers
+  `registered: false, reason: "reserved"` when the Snipping Tool keyboard
+  setting (`HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingEnabled`)
+  is a nonzero DWORD, unreadable or of the wrong type. A missing value is
+  reserved on Windows 11 (build 22000 or later), or if the build cannot be
+  read. An explicit DWORD 0, or a missing value before build 22000, lets
+  `RegisterHotKey` decide. Registration and checks of an already-held chord
+  apply the same rule; modified chords are unaffected by this refusal.
+  Turn off "Use the Print screen key to open screen capture" in
+  Settings › Accessibility › Keyboard, or choose another chord. The host
+  does not monitor setting changes or intercept the key with a keyboard hook.
+
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
   for the main window (the key one, or the one under a key panel). It is a
