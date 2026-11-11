@@ -252,3 +252,28 @@ fn action_injects_grow_with_the_channels_they_reach() {
     }
     scope_growth(&dir, &paths);
 }
+
+#[test]
+fn parsing_providers_grows_with_the_section() {
+    let source = |count| {
+        let mut source = String::from("component App\n  state n = 0\n  provide\n");
+        for i in 0..count {
+            source.push_str(&format!("    p{i} = n\n"));
+        }
+        source.push_str("  view\n    text \"providers\"\n");
+        source
+    };
+    let sources = [source(1000), source(4000)];
+    let mut best = [Duration::MAX; 2];
+    for _ in 0..3 {
+        for (i, source) in sources.iter().enumerate() {
+            let start = cpu();
+            let file = contract_syntax::parse(source).unwrap();
+            best[i] = best[i].min(cpu() - start);
+            assert_eq!(file.components[0].provides.len(), if i == 0 { 1000 } else { 4000 });
+        }
+    }
+    let ratio = best[1].as_secs_f64() / best[0].as_secs_f64();
+    eprintln!("provide parsing: {best:?}, {ratio:.2}x");
+    assert!(ratio < 7.0, "4x the providers took {ratio:.2}x the CPU time");
+}
