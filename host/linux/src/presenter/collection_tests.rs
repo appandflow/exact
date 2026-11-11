@@ -1436,3 +1436,45 @@ fn a_snapping_strips_rests_match_the_eager_strip() {
         );
     }
 }
+
+#[test]
+fn a_strip_whose_cards_widen_matches_the_eager_strip() {
+    let shown = |attrs: &str| {
+        let source = format!(
+            r#"component App
+  state w = 90
+  action wider
+    w = 120
+  resource rows = rows(0, 200) as shape number[]
+  view
+    column width="100%"
+      button press=wider testId="wider"
+        text "Wider"
+      list {attrs} gap=10 display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" testId="strip"
+        for x in rows key=x
+          box testId=`c-${{x}}` width=w height=80 flex-shrink=0
+"#
+        );
+        let mut p = boot_source(&source);
+        settle(&mut p);
+        let view = named(&p, "strip");
+        p.wheel(view, 3_000., 0.).unwrap();
+        settle(&mut p);
+        let wider = named(&p, "wider");
+        p.tap(wider).unwrap();
+        settle(&mut p);
+        let cards = (0..200)
+            .filter_map(|n| {
+                let key = *p.host.kernel().find_by_test_id(&format!("c-{n}")).first()?;
+                let id = p.host.kernel().node_by_key(key)?.id;
+                let b = p.box_of(id)?;
+                (b.rect.0 + b.rect.2 > 0. && b.rect.0 < 400.).then_some((n, b.rect))
+            })
+            .collect::<Vec<_>>();
+        (p.scroll_of(view).0, cards)
+    };
+    let eager = shown("");
+    let virtualized = shown("virtualized=true estimated-item-width=w");
+    assert!(eager.1.len() > 2);
+    assert_eq!(virtualized, eager);
+}

@@ -51,8 +51,8 @@ impl Em<'_> {
     /// (`Collection::create`), evaluated there: its axis, its literal sizes,
     /// its row estimate, `scrollFollowEnd` (read again at each update),
     /// `scroll-start`, `scroll-restoration`, `reach-margin`, `keep-mounted`
-    /// (read again at each update), its `column-gap`, its edges' handlers,
-    /// and its plan site.
+    /// (read again at each update), its `column-gap`, a computed row estimate
+    /// (read again as it changes), its edges' handlers, and its plan site.
     pub(super) fn list_options(
         &mut self,
         i: u32,
@@ -72,9 +72,12 @@ impl Em<'_> {
         let mut reach = "void 0".to_string();
         let mut keep = "void 0".to_string();
         let mut gap = "0".to_string();
+        let mut reest = "void 0".to_string();
         let bindings = plan.node(NodesId(i)).bindings;
         for b in bindings.iter().map(|b| plan.binding(b)) {
-            let value = match style::literal(plan, plan.code(b.expr)) {
+            let literal = style::literal(plan, plan.code(b.expr));
+            let computed = literal.is_none();
+            let value = match literal {
                 Some(v) => value_js(&v),
                 None => code::expression(plan, plan.code(b.expr), scope, &mut self.uses)
                     .map_err(|x| format!("node {i}: {x}"))?,
@@ -98,6 +101,10 @@ impl Em<'_> {
                     if b.id == PropId::EstimatedItemHeight as u16
                         || b.id == PropId::EstimatedItemWidth as u16 =>
                 {
+                    // A computed estimate is read again as it changes.
+                    if computed {
+                        reest = format!("()=>{value}");
+                    }
                     est = value
                 }
                 BindingKind::Prop if b.id == PropId::ScrollFollowEnd as u16 => {
@@ -120,7 +127,7 @@ impl Em<'_> {
             }
         }
         Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},gap:{gap},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},reach:{reach},keep:{keep},start:{},end:{},site:\"{i}\"}}",
+            "{{x:{x},ph:[{}],pw:[{}],est:{est},reest:{reest},gap:{gap},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},reach:{reach},keep:{keep},start:{},end:{},site:\"{i}\"}}",
             ph.join(","),
             pw.join(","),
             edges[0],

@@ -472,6 +472,23 @@ impl SizeIndex {
         })
     }
 
+    /// A new estimate for the list's rows: every row but those at `kept`
+    /// (sorted positions) takes it, unmeasured. O(N).
+    pub(crate) fn reestimate(&mut self, estimate: f64, kept: &[usize]) -> Result<(), IndexError> {
+        let estimate = valid_height(estimate)?;
+        let mut rows = self.rows.clone();
+        for (i, row) in rows.iter_mut().enumerate() {
+            if kept.binary_search(&i).is_err() {
+                row.height = estimate;
+                row.measured_epoch = None;
+            }
+        }
+        self.tree = SumTree::new(&rows)?;
+        self.rows = rows;
+        self.estimate = estimate;
+        Ok(())
+    }
+
     /// Add `delta` over the rows in `range` whose heights are estimates, in
     /// equal parts, none below zero: a restored position's items above it
     /// keep the start they had. O(k log N).
