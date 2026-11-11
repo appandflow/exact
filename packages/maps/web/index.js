@@ -207,13 +207,15 @@ class ExactMap {
     const [zin, zout] = this.zoomBox.querySelectorAll('button');
     zin.addEventListener('click', ev => { ev.stopPropagation(); this.zoomBy(1); });
     zout.addEventListener('click', ev => { ev.stopPropagation(); this.zoomBy(-1); });
+    m.addEventListener('click', ev => {
+      const marker = ev.target.closest?.('.marker');
+      if (marker) this.select(marker.dataset.marker);
+    });
     const pointers = new Map();
     m.addEventListener('pointerdown', ev => {
-      if (ev.target.closest?.('.zoom')) return;
-      const marker = ev.target.closest?.('.marker');
-      if (marker) { this.pressed = marker.dataset.marker; return; }
+      if (ev.target.closest?.('.zoom, .marker')) return;
+      if (!pointers.size) this.dragged = false;
       pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      this.dragged = false;
       try { m.setPointerCapture(ev.pointerId); } catch { /* a synthetic pointer */ }
       m.classList.add('dragging');
     });
@@ -233,12 +235,6 @@ class ExactMap {
       if (dx || dy) { this.dragged = true; this.panBy(-dx, -dy); }
     });
     const up = ev => {
-      if (this.pressed) {
-        const marker = ev.target.closest?.('.marker');
-        if (marker?.dataset.marker === this.pressed) this.select(this.pressed);
-        this.pressed = null;
-        return;
-      }
       if (!pointers.delete(ev.pointerId)) return;
       if (!pointers.size) {
         m.classList.remove('dragging');

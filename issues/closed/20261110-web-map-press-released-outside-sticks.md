@@ -1,6 +1,7 @@
 # A marker press released outside the web map makes the next drag never end
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Marker buttons select through click without shared press state, so outside releases and overlapping touches cannot prevent a drag from ending and emitting moveend.
 **Systems:** packages/maps/web/index.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
