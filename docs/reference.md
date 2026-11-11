@@ -876,6 +876,7 @@ build stops; a development build warns and keeps the manifest's
 roster. From the app's directory:
 
 ```sh
+bun exact.mjs ios --device --release --unsigned --json     # an ad-hoc device .app, no phone, profile, identity, icon or install
 bun exact.mjs ios --device --archive out.ipa --unsigned   # an ad-hoc signed .ipa, for a service that re-signs it
 bun exact.mjs ios --no-install                            # a development simulator .app; the build prints its path
 bun exact.mjs ios --no-install --json                     # the same, its path in one JSON object on stdout
@@ -890,7 +891,7 @@ absolute `path` (the `.app`, the `.ipa` of `--archive`, `--embed`'s directory,
 `linux`, `windows` or `android`) and its `trust` (`development` or
 `production`: what the build baked; the JS target's `web-build` is
 `production` only with `--out`, and a game's reports the trust it baked). The Apple builds add `signing`, the signing identity's SHA-1 or
-`ad-hoc`. `ios` without `--no-install` adds `installed`, the simulator's or
+`ad-hoc`. `ios` without `--no-install`, `--unsigned` or `--archive` adds `installed`, the simulator's or
 phone's `name` and `udid` (with `--watchos`, the paired phone's), and
 `android` adds `installed`, the device's serial, or null when no device was
 ready; its object is printed once the install has succeeded:
@@ -908,6 +909,8 @@ build asked for on Windows), `unknown_flag` (a flag the verb does not take,
 refused before anything builds), or `json_flags` (`--json` takes none of
 `--run`, `--prebuild` and `--test`).
 
+`--unsigned` requires `--device` and refuses `--run`: a stock device cannot
+launch an ad-hoc signed bundle. It builds a `.app`, or an `.ipa` with `--archive`.
 `EXACT_IDENTITY` and `EXACT_PROFILE` in place of `--unsigned` sign the `.ipa`
 on the runner. The runner needs Xcode 27.1 or later selected (`DEVELOPER_DIR`,
 or `xcode-select -s`), rustup and Bun 1.4.2; then `bun <exact2>/scripts/exact.mjs setup` installs the

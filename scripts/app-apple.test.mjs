@@ -12,6 +12,24 @@ import { iosAssets, iosTarget, entitlements, infoPlist, macInfoPlist, documentTy
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
+test('unsigned device builds and archives refuse incompatible options before building', async () => {
+  const { appleBuildRefusal } = await import('./help.mjs');
+  for (const signed of [false, true]) for (let mask = 0; mask < 32; mask++) {
+    const flags = ['--unsigned', '--archive', '--run', '--device', '--host'];
+    const args = flags.filter((_, bit) => mask & (1 << bit));
+    const [unsigned, archive, run, device, host] = flags.map(flag => args.includes(flag));
+    const env = signed ? { EXACT_PROFILE: 'profile', EXACT_IDENTITY: 'identity' } : {};
+    const refusal = appleBuildRefusal(args, env);
+    assert.equal(refusal == null, !(unsigned && (!device || run) || archive && (!device || run || host || !unsigned && !signed)), JSON.stringify({ args, signed, refusal }));
+  }
+  assert.match(appleBuildRefusal(['--device', '--unsigned', '--run'], {}), /ad-hoc signed device bundle cannot launch on a stock device/);
+  const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--device', '--unsigned', '--run', 'no-such-app'], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--unsigned takes no --run/);
+  for (const args of [['--watchos', '--unsigned'], ['--watchos', '--device', '--unsigned']]) assert.match(appleBuildRefusal(args, {}), /--unsigned takes no --watchos/);
+  assert.doesNotMatch(result.stderr, /no app at/);
+});
+
 test('the Apple build rejects --phone before selecting a simulator or resolving an app', () => {
   const result = spawnSync(process.execPath, ['host/apple/build.mjs', '--ios', '--phone', 'other-lane', 'no-such-app'], { encoding: 'utf8' });
   assert.equal(result.status, 1);

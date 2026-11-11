@@ -271,6 +271,10 @@ async function verbRun({ dir, name, game = false, exact2, args }, reply) {
     const refused = (await import(resolve(exact2, 'scripts/help.mjs'))).guardFlags(verb, rest, { fail: (message) => { refusal = message; console.error(message); }, exit: (code) => ({ code }) })?.code;
     if (refused != null) { reply({ code: 'unknown_flag', error: refusal }); return log(refused); }
   }
+  if (['ios', 'mac'].includes(verb)) {
+    const error = (await import(resolve(exact2, 'scripts/help.mjs'))).appleBuildRefusal(rest);
+    if (error) { console.error(error); reply?.({ code: 'build_failed', error }); return log(2); }
+  }
   // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
   // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
   // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.

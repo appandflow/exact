@@ -9,6 +9,7 @@
 //   bun host/apple/build.mjs --tvos [crate] [--run] [--sim <udid|name>]       tvOS, on an Apple TV simulator
 //   bun host/apple/build.mjs --tvos --device [crate] [--run] [--archive <out.ipa>]  tvOS, on an Apple TV
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
+//   bun host/apple/build.mjs --device [crate] --unsigned                    iOS, an ad-hoc .app, no installation
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
 //   bun host/apple/build.mjs [crate] --bundle --distribution                 macOS, the bundle `exact release` signs
@@ -31,7 +32,7 @@
 // required: an ad hoc or App Store profile and its distribution identity,
 // as a build service such as EAS supplies them), takes get-task-allow from
 // that profile, and writes the signed bundle as an .ipa instead of
-// installing it. With --unsigned it needs neither: the bundle is ad-hoc
+// installing it. --unsigned also works without --archive: it needs neither, and never installs. The bundle is ad-hoc
 // signed with no profile and no team, for a consumer that re-signs it with
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
@@ -49,7 +50,7 @@ import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes
 import { executableName, HOST_DEV, PINNED_RUST, checkModuleRoster, moduleDirectory, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
-import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
+import { appleBuildRefusal, guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, grantEntitlements, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
@@ -584,6 +585,8 @@ export function copyAppleGpuProducts(capture, destination, artifacts, archive = 
 }
 
 async function main(args, lockHeld = false) {
+  const refusal = appleBuildRefusal(args);
+  if (refusal) { console.error(refusal); process.exitCode = 1; return; }
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
@@ -605,10 +608,6 @@ async function main(args, lockHeld = false) {
   if (distribution && process.env.EXACT_UPDATE_TRUST !== 'production') {
     if (process.env.EXACT_UPDATE_TRUST) console.error(`ignoring EXACT_UPDATE_TRUST=${process.env.EXACT_UPDATE_TRUST}: what is distributed bakes production trust`);
     process.env.EXACT_UPDATE_TRUST = 'production';
-  }
-  if ((unsigned && !ipa) || ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
-    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
-    process.exitCode = 1; return;
   }
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
   if (!ios && !args.includes('--watchos') && (args.includes('--painted-benchmark') || app.manifest.host?.macos?.presenter === 'painted')) {
@@ -1346,7 +1345,7 @@ async function main(args, lockHeld = false) {
     console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)${frameworkSymbols.count ? `, ${frameworkSymbols.dir} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)` : ''}`);
     if (args.includes('--json')) reportBuilt({ path: ipa, ...built() }); return;
   }
-  if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); if (args.includes('--json')) reportBuilt({ path: paths.bundle, ...built() }); return; }
+  if (unsigned || args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (${unsigned ? '--unsigned' : '--no-install'})`); if (args.includes('--json')) reportBuilt({ path: paths.bundle, ...built() }); return; }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
   const place = () => {
     // A phone installs the clip with the app that embeds it; a simulator registers it (`simctl listapps`, a launch

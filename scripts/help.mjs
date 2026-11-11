@@ -240,14 +240,14 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
       ['--no-install', 'build and sign the simulator .app, and install it on no simulator'],
-      jsonBuilt(', signing (an identity\'s SHA-1, or ad-hoc), installed ({name, udid}, unless --no-install)', '; not with --run, --prebuild or --test'),
+      jsonBuilt(', signing (an identity\'s SHA-1, or ad-hoc), installed ({name, udid}, unless --no-install, --unsigned or --archive)', '; not with --run, --prebuild or --test'),
       PREBUILD,
       RELEASE,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
       ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone; production trust, so with an update store EXACT_UPDATE_RECEIPT or EXACT_UPDATE_GENESIS=1'],
-      ['--unsigned', 'with --archive: ad-hoc signed, for a service that re-signs it'],
+      ['--unsigned', 'with --device: ad-hoc signed .app, no phone, profile, identity or install; no --run; --archive writes an .ipa for re-signing'],
       ['--tvos', 'an Apple TV simulator instead (with --device, an Apple TV)'],
       ['--url <url>', 'connect the client to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
@@ -612,6 +612,16 @@ const documented = (verb) => [...HELP[verb].flags, ...(HELP[verb].more ?? [])];
 
 /** Every flag a verb's script takes, documented or not, by name: whether it takes a value. */
 export const knownFlags = (verb) => new Map([...documented(verb).flatMap(([row]) => specs(row)), ...(HELP[verb].internal ?? [])].map((spec) => [name(spec), takesValue(spec)]));
+
+/** Why an Apple device build cannot use these signing and packaging options, or null. */
+export function appleBuildRefusal(args, env = process.env) {
+  const unsigned = args.includes('--unsigned'), archive = args.includes('--archive');
+  if (unsigned && args.includes('--watchos')) return '--unsigned takes no --watchos: a watch build is the simulator companion, which no one re-signs';
+  if (unsigned && !args.includes('--device')) return '--unsigned needs --device: it builds an ad-hoc signed device bundle';
+  if (unsigned && args.includes('--run')) return '--unsigned takes no --run: an ad-hoc signed device bundle cannot launch on a stock device; use a development profile and identity';
+  if (archive && (!args.includes('--device') || args.includes('--run') || args.includes('--host') || !unsigned && (!env.EXACT_IDENTITY || !env.EXACT_PROFILE))) return '--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned), and takes neither --run nor --host';
+  return null;
+}
 
 /** A dispatched script's first call. `--help`/`-h` prints `verb`'s help and exits 0; a flag the
  * verb's script does not take is refused with the ones it does, exit 2. With `parsed`, `argv` is
