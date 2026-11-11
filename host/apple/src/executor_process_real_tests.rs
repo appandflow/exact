@@ -378,6 +378,28 @@ fn exec_file_keeps_its_limits() {
     .unwrap();
     let r = body(&collect(&core, &woke, |o| !o.is_empty())[0]);
     assert_eq!(r["overflow"].as_str(), Some("stdout"));
+    // Past `maxBuffer` the output ends, as Node's does: a child that ignores
+    // the signal finds its pipes closed rather than read into the host's memory.
+    let mark = std::env::temp_dir().join(format!("exact-overflow-{}", std::process::id()));
+    let script = format!(
+        "trap '' TERM PIPE; head -c 2000 /dev/zero; sleep 0.5; printf x || echo closed > {}",
+        mark.display()
+    );
+    core.run(
+        exec(4, &script, serde_json::json!({ "maxBuffer": 1000 })),
+        None,
+    )
+    .unwrap();
+    let r = body(&collect(&core, &woke, |o| !o.is_empty())[0]);
+    assert_eq!(r["overflow"].as_str(), Some("stdout"));
+    assert_eq!(r["stdout"].as_str().map(str::len), Some(1000));
+    let seen = std::fs::read_to_string(&mark).unwrap_or_default();
+    let _ = std::fs::remove_file(&mark);
+    // (The shell's failed `printf` may flush its `x` into the redirect.)
+    assert!(
+        seen.ends_with("closed\n"),
+        "the child's stdout stayed open past maxBuffer: {seen:?}"
+    );
 }
 
 #[test]

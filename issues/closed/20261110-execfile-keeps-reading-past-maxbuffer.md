@@ -1,6 +1,7 @@
 # `execFile` keeps every byte a child writes after its output passes `maxBuffer`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Past `maxBuffer` the host keeps one byte more of the pipe and closes both pipes before it signals, as Node's `execFile` does.
 **Systems:** host/apple/src/executor_process_real.rs, desktop processes (LLP 1133.007 D3)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
