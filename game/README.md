@@ -313,6 +313,18 @@ HUD children keep native resolution. Bind a `#[live]` argument through this meth
 for an app setting. This is the presented raster's size, and a look frame's; a
 fixture's or a readback's size is the one its caller asks for.
 
+`Game::render_idle(world, args)` lets a world that has come to rest stop
+drawing. Return true when nothing it shows is changing (the dice lie still). The
+canvas draws until both ticks it interpolates between are idle, then asks the
+host for no frame until input, a bind, an asset, a resize or a render hook's
+`Needs::ANIMATE` or `Needs::PENDING` wakes it; queued input and a pending hold or
+tap keep it drawing. The idle time never runs as ticks: the first frame after a
+wake advances one display period, and input that arrived meanwhile lands on its
+first tick. The agent's clock ignores it, so a seeked run ticks every
+millisecond as before. It is not saved or hashed. The web, iOS, macOS and Android
+hosts rest a canvas; the Linux and Windows desktop hosts draw a mounted world
+every display frame.
+
 `Game::quality(args)` picks the renderer's rung of the quality ladder, read once,
 when the renderer is made, and never saved: the world hash is the same on every
 rung. The default `Quality::Auto` follows the device's GPU tier

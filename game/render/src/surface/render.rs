@@ -55,6 +55,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             interrupted: false,
             look: Default::default(),
             rung: None,
+            resting: false,
+            idle_tick: None,
         }
     }
 }
@@ -211,6 +213,12 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         // The host's display period: the live scheduler looks ahead by it.
         sim.frame_period(frame.period_ms);
+        // The first frame after a rest: the idle time runs no ticks.
+        if std::mem::take(&mut self.resting) && !frame.seekable {
+            sim.wake(frame.now_ms);
+            // What woke it may change the pose: rest again only after it draws.
+            self.idle_tick = None;
+        }
         if !drawable {
             if frame.seekable {
                 sim.advance_with(
@@ -495,9 +503,18 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let wants = !G::paused(sim.args()) || ticks != 0;
         retain_primes(&mut self.render, &mut self.placed, false);
         self.dirty = false;
-        wants
-            || self.hooks.needs().contains(crate::Needs::ANIMATE)
-            || self.hooks.needs().contains(crate::Needs::PENDING)
+        // At rest once idle at two ticks: this frame drew between idle poses.
+        let rests = if !frame.seekable && sim.render_idle() {
+            let tick = sim.world().tick();
+            tick > *self.idle_tick.get_or_insert(tick)
+        } else {
+            self.idle_tick = None;
+            false
+        };
+        let hooks = self.hooks.needs().contains(crate::Needs::ANIMATE)
+            || self.hooks.needs().contains(crate::Needs::PENDING);
+        self.resting = rests && !hooks;
+        (wants && !rests) || hooks
     }
 
     /// A display frame the module does not render: run the ticks due by

@@ -481,7 +481,9 @@ function create(entry, module, carry) {
   }
 }
 function attach(entry) {
-  entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, frameAt ?? performance.now()); flush(); } });
+  // A canvas that rested draws again at its new size, at the present time (its last frame's is
+  // the start of its rest); one that now wants more frames gets them.
+  entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, entry.wants ? frameAt ?? performance.now() : performance.now()); flush(); if (entry.wants) schedule(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   entry.hdr = gpu.gpu_high_dynamic_range?.(entry.id) === true;

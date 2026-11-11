@@ -87,6 +87,10 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     interrupted: bool,
     look: look::Look<ASSETS>,
     rung: Option<crate::quality::Rung>,
+    /// Drawing stopped at rest (`Game::render_idle`); the next live frame wakes the clock.
+    resting: bool,
+    /// The tick the world was first seen idle at, while it stays idle.
+    idle_tick: Option<u64>,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     /// Bake-owned development capability; production modules refuse live edits.
@@ -308,6 +312,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     }
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
+        self.resting = false;
+        self.idle_tick = None;
         self.presentation.clock(seekable);
     }
     fn lifecycle(&mut self, event: Lifecycle) {

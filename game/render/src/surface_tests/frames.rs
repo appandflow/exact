@@ -1,0 +1,128 @@
+//! Render on demand: presentation only, never the world.
+use super::*;
+use exact_game::Quality;
+
+#[derive(Default, exact_game::Args)]
+struct DiceArgs {
+    /// The dice fly: the world moves and is not idle.
+    #[live]
+    rolling: bool,
+    /// 1 asks for one scene sample.
+    #[live]
+    rough: u32,
+    /// The game's own cap.
+    #[live]
+    fps: u32,
+}
+struct Dice;
+impl Game for Dice {
+    const ID: &'static str = "frames-dice";
+    type Args = DiceArgs;
+    fn quality(_: &DiceArgs) -> Quality {
+        Quality::High
+    }
+    fn render_idle(_: &World, args: &DiceArgs) -> bool {
+        !args.rolling
+    }
+    fn setup(w: &mut World, _: &DiceArgs) {
+        w.spawn_named("die", (Transform::at(0., 0.5, 0.), Mesh::cube(1.)));
+        w.spawn((
+            Transform::at(0., 6., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+        ));
+    }
+    fn tick(w: &mut World, _: &Input, args: &DiceArgs) {
+        if args.rolling {
+            if let Some(mut t) = w.get_mut::<Transform>("die") {
+                t.position.x += 0.01;
+            }
+        }
+    }
+}
+
+const PERIOD: f64 = 1000.0 / 60.0;
+
+fn live(now_ms: f64) -> Frame {
+    Frame {
+        seekable: false,
+        period_ms: PERIOD,
+        ..frame(now_ms)
+    }
+}
+
+fn args(rolling: bool, rough: u32, fps: u32) -> [Value; 3] {
+    [
+        Value::Bool(rolling),
+        Value::Number(rough.into()),
+        Value::Number(fps.into()),
+    ]
+}
+
+fn live_dice(rolling: bool) -> WorldSurface<Dice> {
+    let mut s = WorldSurface::<Dice>::default();
+    exact_gpu::Surface::clock(&mut s, false);
+    s.bind(&args(rolling, 0, 0), None).unwrap();
+    s
+}
+
+fn tick(s: &WorldSurface<Dice>) -> u64 {
+    s.sim().unwrap().world().tick()
+}
+
+#[test]
+fn a_world_at_rest_draws_its_last_frames_then_asks_for_none() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = live_dice(false);
+    let mut frames = 0;
+    let mut t = 0.0;
+    while fixture::render(&gpu, &mut s, &live(t)).unwrap().1 {
+        frames += 1;
+        t += PERIOD;
+        assert!(frames < 10, "still asking after {frames} frames");
+    }
+    // The last frame drew between two idle ticks.
+    let rest = tick(&s);
+    assert!(rest >= 1, "{rest}");
+    // Ten minutes later a layout wakes it: it draws until two more idle
+    // ticks, a period of ticks on, not ten minutes of them.
+    let mut wake = t + 600_000.0;
+    // What woke it may have moved something: the wake frame does not rest.
+    assert!(fixture::render(&gpu, &mut s, &live(wake)).unwrap().1);
+    wake += PERIOD;
+    while fixture::render(&gpu, &mut s, &live(wake)).unwrap().1 {
+        wake += PERIOD;
+        assert!(wake - t - 600_000.0 < 5.0 * PERIOD, "still drawing");
+    }
+    assert!(
+        (1..=4).contains(&(tick(&s) - rest)),
+        "{} ticks",
+        tick(&s) - rest
+    );
+    // A live bind at the next minute wakes the clock as a frame does: the dice
+    // fly from a period of ticks on, and the canvas draws again.
+    let rest = tick(&s);
+    let bind = wake + 60_000.0;
+    s.bind(&args(true, 0, 0), Some(bind)).unwrap();
+    assert!(
+        fixture::render(&gpu, &mut s, &live(bind + PERIOD))
+            .unwrap()
+            .1
+    );
+    assert!(tick(&s) - rest <= 3, "{} ticks", tick(&s) - rest);
+}
+
+#[test]
+fn the_agents_clock_never_rests() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Dice>::default();
+    s.bind(&args(false, 0, 0), None).unwrap();
+    for i in 0..20 {
+        assert!(
+            fixture::render(&gpu, &mut s, &frame(i as f64 * 100.))
+                .unwrap()
+                .1
+        );
+    }
+    assert_eq!(tick(&s), 114, "every millisecond ticks");
+}
+

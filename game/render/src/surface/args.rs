@@ -67,6 +67,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if let Some(sim) = &mut self.sim {
             let generation = sim.generation();
             let models = sim.world().model_revision();
+            // A live bind while at rest: the idle time runs no ticks.
+            let woke = at_ms.filter(|_| self.resting && !self.seekable);
+            if let Some(at) = woke {
+                sim.wake(at);
+            }
             sim.bind_with(
                 values,
                 at_ms,
@@ -87,6 +92,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 ),
             )
             .map_err(SurfaceError)?;
+            // An accepted bind: the next frame advances from it, not from the rest.
+            if woke.is_some() {
+                self.idle_tick = None;
+                self.resting = false;
+            }
             self.assets_dirty |= models != sim.world().model_revision();
             if generation != sim.generation() {
                 self.hook_clock.reset();

@@ -510,6 +510,9 @@ extension CanvasesHost.Entry {
     func needsFrame(dirty: Bool, editing: Bool = false) -> Bool {
         id != 0 && presentable && (wants || dirty || editing)
     }
+    /// The canvas's box (points and scale) is not the one it last drew at:
+    /// a canvas at rest draws again for a layout.
+    func resized(_ box: SIMD3<Float>?) -> Bool { drawnBox != nil && box != nil && box != drawnBox }
 }
 
 // A live surface asks for the session once per process; its category is the
