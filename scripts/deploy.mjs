@@ -982,14 +982,13 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     let {platform,compatibilityId}=item;
     const stream={channel,compatibilityId};
     if(platform && compat[platform].inputs?.store?.L==='0') {binary.set(platform,'store.L=0: links no update store; deliver changes in the platform binary');continue;}
-    let head,record;
-    try { head=await origin.head(stream); record=await latestRecord(origin,app,stream); }
+    let head,record,admission;
+    try { head=await origin.head(stream); record=await latestRecord(origin,app,stream); admission=head?await admitHead(origin,head,app,stream):null; }
     catch(error) {
       if(!(error instanceof OriginUnavailable))throw error;
       rows.push({kind:'stream',platform,channel,compatibilityId,cohort:null,head:null,action:'unavailable',changes:[],reason:error.message});continue;
     }
     if(!head&&!record&&!platform&&!declared)continue;
-    const admission=head?await admitHead(origin,head,app,stream):null;
     const signed=admission?.usable&&admission.authenticated?admission.head:record?.envelope;
     const frozen=signed?.cohort?.version===1 && signed.cohort.compat?.id===compatibilityId ? signed.cohort : null;
     platform ??= frozen?.compat?.inputs?.platform ?? record?.platform ?? null;

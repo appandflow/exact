@@ -193,7 +193,7 @@ export function readAssetIndex(card, raw, { bounded = true } = {}) {
   if (!Array.isArray(assets) || assets.length !== card.count) refuse(`the asset index holds ${Array.isArray(assets) ? assets.length : 'no list of'} assets; its envelope declared ${card.count}`);
   for (const asset of assets) fileCard(asset, typeof asset?.name === 'string' ? asset.name : 'an asset');
   portableAssetNames(assets.map((asset) => asset.name));
-  if (canonicalJson(index.plans ?? {}) !== canonicalJson(entryPlans(assets).plans ?? {})) refuse("the asset index's plans must index its authenticated plan assets");
+  if (index.plans !== undefined && canonicalJson(index.plans) !== canonicalJson(entryPlans(assets).plans ?? {})) refuse("the asset index's plans must index its authenticated plan assets");
   return assets;
 }
 

@@ -102,8 +102,8 @@ export async function followRustUpdates(exact, sourceURL) {
       if(pair && identity(next)!==accepted) {
         const javascript = next.module;
         // The asset cards are in the index the envelope names, at most 4 MiB (update/src/envelope.rs).
-        if(next.assets&&!(next.assets.bytes<=4*1024*1024))throw new Error('Rust update asset index exceeds its bound');
-        const index=next.assets?await load(next.assets,canonical):null;
+        if(next.assets!==undefined&&(!Number.isSafeInteger(next.assets?.count)||!(next.assets.bytes<=4*1024*1024)))throw new Error('Rust update asset index card is invalid or exceeds its bound');
+        const index=next.assets!==undefined?await load(next.assets,canonical):null;
         const listed=index?JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(index.bytes)).assets:[];
         if(!Array.isArray(listed)||listed.length!==(next.assets?.count??0))throw new Error('Rust update asset index does not hold the cards its envelope counts');
         const cards=[next.plan,pair.receipt,pair.module,...(javascript?[javascript.receipt,javascript.web]:[]),...listed];

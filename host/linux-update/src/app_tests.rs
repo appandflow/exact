@@ -56,11 +56,11 @@ fn checked(
     let index = serde_json::to_vec(&serde_json::json!({ "assets": cards })).unwrap();
     let index_url = head_url.replace("exact.json", "assets.json");
     let mut head = serde_json::json!({
-            "exact": 1,
-            "app": { "id": "com.exact.fixture", "name": "Fixture" },
-            "plan": { "url": "./app.plan", "sha256": sha256_hex(plan), "bytes": plan.len() },
-            "stream": { "app": "com.exact.fixture", "channel": "prod", "compatibilityId": "fixture00000000", "seq": 1 }
-        });
+        "exact": 1,
+        "app": { "id": "com.exact.fixture", "name": "Fixture" },
+        "plan": { "url": "./app.plan", "sha256": sha256_hex(plan), "bytes": plan.len() },
+        "stream": { "app": "com.exact.fixture", "channel": "prod", "compatibilityId": "fixture00000000", "seq": 1 }
+    });
     if !assets.is_empty() {
         head["assets"] = serde_json::json!({ "url": "./assets.json", "sha256": sha256_hex(&index), "bytes": index.len(), "count": assets.len() });
     }

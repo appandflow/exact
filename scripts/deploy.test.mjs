@@ -783,6 +783,14 @@ async function rejects(action, matches) {
   // The head names the plan and the asset index as blobs; the index names the asset beside them.
   const blobCards = [head.json.plan, head.json.assets];
   const listed = readAssetIndex(head.json.assets, await origin.get(blobPath(head.json.assets.sha256)));
+  // An index the origin cannot serve now is an unavailable row, not a classification that throws.
+  const outage = Object.create(origin);
+  outage.get = async (rel) => { if (rel === blobPath(head.json.assets.sha256)) throw new OriginUnavailable('index: HTTP 503'); return origin.get(rel); };
+  const outageTable = await classify({ app, opts: { platform: [] }, origin: outage, channel: 'prod',
+    snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir }, release: 'next', web: dir, bundle,
+    builds: { linux: fixtureBuild(compatibilityId, bundle) }, compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  const indexOutageUnavailable = outageTable.rows[0]?.action === 'unavailable' && outageTable.rows[0].reason.includes('HTTP 503');
   const recordBeforeHead = order.indexOf(`put ${recordPath}`) < order.indexOf('put head');
   const interrupted = [];
   // Writes: the plan, index and asset blobs, the record, then the head.
@@ -833,7 +841,7 @@ async function rejects(action, matches) {
     && canonicalBytes(record.assets).equals(await origin.get(blobPath(head.json.assets.sha256)))
     && record.head.entryDigest === createHash('sha256').update(canonicalBytes(head.json)).digest('hex')
     && record.envelope.signature.keyId === 'test' && immutableRaceHeld && reusedRefused && order.length === beforeRetry
-    && interrupted.every(Boolean));
+    && interrupted.every(Boolean) && indexOutageUnavailable, JSON.stringify(outageTable.rows[0]));
   rmSync(dir, { recursive: true, force: true });
 }
 // All origin verbs reject links at the root, intermediate, and leaf boundary.
@@ -947,6 +955,11 @@ async function rejects(action, matches) {
   const unbounded = readAssetIndex(hugeCard, huge, { bounded: false }).length === 34000;
   const bounded = await rejects(() => readAssetIndex(hugeCard, huge), (error) => /for 34000 assets; the most is 4096\.0 KiB/.test(error.message));
   result('a web root reads an index over the client bound; a client refuses it', unbounded && bounded);
+  // `plans` is optional, as exact-update reads it: an index with a plan asset and no map is read.
+  const planned = canonicalBytes({ assets: [{ ...listed[0], name: 'plans/card.plan' }] });
+  let plansOptional = true;
+  try { readAssetIndex({ url: './x', sha256: sha256(planned), bytes: planned.length, count: 1 }, planned); } catch { plansOptional = false; }
+  result('an asset index without a plans map is read', plansOptional);
   result('the publisher refuses asset names a client filesystem folds together', refused.every(Boolean) && accepted
     && signingRefused && /differ only by case/.test(indexProblem ?? ''), JSON.stringify({ refused, accepted, signingRefused, indexProblem }));
 }

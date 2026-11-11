@@ -41,9 +41,22 @@ struct Envelope {
     #[allow(dead_code)]
     app: Option<AppCard>,
     plan: PlanCard,
+    /// The asset index card. This loader boots the plan alone and fetches no
+    /// assets; the field is typed so the envelope's old form, a list of asset
+    /// cards, is refused here as every other reader refuses it.
+    assets: Option<AssetIndexCard>,
     rust: Option<std::collections::BTreeMap<String, RustVariant>>,
     seq: Option<u64>,
     events: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct AssetIndexCard {
+    url: String,
+    sha256: String,
+    bytes: u64,
+    count: u64,
 }
 
 #[derive(Deserialize)]
@@ -889,6 +902,11 @@ mod tests {
         .is_err());
         assert!(decode_envelope(b"not json").is_err());
         assert!(decode_envelope(&vec![b' '; 64 * 1024 + 1]).is_err());
+        // The old form, asset cards listed in the envelope, is refused.
+        assert!(decode_envelope(
+            br#"{"exact":1,"plan":{"url":"a","sha256":"b","bytes":1},"assets":[{"name":"mark.png","url":"./mark.png"}]}"#
+        )
+        .is_err());
     }
     #[test]
     fn polling_a_rust_generation_skips_unchanged_artifacts_and_fetches_new_pairs() {
