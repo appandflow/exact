@@ -1,6 +1,7 @@
 # A cleared `flex` is not CSS's initial `0 1 auto`: a conditional class's absent arm gives `0 1 0%`, and `flex="unset"` gives `1 1 auto`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Cleared flex arms and flex="unset" restore CSS's initial 0 1 auto and intrinsic sizing.
 **Systems:** contract/lower/src/values.rs (`flex_component`), contract/lower/src/class.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

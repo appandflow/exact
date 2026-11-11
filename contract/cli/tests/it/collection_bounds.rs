@@ -197,11 +197,10 @@ fn horizontal_container_padding_and_measured_row_spacing_still_compile() {
     }
 }
 
-/// The `flex` shorthand's text is a bound as its longhands are (Grok's batch
-/// 2 reviews): a positive grow, or a definite length basis (zero included);
-/// `none`, `initial`, `"0"` and a zero grow over `auto` or `0%` are not, on a virtualized
-/// list and on a `scroll` alike. A scroller's shrink comes from the
-/// shorthand too, so `flex="none"` does not shrink under a bounded column.
+/// A literal `flex` bounds a list or scroll through positive grow or a
+/// definite basis, including zero. `none`, `initial`, `unset`, `"0"` and
+/// zero grow over `auto` or `0%` do not. The shorthand sets shrink too:
+/// `flex="none"` does not shrink under a bounded column.
 #[test]
 fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
     let scroll = |parent: &str, attrs: &str| {
@@ -209,7 +208,15 @@ fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
             "component App\n  view\n    {parent}\n      scroll {attrs}\n        box height=1000\n"
         )
     };
-    for flex in ["none", "0", "initial", "0 1 auto", "0 0 0%", "0 0 content"] {
+    for flex in [
+        "none",
+        "0",
+        "initial",
+        "unset",
+        "0 1 auto",
+        "0 0 0%",
+        "0 0 content",
+    ] {
         let e =
             contract::compile(&source(&format!("virtualized=true flex=\"{flex}\""))).unwrap_err();
         assert_eq!(e.id, "lower-collection-unbounded", "{flex}: {e}");

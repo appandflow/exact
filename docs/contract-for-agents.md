@@ -4391,8 +4391,11 @@ a clear wrapper can therefore show through sharp. Make the glass a direct
 sibling of the content it covers, including a scrolling list. iOS and tvOS
 draw the system blur approximation described in LLP 1053.000 §3.
 
-`flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
-(including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
+`flex` accepts CSS `none`, `auto`, `initial`, `unset`, a basis, or
+`<grow> [<shrink>] [<basis>]` (including `flex="0 1 auto"`). Numeric bindings
+keep the `n 1 0%` meaning. `flex="initial"`, `flex="unset"` and a conditional
+binding's `none` arm (including a conditional class's absent row) restore
+`0 1 auto`; the CSS keyword `flex="none"` means `0 0 auto`.
 Shorthands may be literal choices; computed strings are refused. A scroller
 with `min-height=0` and positive shrink fits under a bounded flex column.
 

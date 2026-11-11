@@ -15,6 +15,83 @@ impl DataSource for NoData {
     }
 }
 
+fn check_cleared_flex(attrs: &str, conditional: bool) {
+    use exact_kernel::{Dimension, Offer};
+    let src = format!(
+        r#"style Grow
+  flex="2 3 40px"
+style Plain
+  color="red"
+component App
+  state on = false
+  action flip
+    on = not on
+  view
+    row width=300
+      box testId="item" {attrs}
+        text "aaa bbb ccc ddd"
+"#
+    );
+    let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for on in [false, true, false] {
+        let root = r.kernel().roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, Offer::definite(300.0, 200.0))
+            .unwrap();
+        let k = r.kernel();
+        let item = k.node_by_key(k.find_by_test_id("item")[0]).unwrap();
+        let s = &item.style;
+        let (longhands, width) = if conditional && on {
+            ((2.0, 3.0, Dimension::Points(40.0)), 300.0)
+        } else {
+            ((0.0, 1.0, Dimension::Auto), 144.0)
+        };
+        assert_eq!(
+            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            longhands,
+            "{attrs}, on={on}, width={}",
+            item.frame.width
+        );
+        assert!(
+            (item.frame.width - width).abs() < 0.01,
+            "{attrs}, on={on}: expected {width}, got {}",
+            item.frame.width
+        );
+        r.act("flip", vec![]).unwrap();
+    }
+}
+
+#[test]
+fn absent_flex_restores_initial_longhands_and_intrinsic_width() {
+    for (attrs, conditional) in [
+        ("class=Plain", false),
+        ("class=(on ? Grow : Plain)", true),
+        ("flex=(on ? \"2 3 40px\" : none)", true),
+    ] {
+        check_cleared_flex(attrs, conditional);
+    }
+}
+
+#[test]
+fn unset_flex_restores_initial_longhands_and_intrinsic_width() {
+    for (attrs, conditional) in [
+        ("flex=\"initial\"", false),
+        ("flex=\"unset\"", false),
+        ("flex=\" UnSeT \"", false),
+        ("flex=(on ? \"2 3 40px\" : \"unset\")", true),
+    ] {
+        check_cleared_flex(attrs, conditional);
+    }
+}
+
 #[test]
 fn explicit_clear_intent_differs_from_a_missing_class_row() {
     use exact_kernel::StyleId::TextColor;

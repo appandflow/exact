@@ -1292,6 +1292,7 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
 pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerError> {
     let mut out = value.clone();
     match &mut out {
+        Expr::None(_) => {}
         Expr::Ternary(_, yes, no, _) => {
             **yes = flex_component(yes, index)?;
             **no = flex_component(no, index)?;
@@ -1306,7 +1307,11 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
             let (grow, shrink, basis) = match text.trim() {
                 word if word.eq_ignore_ascii_case("none") => (0.0, 0.0, "auto"),
                 word if word.eq_ignore_ascii_case("auto") => (1.0, 1.0, "auto"),
-                word if word.eq_ignore_ascii_case("initial") => (0.0, 1.0, "auto"),
+                word if word.eq_ignore_ascii_case("initial")
+                    || word.eq_ignore_ascii_case("unset") =>
+                {
+                    (0.0, 1.0, "auto")
+                }
                 text => {
                     let mut depth = 0;
                     let words: Vec<_> = text
@@ -1391,9 +1396,9 @@ pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
 /// Whether a `flex` bounds its box on the main axis by itself: a positive
 /// grow (it takes the container's free space), or a definite length basis,
 /// zero included (`flex="0 0 0px"` is an empty scrollport, as `height=0`
-/// is). `none`, `initial`, `"0"` (grow 0 over a `0%` basis) and a zero grow
-/// over `auto`, content or a zero percentage are not (Grok's batch 2
-/// reviews). A computed value is left to the bake's lint.
+/// is). `none`, `initial`, `unset`, `"0"` (grow 0 over a `0%` basis) and
+/// zero grow over `auto`, content or a zero percentage are not. A computed
+/// value is left to the bake's lint.
 pub(crate) fn flex_bounds(value: &Expr) -> bool {
     let Some((grow, _, basis)) = flex_longhands(value) else {
         return true;
