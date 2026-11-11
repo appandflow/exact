@@ -51,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
 const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
-const { appleArtifacts, assertAppleIdentity, stripForDistribution } = await import('../host/apple/build.mjs');
+const { appleArtifacts, assertAppleIdentity } = await import('../host/apple/build.mjs');
 const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
@@ -295,9 +295,10 @@ function release(app) {
   mkdirSync(out, { recursive: true });
   const staged = resolve(out, `${executableName(app)}.app`);
   sh('/usr/bin/ditto', [bundle, staged]);
-  // What ships carries no local symbols; they stay here as a dSYM (before signing: stripping changes the bytes signed).
-  const symbols = stripForDistribution(executableIn(staged, app), resolve(out, `${app.displayName}.dSYM`));
-  console.log(`symbols: ${symbols.dsym} (${(symbols.saved / 1048576).toFixed(1)} MB off the executable)`);
+  // The production build already stripped the executable; keep its matching dSYM with the release.
+  const symbols = resolve(out, `${app.displayName}.dSYM`);
+  sh('/usr/bin/ditto', [`${appleArtifacts(app, { trust: 'production' }).binary}.dSYM`, symbols]);
+  console.log(`symbols: ${symbols}`);
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is

@@ -780,9 +780,12 @@ beside the app's Rust; the host's two Rust modules build in
 it from the same bytes. A target directory that has compiled nothing starts
 with the registry crates this machine has compiled
 (`~/.cache/exact/apple-crates`; Cargo decides which it can use). Delete either
-directory to compile everything here. What is
-distributed (`--archive`, `exact release`) is the whole-module build, stripped,
-with its dSYM and whole receipt beside it (an `--archive <name>.ipa` strips its
+directory to compile everything here. Every production Apple build (`--release`,
+`--archive`, `exact release`, or `EXACT_UPDATE_TRUST=production`) uses the whole-module
+Swift build and strips its executable, writing `<executable>.dSYM` beside the staged
+build product. Development builds keep their symbols. An IPA writes `<name>.dSYM`
+beside its archive; `exact release` copies the build's matching dSYM beside its release.
+What is distributed keeps its whole receipt beside it (an `--archive <name>.ipa` strips its
 frameworks too, their dSYMs in `<name>.dSYMs/<Framework>.framework.dSYM`, the
 layout of an Xcode archive's `dSYMs`); a production build links its Rust
 with fat LTO and, when its plan is fixed, leaves out the loaded modules the

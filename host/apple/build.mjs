@@ -37,7 +37,7 @@
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
-import { assembleMac, assembleIOS, buildIntents, shortcutKeys, stripForDistribution } from './bundle.mjs';
+import { assembleMac, assembleIOS, buildIntents, shortcutKeys, stripForDistribution, stripProductionExecutable } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -65,7 +65,7 @@ import { keptCrates } from './crates.mjs';
 import { appleCargo } from '../../scripts/cargo-check.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
-export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes, stripForDistribution };
+export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes, stripForDistribution, stripProductionExecutable };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, chooseSimulator, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -1236,7 +1236,8 @@ async function main(args, lockHeld = false) {
       // ExactNumerals uses SwiftUI only on iOS/tvOS; the Mac has no linked numerals presenter.
       const launchCapabilities = ios ? swiftCapabilities : swiftCapabilities.filter(name => name !== 'ExactNumerals');
       assertCapabilityFrameworks(executable, gallery ? [...launchCapabilities, 'ExactSnapshot'] : launchCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
-      if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
+      stripped = stripProductionExecutable(executable, { production, ipa });
+      if (stripped && !ipa) console.log(`host/apple: symbols: ${p === product ? resolve(paths.products, basename(stripped.dsym)) : `${basename(stripped.dsym)}, beside the host product`} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
     }
     if (launchPartsDir) { auditLaunchParts(resolve(swiftBinDir, 'ExactLaunchParts.o'), launchModules(app.dir, app.manifest), read); }
   } finally { releaseSwift(); }
@@ -1310,8 +1311,9 @@ async function main(args, lockHeld = false) {
       const hostStage = mkdtempSync(resolve(paths.namespace, '.host-'));
       cleanup.push(hostStage);
       cpSync(binDir, hostStage, { recursive: true });
-      for (const name of [paths.executable, `${paths.executable}.app`, `${paths.executable}-Info.plist`]) rmSync(resolve(hostStage, name), { recursive: true, force: true });
-      for (const name of [hostPaths.product, `${hostPaths.product}.app`]) rmSync(resolve(binDir, name), { recursive: true, force: true });
+      // Each product keeps its own dSYM and not the other's.
+      for (const name of [paths.executable, `${paths.executable}.app`, `${paths.executable}-Info.plist`, `${paths.executable}.dSYM`]) rmSync(resolve(hostStage, name), { recursive: true, force: true });
+      for (const name of [hostPaths.product, `${hostPaths.product}.app`, `${hostPaths.product}.dSYM`]) rmSync(resolve(binDir, name), { recursive: true, force: true });
       placeAppleArtifact(hostStage, hostPaths.products);
     }
     placeAppleArtifact(binDir, paths.products);

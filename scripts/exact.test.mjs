@@ -9,7 +9,7 @@ import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile, wrapFramework } from '../host/apple/assets.mjs';
-import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
+import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution, stripProductionExecutable } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 import { packageWidgets, packageAlarmExtension } from '../host/apple/widgets.mjs';
 
@@ -531,6 +531,35 @@ test.skipIf(process.platform !== 'darwin')('native resources sign and execute a 
   assert.equal(command(resolve(contents, 'Resources/server/helper'), []).stdout, 'helper ran\n');
 }));
 
+test.skipIf(!tools)('production executables keep matching dSYMs without an IPA; development keeps its symbols', () => inDir(dir => {
+  const source = resolve(dir, 'main.c'), executable = resolve(dir, 'Demo');
+  writeFileSync(source, 'static int value(void){return 42;}\nint main(void){return value();}\n');
+  const cc = spawnSync('clang', ['-g', '-o', executable, source], { encoding: 'utf8' });
+  assert.equal(cc.status, 0, cc.stderr);
+  rmSync(`${executable}.dSYM`, { recursive: true, force: true });
+  const original = readFileSync(executable);
+  assert.equal(stripProductionExecutable(executable, { production: false }), null);
+  assert.deepEqual(readFileSync(executable), original);
+  assert.ok(!existsSync(`${executable}.dSYM`));
+  const uuid = path => {
+    const result = spawnSync('dwarfdump', ['--uuid', path], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return /UUID: ([A-F0-9-]+)/.exec(result.stdout)?.[1];
+  };
+  const before = uuid(executable);
+  assert.ok(before);
+  const stripped = stripProductionExecutable(executable, { production: true });
+  assert.equal(stripped.dsym, `${executable}.dSYM`);
+  assert.ok(stripped.saved > 0);
+  assert.equal(uuid(executable), before);
+  assert.equal(uuid(stripped.dsym), before);
+  writeFileSync(executable, original);
+  const archive = stripProductionExecutable(executable, { production: true, ipa: resolve(dir, 'archives/Release.ipa') });
+  assert.equal(archive.dsym, resolve(dir, 'archives/Release.dSYM'));
+  assert.ok(archive.saved > 0);
+  assert.equal(uuid(archive.dsym), before);
+}));
+
 // An executable is named for its app (955b0463d), and an app may be named
 // "T3 Code (Exact)": otool reads a path ending in `name(member)` as an
 // archive's member, so the SDK check read nothing and refused the build (#234).
@@ -544,7 +573,7 @@ test.skipIf(!tools)('an executable whose name ends in parentheses is read as a f
   assert.throws(() => assertLinkedSdk(executable, '27.0'), /Demo \(Beta\) records SDK 15\.0, not 27\.0/);
   // A file the tool cannot read says so, not that it records no SDK.
   assert.throws(() => assertLinkedSdk(resolve(dir, 'Gone (Beta)'), '15.0'), /vtool -show-build failed .*Gone \(Beta\)/);
-  // `exact release`'s dsymutil and strip take the same path as a file.
+  // dsymutil and strip take the same path as a file.
   const { saved } = stripForDistribution(executable, resolve(dir, 'Demo (Beta).dSYM'));
   assert.ok(existsSync(resolve(dir, 'Demo (Beta).dSYM/Contents/Resources/DWARF/Demo (Beta)')), 'dsymutil wrote the dSYM');
   assert.ok(saved > 0, 'strip took symbols off');

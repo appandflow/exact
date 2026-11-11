@@ -33,6 +33,11 @@ export function stripForDistribution(executable, dsym, { strip = true } = {}) {
   run('strip', ['-x', executable]);
   return { dsym, saved: before - statSync(executable).size };
 }
+/** Preserve symbols beside each production product, or beside its requested IPA. */
+export function stripProductionExecutable(executable, { production, ipa = null }) {
+  if (!production) return null;
+  return stripForDistribution(executable, ipa ? `${ipa.replace(/\.ipa$/, '')}.dSYM` : `${executable}.dSYM`);
+}
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
