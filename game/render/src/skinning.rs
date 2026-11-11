@@ -588,12 +588,11 @@ impl Skinning {
         }
         self.primed.retain(|(e, _, _)| w.contains(*e));
     }
-    /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
-    /// false): a crowd's far levels cost no skinning.
-    pub fn activate(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+    /// Dispatch only the jobs of records drawn this frame.
+    pub fn activate(&mut self, queue: &wgpu::Queue, drawn: impl Fn(usize) -> bool) {
         self.active_words.clear();
         for (job, &record) in self.job_records.iter().enumerate() {
-            if !hidden.get(record).copied().unwrap_or(false) {
+            if drawn(record) {
                 self.active_words
                     .extend_from_slice(&self.jobs_words[job * 4..job * 4 + 4]);
             }

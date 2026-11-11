@@ -104,8 +104,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     viewmodels: bool,
     /// Levels of detail: one per entity per frame.
     pub(crate) levels: crate::lod::Levels,
-    // Soft particles have drawn: keep the forward depth retained.
-    soft_retained: bool,
+    // Soft particles or water shafts have drawn: keep the forward depth retained.
+    effects_retained: bool,
     // This frame's visible environment map is resident.
     pub(crate) sky_ready: bool,
     pub(crate) targets: Targets,
@@ -419,7 +419,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             batch_coverage: Vec::new(),
             viewmodels: false,
             levels: Default::default(),
-            soft_retained: false,
+            effects_retained: false,
             sky_ready: false,
             targets,
             direct_targets: None,

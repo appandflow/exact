@@ -1,6 +1,7 @@
 # Each time the camera crosses a water surface with shafts, the frame's attachments and bloom chain are recreated
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Once water shafts draw, depth stays retained and surface crossings reuse the frame attachments and bloom chain.
 **Systems:** game/render/src/renderer/draw.rs, game/render/src/water.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

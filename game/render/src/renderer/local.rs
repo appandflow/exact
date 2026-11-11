@@ -170,6 +170,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     pub(super) fn encode_local_culls(&self, encoder: &mut wgpu::CommandEncoder) {
+        if self.cull.direct {
+            return;
+        }
         for local in &self.local_culls {
             if !local.cull.groups.is_empty() {
                 local.cull.encode(encoder, self.current, None);

@@ -1,6 +1,7 @@
 # Without the GPU cull, a skinned `ModelLod` entity past its first level draws with a palette nobody computed
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Direct opaque LOD draws skin level zero for the current frame, including the first far frame and later poses.
 **Systems:** game/render/src/renderer/draw.rs, game/render/src/skinning.rs, game/render/src/renderer/culling.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

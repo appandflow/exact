@@ -400,7 +400,8 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
   fog's share over the pixel's distance (either fog mode) and by a Henyey-Greenstein
   phase (g = 0.6) of the pixel's own ray, and added. Without fog there are no
   shafts. A scene-copy hook's continuation keeps the depth for it, as for SSAO; its
-  GPU time is the `water shafts` pair.
+  GPU time is the `water shafts` pair. Once shafts draw, depth stays retained so
+  surface crossings reuse the attachments and bloom chain.
 
 With water a frame is never [direct](#direct-frames). `Renderer::set_water_effects`
 clears caustics or shafts at present time: the frame draws as if the resource had
@@ -729,7 +730,8 @@ while one streams in. Every other level's records carry a hidden word the GPU cu
 reads, in every view and keep-all group (shadow cascades and spot shadows too);
 the blended pass skips them, and their skinning jobs are not dispatched, so a far
 crowd skins nothing. Direct drawing (no indirect execution, or lists past the
-device's storage limits) has no per-instance cull and draws level 0 only. Levels
+device's storage limits) has no per-instance cull: opaque draws and their skinning
+use level 0, even beyond `hide`. Blended draws keep their selected level. Levels
 share the pose, looks and opacity. Distances must be finite, increasing and
 positive, with `hide` beyond them; the feed refuses others by entity.
 `world.perf.culled.cameraTriangles` counts what the cull kept for the camera
