@@ -1,6 +1,7 @@
 # macOS: an empty date input starts at the wrong year on a Mac whose calendar is not Gregorian
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by c3eb81b7: an empty field's value comes from DateValue.initial, whose formatter is en_US_POSIX and ISO 8601; run under th_TH, ar_SA, fa_IR and a Japanese calendar, each gives the Gregorian date.
 **Systems:** host/apple/Sources/ExactKit/Mac/DatesMac.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
