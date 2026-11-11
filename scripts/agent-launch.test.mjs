@@ -247,6 +247,50 @@ test.skipIf(process.platform === 'win32')("the Windows Gradle launch passes the 
   } finally { rmSync(jdk, { recursive: true, force: true }); }
 });
 
+// What the APK build reads after packaging (LLP 1159.002 D2): AGP strips the library, and what it loads stays.
+test('an APK whose library loads other bytes than the staged one is refused', async () => {
+  const { loadedImage, keptLibrary } = await import('./agent-android.mjs');
+  // Two PT_LOADs (the first holds the ELF header, as a real one does) and a PT_NOTE; `tail` stands for what
+  // stripping removes and `shoff` for the header field it rewrites.
+  const elf = (code, { tail = 0, shoff = 0n } = {}) => {
+    const head = Buffer.alloc(64 + 56 * 3), text = Buffer.from(code);
+    head.writeBigUInt64LE(64n, 0x20); head.writeBigUInt64LE(shoff, 0x28); head.writeUInt16LE(56, 0x36); head.writeUInt16LE(3, 0x38);
+    const load = (i, offset, length) => { head.writeUInt32LE(1, 64 + 56 * i); head.writeBigUInt64LE(BigInt(offset), 64 + 56 * i + 0x08); head.writeBigUInt64LE(BigInt(length), 64 + 56 * i + 0x20); };
+    load(0, 0, head.length); load(1, head.length, text.length); head.writeUInt32LE(4, 64 + 56 * 2);
+    return Buffer.concat([head, text, Buffer.alloc(tail, 7)]);
+  };
+  const staged = elf('one build');
+  expect(loadedImage(staged)).toMatch(/^[0-9a-f]{64}$/);
+  expect(keptLibrary(staged, elf('one build', { shoff: 4096n }), ['app', 'canvas'])).toBe(null);
+  expect(keptLibrary(elf('one build', { tail: 4096 }), staged, ['app', 'canvas'])).toBe(null);
+  const kept = keptLibrary(staged, elf('another one'), ['app', 'canvas']);
+  expect(kept).toBe(`the APK holds a libexactcanvas.so that is not the one this build made (${loadedImage(elf('another one')).slice(0, 12)} in the APK, ${loadedImage(staged).slice(0, 12)} staged, by what each loads). Gradle kept an earlier build's: delete app and canvas and build again`);
+  expect(keptLibrary(staged, null, ['app', 'canvas'])).toBe("the APK holds no libexactcanvas.so. Gradle kept an earlier build's: delete app and canvas and build again");
+});
+
+test('a file is read out of a zip archive, stored or deflated, without unzip', async () => {
+  const { zipEntry } = await import('./agent-android.mjs');
+  const { deflateRawSync } = await import('node:zlib');
+  // Two entries: a stored one, then a deflated one behind a local extra field.
+  const files = [['assets/a.txt', Buffer.from('stored'), 0, 0], ['lib/arm64-v8a/libexactcanvas.so', Buffer.from('library '.repeat(40)), 8, 4]];
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const [name, bytes, method, extra] of files) {
+    const data = method ? deflateRawSync(bytes) : bytes, local = Buffer.alloc(30 + name.length + extra), central = Buffer.alloc(46 + name.length);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(name.length, 26); local.writeUInt16LE(extra, 28); local.write(name, 30);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(method, 10); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(bytes.length, 24);
+    central.writeUInt16LE(name.length, 28); central.writeUInt32LE(offset, 42); central.write(name, 46);
+    locals.push(local, data); centrals.push(central); offset += local.length + data.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(offset, 16);
+  const zip = Buffer.concat([...locals, ...centrals, end]);
+  expect(zipEntry(zip, 'assets/a.txt')?.toString()).toBe('stored');
+  expect(zipEntry(zip, 'lib/arm64-v8a/libexactcanvas.so')?.toString()).toBe('library '.repeat(40));
+  expect(zipEntry(zip, 'lib/arm64-v8a/other.so')).toBe(null);
+  expect(zipEntry(Buffer.from('not a zip archive at all'), 'a')).toBe(null);
+});
+
 // An app's directory pins no toolchain, so the Android build asks rustup about the pinned one by name.
 test.skipIf(process.platform === 'win32')('the Android build checks the pinned toolchain for its Rust target', () => {
   const bin = mkdtempSync(resolve(tmpdir(), 'exact-rustup-'));
