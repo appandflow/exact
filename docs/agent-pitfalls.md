@@ -962,15 +962,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (`bun exact.mjs docs convex live queries`). Drive a new package once (`agent web "clock
   data" logs`) before building on it. (LLP 1157 §1, 2026-11-10.)
 
-- **A native drive against a real Convex deployment: the second launch's
+- **A drive against a real Convex deployment: the second launch's
   writes do nothing.** A mutation replies ok and the data does not change.
-  Cause: under the driver a native host's `crypto.getRandomValues` is seeded
-  (`EXACT_AGENT_SEED`, 1 by default), so every launch draws the same session
+  Cause: under the driver `crypto.getRandomValues` is seeded on every host
+  (`--seed`, 1 by default), so every launch draws the same session
   id, and Convex answers a request id it has seen from that session with the
   first answer, without running it; `logs` says the draws are seeded. Fix: a new `--seed` for each launch
   (`agent macos --seed 7 …`), or drive against the stand-in
-  (`bun exact.mjs docs convex live queries`). The web draws the browser's entropy, and a
-  launch outside the driver the system's. (LLP 1157 §6, 2026-11-10.)
+  (`bun exact.mjs docs convex live queries`). A launch outside the driver draws
+  the system's entropy. (LLP 1157 §6, 2026-11-10.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call

@@ -136,7 +136,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null, entropy: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal, `drive` and `time`, set by ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -373,9 +373,34 @@ const guarded = {
       const v = target[name];
       return typeof v !== 'function' ? v : (...a) => overlaying.on ? Promise.reject(inOverlay(`crypto.subtle.${String(name)}()`)) : ordinary(() => v.apply(target, a));
     } }),
-    getRandomValues: a => { if (overlaying.on) throw inOverlay('crypto.getRandomValues()'); return globalThis.crypto.getRandomValues(a); },
-    randomUUID: () => { if (overlaying.on) throw inOverlay('crypto.randomUUID()'); return globalThis.crypto.randomUUID(); } }),
+    getRandomValues: a => {
+      if (overlaying.on) throw inOverlay('crypto.getRandomValues()');
+      // The browser's call checks the view and its quota, as it always does.
+      const filled = globalThis.crypto.getRandomValues(a), bytes = seeded(filled.byteLength);
+      if (bytes) new Uint8Array(filled.buffer, filled.byteOffset, filled.byteLength).set(bytes);
+      return filled;
+    },
+    randomUUID: () => {
+      if (overlaying.on) throw inOverlay('crypto.randomUUID()');
+      const b = seeded(16);
+      if (!b) return globalThis.crypto.randomUUID();
+      // The v4 bits and text of js/src/prelude.js `formatUuid`: one seed draws one id on every host.
+      b[6] = b[6] & 0x0f | 0x40; b[8] = b[8] & 0x3f | 0x80;
+      return Array.from(b, (x, i) => (i === 4 || i === 6 || i === 8 || i === 10 ? '-' : '') + x.toString(16).padStart(2, '0')).join('');
+    } }),
 };
+// Under the driver, the launch seed's stream (LLP 1069.005 D2b), which the page's entry sets before the first
+// answer (`answering.entropy`); null outside it. The journal says so once, at the first draw of any bytes, as a
+// native module does (js/src/door.rs, op 11).
+function seeded(n) {
+  const stream = answering.entropy;
+  if (!stream) return null;
+  if (n > 0 && !stream.said) {
+    stream.said = true;
+    answering.page?.journal.push(`crypto: the driver seeds this launch's randomness (seed ${stream.seed}), so each launch at that seed draws the same bytes; --seed <n> draws others (LLP 1069.005 D2b)`);
+  }
+  return stream(n);
+}
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
   cancelAnimationFrame, cancelIdleCallback, performance, scheduler, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
 // Not a binding of this module's own: its `fetch` keeps the page's `AbortSignal.timeout` for `exactTimeout`.

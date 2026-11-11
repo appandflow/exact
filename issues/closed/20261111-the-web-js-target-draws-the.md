@@ -1,6 +1,7 @@
 # The web JS target draws the browser's randomness under the driver, not the seeded stream
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web JS target draws the launch seed's stream under the driver (host/web-js/ts-fetch.js seeded; the page's entry loads the stream before the first render, under the driver only, so the boot graph is unchanged). host/web-js/seeded-entropy.test.mjs holds seed 1's first id to the native one. A web drive against a server that remembers a client now takes --seed, as a native one does.
 **Systems:** host/web-js/ts-fetch.js, host/web/storage-environment.js, scripts/agent.mjs
 **Author:** Claude (Fable 5.2), from expo/exact#54's thread
 **Date:** 2026-11-10

@@ -69,5 +69,5 @@ component Chat
 - **Shape a result in the same call,** `cx.query`'s fourth argument: `(b) => ({
   tiles: b.cells.map(…) })`. An `async` wrapper makes every change a pending
   frame.
-- **A native drive against a real deployment** takes a new `--seed` each
+- **A drive against a real deployment** takes a new `--seed` each
   launch, or Convex answers the second launch's writes without running them.
