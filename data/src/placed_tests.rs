@@ -635,6 +635,39 @@ fn a_long_poll_on_a_worker_s_own_work_is_refused_before_it_runs() {
 }
 
 #[test]
+fn a_native_storage_change_is_reported_while_the_source_is_on_its_worker() {
+    let mut placed = Placed::new(Aborting::default(), Placement::Worker);
+    placed.activate().unwrap();
+    assert!(!placed.take_storage_changed());
+    for _ in 0..2 {
+        placed.note_storage_changed();
+        assert!(placed.take_storage_changed());
+        assert!(!placed.take_storage_changed());
+    }
+}
+
+#[test]
+fn an_inline_kept_reply_writes_the_store() {
+    let (started, _) = channel();
+    let (_, release) = channel();
+    let mut placed = Placed::new(
+        Slow {
+            started,
+            release,
+            retired: Default::default(),
+        },
+        Placement::Main,
+    );
+    placed.activate().unwrap();
+    let mut store = Store::new("secret.keep document", []);
+    placed
+        .module_landed(&mut store, 9, Dispatch::again_outcome())
+        .unwrap();
+    assert_eq!(store.get("document"), Some("kept"));
+    assert!(store.take_writes()[0].durable);
+}
+
+#[test]
 fn a_kept_reply_waits_off_the_host_while_its_owner_has_unrelated_work() {
     let (started, running) = channel();
     let (release, proceed) = channel();

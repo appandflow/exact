@@ -164,6 +164,10 @@ impl<D: DataSource> DataSource for Storage<D> {
         self.source.take_storage_changed()
     }
 
+    fn note_storage_changed(&mut self) {
+        self.source.note_storage_changed();
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
         self.source.set_document_owner(owner);

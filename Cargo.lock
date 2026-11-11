@@ -1530,6 +1530,7 @@ dependencies = [
  "exact-data-host",
  "exact-js-value",
  "exact-kernel",
+ "exact-logic",
  "exact-plan",
  "exact-render",
  "exact-runner",

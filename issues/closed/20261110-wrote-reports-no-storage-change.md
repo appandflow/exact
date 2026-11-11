@@ -1,6 +1,7 @@
 # `ExactModuleContext.wrote` marks no storage change: no source wrapper forwards `note_storage_changed`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Every source wrapper forwards native storage-change notifications; worker placement records them in its shared flag.
 **Systems:** data/src/placed.rs, data/src/mixed.rs, data/host/src/lib.rs, logic/src/configured.rs, logic/src/lib.rs, host/apple/src/abi.rs, widgets
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

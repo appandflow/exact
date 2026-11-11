@@ -244,6 +244,12 @@ impl<D: DataSource> DataSource for Swappable<D> {
             .is_some_and(DataSource::take_storage_changed)
     }
 
+    fn note_storage_changed(&mut self) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.note_storage_changed();
+        }
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         if let Some(embedded) = &mut self.embedded {
             embedded.set_document_owner(owner);
@@ -405,6 +411,17 @@ impl<D: DataSource> DataSource for Swappable<D> {
         match self.embedded.as_mut() {
             Some(embedded) => embedded.module_landed(store, token, outcome),
             None => Ok(()),
+        }
+    }
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.module_delivery(store, token, outcome),
+            None => Ok(None),
         }
     }
     fn take_logs(&mut self) -> Vec<String> {

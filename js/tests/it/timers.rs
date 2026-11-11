@@ -83,6 +83,87 @@ fn runner() -> Runner<Module> {
     .unwrap()
 }
 
+exact_logic::configured!(Generated, exact_data::Placed<Module>, || {
+    exact_logic::Swappable::off(module().placed(exact_runner::Placement::Main))
+});
+
+fn generated_runner() -> Runner<Generated> {
+    let mut source = Generated::default();
+    source.activate().unwrap();
+    Runner::boot(
+        plan(),
+        source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_kept_post_reply_reaches_the_generated_entry() {
+    let mut r = generated_runner();
+    let post = |r: &mut Runner<Generated>, n: &str| {
+        r.act("post", vec![Value::str(n), Value::str("direct")])
+            .unwrap();
+        let mut fetches = pump(r);
+        assert_eq!(fetches.len(), 1);
+        fetches.remove(0)
+    };
+    let first = post(&mut r, "1");
+    let second = post(&mut r, "2");
+    assert!(r.holds(first.ticket), "the let-go POST runs on");
+    r.fulfill(first.ticket, ok()).unwrap();
+    pump(&mut r);
+    r.fulfill(second.ticket, ok()).unwrap();
+    pump(&mut r);
+    r.act("readLog", vec![]).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("posted 1,posted 2"));
+}
+
+#[test]
+fn a_reply_after_its_timer_wins_reaches_the_generated_entry() {
+    let mut r = generated_runner();
+    r.act("raceFetch", vec![]).unwrap();
+    let fetches = pump(&mut r);
+    assert_eq!(fetches.len(), 1);
+    seek(&mut r, 100.);
+    assert_eq!(result(&r, "result"), said("slept"));
+    assert!(r.holds(fetches[0].ticket));
+    r.fulfill(fetches[0].ticket, ok()).unwrap();
+    pump(&mut r);
+    r.act("readLog", vec![]).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("fetch landed"));
+}
+
+fn reports_storage_change(mut source: impl DataSource) {
+    source.activate().unwrap();
+    assert!(!source.take_storage_changed());
+    for _ in 0..2 {
+        source.note_storage_changed();
+        assert!(source.take_storage_changed());
+        assert!(!source.take_storage_changed(), "a change is taken once");
+    }
+}
+
+#[test]
+fn native_storage_changes_reach_a_placed_module() {
+    reports_storage_change(module());
+    for placement in [
+        exact_runner::Placement::Main,
+        exact_runner::Placement::Worker,
+    ] {
+        reports_storage_change(module().placed(placement));
+    }
+}
+
+#[test]
+fn native_storage_changes_reach_the_generated_entry() {
+    reports_storage_change(Generated::default());
+}
+
 /// A host's work after a commit or an advance: each continuation dispatched
 /// and settled now, or parked until released; the fetches handed out are
 /// returned, unanswered.

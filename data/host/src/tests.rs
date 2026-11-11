@@ -1,61 +1,7 @@
 use super::*;
 
-#[test]
-fn mixed_storage_waits_for_both_images_without_activating_sources() {
-    use std::{cell::Cell, rc::Rc};
-    struct Preparing {
-        ready: Rc<Cell<bool>>,
-        polls: Rc<Cell<usize>>,
-    }
-    impl DataSource for Preparing {
-        fn app_id(&self) -> &str {
-            "test.preload"
-        }
-        fn preload(&self) -> Result<bool, DataError> {
-            self.polls.set(self.polls.get() + 1);
-            Ok(self.ready.get())
-        }
-        fn query(
-            &mut self,
-            _: &str,
-            _: &[exact_plan::Value],
-        ) -> Result<exact_plan::Value, DataError> {
-            panic!("image preparation must not run app queries")
-        }
-        fn activate(&mut self) -> Result<(), DataError> {
-            panic!("image preparation must not activate app instances")
-        }
-    }
-    let first = Rc::new(Cell::new(false));
-    let second = Rc::new(Cell::new(false));
-    let polls = Rc::new(Cell::new(0));
-    let source = Storage::new(
-        exact_data::Mixed::new(
-            Preparing {
-                ready: first.clone(),
-                polls: polls.clone(),
-            },
-            Preparing {
-                ready: second.clone(),
-                polls: polls.clone(),
-            },
-            &["first"],
-            &["second"],
-        )
-        .unwrap(),
-    );
-    assert!(!source.preload().unwrap());
-    assert_eq!(
-        polls.get(),
-        2,
-        "both images start even while the first is pending"
-    );
-    first.set(true);
-    assert!(!source.preload().unwrap());
-    second.set(true);
-    assert!(source.preload().unwrap());
-    assert!(!source.ready(), "preloading does not activate storage");
-}
+mod composition;
+
 use exact_data::storage;
 use exact_runner::{FailureKind, Request};
 use serde_json::{json, Value as Json};

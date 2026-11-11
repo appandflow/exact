@@ -21,6 +21,9 @@ macro_rules! configured {
             fn take_storage_changed(&mut self) -> bool {
                 $crate::exact_runner::DataSource::take_storage_changed(&mut self.0)
             }
+            fn note_storage_changed(&mut self) {
+                $crate::exact_runner::DataSource::note_storage_changed(&mut self.0)
+            }
             fn set_document_owner(&mut self, owner: u64) {
                 $crate::exact_runner::DataSource::set_document_owner(&mut self.0, owner)
             }
@@ -156,6 +159,20 @@ macro_rules! configured {
                 outcome: $crate::exact_runner::Outcome,
             ) -> Result<(), $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::module_landed(&mut self.0, store, token, outcome)
+            }
+            fn module_delivery(
+                &mut self,
+                store: &mut $crate::exact_runner::Store,
+                token: u64,
+                outcome: $crate::exact_runner::Outcome,
+            ) -> Result<Option<$crate::exact_runner::Request>, $crate::exact_runner::DataError>
+            {
+                $crate::exact_runner::DataSource::module_delivery(
+                    &mut self.0,
+                    store,
+                    token,
+                    outcome,
+                )
             }
             fn take_logs(&mut self) -> Vec<String> {
                 $crate::exact_runner::DataSource::take_logs(&mut self.0)

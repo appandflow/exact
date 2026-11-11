@@ -20,9 +20,39 @@ impl DataSource for Fixture {
             None => Dispatch::Missing,
         }
     }
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        let Outcome::Response(response) = outcome else {
+            panic!("a kept reply")
+        };
+        store.set_durable("token", std::str::from_utf8(&response.body).unwrap())?;
+        Ok(Some(exact_runner::Request::continuation(token + 1)))
+    }
 }
 
 crate::configured!(ConfiguredFixture, Fixture, || Swappable::off(Fixture));
+
+#[test]
+fn configured_entry_preserves_a_kept_delivery_continuation() {
+    let mut source = ConfiguredFixture::default();
+    let mut store = Store::new(source.grants(), []);
+    let outcome = Outcome::Response(exact_runner::Response {
+        status: 200,
+        headers: vec![],
+        body: b"renewed".to_vec(),
+    });
+    let request = source
+        .module_delivery(&mut store, 7, outcome)
+        .unwrap()
+        .unwrap();
+    assert_eq!(request.continuation, Some(8));
+    assert_eq!(store.get("token"), Some("renewed"));
+    assert!(store.take_writes()[0].durable);
+}
 
 #[test]
 fn configured_embedded_executor_preserves_browser_continuation_routing() {

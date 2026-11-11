@@ -660,6 +660,15 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             || owner
     }
 
+    fn note_storage_changed(&mut self) {
+        if self.owner.is_some() {
+            self.storage_changed
+                .store(true, std::sync::atomic::Ordering::Release);
+        } else if let Some(inner) = &mut self.inner {
+            inner.note_storage_changed();
+        }
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         if let Some(inner) = &mut self.inner {
             inner.set_document_owner(owner);
@@ -1227,6 +1236,18 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         });
         drop(unsent);
         Ok(Some(Request::continuation(continuation)))
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        if self.owner.is_some() {
+            return Err(unavailable("a worker reply needs module_delivery"));
+        }
+        self.here()?.module_landed(store, token, outcome)
     }
 
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {

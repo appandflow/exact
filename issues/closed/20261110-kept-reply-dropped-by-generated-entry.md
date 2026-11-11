@@ -1,6 +1,7 @@
 # A kept request's reply never reaches a TypeScript module on Linux, Android or Windows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Generated entries forward kept replies and delivery continuations; inline Placed sources forward module_landed.
 **Systems:** data/src/placed.rs, logic/src/configured.rs, logic/src/lib.rs, js/bake/src/lib.rs, runner module work (LLP 1146 D2)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

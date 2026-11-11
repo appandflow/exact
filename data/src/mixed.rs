@@ -596,6 +596,11 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.javascript.take_storage_changed() | self.rust.take_storage_changed()
     }
 
+    fn note_storage_changed(&mut self) {
+        self.javascript.note_storage_changed();
+        self.rust.note_storage_changed();
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.javascript.set_document_owner(owner);
         self.rust.set_document_owner(owner);
