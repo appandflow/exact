@@ -13,15 +13,18 @@ extension NodeView {
         // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
         defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }
         #endif
-        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView, from: scrollView.contentOffset, velocity: velocity)
+        let travel = scrollView.panGestureRecognizer.translation(in: scrollView)
+        let began = CGPoint(x: scrollView.contentOffset.x + travel.x, y: scrollView.contentOffset.y + travel.y)
+        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView, from: began, velocity: velocity)
     }
 
     /// The native resting position, optionally constrained to the snap area
     /// holding a target the agent reveals: along x for `x mandatory`, along y
-    /// for `y mandatory`. A drag released at `origin` does not pass over the
+    /// for `y mandatory`. A drag that began at `origin` does not pass over the
     /// position of an area that says `scroll-snap-stop: always` (CSS Snap §6.2).
     /// A flick (UIKit's `velocity`, points per millisecond) reaches at least the
-    /// next position its way, however short its projected travel.
+    /// next position its way from `origin`, however short its projected travel,
+    /// as SwiftUI's `.viewAligned` and `.paging` do.
     func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil, from origin: CGPoint? = nil, velocity: CGPoint = .zero) -> CGPoint {
         let type = style["scroll_snap_type"]?.string
         guard type == "x mandatory" || type == "y mandatory" else { return proposed }
@@ -60,8 +63,8 @@ extension NodeView {
             if let origin {
                 let from = vertical ? origin.y : origin.x
                 let speed = vertical ? velocity.y : velocity.x
-                if speed > 0.3, nearest <= from + 0.5, let next = choices.filter({ $0 > from + 0.5 }).min() { nearest = next }
-                if speed < -0.3, nearest >= from - 0.5, let next = choices.filter({ $0 < from - 0.5 }).max() { nearest = next }
+                if speed > 0.25, nearest <= from + 0.5, let next = choices.filter({ $0 > from + 0.5 }).min() { nearest = next }
+                if speed < -0.25, nearest >= from - 0.5, let next = choices.filter({ $0 < from - 0.5 }).max() { nearest = next }
                 if nearest > from + 0.5, let stop = stops.filter({ $0 > from + 0.5 }).min() { nearest = min(nearest, stop) }
                 if nearest < from - 0.5, let stop = stops.filter({ $0 < from - 0.5 }).max() { nearest = max(nearest, stop) }
             }

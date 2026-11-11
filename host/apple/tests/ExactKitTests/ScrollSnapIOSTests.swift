@@ -67,6 +67,15 @@ final class ScrollSnapIOSTests: XCTestCase {
         XCTAssertEqual(rest(node, scroll, from: 500, velocity: 0.8), 600, "a long fling still rests where it projects")
     }
 
+    func testAFlickCountsFromWhereTheDragBegan() throws {
+        let areas = (0..<6).map { ("start", Double($0) * 150, 150.0) }
+        let (node, scroll) = try strip(areas)
+        let began = CGPoint.zero, flick = CGPoint(x: 0.8, y: 0)
+        XCTAssertEqual(node.snappedOffset(CGPoint(x: 170, y: 0), in: scroll, from: began, velocity: flick).x, 150, "one position past where it began, not two")
+        let (stopped, stoppedScroll) = try strip(areas, stop: "always")
+        XCTAssertEqual(stopped.snappedOffset(CGPoint(x: 520, y: 0), in: stoppedScroll, from: began, velocity: flick).x, 150, "`always` stops a fling at the first position past where it began")
+    }
+
     func testAgentRevealAndWheelRestAtAPagesSnapPosition() throws {
         let session = ExactApp.shared.makeSession(label: "snap-reveal")
         defer { session.destroy() }
