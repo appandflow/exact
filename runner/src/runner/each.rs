@@ -23,7 +23,7 @@ pub(super) struct Member {
     /// The element, the one parameter its arguments read.
     pub(super) item: Value,
     /// Its element left the list: its request was let go, and it settles
-    /// to nothing. A member's row is never reused.
+    /// to nothing until an element that joins the family takes its row.
     pub(super) gone: bool,
 }
 
@@ -88,15 +88,15 @@ impl<D: DataSource> Runner<D> {
 
     /// The members of family `i` for `elements`, in their order (an element
     /// whose key repeats an earlier one's reads that one's answer), adding a
-    /// member for each new key; and the family's live members no element
-    /// keys, which leave. Whether a member was added comes back too.
+    /// member for each new key; the family's live members no element keys,
+    /// which leave; and the members added.
     pub(super) fn join(
         &mut self,
         i: usize,
         elements: Vec<(String, Value)>,
-    ) -> (Vec<usize>, Vec<usize>, bool) {
+    ) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
         let mut order = Vec::with_capacity(elements.len());
-        let mut added = false;
+        let mut added = Vec::new();
         for (key, item) in elements {
             let found = (self.members.rows.iter().enumerate()).find_map(|(m, row)| {
                 row.as_ref()
@@ -106,8 +106,9 @@ impl<D: DataSource> Runner<D> {
             let m = match found {
                 Some(m) => m,
                 None => {
-                    added = true;
-                    self.add_member(i, key, item.clone())
+                    let m = self.add_member(i, key, item.clone());
+                    added.push(m);
+                    m
                 }
             };
             // A repeated key reads the first element's request.
@@ -129,8 +130,26 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A member of family `i` for the element `item` keyed `key`: a copy of
-    /// the family's row that asks for one element and answers its type.
+    /// the family's row that asks for one element and answers its type. It
+    /// takes the row of a member whose element left, when one has no
+    /// request in flight (a child a tool started can outlive its element,
+    /// LLP 1133.007 D13), so a family keeps no more rows than the elements
+    /// one settlement holds: those that stay, leave and join.
     fn add_member(&mut self, i: usize, key: String, item: Value) -> usize {
+        let free = (self.members.rows.iter().enumerate()).position(|(m, row)| {
+            row.as_ref().is_some_and(|row| row.family == i && row.gone)
+                && !self.pending.iter().any(|p| p.target == Target::Resource(m))
+        });
+        if let Some(m) = free {
+            self.members.rows[m] = Some(Member {
+                family: i,
+                key,
+                item,
+                gone: false,
+            });
+            self.fresh_row(m);
+            return m;
+        }
         // The inspection digest names the plan as it was built.
         let _ = self.inspection_digest();
         let mut row = self.plan.resources[i].clone();
@@ -170,6 +189,27 @@ impl<D: DataSource> Runner<D> {
         if !self.ids.work.resources.is_empty() {
             self.ids.work.resources.resize(n, Default::default());
         }
+    }
+
+    /// Row `m`'s entries as a new member's start: empty, with nothing kept
+    /// from the member whose element left it.
+    fn fresh_row(&mut self, m: usize) {
+        self.resources[m] = None;
+        self.resource_values[m] = None;
+        self.failed_args[m] = None;
+        self.failed_why[m] = None;
+        self.pending_res[m] = false;
+        self.overlays[m] = None;
+        self.store_readers[m] = false;
+        self.entropy_readers[m] = false;
+        self.watching[m].clear();
+        self.stale[m] = false;
+        self.awaiting[m] = false;
+        if let Some(work) = self.ids.work.resources.get_mut(m) {
+            *work = Default::default();
+        }
+        self.refresh_next.retain(|r| *r != m);
+        self.forget_resource_row(m);
     }
 
     /// Family `i`'s value from its members' this pass: their answers as a

@@ -1,6 +1,7 @@
 # A resource over a list adds a resource row for every element that joins and never frees one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An element that joins takes the row of a member whose element left in an earlier commit and has no request in flight, starting it empty, so the rows stay as many as the elements one settlement holds (those that stay, leave and join).
 **Systems:** runner/src/runner/each.rs, runner/src/runner/settlement.rs, runner/src/runner/commit.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

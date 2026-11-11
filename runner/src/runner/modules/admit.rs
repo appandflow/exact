@@ -588,6 +588,20 @@ impl<D: DataSource> Runner<D> {
         (o.ids).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
     }
 
+    /// Resource row `i` is a new member's (`each.rs`): nothing an earlier
+    /// member asked through it stands: its asks' origins, the arguments a
+    /// child's start refused, its last poll answer.
+    pub(in crate::runner) fn forget_resource_row(&mut self, i: usize) {
+        let o = &mut self.extensions.origins;
+        o.asked.remove(&i);
+        o.asked_causes.remove(&i);
+        o.deferred.remove(&i);
+        for within in self.extensions.within.values_mut() {
+            within.remove(&i);
+        }
+        self.forget_refused_row(i);
+    }
+
     /// What answers `row` now (module doc).
     pub(in crate::runner) fn route(&self, row: &ModulesRow) -> Route {
         let extension = self.plan.str(row.extension);

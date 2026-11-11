@@ -447,7 +447,7 @@ impl<D: DataSource> Runner<D> {
                                 Err(t) => return Err(t.into()),
                             }
                         };
-                        let (order, gone, _) = self.join(i, elements);
+                        let (order, gone, added) = self.join(i, elements);
                         let n = self.plan.resources.len();
                         states.resize(n, None);
                         effects.resize_with(n, || RequestEffect::None);
@@ -458,6 +458,16 @@ impl<D: DataSource> Runner<D> {
                         awaiting.resize(n, false);
                         settled_res.resize(n, false);
                         resource_changed.resize(n, false);
+                        // A row a new member took may have settled empty in
+                        // this pass already, while it was a left element's.
+                        for m in added {
+                            states[m] = None;
+                            resources[m] = None;
+                            pending_res[m] = false;
+                            awaiting[m] = false;
+                            settled_res[m] = false;
+                            resource_changed[m] = false;
+                        }
                         // A refresh of the list refreshes each element.
                         if force.contains(&i) {
                             force.retain(|f| *f != i);

@@ -246,3 +246,80 @@ fn a_list_whose_elements_streams_are_open_is_listed_open() {
     assert_eq!(checkpoint.open, ["heard"]);
     assert!(checkpoint.pending.is_empty(), "{:?}", checkpoint.pending);
 }
+
+/// `look(u)` answers at once, with `u` as the phase.
+struct Look;
+
+impl DataSource for Look {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Now(Value::record(vec![args[0].clone()])))
+    }
+}
+
+/// A member whose element left is a row a later element takes: a window
+/// moved half a window at a time, many times over and back again, keeps as
+/// many rows as one move has elements (those that stay, leave and join). The
+/// list reads a resource declared after it, so its elements are read in a
+/// later sweep than the members whose elements left.
+#[test]
+fn a_list_whose_elements_change_keeps_rows_for_the_elements_live() {
+    let plan = contract::compile(
+        "shape Got\n  phase: string\ncomponent App\n  state ids: string[] = []\n  resource got = look(u) for u in ids.filter(x => x != skip.phase) as shape Got\n  resource skip = look(\"none\") as shape Got\n  action show(xs: string[])\n    ids = xs\n  derive phases = got.map(g => g.phase).join(\",\")\n  view\n    text phases\n",
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Look,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let declared = r.declared_resources().len();
+    let mut most = 0;
+    for round in 0..300 {
+        // Pages 0, 1, 0, 1, 2, 1, 2, 3, 2…: keys leave and return.
+        let page = round / 3 + usize::from(round % 3 == 1);
+        let ids: Vec<String> = (page * 25..page * 25 + 50).map(|n| n.to_string()).collect();
+        let list = Value::list(ids.iter().map(|s| Value::str(s)).collect());
+        r.act("show", vec![list]).unwrap();
+        let phases = r.derive("phases").unwrap().as_str().unwrap().to_string();
+        assert_eq!(phases, ids.join(","), "round {round}");
+        most = most.max(r.plan().resources.len());
+    }
+    assert_eq!(r.declared_resources().len(), declared);
+    assert!(
+        most <= declared + 75,
+        "{most} rows for 50 elements live and 25 joining"
+    );
+}
+
+/// A row a returning element takes asks anew: the reply to the request its
+/// earlier element let go lands nowhere.
+#[test]
+fn a_taken_row_hears_only_its_own_request() {
+    let plan = contract::compile(SOURCE).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Receiver::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = asked(&mut r);
+    let rows = r.plan().resources.len();
+    r.act("drop", vec![Value::str("a")]).unwrap();
+    r.act("add", vec![Value::str("d")]).unwrap();
+    let d = asked(&mut r);
+    assert_eq!(d.len(), 1);
+    assert_eq!(r.plan().resources.len(), rows, "`d` takes `a`'s row");
+    assert_eq!(r.fulfill(first[0].1, reply(200, "late")).unwrap(), None);
+    assert_eq!(text(&r, "phases"), ",,");
+    r.fulfill(d[0].1, reply(200, "received")).unwrap();
+    assert_eq!(text(&r, "phases"), ",,received");
+}
