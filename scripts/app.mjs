@@ -904,8 +904,8 @@ export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target
 /** The command that builds it. An app outside this repo gets the root's
  * profiles on the command line, as its Apple build does (injectedProfiles). */
 export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
-/** The executable (and Apple bundle) as Xcode and Visual Studio name a project's: the app's name, less what a file name cannot carry (LLP 1030 D2); `windowsFile` is a Windows build's name for a Cargo product. */
-export const executableName = (app) => app.displayName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/^[. ]+|[. ]+$/g, '') || app.id.split('.').pop();
+/** The executable (and Apple bundle) as Xcode and Visual Studio name a project's: the app's name in ASCII (codesign seals a main executable with a non-ASCII name as a resource, then breaks its own seal by signing it), less what a file name cannot carry (LLP 1030 D2); `windowsFile` is a Windows build's name for a Cargo product. */
+export const executableName = (app) => app.displayName.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/[<>:"/\\|?*]/g, '-').replace(/^[. ]+|[. ]+$/g, '') || app.id.split('.').pop();
 export const windowsFile = (app, path) => basename(path) === `${app.crate('windows')}.exe` ? `${executableName(app)}.exe` : basename(path);
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
