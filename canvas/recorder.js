@@ -700,7 +700,8 @@ function svgPath(text, d) {
   for (;;) {
     skip(false);
     if (at >= s.length) return;
-    if (/[A-Za-z]/.test(s[at])) cmd = s[at++]; else if (!cmd || !more()) return;
+    // `Z` takes no numbers: one after it is the path's first error (SVG 2 §9.5.4), and repeating `Z` would never end.
+    if (/[A-Za-z]/.test(s[at])) cmd = s[at++]; else if (!cmd || cmd === "Z" || cmd === "z" || !more()) return;
     if (first && cmd !== "M" && cmd !== "m") return;
     first = false;
     const rel = cmd === cmd.toLowerCase(), base = rel ? cur : [0, 0];

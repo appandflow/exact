@@ -67,3 +67,10 @@ test('a display-p3 canvas records Display P3 bytes, as the Rust recorder does', 
   const pixel = r.find(([c]) => c === 72)[1][4];
   expect([pixel >>> 24, (pixel >>> 16) & 255, (pixel >>> 8) & 255, pixel & 255]).toEqual([234, 51, 35, 255]);
 });
+
+test('a number after Z ends the path there, as Chrome does', () => {
+  // `Z` takes no numbers (SVG 2 §9.5.4); repeating it for the number never ended.
+  const drawn = (d) => { const ctx = new Recorder(); ctx.stroke(new Path2D(d)); return ctx._.take(); };
+  expect(drawn('M0 0 L10 0 Z 5')).toEqual(drawn('M0 0 L10 0 Z'));
+  expect(drawn('M0 0 L10 0 z5 5')).toEqual(drawn('M0 0 L10 0 z'));
+});

@@ -1,6 +1,7 @@
 # `new Path2D(d)` never returns when a number follows `Z`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A number after `Z` ends the path data in both recorders, as an error does, instead of repeating `Z` for ever.
 **Systems:** canvas/src/path2d.rs, canvas/recorder.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
