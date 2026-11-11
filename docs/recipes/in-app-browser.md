@@ -18,7 +18,9 @@ component App
 
 Pass an absolute HTTP(S) URL. iOS shows `SFSafariViewController` over the app and
 answers `{action: "dismissed"}` when it closes. Android opens a Custom Tab (or
-falls back to the browser) and answers `{action: "opened"}` on launch. macOS
+falls back to the browser) and answers `{action: "opened"}` on launch; a link an
+installed app claims (YouTube's, with YouTube installed) opens that app, as any
+link on Android does. macOS
 opens the default browser; the web opens a tab/window; both answer `"opened"`.
 Linux and tvOS refuse with `NotSupportedError`. No grant is needed.
 

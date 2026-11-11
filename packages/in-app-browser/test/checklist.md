@@ -45,10 +45,15 @@ messages have link embeds:
 
 `bun scripts/agent-android.mjs build excord --apk`, then install the APK.
 
-6. **A Custom Tab.** Tap the title: a Custom Tab opens over Excord with
-   Chrome's toolbar, the page's title and a close (×) button.
+6. **A Custom Tab.** Without the GitHub app installed, tap the title: a
+   Custom Tab opens over Excord with Chrome's toolbar, the page's title and
+   a close (×) button.
 7. **Close returns.** Tap ×: back in the conversation at the same message.
-8. **No Custom Tabs browser.** With only a browser that provides no Custom
+8. **A link an app claims.** Install the GitHub app and tap the title again:
+   the GitHub app opens the page, as it does for any github.com link on
+   Android, and Back returns to the conversation. The tab carries no
+   package (LLP 1133.024 D12), so write down what opened.
+9. **No Custom Tabs browser.** With only a browser that provides no Custom
    Tabs (disable Chrome, install one without them), tap the title: the
    page opens in that browser; Excord's `inAppBrowserStatus` reads
    `overApp` false after returning to the app.
@@ -57,5 +62,5 @@ messages have link embeds:
 
 `bun host/web/dev.mjs --app excord`.
 
-9. **A new tab.** Click the title: the page opens in a new tab or window,
+10. **A new tab.** Click the title: the page opens in a new tab or window,
    as the browser chooses, and Excord's tab stays.
