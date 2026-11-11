@@ -1211,8 +1211,8 @@ The cut was the smallest one. Left in the reader:
 
 - **`mix-blend-mode`.** The stream has no blend, so a blended SVG element draws over what is below it; the recorder
   says so once on the log and the schema's row records it (LLP 1159.000). The pictures the paint walk rasterises itself
-  (SVG filters, `text-shadow`, `-webkit-text-stroke`, `background-clip: text`) are placed as a canvas's is, and have not
-  been seen on a device (`QUEUE.md`, "Android's island pictures").
+  (SVG filters, `text-shadow`, `-webkit-text-stroke`, `background-clip: text`) are placed as a canvas's is: seen on an
+  emulator, and what an animated one costs is not measured (`QUEUE.md`, "Android's island pictures").
 - **Most of LLP 1115.001.** The controls have the desktop painter's shapes, and a sheet or a chooser is refused.
   What is built of it:
   - *The reader answers accessibility services* (D13): the section above, with what was and was not seen of

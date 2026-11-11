@@ -644,6 +644,10 @@ impl Backend for Recorder {
     /// shadow or stroke, `background-clip: text`), placed as a canvas's is.
     /// The stream has no blend, so a blended island draws over what is below
     /// it, and says so once (LLP 1159.000 D1).
+    fn supports_island_image(&self) -> bool {
+        true
+    }
+
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
         if mode != 0 {
             undrawn("`mix-blend-mode`");

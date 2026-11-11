@@ -424,16 +424,29 @@ mod tests {
             "an earlier live band remains reusable"
         );
 
+        // A walk that draws nothing makes no band; the recorder, which
+        // places one as a picture, does.
+        let mut unpainted = Painter::new(
+            painter.text.clone(),
+            3.0,
+            Box::new(crate::paint::layer::Unpainted),
+        );
+        unpainted.stroke_pass(&paragraph, &palette, 5.0, (0.0, 0.0), Transform::identity());
+        assert_eq!(
+            BAND_BUILDS.get() - before,
+            4,
+            "a backend that places no island builds no band"
+        );
         let mut recorder = Painter::new(
             painter.text.clone(),
             3.0,
             Box::new(crate::canvas::Recorder::new()),
         );
-        recorder.stroke_pass(&paragraph, &palette, 5.0, (0.0, 0.0), Transform::identity());
+        recorder.stroke_pass(&paragraph, &palette, 6.0, (0.0, 0.0), Transform::identity());
         assert_eq!(
             BAND_BUILDS.get() - before,
-            4,
-            "a recorder without island images builds no band"
+            5,
+            "the Android recorder strokes"
         );
 
         let before_phase = BAND_BUILDS.get();

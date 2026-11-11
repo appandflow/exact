@@ -199,10 +199,9 @@ pub trait Backend {
         ts: Transform,
         tint: Option<[u8; 4]>,
     );
-    /// Whether this backend can composite CPU islands (including text strokes).
-    fn supports_island_image(&self) -> bool {
-        false
-    }
+    /// Whether this backend places a CPU island: the walk makes none it
+    /// would not (a text stroke's band).
+    fn supports_island_image(&self) -> bool;
     /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8);
     /// Composite a rendered canvas child (not a decoded image asset).
@@ -430,6 +429,9 @@ macro_rules! paints_nothing {
         ) {
         }
         fn text_blur(&mut self, _: f32) {}
+        fn supports_island_image(&self) -> bool {
+            false
+        }
         fn island_image(
             &mut self,
             _: ::std::sync::Arc<::tiny_skia::Pixmap>,

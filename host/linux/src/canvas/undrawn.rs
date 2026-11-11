@@ -61,6 +61,8 @@ mod tests {
         };
         let ops = record(Transform::identity(), 0);
         assert!(placed(&ops), "{ops:?}");
+        // The walk asks before it makes a text stroke's band.
+        assert!(Recorder::new().supports_island_image());
         assert_ne!(ops, record(Transform::from_translate(12.0, 9.0), 0));
         // A blended island is still placed, unblended.
         assert!(placed(&record(Transform::identity(), 1)));
