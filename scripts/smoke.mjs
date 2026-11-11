@@ -17,7 +17,7 @@ import { HOST_DEV, authoredTests, resolveApp, withAppFixture } from './app.mjs';
 import { agree, explainNode, hostSections, httpFrameSmoke, formControlsSmoke, poolingDrive, messageKeys, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
-import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
+import { canonicalBytes, channelOf, publicKeyFromRaw, webRelease } from './deploy.mjs';
 import { crop, decodePng, diff, encodePng } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -181,7 +181,7 @@ if (host === 'deploy') {
   manifest.deploy.signing.keys[keyId] ??= Buffer.alloc(32).toString('base64');
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   fixture.git(['add', '-A']); fixture.git(['commit', '--allow-empty', '-qm', 'Diagnostic publishing policy']);
-  const channel = manifest.deploy?.channel ?? 'prod';
+  const channel = channelOf(manifest);
   const assetName = existsSync(resolve(fixtureApp, 'assets')) ? readdirSync(resolve(fixtureApp, 'assets')).find((n) => statSync(resolve(fixtureApp, 'assets', n)).isFile()) : null;
   const assetPath = assetName ? resolve(fixtureApp, 'assets', assetName) : null;
   const asset0 = assetPath ? readFileSync(assetPath) : null;

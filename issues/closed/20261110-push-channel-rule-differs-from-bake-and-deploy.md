@@ -1,6 +1,7 @@
 # `exact push` ignores the only `deploy.channels` entry and uses `prod`, where the bake and `deploy` use that channel
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Push and the deployment smoke share deploy's channel selector, including the sole deploy.channels entry.
 **Systems:** scripts/push.mjs, scripts/smoke.mjs, scripts/deploy.mjs, contract/cli/src/manifest.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

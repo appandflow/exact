@@ -35,7 +35,7 @@ import { homedir } from 'node:os';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Refusal, refuse, loadSigner } from './deploy-signing.mjs';
-import { defaultRelease, inspectHead, publishStream } from './deploy.mjs';
+import { channelOf, defaultRelease, inspectHead, publishStream } from './deploy.mjs';
 import { classifyArtifacts, cohortReceipt, readBuilds, resolveApp } from './app.mjs';
 import { buildRust, rustBundle, RustBaker } from './rust.mjs';
 import { blobPath, channelOrigin, openOrigin, sha256, streamPath, validateChannel } from './origin.mjs';
@@ -197,7 +197,7 @@ function gitHead() {
 export async function pusher(opts) {
   const app = resolveApp(opts._[0]);
   requireReleasePins(app);
-  const channel = validateChannel(opts.channel ?? app.manifest.deploy?.channel ?? 'prod');
+  const channel = validateChannel(opts.channel ?? channelOf(app.manifest));
   const spec = opts.origin ?? channelOrigin(app.manifest, channel);
   if (!spec) refuse(`no origin for the channel ${channel}: pass --origin <dir>, or name deploy.channels.${channel} ("appdrop" needs no server)`);
   const origin = openOrigin(spec);

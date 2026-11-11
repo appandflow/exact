@@ -1,10 +1,11 @@
-import { validateChannel, sha256, blobPath } from './origin.mjs';
-import {expect, test} from 'bun:test';
+import { validateChannel, channelOrigin, sha256, blobPath } from './origin.mjs';
+import {expect, mock, test} from 'bun:test';
 import * as fs from 'node:fs';
 import {tmpdir, homedir} from 'node:os';
 import {resolve, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {classifyArtifacts} from './app.mjs';
+import {channelOf} from './deploy.mjs';
 
 // The publisher's functions with boundary doubles, for an app at a fresh
 // root whose cohort's binary has prelude runtime 4 and whose baked module
@@ -12,12 +13,12 @@ import {classifyArtifacts} from './app.mjs';
 // module mocks; explicit bindings also isolate deployment tests.
 function harness(classify=()=>({bundle:true}), runtime=4) {
   const root=fs.mkdtempSync(resolve(tmpdir(),'exact-push-profile-'));
-  const app={id:'fixture',name:'fixture',dir:root,target:root,manifest:{deploy:{signing:{keys:{test:'public'}}}}};
+  const app={id:'fixture',name:'fixture',dir:root,target:root,manifest:{app:{origin:root},deploy:{signing:{keys:{test:'public'}}}}};
   const compat={id:'a'.repeat(32),target:'fixture',inputs:{app:'fixture',platform:'linux',store:{L:'A'},rustMode:'native',grantCeiling:'',keys:{test:'public'},typescriptRuntime:4}};
   const graph={artifacts:[{name:'app.plan',requires:{sources:{}},sha256:'plan'}]};
   const cohort={version:1,compat,binary:'binary',sources:{}};
   const build={trust:'production',compat,graph};
-  const calls=[], published=[];
+  const calls=[], published=[], destinations=[], rows=[];
   const sealed=(name,env)=>{
     calls.push(name);
     expect(env?.EXACT_GAME_PROOF_PROFILE,`${name} shipping profile`).toBe('release');
@@ -25,17 +26,17 @@ function harness(classify=()=>({bundle:true}), runtime=4) {
   };
   const bindings={
     ...Object.fromEntries(['existsSync','readFileSync','writeFileSync','mkdtempSync','rmSync','watch','readdirSync'].map(name=>[name,fs[name]])),
-    validateChannel,resolve,relative,homedir,ROOT:fileURLToPath(new URL('..',import.meta.url)),
+    channelOf,validateChannel,resolve,relative,homedir,ROOT:fileURLToPath(new URL('..',import.meta.url)),
     process:{env:{EXACT_GAME_PROOF_PROFILE:'gpu-dev',EXACT_UPDATE_TRUST:'development'}},
     console:{log(){}},Refusal:Error,refuse(message){throw Error(message)},
     loadSigner:()=>({keyId:'test'}),resolveApp:()=>app,readBuilds:()=>[build],
     cohortReceipt:()=>cohort,classifyArtifacts:classify,
-    openOrigin:()=>({writable:true,list:async()=>[],describe:()=>root}),
-    channelOrigin:()=>root,sha256:()=> 'digest',blobPath:x=>x,streamPath:()=> 'stream',
+    openOrigin:mock(spec=>({writable:true,list:async path=>{destinations.push({origin:spec,path});return []},describe:()=>spec})),
+    channelOrigin,sha256:()=> 'digest',blobPath:x=>x,streamPath:()=> 'stream',
     defaultRelease:()=> 'r-fixture',inspectHead(){throw Error('unexpected head')},
     requireReleasePins(){}, // the release pins' gate (game/inputs.mjs), not what this seals
-    async publishStream({build}){
-      expect(build.trust).toBe('production');calls.push('publish');published.push(build);
+    async publishStream({build,row}){
+      expect(build.trust).toBe('production');calls.push('publish');published.push(build);rows.push(row);
       return {action:'current',platform:'linux',compatibilityId:compat.id};
     },
     RustBaker:class {constructor(app,env){sealed('resident',env)}close(){calls.push('close')}},
@@ -59,8 +60,38 @@ function harness(classify=()=>({bundle:true}), runtime=4) {
   const functions=source.slice(source.indexOf('function parseArgs('),source.indexOf('\nif (process.argv[1]'))
     .replace('export async function pusher','async function pusher');
   const pusher=new Function(...Object.keys(bindings),functions+'\nreturn pusher;')(...Object.values(bindings));
-  return {root,calls,published,bindings,pusher};
+  return {root,app,calls,published,destinations,rows,bindings,pusher};
 }
+
+test.each([
+  { name: 'the only channel', deploy: { channels: { dogfood: 'dogfood-origin' } }, expected: 'dogfood', origin: 'dogfood-origin' },
+  { name: 'the only channel before app.origin', deploy: { channels: { dogfood: 'dogfood-origin' } }, fallback: true, expected: 'dogfood', origin: 'dogfood-origin' },
+  { name: 'deploy.channel before the only channel', deploy: { channel: 'beta', channels: { dogfood: 'dogfood-origin' } }, fallback: true, expected: 'beta' },
+  { name: '--channel before deploy.channel', deploy: { channel: 'beta', channels: { dogfood: 'dogfood-origin' } }, channel: 'dogfood', expected: 'dogfood', origin: 'dogfood-origin' },
+  { name: 'prod with no channels', deploy: {}, fallback: true, expected: 'prod' },
+  { name: 'prod with several channels', deploy: { channels: { dogfood: 'dogfood-origin', beta: 'beta-origin' } }, fallback: true, expected: 'prod' },
+])('push uses $name for stream discovery and publication', async ({ deploy, channel, fallback, expected, origin }) => {
+  const { root, app, destinations, rows, pusher } = harness();
+  try {
+    if (!fallback) delete app.manifest.app.origin;
+    Object.assign(app.manifest.deploy, deploy);
+    expect(await pusher({ _: [root], channel, keys: root })).toBe(0);
+    expect(destinations).toEqual([{ origin: origin ?? root, path: `.exact/${expected}` }]);
+    expect(rows.map(row => row.channel)).toEqual([expected]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test.each([
+  { name: 'prod', channels: {} },
+  { name: 'the only channel', channels: { dogfood: 'dogfood-origin' } },
+])('push rejects an empty deploy.channel before falling back to $name', async ({ channels }) => {
+  const { root, app, bindings, pusher } = harness();
+  try {
+    Object.assign(app.manifest.deploy, { channel: '', channels });
+    await expect(pusher({ _: [root], keys: root })).rejects.toThrow('the channel "" cannot name a directory under .exact/');
+    expect(bindings.openOrigin).not.toHaveBeenCalled();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('push seals every Rust, TypeScript and graph bake against an inherited proof profile', async () => {
   const {root,calls,published,bindings,pusher}=harness();
