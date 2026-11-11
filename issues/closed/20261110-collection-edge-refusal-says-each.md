@@ -1,6 +1,7 @@
 # The `reachend` refusal, `contract vocab reachend` and docs/reference.md tell the author to write `each`, which the parser refuses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Collection-edge refusals, vocabulary entries and reference guidance require one direct `for` in a virtualized list.
 **Systems:** contract/lower/src/vocab.rs, docs/reference.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

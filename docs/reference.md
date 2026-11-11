@@ -3175,14 +3175,14 @@ resizing and Linux headless presenter resizing do not measure physical refresh.
 ### Intersection visibility
 
 `reachstart` and `reachend` belong only to `list virtualized=true` with one
-direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
+direct `for` (LLP 1010). Only a non-empty collection has edges: its geometric
 window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
 
 A row that is not an item, such as a line saying that older messages are loading
-or that the thread starts here, is one more item of the `each`'s list, put first
-by a `derive`. The `each`'s one root draws it by its key, and it is the edge row
+or that the thread starts here, is one more item of the `for`'s list, put first
+by a `derive`. The `for`'s one root draws it by its key, and it is the edge row
 that `reachstart` watches:
 
 ```text
