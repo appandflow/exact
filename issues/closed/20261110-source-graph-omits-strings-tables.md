@@ -1,6 +1,7 @@
 # The source graph omits `strings/<locale>.json`, so a strings edit rebuilds neither a Rust-source app's plan nor the resident dev session's
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The source graph lists the app's `strings/*.json` tables, so `rerun_if_changed` and the dev session rebuild on a strings edit; a locale added later is still not looked for.
 **Systems:** contract/cli/src/lib.rs (`source_graph`, `rerun_if_changed`), contract/cli/src/sources/tail.rs, contract/cli/src/strings.rs, host/web/src/dev.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
