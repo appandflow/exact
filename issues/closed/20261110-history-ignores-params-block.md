@@ -1,6 +1,7 @@
 # History and revert do not read a design's `params` and `component` blocks
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** History includes design params and components; reverts restore param values and refuse component changes or conditional restorations missing their default.
 **Systems:** tamber/src/history.rs, contract/cli/src/tamber_history.rs, scripts/tamber-server.mjs (`history`, `revert`), docs/tamber-protocol.md
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

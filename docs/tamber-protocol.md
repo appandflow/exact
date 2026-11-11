@@ -1150,10 +1150,13 @@ list is unchanged: it keeps its own.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis`, `other`, `state` or `row` (a `.contract` file's, below);
+  - `what` is `token`, `param`, `dial`, `axis`, `other`, `state` or `row` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
+- A design's `params` block gives a `param` edit for each changed default or `when` value,
+  named as its line is written. A changed `component Name` block gives an `other` edit named
+  `component Name`, with the declaration before and after.
 - **`edits` is null, with `refused`,** when a side doesn't parse, declares a name or `when` twice,
   or the two versions together are over 1 MiB.
 - **The app's own Contract sources** (*1.11*, stage 8 D) are among the design's files: their
@@ -1180,8 +1183,12 @@ list is unchanged: it keeps its own.
   `unset-state`, and a style's own row's value with `set-row` (*1.12*: one the commit added or
   removed is refused, `set-row` adding or taking away none); its other lines are left as they are, and `code` lists the files where the
   commit changed some (*1.11*).
+- A design's `params` values are set back with `set-param` or `unset-param`, including their
+  `when` lines. Removing a param added by the commit requires its whole declaration to match.
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
+  - a selection restores a removed param's `when` line without its default;
+  - a param's spelling differs between its short and full names across the commit and current file;
   - the commit created or removed a design file (a `.contract` file's state rows included; one
     whose code alone changed is left alone);
   - a `.contract` row put back last would paint over a border row of its block it came before,
@@ -1192,7 +1199,7 @@ list is unchanged: it keeps its own.
   - the `.contract` file is not one of the app's own Contract sources now;
   - it added or removed a dial;
   - it added an axis, reordered an axis's values, or changed an axis's `under`;
-  - it changed a kind, a range, metadata, the design's name or its exports.
+  - it changed a kind, a range, metadata, the design's name, exports, icons or a `component` block.
 
   A removed axis is restored with `add-axis`.
 - **Other refusals:**
@@ -1200,7 +1207,8 @@ list is unchanged: it keeps its own.
   - a commit that touched no design file, or only a Contract source's code: 400;
   - an unknown commit: 404.
 - **Accepted after the files move,** it is planned again from the commit. A partial accept keeps
-  its selection when planned again.
+  its selection when planned again, including each param's default or conditional value.
+  If a removed param has reappeared with different values, each selected restoration is refused.
 
 ### `import` (*1.1*, LLP 1122 T1a)
 
