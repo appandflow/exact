@@ -24,6 +24,7 @@ capabilities.
 - [State and action semantics](#state-and-action-semantics)
 - [Composition and lifetime](#composition-and-lifetime)
 - [Data requests and side effects](#data-requests-and-side-effects)
+  - [Native sign-in](#native-sign-in-exactsign-in)
 - [Views, layout, and interaction](#views-layout-and-interaction)
   - [Tabular numbers](#tabular-numbers)
   - [Sound, MIDI and media](#sound-midi-and-media)
@@ -1391,6 +1392,40 @@ test "signs in, shows the person, and is still signed in after a relaunch"
   clock data
   expect text "status" == "Signed in"
 ```
+
+### Native sign-in (`@exact/sign-in`)
+
+The [sign-in recipe](recipes/sign-in.md) gives the call and server flow.
+
+On iOS and macOS, an Apple-only request opens AuthenticationServices in the
+calling session's window. The answer has an empty `id`, a `handle`,
+`configURL`, `isAutoSelected: false`, Apple's `user` and authorized scopes
+under `apple`, and `token.authorization` containing `id_token`, `code` and
+`state`. First-authorization name and email, when supplied, are in
+`token.user`. A dismissal returns `NetworkError`, as the web does; runtime
+cancellation returns `AbortError`.
+
+Pass the raw server nonce in `params.nonce`. Both the native request and
+the web authorization URL carry it unchanged. Apple's
+[nonce property](https://developer.apple.com/documentation/authenticationservices/asauthorizationopenidrequest/nonce)
+and [ID-token claims](https://developer.apple.com/documentation/signinwithapplejs/authorizationi/id_token)
+describe checking the supplied value in the token. Exact does not hash it
+on either host. Construction and fixture tests cover this rule; comparing
+real Apple tokens from both hosts remains a device/provider qualification.
+
+The `auth.apple` grant derives `com.apple.developer.applesignin`; there is
+no separate app.json switch. Enable Sign in with Apple for the app's
+Apple Developer App ID and use a provisioning profile that grants it.
+The build signs the entitlement on a simulator or when the signing profile
+allows it. On macOS, a build without the signed entitlement reports Apple
+unavailable and requests return `NotSupportedError`. iOS leaves entitlement
+validation to AuthenticationServices; an authorization failure returns `IdentityCredentialError` with Apple's code. A simulator run
+does not establish successful sign-in on a signed device.
+
+Google on Apple, `getCredentialState`, and the combined Apple/passkey sheet
+remain unimplemented. The existing native capabilities still advertise
+Google active requests and the Apple/passkey combination. A combined `publicKey` and passive `identity` call still belongs to
+passkeys; this Apple-only path does not implement it (LLP 1133.014 D10).
 
 ### Convex live queries (`@exact/convex`)
 
