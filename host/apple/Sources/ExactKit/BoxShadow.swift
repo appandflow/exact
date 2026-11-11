@@ -358,9 +358,20 @@ extension NodeView {
     }
     #endif
 
+    /// Whether the overflow clips one axis and leaves the other visible
+    /// (`clip` beside `visible`, CSS Overflow 3 §3.1). The children's clip
+    /// box then reaches `ClipReach.far` past the node on the visible axis; a
+    /// node that can have no clip box (an overlay, a material) clips both.
+    var clipsOneAxis: Bool {
+        guard kind != "text" else { return false }
+        let pair = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
+        return pair == ["clip", "visible"] || pair == ["visible", "clip"]
+    }
+
     /// The children into a clipping box of their own, or back out of it, as
     /// a scroll view takes them.
     func syncClipBox(_ wanted: Bool) {
+        defer { placeClipBox() }
         if wanted, clipBox == nil {
             let box = ClipBox(frame: bounds)
             #if os(iOS) || os(tvOS)
@@ -387,6 +398,32 @@ extension NodeView {
             clipBox = nil
         }
     }
+
+    /// The clip box over the node's bounds, or for a one-axis clip that far
+    /// past them on the visible axis, with its bounds' origin where its
+    /// frame's is so the children keep the node's coordinates. Autoresizing
+    /// keeps the margins as the node resizes.
+    private func placeClipBox() {
+        guard let box = clipBox else { return }
+        let far = clipsOneAxis ? ClipReach.far : 0
+        let x = (style["overflow_x"]?.string ?? "visible") == "visible" ? far : 0
+        let y = (style["overflow_y"]?.string ?? "visible") == "visible" ? far : 0
+        let reach = bounds.insetBy(dx: -x, dy: -y)
+        guard box.frame != reach || box.bounds.origin != reach.origin else { return }
+        box.frame = reach
+        #if os(iOS) || os(tvOS)
+        box.bounds.origin = reach.origin
+        #else
+        box.setBoundsOrigin(reach.origin)
+        #endif
+    }
+}
+
+/// How far a one-axis clip's box reaches past the node on its visible axis;
+/// overflow beyond it is clipped. A power of two, so that positions in the
+/// box stay exact in single precision.
+enum ClipReach {
+    static let far: CGFloat = 65_536
 }
 
 #if os(macOS)

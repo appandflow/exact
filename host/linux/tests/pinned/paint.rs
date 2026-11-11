@@ -295,6 +295,40 @@ fn a_collapsed_box_inside_a_scroll_container_hides_its_content() {
     assert!(darkest(&frame, next) < 200, "the next section is visible");
 }
 
+/// CSS Overflow 3 §3.1: `clip` on one axis beside `visible` on the other
+/// clips that axis only, square at the box's edges whatever its radius.
+#[test]
+fn a_one_axis_clip_leaves_the_other_axis_visible() {
+    let source = r##"component App
+  view
+    column background-color="#ffffff" padding=20 width="100%" height="100%"
+      box testId="x" width=100 height=100 margin-bottom=150 overflow-x="clip" border-radius=40 background-color="#eeeeee"
+        box testId="x-child" width=200 height=200 flex-shrink=0 background-color="#0000ff"
+      box testId="y" width=100 height=100 overflow-y="clip" background-color="#eeeeee"
+        box width=200 height=200 flex-shrink=0 background-color="#0000ff"
+"##;
+    let blue = (0, 0, 255);
+    let white = (255, 255, 255);
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let frame = p.frame();
+        let (x, y) = (rect(&mut p, "x"), rect(&mut p, "y"));
+        for (at, want, what) in [
+            ((x.0 + 2.0, x.1 + 2.0), blue, "x: a corner is not rounded"),
+            ((x.0 + 150.0, x.1 + 50.0), white, "x: right of the box"),
+            ((x.0 + 50.0, x.1 + 150.0), blue, "x: below the box"),
+            ((y.0 + 150.0, y.1 + 50.0), blue, "y: right of the box"),
+            ((y.0 + 50.0, y.1 + 150.0), white, "y: below the box"),
+        ] {
+            assert_eq!(px(&frame, at.0, at.1), want, "{what} ({choice:?})");
+        }
+        // The child is hit where it shows, and not where it is clipped.
+        let child = Some(view(&p, "x-child"));
+        assert_eq!(p.hit(x.0 + 50.0, x.1 + 150.0), child, "{choice:?}");
+        assert_ne!(p.hit(x.0 + 150.0, x.1 + 50.0), child, "{choice:?}");
+    }
+}
+
 #[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
     for choice in painters() {

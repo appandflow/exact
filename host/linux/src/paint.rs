@@ -1245,11 +1245,12 @@ impl Painter {
         // Children: clipped by this box when its overflow is not visible,
         // moved by its scroll offset when it scrolls.
         let (ox, oy) = effective_overflow(node);
-        let clips = ox != Overflow::Visible || oy != Overflow::Visible;
+        let clip = field::overflow_clip(&surface.outer, (ox, oy));
+        let clips = clip.is_some();
         let mut child_rect = clip_rect;
-        if clips {
-            self.backend.push_clip(&surface.outer, ts);
-            let own = bbox(ts, surface.outer.rect);
+        if let Some(clip) = clip {
+            self.backend.push_clip(&clip, ts);
+            let own = bbox(ts, clip.rect);
             child_rect = Some(match clip_rect {
                 Some(c) => intersect(c, own),
                 None => own,

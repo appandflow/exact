@@ -118,10 +118,16 @@ struct NodePaint {
     paint: BoxPaint,
     payload: Payload,
     opacity: f32,
-    clips: bool,
+    /// Its effective overflow, which says what it clips its children to.
+    axes: (Overflow, Overflow),
     css_clip: exact_kernel::clip::ClipPath,
     scroll: Option<(f32, f32)>,
     action: ActionNode,
+}
+impl NodePaint {
+    fn clips(&self) -> bool {
+        self.axes != (Overflow::Visible, Overflow::Visible)
+    }
 }
 pub(super) struct Picture {
     publication: Rc<RegionPublication>,
@@ -406,7 +412,7 @@ impl Picture {
                 paint,
                 payload,
                 opacity,
-                clips,
+                axes,
                 css_clip: node.style.rare.clip_path.clone(),
                 scroll: scroll_offset,
                 action,
@@ -801,7 +807,7 @@ impl<'a> Replay<'a> {
                             }
                         }
                         Payload::Svg(s) => {
-                            painter.paint_svg(s, n.clips, g.outer.rect, g.content, parent);
+                            painter.paint_svg(s, n.clips(), g.outer.rect, g.content, parent);
                         }
                         Payload::Text(p, palette, inline) => {
                             if let Some(inline) = inline {
@@ -820,10 +826,10 @@ impl<'a> Replay<'a> {
                             );
                         }
                     }
-                    if n.clips {
-                        painter.backend.push_clip(&g.outer, parent);
+                    if let Some(shape) = field::overflow_clip(&g.outer, n.axes) {
+                        painter.backend.push_clip(&shape, parent);
                         clips.push(clip);
-                        let own = bbox(parent, g.outer.rect);
+                        let own = bbox(parent, shape.rect);
                         clip = Some(clip.map_or(own, |c| intersect(c, own)));
                     }
                 }
@@ -832,7 +838,7 @@ impl<'a> Replay<'a> {
                     if n.opacity <= 0. {
                         continue;
                     }
-                    if n.clips {
+                    if n.clips() {
                         painter.backend.pop_clip();
                         clip = clips.pop().unwrap();
                     }

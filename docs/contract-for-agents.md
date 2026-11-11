@@ -4379,7 +4379,9 @@ of JavaScript, React Native, or the predecessor's Contract language.
 CSS overflow accepts `visible`, `hidden`, `clip`, `scroll`, and `auto`.
 `clip` clips without a scroll container or the zero automatic minimum size of `hidden`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
-axis beside hidden/scroll/auto computes to auto, as on the web.
+axis beside hidden/scroll/auto computes to auto, as on the web. Beside `clip` it
+stays visible: `overflow-x="clip"` clips sideways overflow and leaves what
+overflows below showing, with square corners.
 
 `filter` on a box or an `image` takes CSS's functions in order (`blur`,
 `brightness`, `contrast`, `drop-shadow`, `grayscale`, `hue-rotate`, `invert`,

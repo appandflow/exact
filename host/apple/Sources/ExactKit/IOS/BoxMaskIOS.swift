@@ -105,6 +105,8 @@ extension NodeView {
     /// ones (`ClipPath.swift`).
     func shapedClip() -> CALayer? { ClipPath.mask(shapedOutline()) }
     func shapedOutline() -> CGPath? {
+        // A one-axis clip is square (CSS Overflow 3 §3.1).
+        if clipsOneAxis { return nil }
         if clipsToBounds || clipBox != nil, let shape = CornerShape(style["corner_shape"]),
            !(shape.isAppleContinuous && (clipBox?.layer.cornerRadius ?? layer.cornerRadius) > 0) {
             return roundedPath(in: bounds).cgPath

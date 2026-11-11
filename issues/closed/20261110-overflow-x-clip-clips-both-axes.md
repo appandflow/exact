@@ -1,6 +1,7 @@
 # `overflow-x: clip` beside a visible y axis clips both axes on the native hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `clip` beside `visible` now clips its own axis only, square, in the Linux painters (the paint walk and retained content regions), the runner's hit walk and the Apple hosts (a clip box reaching 65,536 points past the node on the visible axis).
 **Systems:** host/linux/src/paint.rs, runner/src/geometry.rs, host/apple/Sources/ExactKit
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

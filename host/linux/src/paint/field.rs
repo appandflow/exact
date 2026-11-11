@@ -658,3 +658,18 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     };
     (x.computed(y), y.computed(x))
 }
+
+/// What a box whose outer shape is `outer` clips its children to, if
+/// anything. `clip` beside `visible` clips its own axis alone, without the
+/// radius (CSS Overflow 3 §3.1), so the rectangle reaches far past the box on
+/// the visible axis.
+pub(crate) fn overflow_clip(outer: &Shape, (ox, oy): (Overflow, Overflow)) -> Option<Shape> {
+    const FAR: f32 = 1.0e6;
+    let (x, y, w, h) = outer.rect;
+    match (ox == Overflow::Visible, oy == Overflow::Visible) {
+        (true, true) => None,
+        (false, false) => Some(*outer),
+        (true, false) => Some(Shape::rect((x - FAR, y, w + 2.0 * FAR, h))),
+        (false, true) => Some(Shape::rect((x, y - FAR, w, h + 2.0 * FAR))),
+    }
+}

@@ -301,7 +301,7 @@ extension NodeView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox {
-            box.layer.cornerRadius = cornerRadius
+            box.layer.cornerRadius = clipsOneAxis ? 0 : cornerRadius
             box.layer.maskedCorners = corners
             box.layer.cornerCurve = curve
         }
