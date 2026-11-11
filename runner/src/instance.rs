@@ -81,14 +81,15 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
-/// A list's data update, given its end-follow policy, scroll behavior and
-/// `keep-mounted` value.
+/// A list's data update, given its end-follow policy, scroll behavior,
+/// `keep-mounted` value and row estimate.
 type UpdateList = fn(
     &mut collection::Collection,
     &mut Update<'_>,
     &[Frame],
     bool,
     bool,
+    Option<&Value>,
     Option<&Value>,
 ) -> Result<(), InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
@@ -1248,6 +1249,12 @@ impl NodeInst {
             && self
                 .bound_style(plan, u.sites, exact_kernel::StyleId::ScrollBehavior)
                 .is_some_and(|value| value.as_str() == Some("smooth"));
+        let estimate = self.collection().and_then(|_| {
+            self.bound_prop(plan, u.sites, exact_kernel::PropId::EstimatedItemWidth)
+                .or_else(|| {
+                    self.bound_prop(plan, u.sites, exact_kernel::PropId::EstimatedItemHeight)
+                })
+        });
         if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
@@ -1260,6 +1267,7 @@ impl NodeInst {
                 follow,
                 smooth,
                 keep.as_ref(),
+                estimate.as_ref(),
             )?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);

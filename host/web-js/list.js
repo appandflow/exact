@@ -142,6 +142,11 @@ class SizeIndex {
     const part = delta / open.length;
     for (const i of open) { const h = Math.max(0, this.h[i] + part); setT(this.t, i, h); this.h[i] = h; }
   }
+  // A new estimate: every row but the kept positions takes it, unmeasured (index.rs `reestimate`).
+  reestimate(est, kept) {
+    for (let i = 0; i < this.h.length; i++) if (!kept.has(i)) { this.h[i] = est; this.me[i] = 0; }
+    this.t = tree(this.h, this.me); this.est = est;
+  }
   setMeasured(key, token, h) {
     if (!(isFinite(h) && h >= 0)) throw new Refusal("row height must be finite and nonnegative");
     if (this.token(key) !== token) return false;
@@ -343,6 +348,20 @@ class Collection {
       }
     });
     return positions;
+  }
+  /** A computed estimate changed: rows take it until measured again, so the offsets past them follow (mod.rs `reestimate`). */
+  reestimate(value) {
+    const est = value + this.gap;
+    if (!(isFinite(value) && value > 0) || est === this.est) return;
+    if (this.preview) this.endPreview();
+    // A vertical list keeps what shows and its mounted rows' heights; a row list keeps its offset, as a
+    // browser does on x, and every card takes the estimate until measured again (mod.rs `reestimate`).
+    const y = this.axis === "y", anchor = y ? this.anchor() : null, kept = new Set(y ? this.mounted.map(m => m.position) : []);
+    this.index.reestimate(est, kept); this.est = est;
+    for (const key of [...this.zeros]) if (!kept.has(this.index.pos.get(key))) this.zeros.delete(key);
+    if (this.portUnknown) this.correction = null; else this.restore(anchor);
+    this.realize(false, { limit: 0 });
+    this.revision++;
   }
   invalidateEstimates() {
     for (const key of this.zeros) { const t = this.index.token(key); if (t) this.index.setMeasured(key, t, this.est); }
@@ -937,6 +956,8 @@ export function vl(el, subject, key, row, o) {
   onEnd(() => Lists.delete(c.view));
   let first = true, previousInputs;
   if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
+  // A computed estimate is read again as it changes (mod.rs `reestimate`).
+  if (o.reest) effect(() => { const e = o.reest(); if (!first) untracked(() => c.reestimate(e)); });
   // A changed set mounts its rows and lets the others go after the commit,
   // in the update's pass when the data changed too (mod.rs `update_data`).
   if (o.keep) effect(() => {

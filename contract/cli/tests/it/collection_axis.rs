@@ -18,6 +18,8 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         "list virtualized=true display=\"flex\" height=132 padding-top=8 padding-bottom=8 justify-content=\"flex-start\" flex-wrap=\"nowrap\"",
         "list virtualized=true display=\"flex\" height=132 padding-left=16 padding-right=\"env(safe-area-inset-right)\"",
         "list virtualized=true display=\"flex\" height=132 gap=8",
+        "list virtualized=true display=\"flex\" height=132 estimated-item-width=(50 + 50)",
+        "list virtualized=true display=\"block\" height=132 estimated-item-height=(20 * 2)",
         "list virtualized=true display=\"flex\" height=(66 * 2) column-gap=8",
         "list virtualized=true display=\"block\" height=132 estimated-item-height=40",
     ] {
@@ -98,6 +100,10 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         ),
         (
             "list virtualized=true display=\"flex\" height=132 estimated-item-width=0",
+            "lower-list-height",
+        ),
+        (
+            "list virtualized=true display=\"flex\" height=132 estimated-item-width=\"100\"",
             "lower-list-height",
         ),
     ] {
@@ -324,4 +330,40 @@ fn a_gapped_row_lists_scroll_into_view_aligns_the_card_not_its_gap() {
     let c = r.collections().pop().unwrap();
     // Card 10 starts at 10 × 114 and ends 100 later, at the port's end.
     assert_eq!(c.correction.map(|c| c.offset), Some(1140.0 + 100.0 - 390.0));
+}
+
+/// A computed estimate that changes (a rail whose cards follow its width):
+/// every card takes it until measured again, so each card's start is where the
+/// whole strip lays it, and the strip keeps its offset.
+#[test]
+fn a_row_lists_computed_estimate_moves_every_card() {
+    let source = "component App\n  state w = 100\n  resource rows = rows() as shape number[]\n  action wider\n    w = 150\n  view\n    column width=390\n      button \"wider\" press=wider testId=\"wider\"\n      list virtualized=true display=\"flex\" height=132 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=w gap=14 testId=\"strip\"\n        for x in rows key=x\n          text `${x}` width=w testId=`card-${x}`\n";
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        Rows,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // Every card from the start to card 30 measured at 100.
+    for at in [0.0, 1000.0, 2000.0, 3000.0, 30.0 * 114.0] {
+        report(&mut r, at, |_| 100.0);
+    }
+    let wider = r.kernel().find_by_test_id("wider")[0];
+    let id = r.kernel().node_by_key(wider).unwrap().id;
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    let c = r.collections().pop().unwrap();
+    let offset = c.correction.map_or(30.0 * 114.0, |c| c.offset);
+    report(&mut r, offset, |_| 150.0);
+    let c = r.collections().pop().unwrap();
+    let offset = c.correction.map_or(offset, |c| c.offset);
+    report(&mut r, offset, |_| 150.0);
+    let c = r.collections().pop().unwrap();
+    for row in &c.rows {
+        assert_eq!(row.start, row.index as f64 * 164.0, "card {}", row.index);
+    }
+    assert_eq!(c.total_extent, 1000.0 * 164.0 - 14.0);
+    // The strip keeps its offset, as a browser does on x.
+    assert_eq!(c.correction.map_or(offset, |c| c.offset), 30.0 * 114.0);
 }

@@ -1329,3 +1329,33 @@ test('a row list with a gap lays its cards where CSS does, and ends at the last 
   })()`);
   expect(result).toEqual([{ left: 3000, width: 300 * 74 - 14, wrong: [] }, { left: 300 * 74 - 14 - 400, width: 300 * 74 - 14, wrong: [] }]);
 }, 60_000);
+
+// A computed estimate that changes (a rail whose cards follow its width): every card takes it until measured again,
+// so each card is where the whole strip lays it, and the strip keeps its offset, as a browser does on x.
+test('a row list\'s computed estimate moves every card', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;gap:14px;height:120px;width:400px;overflow-x:scroll;overflow-y:hidden';
+    document.getElementById('exact-root').append(el);
+    const w = rt.sig(60);
+    const own = rt.scope(() => list.vl(el, rt.sig(Array.from({length:300}, (_, j) => j)), j => j(), (cw, j) => {
+      const card = document.createElement('div'); card.dataset.n = String(j()); card.style.cssText = 'height:100px;flex:none'; cw.append(card);
+      rt.S(card, 'width', 'px', () => w());
+    }, {x: true, est: 60, reest: () => w(), gap: 14, pw: [400], ph: [120]}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollLeft = 74 * 40; });
+    await exact.lists.settle();
+    const cards = () => { const origin = el.getBoundingClientRect().left - el.scrollLeft;
+      return [...el.querySelectorAll('[data-n]')].map(card => [Number(card.dataset.n), card.getBoundingClientRect().left - origin]); };
+    const atStart = () => cards().find(([, x]) => Math.abs(x - el.scrollLeft) < 1)?.[0];
+    const first = atStart();
+    rt.commit(() => rt.W(w, 90)); rt.settled();
+    await exact.lists.pending(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await exact.lists.settle();
+    const wrong = cards().filter(([n, x]) => x !== n * 104).map(([n]) => n);
+    const out = { first, left: el.scrollLeft, wrong, width: el.scrollWidth };
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  expect(result).toEqual({ first: 40, left: 74 * 40, wrong: [], width: 300 * 104 - 14 });
+}, 60_000);

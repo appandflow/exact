@@ -46,6 +46,23 @@ fn a_row_lists_gap_is_a_list_option() {
     assert!(js.contains("ph:[(s_0()+12)]"), "{js}");
 }
 
+/// list.js reads a computed row estimate again as it changes; a literal one once.
+#[test]
+fn a_computed_estimate_is_read_again() {
+    let list = |estimate: &str| {
+        let source = format!("component App\n  state w = 80\n  view\n    list virtualized=true display=\"flex\" height=132 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width={estimate}\n      for x in [1, 2] key=x\n        text `${{x}}` width=w\n");
+        crate::emit::emit(&contract::compile(&source).unwrap(), false, false)
+            .unwrap()
+            .js
+    };
+    assert!(
+        list("(w + 0)").contains("reest:()=>"),
+        "{}",
+        list("(w + 0)")
+    );
+    assert!(list("80").contains("reest:void 0"), "{}", list("80"));
+}
+
 /// @ref LLP 1010 §6.11 — list.js reads `keep-mounted` again at each update.
 #[test]
 fn keep_mounted_is_a_list_option_read_again() {

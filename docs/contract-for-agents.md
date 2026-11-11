@@ -1549,7 +1549,12 @@ or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640
 A percentage bounds it only against a definite containing-block height (a plain
 `column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
 list with no bound at all, in its first 390×844 frame, so look at the list in each
-layout it takes. It takes `estimated-item-height`. A horizontal one needs a
+layout it takes. It takes `estimated-item-height`, a literal or a computed
+number. When a computed estimate changes, a vertical list's rows not mounted
+take it and the rows that show stay put; a row list's cards all take it until
+each is measured again and the strip keeps its offset, as a browser does on x,
+so a strip whose cards follow its width (`estimated-item-width=cardW`) has every
+card where CSS has it after a resize. A horizontal one needs a
 literal `display="flex"` and a positive `height` in points, a literal or a
 computed number (`height=(cardW / 0.68)`), takes `estimated-item-width` and a
 literal `gap` (CSS's, between the cards; the list reads it when it is created),
