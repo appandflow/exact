@@ -56,7 +56,9 @@ static std::shared_ptr<jsi::Buffer> kept_bytecode(const uint8_t *data, size_t le
 }
 
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
-typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, const char *b, char **out);
+// Strings cross with their lengths: a JavaScript string may hold U+0000.
+typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, size_t a_len, const char *b,
+                      size_t b_len, char **out, size_t *out_len);
 // (ctx, op, a, bytes, len, out): the host door for byte input (LLP 1069.005:
 // a digest's data, a key's handle and a message to sign). Same result rules.
 typedef int (*BytesFn)(void *ctx, uint32_t op, const char *a, const uint8_t *bytes, size_t len,
@@ -236,9 +238,10 @@ void install_host(State *state) {
             std::string a = args[1].getString(rt).utf8(rt);
             std::string b = args[2].getString(rt).utf8(rt);
             char *out = nullptr;
+            size_t out_len = 0;
             int status = state->host(state->ctx, static_cast<uint32_t>(args[0].getNumber()),
-                                     a.c_str(), b.c_str(), &out);
-            std::string text = out ? std::string(out) : std::string();
+                                     a.data(), a.size(), b.data(), b.size(), &out, &out_len);
+            std::string text = out ? std::string(out, out_len) : std::string();
             if (out) std::free(out);
             if (status != 0) throw jsi::JSError(rt, text);
             if (!out) return jsi::Value::undefined();
@@ -510,8 +513,8 @@ int exact_js_drain(void *h, char **out) {
   }
 }
 
-// The console lines since the last take, newline-separated.
-void exact_js_take_log(void *h, char **out) {
+// The console lines since the last take, newline-separated, and their length.
+void exact_js_take_log(void *h, char **out, size_t *len) {
   auto *state = static_cast<State *>(h);
   std::string joined;
   for (size_t i = 0; i < state->log.size(); i++) {
@@ -519,6 +522,7 @@ void exact_js_take_log(void *h, char **out) {
     joined += state->log[i];
   }
   state->log.clear();
+  *len = joined.size();
   *out = dup(joined);
 }
 

@@ -1,23 +1,29 @@
 //! The one door from the module into Rust (`__exact_host`), and the
 //! malloc'd strings it hands back.
 use super::{crypto, pure, wire, HostState};
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void};
 
 /// The one door from the module into Rust (`__exact_host` in the prelude).
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
-/// engine was created with, and `a`/`b` NUL-terminated for the call.
+/// engine was created with, and `a`/`b` valid for `a_len`/`b_len` bytes for
+/// the call. The strings carry their lengths, not a terminator: a JavaScript
+/// string may hold U+0000.
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe extern "C" fn host_door(
     ctx: *mut c_void,
     op: u32,
     a: *const c_char,
+    a_len: usize,
     b: *const c_char,
+    b_len: usize,
     out: *mut *mut c_char,
+    out_len: *mut usize,
 ) -> i32 {
     let state = &mut *(ctx as *mut HostState);
-    let a = CStr::from_ptr(a).to_string_lossy();
-    let b = CStr::from_ptr(b).to_string_lossy();
+    let a = String::from_utf8_lossy(std::slice::from_raw_parts(a as *const u8, a_len));
+    let b = String::from_utf8_lossy(std::slice::from_raw_parts(b as *const u8, b_len));
     let reply: Result<Option<String>, String> = match op {
         op if state.refused_ops.contains(&op) => Err(format!("__exact_host: no op {op}")),
         1 => match a.parse::<u64>() {
@@ -274,17 +280,15 @@ pub(crate) unsafe extern "C" fn host_door(
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
-    match reply {
-        Ok(None) => 0,
-        Ok(Some(text)) => {
-            *out = c_string(&text);
-            0
-        }
-        Err(text) => {
-            *out = c_string(&text);
-            1
-        }
-    }
+    *out_len = 0;
+    let (status, text) = match reply {
+        Ok(None) => return 0,
+        Ok(Some(text)) => (0, text),
+        Err(text) => (1, text),
+    };
+    *out = c_string(&text);
+    *out_len = text.len();
+    status
 }
 
 /// Why a store operation is refused where the executor offers no store:

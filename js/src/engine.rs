@@ -9,12 +9,17 @@ mod real {
     /// The one door from the module into Rust: `(ctx, op, a, b, out)`; 0
     /// with `out` null is `undefined`, 0 with a string is that string, and
     /// anything else throws the string in the module.
+    /// `(ctx, op, a, a_len, b, b_len, out, out_len)`: each string with its
+    /// length, since a JavaScript string may hold U+0000.
     pub type HostFn = unsafe extern "C" fn(
         *mut c_void,
         u32,
         *const c_char,
+        usize,
         *const c_char,
+        usize,
         *mut *mut c_char,
+        *mut usize,
     ) -> i32;
 
     /// The door for byte input (`__exact_bytes`, LLP 1069.005 D1):
@@ -87,7 +92,7 @@ mod real {
         ) -> i32;
         fn exact_js_drain(h: *mut c_void, out: *mut *mut c_char) -> i32;
         fn exact_js_interrupt(h: *mut c_void);
-        fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char);
+        fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char, len: *mut usize);
         fn exact_js_free(p: *mut c_char);
         fn exact_js_destroy(h: *mut c_void);
     }
@@ -123,6 +128,20 @@ mod real {
         let s = unsafe { CStr::from_ptr(out) }
             .to_string_lossy()
             .into_owned();
+        unsafe { exact_js_free(out) };
+        s
+    }
+
+    /// An owned shim string of `len` bytes, which may hold U+0000.
+    fn take_len(out: *mut c_char, len: usize) -> String {
+        if out.is_null() {
+            return String::new();
+        }
+        // SAFETY: the shim malloc'd `len` bytes (and a NUL) and handed us
+        // ownership; it is freed exactly once, here.
+        let s =
+            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(out as *const u8, len) })
+                .into_owned();
         unsafe { exact_js_free(out) };
         s
     }
@@ -402,10 +421,10 @@ mod real {
         }
 
         pub fn take_log(&mut self) -> Vec<String> {
-            let mut out: *mut c_char = std::ptr::null_mut();
-            // SAFETY: `out` receives an owned string.
-            unsafe { exact_js_take_log(self.0, &mut out) };
-            let text = take(out);
+            let (mut out, mut len): (*mut c_char, usize) = (std::ptr::null_mut(), 0);
+            // SAFETY: `out` receives an owned string of `len` bytes.
+            unsafe { exact_js_take_log(self.0, &mut out, &mut len) };
+            let text = take_len(out, len);
             if text.is_empty() {
                 Vec::new()
             } else {
@@ -427,12 +446,17 @@ mod real {
     use std::ffi::{c_char, c_void};
 
     /// The host door's signature, kept identical so `Module` is one type.
+    /// `(ctx, op, a, a_len, b, b_len, out, out_len)`: each string with its
+    /// length, since a JavaScript string may hold U+0000.
     pub type HostFn = unsafe extern "C" fn(
         *mut c_void,
         u32,
         *const c_char,
+        usize,
         *const c_char,
+        usize,
         *mut *mut c_char,
+        *mut usize,
     ) -> i32;
 
     /// The bytes door's signature, likewise.

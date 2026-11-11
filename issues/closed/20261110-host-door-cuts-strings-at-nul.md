@@ -1,6 +1,7 @@
 # On Hermes, `store.set` keeps only the part of a value before its first U+0000
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The host door carries its two strings and its reply with their lengths, and the console's lines come back with theirs, so U+0000 crosses whole.
 **Systems:** js/src/shim.cc (`install_host`, `exact_js_take_log`), js/src/door.rs, js/src/engine.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

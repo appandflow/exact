@@ -23,6 +23,7 @@ mod mapper;
 mod native_later;
 mod native_storage;
 mod no_store;
+mod nul;
 mod outlive;
 mod overlay;
 mod overrun;
