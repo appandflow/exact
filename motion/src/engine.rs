@@ -32,7 +32,7 @@ pub use played::{PlayedCurve, PlayedTransition, TransitionEnds};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
-pub use timeline::NamedTimeline;
+pub use timeline::{ranged_view, NamedTimeline};
 
 /// One animatable row's new target, as committed by the kernel.
 #[derive(Debug, Clone, Copy, PartialEq)]

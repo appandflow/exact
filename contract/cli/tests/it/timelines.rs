@@ -50,7 +50,10 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
         backdrop.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
-    assert_eq!(backdrop.animation_range, AnimationRange(Some([0.0, 300.0])));
+    assert_eq!(
+        backdrop.animation_range,
+        AnimationRange(Some([0.0, 300.0]), None)
+    );
     assert_eq!(backdrop.animation.0[0].name, "fade");
     assert_eq!(
         style(&r, "clip").rare.timeline_scope,

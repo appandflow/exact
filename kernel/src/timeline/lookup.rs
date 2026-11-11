@@ -14,14 +14,14 @@
 //! a commit re-resolves every consumer; the receipt names those whose
 //! answer changed, and `motion_sync` sends them (`MotionSync::timelines`).
 
-use super::{Axis, TimelineScope, LINKED};
+use super::{Axis, TimelineScope, ViewRange, LINKED};
 use crate::arena::NodeArena;
 use crate::generated::StyleProps;
 use crate::id::NodeKey;
 use crate::motion::{motion_node, TimelineRows};
 use crate::sorted::SlotSet;
 use crate::txn::CommitReceipt;
-use exact_motion::NamedTimeline;
+use exact_motion::{ranged_view, NamedTimeline};
 
 /// The linked lookup's signature: [`resolve`].
 pub(super) type Resolve = fn(&mut NodeArena, &CommitReceipt) -> Vec<NodeKey>;
@@ -194,16 +194,23 @@ pub(crate) fn rows(arena: &NodeArena, slot: u32) -> TimelineRows {
         .name
         .as_ref()
         .map(|_| style.rare.drag_timeline.axis == Axis::X);
-    // A view timeline runs over `cover`, its progress 0 to 1, whatever the
-    // range says. On a drag, `normal` has no length range to map it onto:
-    // unbound.
+    // A view timeline runs over `cover`, its progress 0 to 1, unless the
+    // range names others: then over the timeline placed for the consumer
+    // alone ([`ranged_view`]). On a drag, `normal` or a named range has no
+    // length range to map it onto: unbound.
     let binding = style.rare.animation_timeline.name().and_then(|_| {
         let timeline = arena
             .timelines
             .resolved(key)
             .unwrap_or(NamedTimeline::Missing);
         if let NamedTimeline::View(_) = timeline {
-            return Some((timeline, [0.0, 1.0]));
+            return Some(match style.animation_range.1 {
+                Some(_) => (
+                    NamedTimeline::View(ranged_view(motion_node(key))),
+                    [0.0, 1.0],
+                ),
+                None => (timeline, [0.0, 1.0]),
+            });
         }
         let [a, b] = style.animation_range.0?;
         Some((timeline, [a as f64, b as f64]))
@@ -218,42 +225,85 @@ impl crate::kernel::Kernel {
     /// progress at the scroller's offset after each layout and each scroll
     /// (`Engine::set_view_progress`). A subject with no scroll container
     /// above it has none.
+    ///
+    /// A consumer whose `animation-range` names view ranges has one of its
+    /// own, under [`ranged_view`]: its subject's, 0 and 1 where the range's
+    /// ends are.
     pub fn view_timelines(&self) -> Vec<ViewTimeline> {
         let arena = self.arena();
         let slots = &arena.timelines.slots;
-        slots
+        let mut out: Vec<ViewTimeline> = slots
             .iter()
             .filter_map(|slot| {
-                let declared = &arena.style(slot).rare.view_timeline;
-                declared.name.as_ref()?;
-                let mut at = arena.parent(slot);
-                let scroller = loop {
-                    let s = at?;
-                    if crate::kernel::sticky::scrolls(arena, s) {
-                        break s;
-                    }
-                    at = arena.parent(s);
-                };
-                // Layout frames are border boxes, untransformed, as CSS
-                // measures a view timeline's subject. The scroller's border
-                // box stands in for its scrollport: a bordered scroller's
-                // range is off by its start border.
-                let (subject, port) = (arena.frame(slot), arena.frame(scroller));
-                let x = declared.axis == Axis::X;
-                let (start, size, port) = if x {
-                    (subject.x - port.x, subject.width, port.width)
-                } else {
-                    (subject.y - port.y, subject.height, port.height)
-                };
+                let (scroller, x, [start, size, port]) = place(arena, slot)?;
                 Some(ViewTimeline {
                     subject: motion_node(arena.key(slot)),
-                    scroller: arena.key(scroller),
+                    scroller,
                     x,
-                    range: [(start - port) as f64, (start + size) as f64],
+                    range: ViewRange::Cover.offsets(start, size, port),
                 })
             })
-            .collect()
+            .collect();
+        for slot in slots.iter() {
+            let Some([(a, at_a), (b, at_b)]) = arena.style(slot).animation_range.1 else {
+                continue;
+            };
+            let key = arena.key(slot);
+            let Some(NamedTimeline::View(subject)) = arena.timelines.resolved(key) else {
+                continue;
+            };
+            let Some(subject) = arena.resolve(crate::motion::node_key(subject)) else {
+                continue;
+            };
+            let Some((scroller, x, [start, size, port])) = place(arena, subject) else {
+                continue;
+            };
+            let edge = |range: ViewRange, at: f32| {
+                let [from, to] = range.offsets(start, size, port);
+                from + (to - from) * at as f64
+            };
+            out.push(ViewTimeline {
+                subject: ranged_view(motion_node(key)),
+                scroller,
+                x,
+                range: [edge(a, at_a), edge(b, at_b)],
+            });
+        }
+        out
     }
+}
+
+/// Where a view timeline's subject at `slot` stands: its nearest scroll
+/// container, whether it follows `x`, and its start edge into the
+/// scrollport, its size and the scrollport's on that axis; `None` for a
+/// node that declares no view timeline or has no scroll container above it.
+fn place(arena: &NodeArena, slot: u32) -> Option<(NodeKey, bool, [f64; 3])> {
+    let declared = &arena.style(slot).rare.view_timeline;
+    declared.name.as_ref()?;
+    let mut at = arena.parent(slot);
+    let scroller = loop {
+        let s = at?;
+        if crate::kernel::sticky::scrolls(arena, s) {
+            break s;
+        }
+        at = arena.parent(s);
+    };
+    // Layout frames are border boxes, untransformed, as CSS
+    // measures a view timeline's subject. The scroller's border
+    // box stands in for its scrollport: a bordered scroller's
+    // range is off by its start border.
+    let (subject, port) = (arena.frame(slot), arena.frame(scroller));
+    let x = declared.axis == Axis::X;
+    let (start, size, port) = if x {
+        (subject.x - port.x, subject.width, port.width)
+    } else {
+        (subject.y - port.y, subject.height, port.height)
+    };
+    Some((
+        arena.key(scroller),
+        x,
+        [start as f64, size as f64, port as f64],
+    ))
 }
 
 /// A view timeline, as the last layout places it ([`crate::Kernel::view_timelines`]).
@@ -267,7 +317,8 @@ pub struct ViewTimeline {
     pub x: bool,
     /// The scroller's offsets on that axis where the subject's progress is
     /// 0 (its start edge at the scrollport's end edge) and 1 (its end edge
-    /// at the scrollport's start edge).
+    /// at the scrollport's start edge); for a consumer's own timeline
+    /// ([`ranged_view`]), where its `animation-range` starts and ends.
     pub range: [f64; 2],
 }
 

@@ -41,6 +41,15 @@ pub enum NamedTimeline {
     Missing,
 }
 
+/// The engine node a view timeline is placed under for `consumer`'s own
+/// `animation-range` (a named range over its subject's timeline): apart
+/// from any subject's, so a node that follows its own view timeline over a
+/// range leaves the timeline's other consumers on `cover`. Forgotten with
+/// the consumer.
+pub const fn ranged_view(consumer: u64) -> u64 {
+    consumer | 1 << 63
+}
+
 /// The drag timelines, in declaration order. A page has a handful; a scan
 /// is cheaper, in code and time, than a map.
 #[derive(Debug, Default)]
@@ -168,7 +177,9 @@ impl Engine {
     pub(super) fn forget_timelines(&mut self, node: u64) {
         self.timelines.sources.retain(|s| s.0 != node);
         self.timelines.bound.retain(|b| b.0 != node);
-        self.timelines.views.retain(|v| v.0 != node);
+        self.timelines
+            .views
+            .retain(|v| v.0 != node && v.0 != ranged_view(node));
     }
 
     /// Hold every bound consumer's plays at the time its timeline gives.

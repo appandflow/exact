@@ -1515,7 +1515,8 @@ animation.
 `view-timeline="--card x"` is CSS's view progress timeline: the node's progress through
 its nearest scroll container, 0% as it enters at the end edge, 50% centred, 100% as it
 leaves at the start edge (`cover`). The node and its descendants bind animations to it
-with `animation-timeline="--card"`; `animation-range` is not read for it. The engine
+with `animation-timeline="--card"`. `animation-range` takes CSS's named ranges for it
+(`cover`, `contain`, `entry`, `exit`, each with an optional percentage), else it runs over `cover`. The engine
 moves them in the frame the scroller moves, with no action per scroll. iOS and macOS
 place it; on Android and Linux the timeline is inactive and the nodes show their own
 values, and the web does not run it yet. A keyframe's

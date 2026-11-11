@@ -2843,10 +2843,22 @@ A scroll-linked effect (a carousel card that turns with its distance from the ce
 `view-timeline="--card x"` on the card and `animation="turn 1s linear both"
 animation-timeline="--card"` on it or a descendant, not a `scroll` action that writes
 state: keyframes run over `cover` (0% entering at the end edge, 50% centred, 100% leaving
-at the start edge) and `animation-range` is not read. iOS and macOS move it in the
+at the start edge), or over the named ranges `animation-range` gives (`cover`, `contain`,
+`entry`, `exit`, each end with an optional percentage, as CSS's). iOS and macOS move it in the
 scroll's own frame; Android and Linux show the nodes' own values; the web does not run it
 yet. A keyframe `rotate` takes an axis
 (`y 32deg`) but turns about the node's own `rotate` axis: set it (`rotate="y 0deg"`).
+
+A header photo that stretches on overscroll (pulled past the top, iOS's rubber band, it
+grows from its bottom edge to keep covering the top) is `view-timeline="--cover"` on the
+header and, on the photo, `transform-origin="50% 100%" animation="stretch 1s linear both"
+animation-timeline="--cover" animation-range="exit -100% exit 0%"` with `keyframes stretch`
+`from scale=2` `to scale=1`. The range is the pull from the header's own height to none, so
+it holds for any header height; text over it that should stay put takes the same range with
+`from translate="0 -100%"` `to translate="0 0"` on a box as tall as the header. The offset
+is the scroller's own, rubber band included, so it tracks the finger with no action. Android
+stretches the content itself and the web does as the browser does, so set the animation on
+iOS only.
 
 A carousel or pager that moves one card or one page per fling is `scroll-snap-type="x mandatory"`
 (or `y`) on the scroller and `scroll-snap-stop="always"` beside `scroll-snap-align` on each

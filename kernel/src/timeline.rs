@@ -23,13 +23,16 @@
 //!   starts; the lookup never sees it.
 //! - `animation-range: normal | <length> <length>` on the consumer: the
 //!   positions where its animations are at 0% and 100%; outside them the
-//!   progress clamps. A view timeline runs over `cover` whatever it says.
+//!   progress clamps. On a view timeline it takes CSS's named ranges
+//!   instead, `<name> <percentage>?` for each end (`cover`, `contain`,
+//!   `entry`, `exit`), placed from the layout like the timeline
+//!   ([`crate::Kernel::view_timelines`]); without one it runs over `cover`.
 //! - `timeline-scope: none | all | <dashed-ident>#`, CSS's: names declared
 //!   below a node, in scope for the node's subtree.
 //!
 //! The engine evaluates a consumer in the frame its source moves; no
-//! app code runs per frame. `animation-range` takes lengths only: a drag
-//! has no scroll range for CSS's `cover` or percentages to name. Names
+//! app code runs per frame. On a drag `animation-range` takes lengths
+//! only: a drag has no scroll range for CSS's `cover` or percentages to name. Names
 //! resolve as CSS resolves them, in the kernel ([`lookup`]), so the
 //! engine hears a node, never a name.
 //!
@@ -191,9 +194,62 @@ impl AnimationTimeline {
 }
 
 /// `animation-range`: where on the timeline the animations run from 0% to
-/// 100%, in points; `None` is `normal`.
+/// 100%: in points on a drag timeline, or as two named ranges' points on a
+/// view timeline; neither is `normal`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct AnimationRange(pub Option<[f32; 2]>);
+pub struct AnimationRange(pub Option<[f32; 2]>, pub Option<[(ViewRange, f32); 2]>);
+
+/// A view progress timeline's named range (Scroll-driven Animations 1
+/// §3.1), whose percentage a view timeline's `animation-range` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewRange {
+    /// The subject's start edge at the scrollport's end edge to its end
+    /// edge at the scrollport's start edge: the whole timeline.
+    Cover,
+    /// Fully inside the scrollport, or covering it when larger.
+    Contain,
+    /// Crossing the scrollport's end edge.
+    Entry,
+    /// Crossing the scrollport's start edge.
+    Exit,
+}
+
+impl ViewRange {
+    const NAMES: [(&'static str, Self); 4] = [
+        ("cover", Self::Cover),
+        ("contain", Self::Contain),
+        ("entry", Self::Entry),
+        ("exit", Self::Exit),
+    ];
+
+    fn parse(token: &str) -> Option<Self> {
+        (Self::NAMES.iter())
+            .find(|(n, _)| token.eq_ignore_ascii_case(n))
+            .map(|&(_, r)| r)
+    }
+
+    fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, r)| *r == self)
+            .map_or("", |(n, _)| n)
+    }
+
+    /// The scroll offsets where the range is at 0% and 100%, for a subject
+    /// `size` long whose start edge is `start` into a scrollport `port`
+    /// long.
+    pub fn offsets(self, start: f64, size: f64, port: f64) -> [f64; 2] {
+        match self {
+            Self::Cover => [start - port, start + size],
+            Self::Contain => {
+                let (a, b) = (start + size - port, start);
+                [a.min(b), a.max(b)]
+            }
+            Self::Entry => [start - port, start - port + size],
+            Self::Exit => [start, start + size],
+        }
+    }
+}
 
 fn length(token: &str) -> Option<f32> {
     let n = token.strip_suffix("px").unwrap_or(token);
@@ -201,39 +257,90 @@ fn length(token: &str) -> Option<f32> {
     v.is_finite().then_some(v)
 }
 
+fn percentage(token: &str) -> Option<f32> {
+    let v: f32 = token.strip_suffix('%')?.parse().ok()?;
+    v.is_finite().then_some(v / 100.0)
+}
+
 impl AnimationRange {
-    /// `normal`, or two lengths (px, or unitless points); `None` also
+    /// `normal`, two lengths (px, or unitless points), or a view
+    /// timeline's two ends, each a range name and an optional percentage
+    /// (`exit -100% exit 0%`; a lone name is its 0% to 100%); `None` also
     /// while unlinked.
     pub fn parse(css: &str) -> Option<Self> {
         (LINKED.get()?.range)(css)
     }
 
     fn parse_text(css: &str) -> Option<Self> {
-        let mut tokens = css.split_ascii_whitespace();
-        let first = tokens.next()?;
+        let tokens: Vec<&str> = css.split_ascii_whitespace().collect();
+        let first = *tokens.first()?;
         if first.eq_ignore_ascii_case("normal") {
-            return tokens.next().is_none().then(Self::default);
+            return (tokens.len() == 1).then(Self::default);
         }
-        let start = length(first)?;
-        let end = length(tokens.next()?)?;
-        (tokens.next().is_none() && start != end).then_some(Self(Some([start, end])))
+        if ViewRange::parse(first).is_some() {
+            return Self::parse_named(&tokens);
+        }
+        let [start, end] = tokens[..] else {
+            return None;
+        };
+        let (start, end) = (length(start)?, length(end)?);
+        (start != end).then_some(Self(Some([start, end]), None))
+    }
+
+    /// CSS's `<timeline-range-name> <length-percentage>?` for each end, the
+    /// end defaulting to the start's range at 100%; percentages only.
+    fn parse_named(tokens: &[&str]) -> Option<Self> {
+        let mut edges: Vec<(ViewRange, f32)> = Vec::new();
+        let mut i = 0;
+        while i < tokens.len() {
+            let range = ViewRange::parse(tokens[i])?;
+            let at = match tokens.get(i + 1).and_then(|t| percentage(t)) {
+                Some(p) => {
+                    i += 1;
+                    Some(p)
+                }
+                None => None,
+            };
+            edges.push((
+                range,
+                at.unwrap_or(if edges.is_empty() { 0.0 } else { 1.0 }),
+            ));
+            i += 1;
+        }
+        let ends = match edges[..] {
+            [(range, at)] => [(range, at), (range, 1.0)],
+            [start, end] => [start, end],
+            _ => return None,
+        };
+        (ends[0] != ends[1]).then_some(Self(None, Some(ends)))
     }
 
     /// The declaration's value.
     pub fn css(&self) -> String {
-        match self.0 {
-            None => "normal".into(),
-            Some([a, b]) => {
-                let mut out = String::new();
+        let mut out = String::new();
+        match (self.0, self.1) {
+            (Some([a, b]), _) => {
                 let _ = write!(
                     out,
                     "{}px {}px",
                     exact_num::Shortest32(a),
                     exact_num::Shortest32(b)
                 );
-                out
             }
+            (None, Some(ends)) => {
+                for (i, (range, at)) in ends.iter().enumerate() {
+                    let sep = if i == 0 { "" } else { " " };
+                    let _ = write!(
+                        out,
+                        "{sep}{} {}%",
+                        range.name(),
+                        exact_num::Shortest32(at * 100.0)
+                    );
+                }
+            }
+            (None, None) => out.push_str("normal"),
         }
+        out
     }
 
     /// The progress, 0 to 1, at timeline position `at`; `None` for `normal`.
