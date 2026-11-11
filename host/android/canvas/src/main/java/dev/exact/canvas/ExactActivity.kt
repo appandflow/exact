@@ -502,7 +502,7 @@ open class ExactActivity : Activity() {
     /** A permission an extension asked for ([ExtensionContext.requestPermissions], LLP 1133.002 D9). */
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        Extensions.permissionsResult(requestCode)
+        Extensions.permissionsResult(requestCode, permissions, grantResults)
     }
 
     /** An activity an extension started for its result ([ExtensionContext.startActivityForResult], LLP 1133.018 D13

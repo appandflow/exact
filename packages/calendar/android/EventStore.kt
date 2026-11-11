@@ -116,10 +116,10 @@ internal class EventStore(private val context: ExtensionContext, private val say
         if (missing.isNotEmpty()) return reply(CalendarModule.error("NotAllowedError", "the manifest declares no ${missing.joinToString(", ")}"))
         if (permissions.all(::has)) return then()
         if (permissions.any { context.permission(it).state == "denied" }) return reply(CalendarModule.error("NotAllowedError"))
-        context.requestPermissions(permissions.toTypedArray()) {
+        context.requestPermissions(permissions.toTypedArray()) { answered ->
             // A refusal with no rationale owed after it is permanent: the history `permission` reads.
             val activity = context.activity
-            for (p in permissions) if (!has(p) && activity != null && !activity.shouldShowRequestPermissionRationale(p)) {
+            for (p in permissions) if (p in answered && !has(p) && activity != null && !activity.shouldShowRequestPermissionRationale(p)) {
                 app.getSharedPreferences("exact.permissions", android.content.Context.MODE_PRIVATE).edit().putBoolean(p, true).apply()
             }
             say("asked ${permissions.joinToString(",") { it.substringAfterLast('.') }}: ${if (permissions.all(::has)) "granted" else "not granted"}")

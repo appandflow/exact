@@ -1,6 +1,7 @@
 # On Android a permission request that overlaps another, or is made while the activity is paused, records a permanent denial the person never gave
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android queues overlapping permission requests and records permanent denial only for permissions with a platform result.
 **Systems:** host/android/canvas/src/main/java/dev/exact/canvas/Extensions.kt, packages/*/android
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

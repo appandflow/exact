@@ -153,11 +153,11 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         val location = listOf(Manifest.permission.ACCESS_MEDIA_LOCATION).filter { it in declared }
         val asked = (reads + location).toTypedArray()
         val first = reads.first()
-        context.requestPermissions(asked) {
+        context.requestPermissions(asked) { answered ->
             // A refusal with no rationale owed after it is permanent: the history `permission` reads, as
             // `askPermission` keeps it for one permission.
             val activity = context.activity
-            if (status().getString("state") != "granted" && activity != null && !activity.shouldShowRequestPermissionRationale(first)) {
+            if (first in answered && status().getString("state") != "granted" && activity != null && !activity.shouldShowRequestPermissionRationale(first)) {
                 app.getSharedPreferences("exact.permissions", android.content.Context.MODE_PRIVATE).edit().putBoolean(first, true).apply()
             }
             context.changed("photos.photoLibraryStatus")

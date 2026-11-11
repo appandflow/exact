@@ -261,10 +261,11 @@ class ExtensionContext internal constructor(val application: Context, private va
     /**
      * The platform's dialog for [permissions], in one request (`Activity.requestPermissions`), then [done], on the main
      * thread: when the result comes, or when the activity resumes without it (a result lost to recreation, LLP 1133.002
-     * D9). Requests made while one is up share its answer. With no activity in front nothing is asked and [done] runs
-     * at once, since the platform would present nothing.
+     * D9). Overlapping requests queue in order; identical permission sets share a result. [done] receives only the
+     * names the platform answered. An empty set means no result, so callers must not record a denial. With no
+     * activity in front and no request pending, nothing is asked and [done] runs at once.
      */
-    fun requestPermissions(permissions: Array<String>, done: () -> Unit) = Extensions.ask(permissions, done)
+    fun requestPermissions(permissions: Array<String>, done: (Set<String>) -> Unit) = Extensions.ask(permissions, done)
 
     /**
      * Runtime permission [name]'s state, from the one history every module reads (LLP 1133.008 D8 item 7): `granted`;
@@ -298,7 +299,7 @@ class ExtensionContext internal constructor(val application: Context, private va
      */
     fun invoke(handle: String, handler: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         val body = JSONObject().put("extension", name).put("handle", handle).put("handler", handler).put("args", args)
-        val id = try { Native.invoke(body.toString()) } catch (e: UnsatisfiedLinkError) { -1 }
+        val id = try { Exact.invoke(body.toString()) } catch (e: UnsatisfiedLinkError) { -1 }
         if (id < 0) return reply(JSONObject().put("error", "InvalidStateError").put("message", "no session runs"))
         // The answer lands on the host's turn; the main thread reads it a frame at a time.
         val main = android.os.Handler(android.os.Looper.getMainLooper())
@@ -323,9 +324,9 @@ class ExtensionContext internal constructor(val application: Context, private va
     }
 
     /** [requestPermissions] for [name], keeping the history [permission] reads. */
-    fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
+    fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) { answered ->
         val a = activity
-        if (permission(name).state != "granted" && a != null && !a.shouldShowRequestPermissionRationale(name)) {
+        if (name in answered && permission(name).state != "granted" && a != null && !a.shouldShowRequestPermissionRationale(name)) {
             application.getSharedPreferences("exact.permissions", Context.MODE_PRIVATE).edit().putBoolean(name, true).apply()
         }
         done()
@@ -385,7 +386,6 @@ class PermissionState(val state: String, val shouldShowRationale: Boolean, val p
 
 /** The process's extensions: made at their first call, they outlive the activities that show the app. */
 internal object Extensions {
-    private const val CODE = 0x45584154 and 0xffff
     private const val RESULTS = 0x5000
     private val written: ExtensionRoster? by lazy {
         val type = try { Class.forName("exact.app.ExactExtensions") } catch (e: ClassNotFoundException) { return@lazy null }
@@ -399,8 +399,10 @@ internal object Extensions {
     var emitted = 0
     private var application: Context? = null
     private var foreground = false
-    private var asking = false
-    private val waiting = ArrayList<() -> Unit>()
+    private val permissions = PermissionRequests { names, code ->
+        val activity = Exact.reader?.get()
+        if (activity == null) false else { activity.requestPermissions(names, code); true }
+    }
 
     /** The display's angle last told the extensions ([ExtensionContext.orientation]). */
     private var told = -1
@@ -586,14 +588,7 @@ internal object Extensions {
         override fun destroy(view: android.view.View) { emits.remove(view); extension(name)?.destroyView(view) }
     }
 
-    fun ask(permissions: Array<String>, done: () -> Unit) {
-        val activity = Exact.reader?.get()
-        if (activity == null || !foreground) return done()
-        waiting += done
-        if (asking) return
-        asking = true
-        activity.requestPermissions(permissions, CODE)
-    }
+    fun ask(names: Array<String>, done: (Set<String>) -> Unit) = permissions.ask(names, done)
 
     /** The calls waiting on an activity's result ([ExtensionContext.startActivityForResult]), by request code. */
     private val results = HashMap<Int, (Int, android.content.Intent?) -> Unit>()
@@ -602,7 +597,7 @@ internal object Extensions {
     fun start(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) {
         val activity = Exact.reader?.get()
         if (activity == null || !foreground) return done(Activity.RESULT_CANCELED, null)
-        // Request codes of their own range, apart from the permission request's [CODE].
+        // Request codes of their own range, apart from permission requests (0x4000–0x4fff).
         val code = RESULTS + (started++ % 0x1000)
         results[code] = done
         try {
@@ -629,26 +624,20 @@ internal object Extensions {
     /** [Activity.onActivityResult]: the answer of the call that started it, if this process made one. */
     fun activityResult(code: Int, result: Int, data: android.content.Intent?) { results.remove(code)?.invoke(result, data) }
 
-    private fun settle() {
-        asking = false
-        val ready = waiting.toList()
-        waiting.clear()
-        ready.forEach { it() }
-    }
-
     /** [Activity.onRequestPermissionsResult]: the answer to the request up. */
-    fun permissionsResult(code: Int) { if (code == CODE) settle() }
+    fun permissionsResult(code: Int, names: Array<String>, grants: IntArray) = permissions.result(code, names, grants)
 
     /** [Activity.onResume]: a result that never came (the activity was made again) is read as the state now. */
     fun resumed() {
         foreground = true
-        if (asking) settle()
+        permissions.resumed()
         made.values.forEach { it.resumed() }
     }
 
     /** [Activity.onPause]. */
     fun paused() {
         foreground = false
+        permissions.paused()
         made.values.forEach { it.paused() }
     }
 }

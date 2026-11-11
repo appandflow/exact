@@ -1,6 +1,7 @@
 # On Android a package's call of an app handler always answers `InvalidStateError`, so no Google Pay payment can be authorized
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android extension handler calls run on the host's owner thread and publish the handler's changes.
 **Systems:** host/android/canvas/src/main/java/dev/exact/canvas/Extensions.kt, host/android/canvas/src/main/java/dev/exact/canvas/Owner.kt, packages/payments/android
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

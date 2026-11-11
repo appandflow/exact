@@ -352,9 +352,9 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     }
 
     private fun ask(done: () -> Unit) {
-        context.requestPermissions(arrayOf(PERMISSION)) {
+        context.requestPermissions(arrayOf(PERMISSION)) { answered ->
             val activity = context.activity
-            if (!granted() && activity != null && !activity.shouldShowRequestPermissionRationale(PERMISSION)) {
+            if (PERMISSION in answered && !granted() && activity != null && !activity.shouldShowRequestPermissionRationale(PERMISSION)) {
                 history.edit().putBoolean("permanent", true).apply()
             }
             context.changed("media-capture.microphoneStatus")

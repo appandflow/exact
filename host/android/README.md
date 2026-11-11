@@ -507,7 +507,11 @@ under the agent), `foreground`, `changed(topic)`, which asks the topic's readers
 ended)`, which raises one of the interface's wake events and hears its outcome (LLP 1133.017 D8; `woke(id, outcome)`
 too), and
 `requestPermissions(permissions, done)`: one platform request, answered by `onRequestPermissionsResult`, or by the
-next resume when a recreated activity lost the result (LLP 1133.002 D9). The activity binds the roster's names as it
+next resume when a recreated activity lost the result (LLP 1133.002 D9). Overlapping requests queue in order;
+identical permission sets share a result. `done` receives the set of permission names the platform answered, empty
+when nothing was asked or the result was lost or cancelled. Record a permanent denial only for a name in that set.
+`invoke(handle, handler, args, reply)` runs an app handler on the host's owner thread and delivers its answer on the
+main thread. The activity binds the roster's names as it
 is made (`Native.bindExtensions`). Outside the agent the host binds them as in production; under it, those a drive
 names (`--bind`) as in production and the rest told they run under the agent, which answer an interface that is its
 own substitute behind the runner's tickets; the substitute answers every other. Android runs one session a process,
