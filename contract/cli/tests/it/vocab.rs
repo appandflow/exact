@@ -17,6 +17,46 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+#[test]
+fn a_closed_output_pipe_ends_quietly() {
+    for args in [
+        &["--help"][..],
+        &["vocab"],
+        &["vocab", "--all"],
+        &["vocab", "--json"],
+        &["symbols", "apps/shelf/app.contract"],
+    ] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .args(args)
+            .stdout(writer)
+            .output()
+            .unwrap();
+        assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
+        assert!(output.status.success(), "{args:?}: {output:?}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn other_output_errors_still_fail() {
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["vocab", "--json"])
+        .stdout(
+            std::fs::File::options()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        )
+        .output()
+        .unwrap();
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{error}");
+    assert!(error.starts_with("contract: stdout:"), "{error}");
+}
+
 /// An event record an arity refusal names (`ScrollEvent`) and a grammar word
 /// a recipe answers (`sequence`, `keyframes`) are one lookup each: euxy ports
 /// 19 and 20 grepped the guides for them.

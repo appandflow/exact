@@ -1,6 +1,7 @@
 # `contract test` prints the app's compile errors under the test file's path
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Property checks report app and imported-file errors at their source paths, and property errors at the test path.
 **Systems:** contract/cli/src/main.rs, contract/cli/src/properties.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

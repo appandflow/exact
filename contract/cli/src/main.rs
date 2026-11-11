@@ -12,6 +12,35 @@
 
 use std::process::ExitCode;
 
+// These macros cover stdout in this binary's modules. Internal pipes keep
+// Rust's ignored SIGPIPE so their callers can handle write errors.
+macro_rules! print {
+    ($($arg:tt)*) => {
+        $crate::print_stdout(format_args!($($arg)*))
+    };
+}
+
+macro_rules! println {
+    () => { print!("\n") };
+    ($($arg:tt)*) => { print!("{}\n", format_args!($($arg)*)) };
+}
+
+fn print_stdout(args: std::fmt::Arguments<'_>) {
+    use std::io::Write as _;
+
+    let result = {
+        let mut out = std::io::stdout().lock();
+        out.write_fmt(args).and_then(|()| out.flush())
+    };
+    if let Err(error) = result {
+        if error.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+        eprintln!("contract: stdout: {error}");
+        std::process::exit(1);
+    }
+}
+
 mod ambient;
 mod build;
 mod diff;
@@ -424,7 +453,11 @@ fn tests(args: &[String]) -> ExitCode {
                 let app = if app.is_file() { app } else { paired };
                 if let Err(errors) = contract::check_properties_path(&app, &p) {
                     for e in errors {
-                        eprintln!("{input}:{e}");
+                        if e.file.is_some() {
+                            eprintln!("{e}");
+                        } else {
+                            eprintln!("{input}:{e}");
+                        }
                     }
                     return ExitCode::from(1);
                 }

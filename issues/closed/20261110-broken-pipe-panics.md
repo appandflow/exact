@@ -1,6 +1,7 @@
 # `contract … | head` panics with "failed printing to stdout: Broken pipe" and exits 101
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The contract CLI exits quietly on a closed stdout pipe while preserving error handling for internal pipes.
 **Systems:** contract/cli/src/main.rs, contract/cli/src/vocab.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
