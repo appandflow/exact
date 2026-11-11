@@ -309,29 +309,6 @@ impl Directory {
         names.sort();
         Ok(names)
     }
-    pub fn visit_files(
-        &self,
-        prefix: &str,
-        visit: &mut impl FnMut(&str, &Directory, &str) -> io::Result<()>,
-    ) -> io::Result<()> {
-        for leaf in self.names()? {
-            let path = format!("{prefix}{leaf}");
-            match self.kind(&leaf)? {
-                Kind {
-                    directory: true, ..
-                } => self
-                    .child(&leaf, false)?
-                    .visit_files(&format!("{path}/"), visit)?,
-                Kind { regular: true, .. } => visit(&path, self, &leaf)?,
-                _ => {
-                    return Err(refuse(
-                        "static app files must be regular files or directories",
-                    ))
-                }
-            }
-        }
-        Ok(())
-    }
     pub fn unlink(&self, leaf: &str) -> io::Result<()> {
         let file = open(&self.0, leaf, DELETE, FILE_OPEN, false)?;
         let info = FILE_DISPOSITION_INFORMATION { DeleteFile: true };

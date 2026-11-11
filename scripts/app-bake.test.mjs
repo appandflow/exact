@@ -6,12 +6,50 @@ import { createServer } from 'node:net';
 import { cargoBakeInputs } from './cargo-dep-info.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { pinned } from './test-workspace.mjs';
 import { fileURLToPath } from 'node:url';
+import { copyStaticTreeIfPresent, syncStaticTree } from '../host/web/serve.mjs';
+
+test.each([
+  ['host/web-js/build.mjs', "// Launch modules' web services", '\nif (devReload)', '', ['assets', 'deck'], false],
+  ['host/windows/build.mjs', "  for (const name of ['assets','deck'])", '\n  copyShaders', '', ['assets', 'deck'], true],
+  ['host/apple/watch.mjs', '    for (const entry of entries) copyFileSync', '\n    const appInfo', '', ['assets', 'deck'], false],
+  ['host/apple-painted/build.mjs', "  writeFileSync(resolve(bundle, 'Contents/Info.plist')", "\n  run('codesign'", 'Contents/Resources', ['assets'], true],
+  ['scripts/agent-android.mjs', "  // The host opens the module", "\n  // The module's shader text", 'assets/app', ['assets'], false],
+])('%s packages static files without Finder metadata', async (file, start, end, prefix, folders, reused) => {
+  const root = mkdtempSync(resolve(import.meta.dir, '../target/static-package-'));
+  const appDir = resolve(root, 'app'), output = resolve(root, 'output');
+  try {
+    mkdirSync(resolve(output, 'Contents/Resources'), { recursive: true });
+    for (const folder of folders) {
+      const tree = resolve(appDir, folder);
+      mkdirSync(resolve(tree, 'nested'), { recursive: true });
+      for (const name of ['.DS_Store', 'nested/.DS_Store', 'nested/.config', 'image.png']) writeFileSync(resolve(tree, name), name);
+      if (reused) {
+        mkdirSync(resolve(output, prefix, folder, 'nested'), { recursive: true });
+        for (const name of ['.DS_Store', 'nested/.DS_Store']) writeFileSync(resolve(output, prefix, folder, name), 'old metadata');
+      }
+    }
+    // Run the packaging step itself; the native toolchains are outside this test.
+    const source = readFileSync(resolve(import.meta.dir, '..', file), 'utf8');
+    const from = source.indexOf(start), to = source.indexOf(end, from);
+    assert.ok(from >= 0 && to > from, `${file}: packaging step`);
+    const bindings = { cpSync, copyFileSync, existsSync, mkdirSync, writeFileSync, resolve, dirname, copyStaticTreeIfPresent, syncStaticTree,
+      app: { dir: appDir }, appDir, output, out: output, bundle: output, staged: output,
+      launchWeb: [], entries: [], live: false, gpu: null, ts: false, macInfoPlist: () => '' };
+    await new (async function () {}).constructor(...Object.keys(bindings), source.slice(from, to))(...Object.values(bindings));
+    for (const folder of folders) {
+      const tree = resolve(output, prefix, folder);
+      assert.equal(existsSync(resolve(tree, '.DS_Store')), false);
+      assert.equal(existsSync(resolve(tree, 'nested/.DS_Store')), false);
+      for (const name of ['nested/.config', 'image.png']) assert.equal(readFileSync(resolve(tree, name), 'utf8'), name);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('kept registry units rebuild foreign dep-info while retaining valid units', async () => {
   const { keptCrates } = await import('../host/apple/crates.mjs');

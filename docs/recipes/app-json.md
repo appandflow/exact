@@ -27,7 +27,7 @@ component App
         text "Tick"
 ```
 
-- **`assets/`** ships whole on every host. Contract names a file by its path from the app
+- **`assets/` and `deck/`** ship except `.DS_Store` files. Contract paths start at the app
   (no leading slash): `image "assets/logo.png"`, a `sound` and `playSound`, a `font` block's
   `400 = "assets/Inter-Regular.ttf"` (then `font-family="Inter"`).
 - **`modules/apple/*.swift`** (or `*.xcframework`) is the app's native module;

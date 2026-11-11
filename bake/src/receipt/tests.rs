@@ -602,6 +602,9 @@ fn the_embedded_roster_uses_the_copy_gate_and_refuses_symlink_assets() {
     std::fs::create_dir_all(root.join("deck/nested")).unwrap();
     std::fs::write(root.join("assets/image.png"), b"image").unwrap();
     std::fs::write(root.join("deck/nested/index.html"), b"deck").unwrap();
+    for folder in ["assets", "deck", "deck/nested"] {
+        std::fs::write(root.join(folder).join(".DS_Store"), b"Bud1").unwrap();
+    }
     let manifest = Manifest::read(&root).unwrap();
     let cards = asset_cards(&root, &root.join("out"), &manifest).unwrap();
     assert_eq!(

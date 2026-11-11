@@ -30,7 +30,7 @@ import { requireReleasePins } from '../game/inputs.mjs';
 // the web root. `--watch` keeps the baker and the compiled modules resident
 // and publishes after each save.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, watch, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, watch } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,7 @@ import { channelOf, defaultRelease, inspectHead, publishStream } from './deploy.
 import { classifyArtifacts, cohortReceipt, readBuilds, resolveApp } from './app.mjs';
 import { buildRust, rustBundle, RustBaker } from './rust.mjs';
 import { blobPath, channelOrigin, openOrigin, sha256, streamPath, validateChannel } from './origin.mjs';
+import { filesystem, filesystemRead } from './filesystem.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const USAGE = 'usage: bun scripts/push.mjs <app> [--origin <dir|url>] [--channel <name>] [--keys <dir>] [--seq-above <n>] [--watch]';
@@ -167,19 +168,16 @@ function bakedAssets(app, build) {
  * file as it is now in the app, anything else (shaders) as the head has it. */
 async function carriedAssets(origin, app, head) {
   const out = [];
-  const visit = (name) => {
-    const dir = resolve(app.dir, name);
-    if (!existsSync(dir)) return;
-    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const child = `${name}/${entry.name}`;
-      if (entry.isDirectory()) visit(child);
-      else if (entry.isFile()) {
-        const bytes = readFileSync(resolve(app.dir, child));
-        out.push({ name: child, bytes, sha256: sha256(bytes) });
-      } else refuse(`${child}: assets must be regular files or directories`);
+  for (const folder of ['assets', 'deck']) {
+    const root = resolve(app.dir, folder);
+    const names = filesystem({ op: 'names', root, optionalRoot: true });
+    for (const name of Object.keys(names ?? {})) {
+      const encoded = await filesystemRead({ op: 'get', root, path: name });
+      if (encoded === null) refuse(`${folder}/${name}: asset disappeared during push`);
+      const bytes = Buffer.from(encoded, 'base64');
+      out.push({ name: `${folder}/${name}`, bytes, sha256: sha256(bytes) });
     }
-  };
-  visit('assets'); visit('deck');
+  }
   for (const card of head.assets ?? []) {
     if (/^(rust|typescript|assets|deck)\//.test(card.name)) continue;
     const bytes = await origin.get(blobPath(card.sha256));

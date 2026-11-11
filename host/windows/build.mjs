@@ -6,12 +6,13 @@
 // `--run` opens it. From SSH, which has no display a window can show on (docs/testing.md, "Windows: the
 // NucBox"), it opens on the desktop of the user signed in at the console, through a one-off scheduled task, as
 // host/windows/reference/draw.mjs opens WinUI's, and returns once the window is up.
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp, windowsFile } from '../../scripts/app.mjs';
 import { guardFlags, reportBuilt } from '../../scripts/help.mjs';
+import { syncStaticTree } from '../web/serve.mjs';
 
 const quote = (s) => `'${String(s).replaceAll("'", "''")}'`;
 const powershell = (command) => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true });
@@ -139,8 +140,7 @@ if (import.meta.main) {
     }
   }
   for (const name of ['assets','deck']) {
-    const source = resolve(app.dir, name);
-    if (existsSync(source)) cpSync(source, resolve(output, name), {recursive:true});
+    syncStaticTree(resolve(app.dir, name), resolve(output, name));
   }
   copyShaders(app, resolve(output, 'shaders'), {replace:true});
   writeFileSync(resolve(output, 'compat.json'), JSON.stringify(build.compat, null, 2) + '\n');

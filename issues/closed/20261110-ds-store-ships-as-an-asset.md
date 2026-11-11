@@ -1,6 +1,7 @@
 # Finder's `.DS_Store` in an app's `assets/` becomes an embedded asset, and `push` publishes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Static asset inventories and copies omit Finder's .DS_Store files at every depth; push uses the same owned filesystem reader.
 **Systems:** filesystem/src/directory.rs (visit_files), bake/src/receipt.rs (asset_cards), scripts/push.mjs (carriedAssets), host/web/serve.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
