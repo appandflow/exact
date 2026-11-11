@@ -1090,7 +1090,10 @@ fn resumed_type_interning_keeps_the_first_equal_row_and_retyped_enums() {
     let string = b.primitive(TypeKind::String);
     let empty_record = b.record("enum", &[]);
     assert_eq!(b.string_enum(&[]), empty_record);
-    assert_eq!(b.plan().types[empty_record.0 as usize].kind, TypeKind::String);
+    assert_eq!(
+        b.plan().types[empty_record.0 as usize].kind,
+        TypeKind::String
+    );
     let next_record = b.record("enum", &[]);
     assert_ne!(next_record, empty_record);
     let mut plan = b.finish().unwrap();

@@ -10,6 +10,9 @@
 //! compiler is, for one frame, a host.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+mod build_advice;
+pub use build_advice::{compile_path_advised, resource_clock_warnings, surface_findings, Advised};
+
 mod activities;
 mod excerpt;
 pub use excerpt::excerpt;
@@ -601,39 +604,6 @@ pub struct SurfaceFindings {
     pub findings: Vec<CompileError>,
     /// The game source newer than the declaration, when one is.
     pub newer: Option<PathBuf>,
-}
-
-/// [`SurfaceFindings`] for the file at `path`; Err when its sources or the
-/// declaration cannot be read.
-pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError>> {
-    let src = read_source(path).map_err(|e| vec![e])?;
-    let app_root = app_root(path)?;
-    let (file, sources) = sources::load(path, &src, &app_root)?;
-    let findings = match surface::arguments(&app_root).map_err(|e| vec![e])? {
-        Some(declared) => contract_analyze::check_surface_arguments(&file, &declared)
-            .err()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|e| sources.resolve(e.into()))
-            .collect(),
-        None => Vec::new(),
-    };
-    Ok(SurfaceFindings {
-        findings,
-        newer: surface::newer_rust(&app_root),
-    })
-}
-
-/// Non-blocking advice for resource arguments fed by a live frame clock.
-/// Includes imported derives and functions, with the authored resource location.
-pub fn resource_clock_warnings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
-    let src = read_source(path).map_err(|e| vec![e])?;
-    let app_root = app_root(path)?;
-    let (file, sources) = sources::load(path, &src, &app_root)?;
-    Ok(contract_analyze::resource_clock_warnings(&file)
-        .into_iter()
-        .map(|e| sources.resolve(e.into()))
-        .collect())
 }
 
 /// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,

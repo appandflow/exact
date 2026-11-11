@@ -270,10 +270,16 @@ fn parsing_providers_grows_with_the_section() {
             let start = cpu();
             let file = contract_syntax::parse(source).unwrap();
             best[i] = best[i].min(cpu() - start);
-            assert_eq!(file.components[0].provides.len(), if i == 0 { 1000 } else { 4000 });
+            assert_eq!(
+                file.components[0].provides.len(),
+                if i == 0 { 1000 } else { 4000 }
+            );
         }
     }
     let ratio = best[1].as_secs_f64() / best[0].as_secs_f64();
     eprintln!("provide parsing: {best:?}, {ratio:.2}x");
-    assert!(ratio < 7.0, "4x the providers took {ratio:.2}x the CPU time");
+    assert!(
+        ratio < 7.0,
+        "4x the providers took {ratio:.2}x the CPU time"
+    );
 }

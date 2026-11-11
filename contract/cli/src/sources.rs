@@ -29,6 +29,11 @@ use std::{
 /// with every meaning it has there (its namespace and program-unique name).
 type ByLocal = HashMap<String, Vec<(Kind, String)>>;
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOADS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) struct Sources {
     paths: Vec<PathBuf>,
     /// Where each source came from, by source id (LLP 1091 D10).
@@ -160,6 +165,8 @@ pub(crate) fn load_partial(
     app_root: &Path,
     refused: &mut Refused,
 ) -> Result<(File, Sources), Vec<CompileError>> {
+    #[cfg(test)]
+    LOADS.with(|loads| loads.set(loads.get() + 1));
     let root_key = path.canonicalize().unwrap_or_else(|_| {
         path.file_name()
             .map(|name| app_root.join(name))
