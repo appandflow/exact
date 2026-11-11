@@ -1,6 +1,7 @@
 # The first step after a restore forgets which static colliders the save rebuilt, so the next save or hash verifies them all again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The first step after restore retains verified rebuilds for unchanged static colliders and invalidates them when sync touches the collider.
 **Systems:** game/physics/src/step.rs, game/physics/src/state.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

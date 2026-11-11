@@ -458,11 +458,7 @@ fn a_body_with_extras_reports_a_touch_within_one_step() {
     let (shaped, ..) = run(true);
     let n = shaped.first().expect("a touch").0;
     assert_eq!(shaped, vec![(n, a, b, true), (n, a, b, false)]);
-    let mut plain = plain;
-    plain.sort();
-    let mut sorted = shaped;
-    sorted.sort();
-    assert_eq!(sorted, plain);
+    assert_eq!(shaped, plain);
 }
 
 // A body held up by a force falls once the force is cleared, asleep or not.

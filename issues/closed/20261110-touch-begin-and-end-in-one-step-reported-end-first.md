@@ -1,6 +1,7 @@
 # A pair that begins and ends touching in one physics step is reported as end, then begin
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Collision events and Announce journals preserve each pair's transition order within the step, including begin followed by end.
 **Systems:** game/physics/src/step.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

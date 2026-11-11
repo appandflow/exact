@@ -345,6 +345,7 @@ impl Component for Collider {
 pub struct Announce;
 
 /// One begin/end transition, ordered by (a.index, b.index).
+/// Transitions of the same pair keep the order they occurred within the step.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
 pub struct Touch {
     /// First entity, possibly despawned for an end event.

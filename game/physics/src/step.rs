@@ -188,9 +188,6 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         live.parented.clear();
     }
     for &e in &pending.rows {
-        if let Some(h) = live.entries.get(&e).and_then(|entry| entry.collider_handle) {
-            live.elidable.remove(&h);
-        }
         live.digests.remove(&e);
         let b = world.get::<Body>(e);
         let c = world.get::<Collider>(e);
@@ -336,6 +333,11 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             || entry.collider.as_ref().map(|p| (&p.shape, p.offset))
                 != c.map(|c| (&c.shape, c.offset));
         let collider_changed = solid_changed || entry.collider.as_ref() != c;
+        if b.is_some() || entry.body.is_some() || collider_changed || pose_changed {
+            if let Some(h) = entry.collider_handle {
+                live.elidable.remove(&h);
+            }
+        }
         if let Some(c) = c {
             assert!(
                 !matches!(c.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })
@@ -412,7 +414,11 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         if collider_changed {
             entry.collider = c.cloned();
         }
-        entry.pose = t;
+        // Equal poses can differ in zero signs. Preserve the verified rebuild's
+        // pose until synchronization changes an input.
+        if body_changed || collider_changed || pose_changed {
+            entry.pose = t;
+        }
         if entry.body_handle.is_some() {
             live.bodies.insert(e);
         } else {
@@ -670,7 +676,6 @@ pub fn step(world: &mut World) {
             })
         })
         .collect();
-    let mut crossed = BTreeSet::new();
     if !shaped.is_empty() {
         let mut transient = BTreeSet::new();
         events.retain(|t| {
@@ -696,18 +701,12 @@ pub fn step(world: &mut World) {
         // A pair that begins and ends within the step (a kinematic or CCD body
         // passing through a sensor) touches neither before nor after; Rapier's
         // events are its only record, so report both, the begin first.
-        crossed.extend(
-            transient
-                .into_iter()
-                .filter(|p| !before.contains(p) && !after.contains(p)),
-        );
-        events.extend(
-            crossed
-                .iter()
-                .flat_map(|&(a, b)| [true, false].map(|began| Touch { a, b, began })),
-        );
+        let crossed = transient
+            .into_iter()
+            .filter(|p| !before.contains(p) && !after.contains(p));
+        events.extend(crossed.flat_map(|(a, b)| [true, false].map(|began| Touch { a, b, began })));
     }
-    events.sort_by_key(|e| (e.a, e.b, e.began != crossed.contains(&(e.a, e.b))));
+    events.sort_by_key(|e| (e.a, e.b));
     events.dedup();
     for h in live.removed.drain(..) {
         live.reverse.remove(&h);

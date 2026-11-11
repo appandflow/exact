@@ -14,7 +14,8 @@ the actual `displacement` and `grounded` state.
   visits every row. A static collider without a Body costs nothing per tick.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
-  same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
+  same-tick sensor transitions. Events are sorted by entity pair, preserving each
+  pair's transition order within the step; `Announce` journals that order.
   Sleeping bodies still step; any awake dynamic body reports busy to Sim, even
   when its pose is unchanged. Support edits wake all.
   Two fixed solids (colliders without a Body, or with a Static one) never pair, so a

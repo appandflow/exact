@@ -75,7 +75,7 @@ pub(crate) struct Live {
     pub removed: Vec<[u32; 2]>,
     pub synced: Option<Synced>,
     // Static colliders verified equal to their entry's rebuild since last edited;
-    // sync forgets every row it visits.
+    // sync invalidates only colliders it touches.
     pub elidable: BTreeSet<[u32; 2]>,
     // Each entry's hash, kept until sync or writeback next touches the entry.
     pub digests: BTreeMap<Entity, u64>,
@@ -327,6 +327,115 @@ pub(crate) fn raw(handle: ColliderHandle) -> [u32; 2] {
 mod tests {
     use super::*;
     use exact_game::bin;
+
+    #[test]
+    fn restored_static_colliders_stay_elidable_after_a_moving_step() {
+        use crate::{CapsuleController, Physics, Shape};
+        use exact_game::{Vec3, World};
+
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        w.spawn((
+            Transform::at(0.0, -0.5, 0.0),
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::new(20.0, 0.5, 20.0),
+                },
+                ..Collider::default()
+            },
+        ));
+        for i in 0..8 {
+            w.spawn((
+                Transform::at(i as f32 * 2.0, 0.0, 5.0),
+                Collider {
+                    shape: Shape::Cylinder {
+                        radius: 0.35,
+                        height: 6.0,
+                    },
+                    offset: Vec3::Y * 3.0,
+                    ..Collider::default()
+                },
+            ));
+        }
+        w.spawn_named(
+            "player",
+            (Transform::at(0.0, 1.0, 0.0), CapsuleController::default()),
+        );
+        let advance = |w: &mut World| {
+            crate::capsule(w, "player").step(Vec3::X);
+            crate::step(w);
+        };
+        advance(&mut w);
+        let mut restored = World::new(60, 0);
+        crate::register(&mut restored);
+        restored.load(&w.save()).unwrap();
+        let elidable = |w: &World| {
+            w.resource::<Physics>()
+                .executor
+                .0
+                .borrow_mut()
+                .live()
+                .elidable
+                .clone()
+        };
+        let rebuilt = elidable(&restored);
+        assert_eq!(rebuilt.len(), 9);
+        for _ in 0..3 {
+            advance(&mut w);
+            advance(&mut restored);
+            assert_eq!(elidable(&restored), rebuilt);
+            assert_eq!(restored.hash(), w.hash());
+            assert_eq!(restored.save(), w.save());
+        }
+    }
+
+    #[test]
+    fn static_collider_edits_invalidate_their_verified_rebuilds() {
+        use crate::Physics;
+        use exact_game::{Vec3, World};
+
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        let entities: Vec<_> = (0..7)
+            .map(|i| w.spawn((Transform::at(i as f32 * 3.0, 0.0, 0.0), Collider::default())))
+            .collect();
+        crate::step(&mut w);
+        w.load(&w.save()).unwrap();
+        let handle = {
+            let p = w.resource::<Physics>();
+            let mut saved = p.executor.0.borrow_mut();
+            assert_eq!(saved.live().elidable.len(), entities.len());
+            saved.live().entries[&entities[0]].collider_handle.unwrap()
+        };
+        // A write without a value change still visits the row during sync.
+        w.get_mut::<Transform>(entities[0]).unwrap().position += Vec3::ZERO;
+        w.get_mut::<Transform>(entities[1]).unwrap().position.y += 1.0;
+        w.get_mut::<Transform>(entities[2]).unwrap().scale *= 2.0;
+        w.get_mut::<Collider>(entities[3]).unwrap().friction = 0.75;
+        w.insert(entities[4], Body::default());
+        w.remove::<Collider>(entities[5]);
+        w.despawn(entities[6]);
+        crate::step(&mut w);
+        {
+            let p = w.resource::<Physics>();
+            let mut saved = p.executor.0.borrow_mut();
+            assert_eq!(saved.live().elidable, BTreeSet::from([handle]));
+        }
+        for remove_body in [false, true] {
+            if remove_body {
+                w.remove::<Body>(entities[4]);
+                crate::step(&mut w);
+            }
+            let p = w.resource::<Physics>();
+            let mut saved = p.executor.0.borrow_mut();
+            saved.refresh();
+            let cached = saved.bytes.clone();
+            saved.live().elidable.clear();
+            saved.dirty = true;
+            saved.refresh();
+            assert_eq!(saved.bytes, cached);
+        }
+    }
 
     #[test]
     fn snapshot_refusal_names_expected_format_and_seen_bytes() {
