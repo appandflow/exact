@@ -322,11 +322,22 @@ impl<D: DataSource> Presenter<D> {
         self.display.pending = None;
         if Rc::ptr_eq(&self.display.origin, &frame.identity.origin)
             && frame.identity.activatable
-            && !self.activation_failed
+            && self.activation_failed.is_none()
         {
             self.activate_first_pixel();
         }
         true
+    }
+
+    /// The data module did not activate: a failure line (LLP 1142 D4), in the
+    /// journal and, while the runner measures, on stderr (logcat on Android)
+    /// now, as a failed request's is; `clock data` answers it.
+    fn activation_refused(&mut self, error: String) {
+        self.host.runner_mut().alert(error.clone());
+        for line in self.host.runner().take_alerts() {
+            eprintln!("exact: {line}");
+        }
+        self.activation_failed = Some(error);
     }
 
     pub(super) fn activate_first_pixel(&mut self) {
@@ -335,14 +346,12 @@ impl<D: DataSource> Presenter<D> {
         match self.host.activate_data() {
             Ok(true) => {
                 if let Some(error) = self.after_commit() {
-                    self.activation_failed = true;
-                    self.host.log(error);
+                    self.activation_refused(error);
                     return;
                 }
             }
             Err(error) => {
-                self.activation_failed = true;
-                self.host.log(error);
+                self.activation_refused(error);
                 return;
             }
             Ok(false) if self.host.data_pending() => return,

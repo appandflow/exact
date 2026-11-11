@@ -226,7 +226,7 @@ impl<D: DataSource> Presenter<D> {
         if self.display.blocked()
             || self.dirty
             || !self.last_frame_succeeded
-            || self.activation_failed
+            || self.activation_failed.is_some()
         {
             return;
         }
@@ -244,7 +244,13 @@ impl<D: DataSource> Presenter<D> {
     /// The deferred data module has yet to activate, and has not failed to:
     /// the agent's `clock data` waits for it.
     pub fn data_activating(&self) -> bool {
-        !self.activation_failed && self.host.data_pending()
+        self.activation_failed.is_none() && self.host.data_pending()
+    }
+
+    /// Why the data module did not activate, if it did not: `clock data`
+    /// answers it, so a drive's first step fails with the module's error.
+    pub fn activation_error(&self) -> Option<&str> {
+        self.activation_failed.as_deref()
     }
 
     /// A development generation or an update is being prepared: the display
@@ -255,7 +261,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Wake an idle display while an executable image is loading off-thread.
     pub fn module_pending(&self) -> bool {
-        (self.painted && !self.activation_failed && self.host.data_pending())
+        (self.painted && self.activation_failed.is_none() && self.host.data_pending())
             || self.pending_dev.is_some()
             || self.pending_update
     }
@@ -371,7 +377,7 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
-        self.activation_failed = false;
+        self.activation_failed = None;
         self.module = module;
         self.text = text.clone();
         self.brush.text = text;

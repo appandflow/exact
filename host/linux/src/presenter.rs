@@ -181,7 +181,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
-    activation_failed: bool,
+    /// Why the data module did not activate ([`Presenter::activation_error`]).
+    activation_failed: Option<String>,
     dev: Option<crate::fetch::Poller>,
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
@@ -582,7 +583,7 @@ impl<D: DataSource> Presenter<D> {
             surfaces: Default::default(),
             module: None,
             painted: false,
-            activation_failed: false,
+            activation_failed: None,
             dev: None,
             pending_dev: None,
             pending_update: false,
@@ -693,7 +694,7 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
-        self.activation_failed = false;
+        self.activation_failed = None;
         self.module = module;
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;

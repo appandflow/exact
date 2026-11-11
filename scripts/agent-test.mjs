@@ -726,8 +726,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
     // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
-    // driver connected). An unsettled wait leaves the expects to name what is still in flight.
-    const data = async () => { if (!beforeData) await s.clock('data'); };
+    // driver connected). An unsettled wait leaves the expects to name what is still in flight; a data module that did
+    // not load fails the test here, with its own error.
+    const data = async () => { if (beforeData) return; const r = await s.clock('data'); if (r?.error) throw new Error(r.error); };
     // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
     // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied; both
     // at the virtual time the test had reached, as a phone restarted at 9:05 wakes at 9:05 (LLP 1116.009 D1).

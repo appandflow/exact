@@ -1048,6 +1048,11 @@ fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) ->
             num(p.host().now())
         )
     };
+    let refused = |p: &Presenter<D>, error: &str| {
+        let mut s = String::from("{\"error\":");
+        exact_runner::agent::quote(&format!("clock data: {error}"), &mut s);
+        format!("{s},\"clock\":{}}}", num(p.host().now()))
+    };
     for _ in 0..16 {
         while p.data_activating() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1055,6 +1060,9 @@ fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) ->
                 let _ = p.frame();
             }
             p.first_pixel();
+        }
+        if let Some(error) = p.activation_error() {
+            return refused(p, error);
         }
         if p.data_activating() {
             return unsettled(p, "data");
