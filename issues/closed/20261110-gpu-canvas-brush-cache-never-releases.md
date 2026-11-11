@@ -1,6 +1,7 @@
 # The GPU painter keeps every canvas snapshot it has drawn for the life of the process
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The GPU canvas brush cache evicts snapshots once only the entry and brush own them.
 **Systems:** host/linux/src/gpu.rs, host/linux/src/canvas2d
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

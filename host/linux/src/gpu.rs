@@ -771,9 +771,10 @@ impl Backend for Gpu {
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
-        // A snapshot no painter holds any more is dropped with its brush.
+        // The entry and its brush's Pixels each own an Arc. Cloned blobs
+        // share Pixels, so only counts above two have another snapshot owner.
         self.canvas_brushes
-            .retain(|_, (pixels, _)| Arc::strong_count(pixels) > 1);
+            .retain(|_, (pixels, _)| Arc::strong_count(pixels) > 2);
         let brush = self
             .canvas_brushes
             .entry(Arc::as_ptr(image) as usize)
@@ -1079,5 +1080,40 @@ impl Backend for Gpu {
     }
     fn layer_end(&mut self) {
         self.keep_layer();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a native GPU adapter; run explicitly in native validation"]
+    fn canvas_brushes_release_replaced_snapshots_and_reuse_live_ones() {
+        let mut gpu = Gpu::new().expect("native GPU adapter");
+        let live = Arc::new(Pixmap::new(8, 8).unwrap());
+        let live_key = Arc::as_ptr(&live) as usize;
+        let mut snapshots = Vec::new();
+        let mut live_brush = None;
+        for _ in 0..100 {
+            gpu.begin(16., 8., 1.);
+            gpu.canvas(&live, (0., 0., 8., 8.), &[], Transform::identity());
+            let brush = gpu.canvas_brushes[&live_key].1.image.data.id();
+            assert_eq!(*live_brush.get_or_insert(brush), brush);
+
+            let snapshot = Arc::new(Pixmap::new(8, 8).unwrap());
+            snapshots.push(Arc::downgrade(&snapshot));
+            gpu.canvas(&snapshot, (8., 0., 8., 8.), &[], Transform::identity());
+        }
+        gpu.begin(16., 8., 1.);
+        gpu.canvas(&live, (0., 0., 8., 8.), &[], Transform::identity());
+        assert_eq!(gpu.canvas_brushes.len(), 1);
+        assert!(snapshots
+            .iter()
+            .all(|snapshot| snapshot.upgrade().is_none()));
+        assert_eq!(
+            gpu.canvas_brushes[&live_key].1.image.data.id(),
+            live_brush.unwrap()
+        );
     }
 }
