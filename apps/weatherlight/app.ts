@@ -148,8 +148,14 @@ async function here(lat: number, lon: number, plus: boolean): Promise<Forecast> 
 // in the queue, and the next answer runs the loop again.
 const TIPS = 'app:/data/tips.json', VISITS = 'app:/data/visits.json', VERSION = '1';
 type Tips = { tips: number; tokens: string[] };
+// A missing file reads as empty, as does the build's ('bake'), which writes nothing. Any other failed
+// read throws, so no answer writes a count started from empty over the file.
 async function readJson<T>(storage: Parameters<Answer>[3], path: string, empty: T): Promise<T> {
-  try { return { ...empty, ...JSON.parse(new TextDecoder().decode(await storage.fs.readFile(path))) }; } catch { return empty; }
+  const bytes = await storage.fs.readFile(path).catch((e: { code?: string }) => {
+    if (e.code === 'ENOENT' || e.code === 'bake') return null;
+    throw e;
+  });
+  try { return bytes ? { ...empty, ...JSON.parse(new TextDecoder().decode(bytes)) } : empty; } catch { return empty; }
 }
 async function writeJson(storage: Parameters<Answer>[3], path: string, value: unknown): Promise<void> {
   await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(value)));

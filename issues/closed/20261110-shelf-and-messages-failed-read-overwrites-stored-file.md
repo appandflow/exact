@@ -1,6 +1,7 @@
 # Shelf and Messages take any failed read of their stored file for a first launch, and the next edit saves the sample data over it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Shelf, Messages, Agents, Weatherlight and Recorder take only `ENOENT` as no file and fail the read otherwise, so no edit writes over a file they could not read.
 **Systems:** apps/shelf (app.ts), apps/messages (app.ts)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
