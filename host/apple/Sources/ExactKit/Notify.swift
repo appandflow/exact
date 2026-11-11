@@ -5,9 +5,10 @@
 // A click on content a module posted (`@exact/notifications`) carries the
 // host's activation entry (`userInfo["exact"]`): it opens the entry's
 // `navigate` location, or raises the module's event on the session that
-// posted it, held until that session can hear it. A notification shows
-// with the app in front too, as a browser shows a page's, and sounds only
-// when its content has a sound (a silent post has none).
+// posted it, held until that session can hear it. A remote notification's
+// click opens and raises nothing. A notification shows with the app in
+// front too, as a browser shows a page's, and sounds only when its content
+// has a sound (a silent post has none).
 import Foundation
 #if !os(tvOS)
 import UserNotifications
@@ -44,6 +45,10 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
         let notification = response.notification
         let request = notification.request
+        // A remote notification's `userInfo` is its sender's payload, which
+        // could name any session and module event: only a post of this
+        // app's own is read for an activation entry.
+        guard !(request.trigger is UNPushNotificationTrigger) else { return }
         deliver(id: request.identifier, date: notification.date, info: request.content.userInfo)
     }
 
