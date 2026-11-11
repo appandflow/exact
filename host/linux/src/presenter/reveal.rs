@@ -12,7 +12,7 @@ use crate::placement::inverse;
 pub(super) enum Cause {
     InsetAdjustment,
     FieldNavigation,
-    /// A remote's arrow moved the focus (LLP 1115.001.003 D4).
+    /// Tab or a remote's arrow moved the focus (LLP 1115.001.003 D4).
     FocusMove,
 }
 

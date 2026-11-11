@@ -168,3 +168,47 @@ fn space_toggles_a_focused_checkbox_or_switch_as_a_click_and_enter_does_not() {
     assert_eq!(walk(&mut p, &["Tab", " "]), ["loose", "loose"]);
     assert_eq!(p.controls.get(&loose), Some(&true));
 }
+
+#[test]
+fn tab_scrolls_the_focus_into_view_in_its_scroller_and_the_page() {
+    let source = r#"component App
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column width=400
+      button press=bump testId="top" height=30
+        text "Top"
+      column width=300 height=100 overflow-y="auto" testId="list"
+        box height=400 flex-shrink=0
+          text "Inner"
+        button press=bump testId="inner" height=30 flex-shrink=0
+          text "Inner button"
+      box height=2000 flex-shrink=0
+        text "Tall"
+      button press=bump testId="bottom" height=30 flex-shrink=0
+        text "Bottom"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let _ = p.frame();
+    let list = id(&p, "list");
+    // Chrome scrolls each only as far as it must (`nearest`): the inner
+    // button to the scroller's bottom edge, then the last to the window's.
+    assert_eq!(walk(&mut p, &["Tab", "Tab"]), ["top", "inner"]);
+    let _ = p.frame();
+    assert_eq!((p.scroll_of(list).1, p.page().1), (330., 0.));
+    assert_eq!(p.rect_of(id(&p, "inner")).map(|r| r.1), Some(100.));
+    assert_eq!(walk(&mut p, &["Tab"]), ["bottom"]);
+    let _ = p.frame();
+    assert_eq!(p.page().1, 1860.);
+    assert_eq!(p.rect_of(id(&p, "bottom")).map(|r| r.1), Some(270.));
+}

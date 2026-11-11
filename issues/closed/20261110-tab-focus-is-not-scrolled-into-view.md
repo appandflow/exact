@@ -1,6 +1,7 @@
 # Tab moves the focus to a control out of view and scrolls nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Tab's default action on the painted hosts scrolls each scroller above the new focus, then the page, only as far as it must to show it (`keep_in_view`).
 **Systems:** host/linux/src/presenter/typing.rs, host/linux/src/presenter/events.rs, host/linux/src/presenter/reveal.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

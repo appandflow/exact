@@ -519,9 +519,16 @@ impl<D: DataSource> Presenter<D> {
     /// wrapping, and from no focus, or one out of the order, to the first
     /// (Shift: the last), or from the starting point a fragment set, to the
     /// next stop in tree order (Shift: the one before it; LLP 1153 D5). A
-    /// `key` handler's `preventDefault()` keeps Tab.
+    /// `key` handler's `preventDefault()` keeps Tab. The new focus is
+    /// scrolled into view, as the browser's is and WinUI's
+    /// `BringIntoViewOnFocusChange` has it.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
-        self.move_focus_filtered(backward, now_ms, |_, _| true)
+        let before = self.focus;
+        let error = self.move_focus_filtered(backward, now_ms, |_, _| true);
+        if let Some(id) = self.focus.filter(|f| Some(*f) != before) {
+            self.keep_in_view(id, reveal::Cause::FocusMove);
+        }
+        error
     }
 
     pub(super) fn move_focus_filtered(
