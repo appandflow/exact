@@ -1,6 +1,7 @@
 # A level meter read after a long gap throws on the web, and stops `<audio-waveform>` for good
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A silent meter counts a gap's time arithmetically and makes only the levels its history keeps, levels are appended without a spread, and the waveform asks for its next frame before it draws.
 **Systems:** packages/recording/web/index.js, packages/recording/android/Recording.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
