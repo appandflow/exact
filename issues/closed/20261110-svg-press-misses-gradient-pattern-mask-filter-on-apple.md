@@ -1,6 +1,7 @@
 # An SVG element with a gradient or pattern paint, a mask or a filter takes no press on Apple
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple SVG presses use fill and stroke geometry for paint servers and filtered content, honor clips, and ignore mask coverage and filter regions.
 **Systems:** host/apple/Sources/ExactKit/SvgScene.swift, host/apple/Sources/ExactKit/SvgPaint.swift, host/apple/Sources/ExactKit/SvgIsland.swift
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
