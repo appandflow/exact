@@ -682,3 +682,19 @@ fn a_colour_keyframe_takes_the_designs_tokens() {
         "{scale}"
     );
 }
+
+/// A class choice whose one side sets animation longhands and whose other
+/// sets none: the other side is no animation, from either starting state,
+/// not a binding that traps formatting the absent longhand.
+#[test]
+fn a_class_choice_without_animation_on_one_side_bakes_from_either() {
+    for active in [false, true] {
+        let src = format!(
+            "keyframes spin\n  from rotate=0\n  to rotate=360\nstyle Idle\n  opacity=1\nstyle Active\n  animation-name=\"spin\"\n  animation-duration=\"200ms\"\ncomponent App\n  state active = {active}\n  view\n    view class=(active ? Active : Idle)\n"
+        );
+        let plan = contract::compile(&src).unwrap();
+        if let Err(e) = contract::bake(plan, ()) {
+            panic!("active={active}: {e}");
+        }
+    }
+}

@@ -1,6 +1,7 @@
 # A class without animation traps when its alternative sets animation longhands
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Folding animation longhands reads a class choice's `none` arm as the longhand's initial value, so the side without an animation bakes as none.
 **Systems:** contract/lower/src/svg.rs
 **Severity:** P2
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review

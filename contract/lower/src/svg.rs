@@ -735,7 +735,10 @@ impl Lowerer<'_> {
                         return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
                     }
                     Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),
-                    Some(a) => parts.push(TemplatePart::Expr(a.value.clone())),
+                    // A class choice's arm that does not set the longhand is
+                    // `none` (class.rs): it is the longhand's initial value
+                    // here, as the shorthand writes it, not text to format.
+                    Some(a) => parts.push(TemplatePart::Expr(unset_as(&a.value, &default_part(&defaults, i)))),
                     None => parts.push(TemplatePart::Text(default_part(&defaults, i))),
                 }
             }
@@ -753,6 +756,21 @@ impl Lowerer<'_> {
             written: longs.iter().chain(short.iter()).any(|a| a.written),
         });
         Ok(Some(out))
+    }
+}
+
+/// `value` with each `none` among its choice's arms, at any depth, read as
+/// `initial`: a class choice unsets on one side the rows the other sets.
+fn unset_as(value: &Expr, initial: &str) -> Expr {
+    match value {
+        Expr::None(span) => Expr::Str(initial.to_string(), *span),
+        Expr::Ternary(cond, yes, no, span) => Expr::Ternary(
+            cond.clone(),
+            Box::new(unset_as(yes, initial)),
+            Box::new(unset_as(no, initial)),
+            *span,
+        ),
+        other => other.clone(),
     }
 }
 
