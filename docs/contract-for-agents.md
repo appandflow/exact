@@ -4554,6 +4554,19 @@ a clear wrapper can therefore show through sharp. Make the glass a direct
 sibling of the content it covers, including a scrolling list. iOS and tvOS
 draw the system blur approximation described in LLP 1053.000 §3.
 
+`-exact-glass-tint` tints the glass of a box with `backgroundMaterial="glass"` or
+`"glass-clear"`: `-exact-glass-tint="rgba(232,192,99,0.9)"` is a gold button,
+`"rgba(10,12,16,0.55)"` a dark panel. It is a colour resolved in the box's colour
+scheme (`light-dark()` and the platform colours work); unset, the glass is untinted. iOS and tvOS 26 set it as `UIGlassEffect`'s
+`tintColor` and macOS 26 as `NSGlassEffectView`'s, so the glass itself takes the
+colour; a `background-color` is painted behind the glass, not into it. The web and
+Linux draw it as the material's background colour in place of the table's; Android
+and Windows draw no glass and ignore it. Glass reacts to a touch (iOS's interactive
+glass) when its box has a `press` and is not disabled; `glassInteractive=false` turns
+that off on a pressable box and `glassInteractive=true` turns it on for one without
+a press. Only iOS and tvOS 26 have interactive glass; other hosts ignore it. Neither
+applies to a native button, whose glass is its `buttonStyle`'s.
+
 `flex` accepts CSS `none`, `auto`, `initial`, `unset`, a basis, or
 `<grow> [<shrink>] [<basis>]` (including `flex="0 1 auto"`). Numeric bindings
 keep the `n 1 0%` meaning. `flex="initial"`, `flex="unset"` and a conditional

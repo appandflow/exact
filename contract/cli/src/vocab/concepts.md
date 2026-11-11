@@ -1122,7 +1122,7 @@ component App
   a child (a `text`, an `image`).
 
 ## glass: Liquid Glass, a material or a blur behind a box
-names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect
+names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect, tintColor, glass tint, tinted glass, isInteractive
 
 Bars, tab bars, sheets and menus are the platform's, glass included: leave them unsaid. A
 surface of your own takes `backgroundMaterial`: `"glass"` or `"glass-clear"` is
@@ -1148,6 +1148,9 @@ component App
   `backgroundMaterial`, which wins when both are written.
 - A navigation bar's buttons share one glass capsule on iOS 26; `buttonStyle="glass"` on
   each gives it a capsule of its own (`contract vocab bar-buttons`).
+- `-exact-glass-tint="rgba(10,12,16,0.55)"` tints the glass itself (`UIGlassEffect.tintColor`);
+  a `background-color` is painted behind it. Glass reacts to a finger on a box with a `press`;
+  `glassInteractive=false` keeps it still, `true` makes it react without one.
 
 ## bar-buttons: the navigation bar's buttons, grouped or each in its own capsule
 names: bar button, bar-button, barbuttons, UIBarButtonItem, sharesBackground, headerRight, headerLeft, toolbarItem, ToolbarItem, ToolbarItemGroup
