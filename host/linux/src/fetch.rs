@@ -1,17 +1,18 @@
 //! The network form of the dev plan (LLP 1023 Stage 1, Linux): given the
 //! app URL — the one a browser opens — resolve the envelope, negotiated or
-//! through `index.html`'s `rel=alternate` link, fetch the plan, verify its
-//! length and SHA-256, and hand back the bytes to boot. One shot, at
-//! process start: a headless run is per-invocation (the fleet's shape —
-//! run, read, run again), and the display loop's live SSE half waits for a
-//! Linux display to verify it on (QUEUE).
+//! through `index.html`'s `rel=alternate` link, fetch the plan and selected
+//! Rust pair, verify their lengths and SHA-256, and hand them back to boot.
+//! After first pixel, `EXACT_DEV_PLAN` URLs are polled by the display,
+//! Android reader and stdio agent loops, with a 500 ms pause after each
+//! completed poll.
+//! The host applies accepted generations with state carried.
 //!
 //! The transport is ibex2's default — rustls off Apple, the platform's on a
 //! Mac — used directly: grants govern *app* authority (ibex LLP 0067); this
 //! is host apparatus, the same standing as the Apple host's URLSession use
-//! in `PlanURL.swift`. Redirects are not followed in v1: the error names
-//! the limitation and the direct URL fixes it. Every line goes to stderr —
-//! in agent mode stdout is the protocol.
+//! in `PlanURL.swift`. Redirects are not followed: the error names the
+//! limitation and the `Location` header when supplied. Every line goes to
+//! stderr — in agent mode stdout is the protocol.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -377,6 +378,13 @@ fn fetch_unless(
         // a plan, four hundred times too generous for an envelope.
         req.max_body = Some(limit);
         let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
+        if matches!(r.status, 301 | 302 | 303 | 307 | 308) {
+            let mut error = format!("{url}: HTTP {}; redirects are not followed", r.status);
+            if let Some(location) = r.headers.get("location") {
+                error.push_str(&format!("; Location: {location}"));
+            }
+            return Err(error);
+        }
         let kind = r
             .headers
             .get("content-type")
@@ -690,6 +698,43 @@ mod tests {
             }
         });
         format!("http://127.0.0.1:{port}/")
+    }
+
+    #[test]
+    fn redirects_name_the_limitation_and_location() {
+        let mut answers = Vec::new();
+        for status in [301, 302, 303, 307, 308, 404] {
+            for location in [Some("/app/"), None] {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let page = format!("http://{}/app", listener.local_addr().unwrap());
+                let server = std::thread::spawn(move || {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    drop(listener);
+                    assert_eq!(read_request_path(&mut stream), "/app");
+                    let header = location
+                        .map(|value| format!("Location: {value}\r\n"))
+                        .unwrap_or_default();
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status} Test\r\n{header}Content-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                });
+                let error = fetch_app(&page).unwrap_err();
+                server.join().unwrap();
+                answers.push((page, status, location, error));
+            }
+        }
+        for (page, status, location, error) in answers {
+            let mut expected = format!("{page}: HTTP {status}");
+            if status != 404 {
+                expected.push_str("; redirects are not followed");
+                if let Some(location) = location {
+                    expected.push_str(&format!("; Location: {location}"));
+                }
+            }
+            assert_eq!(error, expected);
+        }
     }
 
     /// A dev loop whose producers start answers its status, read as what

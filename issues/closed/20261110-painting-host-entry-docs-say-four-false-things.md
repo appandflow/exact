@@ -1,6 +1,7 @@
 # Three sentences in the painting host's entry and dev-URL docs are false
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The entry docs name loopback VNC, live dev-URL polling and the shared update store; redirect errors explain the refusal and include Location when supplied.
 **Systems:** host/linux/src/app.rs, host/linux/src/fetch.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
