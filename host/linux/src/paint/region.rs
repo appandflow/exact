@@ -293,7 +293,8 @@ impl Picture {
                         )
                     }),
                     NodeType::Svg => {
-                        let mut svg = super::svg::resolve_svg(scene, &node, geometry.content);
+                        let mut svg =
+                            super::svg::resolve_svg(scene, &node, geometry.content, painter.dark);
                         exact_kernel::style::wide::Settle::settle(&mut svg);
                         Payload::Svg(Rc::new(svg))
                     }

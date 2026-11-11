@@ -259,12 +259,14 @@ pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) 
     (left, top, w.max(0.0), h.max(0.0))
 }
 
-/// Resolve the `svg` `node` whose content box is `content`.
+/// Resolve the `svg` `node` whose content box is `content`. Filter colours
+/// use the host's `dark` appearance unless `color-scheme` overrides it.
 pub fn resolve(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     content: (f32, f32, f32, f32),
     presented: Presented<'_>,
+    dark: bool,
 ) -> Scene {
     let vb = view_box(node.props);
     let view = view_box_transform(
@@ -292,6 +294,7 @@ pub fn resolve(
     let mut r = Resolver {
         kernel,
         presented,
+        dark,
         uses: Vec::new(),
         refused: None,
         budget: budget::Budget::new(),
@@ -316,6 +319,7 @@ pub fn resolve(
 struct Resolver<'k, 'p> {
     kernel: &'k Kernel,
     presented: Presented<'p>,
+    dark: bool,
     /// The `use` elements (and marker instances) above the item being
     /// resolved, outermost first: its instance path, and what a cycle is
     /// checked against.
@@ -529,7 +533,7 @@ impl Resolver<'_, '_> {
                 ),
                 _ => (self.bbox(node, &style, vp), 0.0),
             };
-            self.filter(node, bbox, stroke, vp).map(Box::new)
+            self.filter(node, &style, bbox, stroke, vp).map(Box::new)
         };
         if let Some(f) = &filter {
             if !self.budget.filter(f, ctm) {

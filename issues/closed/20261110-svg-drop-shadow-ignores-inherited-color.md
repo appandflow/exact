@@ -1,6 +1,7 @@
 # A `drop-shadow()` on an SVG element ignores an inherited `color`, and an SVG filter's colours ignore the dark appearance
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** SVG drop shadows use the cascaded color, and filter colors follow the host appearance and authored color-scheme.
 **Systems:** kernel/src/svg/scene/filter.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

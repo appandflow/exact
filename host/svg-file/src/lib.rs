@@ -253,7 +253,13 @@ impl Loaded {
             .kernel
             .node(self.document.svg)
             .expect("the svg node is in the kernel");
-        scene::resolve(&self.kernel, &node, (0.0, 0.0, width, height), &still)
+        scene::resolve(
+            &self.kernel,
+            &node,
+            (0.0, 0.0, width, height),
+            &still,
+            false,
+        )
     }
 
     /// The kernel the document lives in, for a host's own serializer.

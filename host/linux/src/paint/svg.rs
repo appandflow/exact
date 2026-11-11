@@ -11,6 +11,9 @@ use exact_kernel::{NodeKey, NodeRef, Overflow};
 use exact_motion::{Property, Value};
 use tiny_skia::Transform;
 
+#[cfg(test)]
+#[path = "filter_tests.rs"]
+mod filter_tests;
 #[path = "island.rs"]
 mod island;
 #[cfg(test)]
@@ -331,7 +334,7 @@ impl Painter {
         content: Rect4,
         ts: Transform,
     ) {
-        let scene = resolve_svg(walk.scene, node, content);
+        let scene = resolve_svg(walk.scene, node, content, self.dark);
         if let Some(refusal) = scene.refused {
             // @ref LLP 1055.000 D13 — refused by name, once.
             static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -412,8 +415,9 @@ pub(super) fn resolve_svg(
     walk: &super::Scene<'_>,
     node: &NodeRef<'_>,
     content: Rect4,
+    dark: bool,
 ) -> exact_kernel::svg::Scene {
-    resolve_with(walk.kernel, node, content, walk.presented, walk.paths)
+    resolve_with(walk.kernel, node, content, walk.presented, walk.paths, dark)
 }
 
 /// [`resolve_svg`] with the host's presented values and paths by view.
@@ -423,6 +427,7 @@ pub fn resolve_with(
     content: Rect4,
     presented: &dyn Fn(exact_kernel::ViewId) -> super::Presented,
     paths: &dyn Fn(exact_kernel::ViewId) -> Option<exact_motion::PathValue>,
+    dark: bool,
 ) -> exact_kernel::svg::Scene {
     /// The host's values by node, as the scene asks for them.
     struct ByNode<'a, V> {
@@ -468,6 +473,7 @@ pub fn resolve_with(
                 value,
                 paths,
             },
+            dark,
         )
     }
 }

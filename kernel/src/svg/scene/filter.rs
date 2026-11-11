@@ -10,7 +10,9 @@
 //! `filter` makes the element not render, as Chrome does.
 
 use super::{cascade, Resolver, Viewport};
-use crate::generated::{ColorInterpolationFilters, NodeType, PropId, StyleId, StyleMask};
+use crate::generated::{
+    ColorInterpolationFilters, ColorScheme, NodeType, PropId, StyleId, StyleMask, StyleProps,
+};
 use crate::kernel::NodeRef;
 use crate::style::Dimension;
 use crate::svg::filter::{
@@ -323,11 +325,12 @@ impl Resolver<'_, '_> {
     pub(super) fn filter(
         &mut self,
         node: &NodeRef<'_>,
+        style: &StyleProps,
         bbox: Option<Rect>,
         stroke: f32,
         vp: Viewport,
     ) -> Option<Filter> {
-        let list = &node.style.filter;
+        let list = &style.filter;
         if list.0.is_empty() {
             return None;
         }
@@ -372,8 +375,8 @@ impl Resolver<'_, '_> {
                     &mut chain,
                     f,
                     visual,
-                    node.style.text_color.resolve(false),
-                    false,
+                    style.text_color.resolve(self.appearance(style)),
+                    self.appearance(style),
                 );
                 if !self.budget.primitives(&chain.primitives[before..]) {
                     return Some(nothing);
@@ -749,11 +752,20 @@ impl Resolver<'_, '_> {
         Some(region)
     }
 
+    fn appearance(&self, style: &StyleProps) -> bool {
+        match style.color_scheme {
+            ColorScheme::Light => false,
+            ColorScheme::Dark => true,
+            ColorScheme::Normal => self.dark,
+        }
+    }
+
     /// `flood-color` with `flood-opacity`, straight sRGB.
     fn flood(&self, style: &crate::generated::StyleProps) -> [f32; 4] {
+        let dark = self.appearance(style);
         let c = match &style.rare.flood_color {
-            Paint::CurrentColor => style.text_color.resolve(false),
-            Paint::Color(c) => c.resolve(false),
+            Paint::CurrentColor => style.text_color.resolve(dark),
+            Paint::Color(c) => c.resolve(dark),
             _ => crate::style::Color(0x0000_00ff),
         };
         rgba(c, style.rare.flood_opacity)
@@ -761,9 +773,10 @@ impl Resolver<'_, '_> {
 
     /// `lighting-color`, straight sRGB.
     fn lighting_color(&self, style: &crate::generated::StyleProps) -> [f32; 3] {
+        let dark = self.appearance(style);
         let c = match &style.rare.lighting_color {
-            Paint::CurrentColor => style.text_color.resolve(false),
-            Paint::Color(c) => c.resolve(false),
+            Paint::CurrentColor => style.text_color.resolve(dark),
+            Paint::Color(c) => c.resolve(dark),
             _ => crate::style::Color(0xffff_ffff),
         };
         let v = rgba(c, 1.0);

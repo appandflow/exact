@@ -233,7 +233,13 @@ impl SvgState {
     }
 
     /// The `svg` and `animations` ops this batch owes.
-    pub(crate) fn emit(&mut self, kernel: &Kernel, engine: &Engine, batch: &mut Batch) {
+    pub(crate) fn emit(
+        &mut self,
+        kernel: &Kernel,
+        engine: &Engine,
+        appearance: &exact_kernel::motion::PaintMotion,
+        batch: &mut Batch,
+    ) {
         let environment = kernel.arena().env();
         if self.environment.as_ref() != Some(environment) {
             // A fixed content box can contain window-relative geometry, including
@@ -265,7 +271,14 @@ impl SvgState {
             {
                 self.scene_builds += 1;
             }
-            let scene = scene(kernel, engine, &self.pressable, &node, bx);
+            let scene = scene(
+                kernel,
+                engine,
+                &self.pressable,
+                &node,
+                bx,
+                appearance.dark(node.key),
+            );
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
                 self.sent.insert(root, (scene, bx));
@@ -368,7 +381,7 @@ pub(crate) fn image_scene(
     bx: (f32, f32, f32, f32),
 ) -> Result<String, String> {
     let engine = Engine::new();
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine));
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine), false);
     match resolved.over {
         Some(limit) => Err(limit.to_string()),
         None => Ok(serialize(&resolved, &engine, &IdSet::default(), bx)),
@@ -385,10 +398,11 @@ fn scene(
     press: &IdSet<ViewId>,
     node: &NodeRef<'_>,
     bx: (f32, f32, f32, f32),
+    dark: bool,
 ) -> String {
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine), dark);
     serialize(&resolved, engine, press, bx)
 }
 

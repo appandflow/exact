@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 /// The host's paint-motion state.
 #[derive(Debug, Default)]
 pub(super) struct Paint {
-    motion: PaintMotion,
+    pub(super) motion: PaintMotion,
     /// Inline runs painting an inherited `color` that moves, by run: their
     /// paragraph paints them (LLP 1062 D5).
     pub(super) runs: BTreeMap<ViewId, exact_motion::Value>,
@@ -80,6 +80,7 @@ impl<D: DataSource> Host<D> {
             self.now_ms / 1000.0,
         ) {
             self.retire_paint(retired, &mut batch);
+            self.svg.all_dirty();
             self.present(&mut batch, false);
         }
         self.finish(batch, None)
@@ -116,6 +117,7 @@ impl<D: DataSource> Host<D> {
                 self.now_ms / 1000.0,
             ) {
                 self.retire_paint(retired, &mut batch);
+                self.svg.all_dirty();
                 self.present(&mut batch, false);
             }
         }

@@ -466,7 +466,12 @@ impl<D: DataSource> Host<D> {
         // A withheld batch held the scenes it placed: sent again
         if self.layout_withheld {
             self.svg.resend();
-            self.svg.emit(self.runner.kernel(), &self.engine, batch);
+            self.svg.emit(
+                self.runner.kernel(),
+                &self.engine,
+                &self.paint.motion,
+                batch,
+            );
         }
         self.layout_withheld = false;
         self.emit_ranks(batch);
