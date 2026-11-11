@@ -1,6 +1,7 @@
 # After the device's time zone changes, `toLocaleTimeString` and `Intl.DateTimeFormat` keep formatting in the old zone until the app restarts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Only explicit time zones are cached; implicit-zone date formatting reads the system zone on each call while existing formatters retain their original zone.
 **Systems:** js/src/intl.js (the native executor's date formatter cache)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -269,8 +269,8 @@ export function exercise(source: string): string {
     changing.maximumFractionDigits=3;
     kept.push((1.23456).toLocaleString('en-US',changing),(1.23456).toLocaleString(['de-DE'],changing),(1.23456).toLocaleString('de-DE',changing),(1234.5).toLocaleString('en-US'));
     out['en-US toLocaleString kept']=kept;
-    // A DateTimeFormat made with the same locales and options shares one
-    // engine formatter, each `new` an object of its own; a Date's
+    // A DateTimeFormat with an explicit timeZone and the same locales and
+    // options shares an engine formatter, each `new` an object of its own; a Date's
     // toLocale…String adds its default fields when the options name none.
     const days=[Date.UTC(2026,0,5,9,30,15),Date.UTC(2025,11,31,23,5,0),Date.UTC(2024,1,29,12,0,0)].map(t=>new Date(t));
     const utc={timeZone:'UTC'} as const, short:Intl.DateTimeFormatOptions={month:'short',day:'numeric',year:'numeric',timeZone:'UTC'};
