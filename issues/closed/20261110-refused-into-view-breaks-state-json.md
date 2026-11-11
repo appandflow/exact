@@ -1,6 +1,7 @@
 # `state` is not JSON after a `scrollIntoView` is refused for a key that holds a backslash or a line break
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused scrollIntoView reasons use JSON escaping, preserving key text and keeping state replies valid.
 **Systems:** runner/src/instance/collection/into_view.rs, runner/src/runner/into_view.rs, runner/src/agent.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

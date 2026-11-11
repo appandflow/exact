@@ -964,7 +964,7 @@ const Refused = [];
  * `scroll_into_view` (runner/src/runner/into_view.rs). */
 function intoView(list, key, block, inline, row, view, offset, smooth) {
   // A refusal, journaled as the runner's is: the status `state` shows for it
-  const refusal = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); return "refused: " + why.replaceAll('"', "'"); };
+  const refusal = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); return "refused: " + why; };
   const refuse = (why, status = refusal(why)) => { Refused.push({ list, status }); if (Refused.length > 8) Refused.shift(); };
   if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
   for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
