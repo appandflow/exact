@@ -305,7 +305,7 @@ pub fn refusal_class(reason: &str) -> &'static str {
         | "TaskKey" | "ResourceKey" | "PathParameter" | "KeyKind" | "Router" => "value",
         "RangeCount" if reason.contains("non_finite: true") => "value",
         "RangeCount" if reason.contains("non_finite: false") => "app",
-        "UnwrapNone" | "DuplicateKey" | "List" | "Collection" => "app",
+        "UnwrapNone" | "List" | "Collection" => "app",
         "router" if reason.contains(" refused: ") => "app",
         "KernelSchemaMismatch"
         | "AppMismatch"

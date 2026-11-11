@@ -1,6 +1,7 @@
 # The instance tree keeps an error and four branches nothing reaches
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Instance regions use their validated second arm, and the unused duplicate-key refusal and its classification are removed.
 **Systems:** runner/src/instance/errors.rs, runner/src/instance/region.rs, runner/src/instance/foresee.rs, semantics/difftest
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
