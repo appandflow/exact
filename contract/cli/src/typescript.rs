@@ -2,7 +2,7 @@
 //! @ref LLP 1027 D2/D5 — no separately maintained argument or result shapes.
 
 use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId, TypesRow};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
 
 /// Generate an `app.d.ts` from a compiled Contract's source signatures.
@@ -262,7 +262,7 @@ fn summary(plan: &Plan, out: &mut String) {
          // function per source, given its arguments as an array (then store, storage, native) and\n\
          // answering its shape, or a Promise of it.\n",
     );
-    let mut shapes = Vec::new();
+    let mut shapes = Noted::default();
     for row in &sources {
         let args: Vec<_> = params(row)
             .into_iter()
@@ -277,14 +277,14 @@ fn summary(plan: &Plan, out: &mut String) {
         )
         .unwrap();
     }
-    if shapes.is_empty() {
+    if shapes.order.is_empty() {
         return;
     }
     // A shape's own fields name the shapes inside it, which join the list after it.
     let mut lines = Vec::new();
     let mut i = 0;
-    while i < shapes.len() {
-        let ty = shapes[i];
+    while i < shapes.order.len() {
+        let ty = shapes.order[i];
         let body = record(plan, ty, &mut shapes);
         lines.push((
             ty.0,
@@ -344,8 +344,15 @@ fn string_type(plan: &Plan, row: &TypesRow) -> String {
     }
 }
 
+/// Keep first-reference order while deduplicating shapes by their printed name.
+#[derive(Default)]
+struct Noted {
+    order: Vec<TypesId>,
+    names: HashSet<String>,
+}
+
 /// A type as the summary writes it: a named shape by its name (noted in `shapes` once).
-fn inline(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
+fn inline(plan: &Plan, ty: TypesId, shapes: &mut Noted) -> String {
     let row = &plan.types[ty.0 as usize];
     let mut elem = || row.elem.map(|e| inline(plan, e, shapes));
     match row.kind {
@@ -373,11 +380,8 @@ fn inline(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
                 return record(plan, ty, shapes);
             }
             // The plan may hold a shape more than once: one line per name.
-            if !shapes
-                .iter()
-                .any(|s| plan.str(plan.types[s.0 as usize].name) == name)
-            {
-                shapes.push(ty);
+            if shapes.names.insert(name.to_string()) {
+                shapes.order.push(ty);
             }
             name.to_string()
         }
@@ -385,7 +389,7 @@ fn inline(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
 }
 
 /// A record's fields on one line, `{ id: string; done: boolean }`.
-fn record(plan: &Plan, ty: TypesId, shapes: &mut Vec<TypesId>) -> String {
+fn record(plan: &Plan, ty: TypesId, shapes: &mut Noted) -> String {
     let row = &plan.types[ty.0 as usize];
     let fields: Vec<_> = plan.fields
         [row.fields.start as usize..row.fields.start as usize + row.fields.len as usize]
