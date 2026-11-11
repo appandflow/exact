@@ -1,6 +1,7 @@
 # Observe on the web sends a queued row once per open tab
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A tab appends its rows to the stored queue and sends while holding a Web Lock named for it, re-reading the queue and removing only the rows each request carried, so each row is sent once and none is overwritten.
 **Systems:** modules/observe/web/service.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
