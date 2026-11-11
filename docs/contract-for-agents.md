@@ -646,8 +646,12 @@ so it snaps back until the save answers and the resource is read again (LLP 1102
 
 The first component is the root. Each component use is `Name(prop=value, …)`.
 Supply every declared prop exactly once; props have no defaults (pass `none` for
-an option). An `action` prop can receive a reference with
+an option). An `action` prop or inject takes an action name or `action(args)` with
 captured arguments; the eventual event payload is appended at invocation.
+To choose between actions, pass one action that makes the choice in its body.
+A conditional supplied as an action prop or inject, including through a derive,
+is refused at the argument or provider binding.
+A child derive that aliases an action name or captured call can supply either binding.
 
 Value props and injects replace value reads only: beside `min: number`,
 `min(4, 9)` still calls the function, in views and actions alike.

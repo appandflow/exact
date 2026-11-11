@@ -224,6 +224,9 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
                     all.extend(args);
                     Expr::Call(f.clone(), all, *span)
                 }
+                // Types refuses a non-callable action binding at its supplier.
+                // Keep that value instead of leaving an unknown callee here.
+                Some(Replacement::Expr(value)) => value.clone(),
                 _ => Expr::Call(n.clone(), args, *span),
             }
         }

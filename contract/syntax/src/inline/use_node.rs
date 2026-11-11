@@ -231,8 +231,6 @@ pub(super) fn inline_use(
             continue;
         };
         let (target, curried) = match value {
-            // A prop the use lacks, already refused.
-            Expr::Ident(target, _) if target == "?" => continue,
             Expr::Ident(target, _) => (target.clone(), Vec::new()),
             Expr::Call(target, curried, _) => (target.clone(), curried.clone()),
             other => {
@@ -241,7 +239,9 @@ pub(super) fn inline_use(
                                 format!("`{}` is called by an action, so it must name an action, as `{}=act` or `{}=act(args)` does", prop.name, prop.name, prop.name),
                                 other.span(),
                             );
-                continue;
+                // Keep the call marked; an unknown command here would only
+                // repeat this binding's refusal in the child's body.
+                ("?".into(), Vec::new())
             }
         };
         let binding = args

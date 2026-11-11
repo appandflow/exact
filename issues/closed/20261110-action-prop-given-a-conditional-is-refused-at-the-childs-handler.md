@@ -1,6 +1,7 @@
 # An `action` prop given a conditional passes the use's check and is refused at the child's handler
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Action bindings reject conditional choices at their supplier, preserve concrete child aliases, and keep independent child errors.
 **Systems:** contract/types/src/uses.rs, contract/lower/src/handlers.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

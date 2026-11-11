@@ -425,8 +425,8 @@ pub(crate) fn check_component(
         }
     }
     // A child's `provide` section and the view type. The expanded root's
-    // section is checked with its uses (`check_root`), after the expansion,
-    // so a provided value is refused where a child reads it (LLP 1006 §3).
+    // section is checked with its uses (`check_root`), after expansion,
+    // to preserve action invocation diagnostics (LLP 1006 §3).
     let scope = types.component_scope(c, &ct);
     if owners.is_none() {
         for b in &c.provides {

@@ -52,6 +52,58 @@ impl Drop for App {
 }
 
 #[test]
+fn conditional_action_bindings_name_the_callers_file_and_binding() {
+    let app = App::new("conditional-action-binding");
+    let caller = "use Child from \"./child.contract\"\ncomponent Caller\n  state n = 0\n  state flag = true\n  action a\n    n = 1\n  action b\n    n = 2\n  view\n    Child(tap=flag ? a : b)\n";
+    for handler in ["tap", "tap()"] {
+        for provided in [false, true] {
+            let section = if provided { "inject" } else { "props" };
+            app.write(
+                "child.contract",
+                &format!("component Child\n  {section}\n    tap: action\n  view\n    button \"go\" press={handler}\n"),
+            );
+            let caller = if provided {
+                caller.replace(
+                    "  view\n    Child(tap=flag ? a : b)",
+                    "  provide\n    tap = flag ? a : b\n  view\n    Child()",
+                )
+            } else {
+                caller.to_owned()
+            };
+            for imported in [false, true] {
+                let path = app
+                    .write("caller.contract", &caller)
+                    .canonicalize()
+                    .unwrap();
+                let entry = if imported {
+                    app.write(
+                        "app.contract",
+                        "use Caller from \"./caller.contract\"\ncomponent App\n  view\n    Caller()\n",
+                    )
+                } else {
+                    path.clone()
+                };
+                let errors = contract::compile_path_all(&entry, false).err().unwrap();
+                assert_eq!(errors.len(), 1, "{errors:?}");
+                let error = &errors[0];
+                let (id, col) = if provided {
+                    ("type-action-provide-shape", 5)
+                } else {
+                    ("type-action-prop-shape", 11)
+                };
+                assert_eq!(error.id, id, "{error}");
+                assert_eq!(error.file.as_deref(), Some(path.as_path()), "{error}");
+                assert_eq!(
+                    (error.span.line, error.span.col, error.span.end_col),
+                    (10, col, col + 3),
+                    "{error}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn imported_type_analyze_and_lower_errors_keep_the_offending_token_range() {
     let app = App::new("passes");
     for (source, pass, token) in [
