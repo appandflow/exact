@@ -236,6 +236,17 @@ fn block_commands_toggle_lines() {
     assert_eq!(run("> a|\n> b", Command::Quote), "a|\n> b");
     assert_eq!(run("- a|", Command::Indent), "  - a|");
     assert_eq!(run("  - a|\n\t- b", Command::Outdent), "- a|\n\t- b");
+    // In a quote the indent goes after the `>` markers, where the item's depth is counted.
+    assert_eq!(run("> - a\n> - b|", Command::Indent), "> - a\n>   - b|");
+    assert_eq!(run("> - a\n>   - b|", Command::Outdent), "> - a\n> - b|");
+    assert_eq!(run("> > - b|", Command::Indent), "> >   - b|");
+    let source = "> - a\n>   - b";
+    let depths: Vec<(u8, u8)> = style(source, None)
+        .paragraphs
+        .iter()
+        .map(|p| (p.depth, p.quote))
+        .collect();
+    assert_eq!(depths, [(0, 1), (1, 1)]);
     assert_eq!(
         run("x\n|let a;\nlet b;|\ny", Command::CodeBlock),
         "x\n```\n|let a;\nlet b;|\n```\ny"

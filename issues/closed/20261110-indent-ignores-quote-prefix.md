@@ -1,6 +1,7 @@
 # Indent does not nest a quoted list item, and a second Indent ends its quote
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Indent and Outdent insert and remove the two spaces after a line's `>` markers (`block::quote_prefix`'s offset), so a quoted item nests and unnests inside its quote.
 **Systems:** markdown/src/edit.rs, host/web/markup-editor.js
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -409,16 +409,19 @@ fn indent(source: &str, sel: B, out: bool) -> Draft {
         .touched(&sel)
         .into_iter()
         .filter_map(|l| {
+            // A quoted line's indent is counted after its `>` markers.
+            let (_, _, quote) = block::quote_prefix(&source[l.clone()]);
+            let at = l.start + quote;
             if !out {
-                return Some((l.start..l.start, "  ".to_string()));
+                return Some((at..at, "  ".to_string()));
             }
-            let text = &source[l.clone()];
+            let text = &source[at..l.end];
             let lead = if text.starts_with('\t') {
                 1
             } else {
                 text.bytes().take(2).take_while(|&c| c == b' ').count()
             };
-            (lead > 0).then(|| (l.start..l.start + lead, String::new()))
+            (lead > 0).then(|| (at..at + lead, String::new()))
         })
         .collect();
     Draft {
