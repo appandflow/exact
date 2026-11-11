@@ -33,7 +33,7 @@ export function packageShareExtension({ app, bundle, directory, sdk, triple, dev
   const binary = mac ? resolve(extensionContents, 'MacOS/ExactShare') : resolve(extension, 'ExactShare');
   mkdirSync(mac ? resolve(extensionContents, 'MacOS') : extension, { recursive: true });
   if (profile) copyFileSync(profile.path, resolve(extensionContents, mac ? 'embedded.provisionprofile' : 'embedded.mobileprovision'));
-  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')]).stdout);
+  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')], { read: true }).stdout);
   const versions = Object.fromEntries(['CFBundleVersion', 'CFBundleShortVersionString', mac ? 'LSMinimumSystemVersion' : 'MinimumOSVersion'].map(key => [key, appInfo[key]]).filter(([, v]) => v !== undefined));
   const params = target.params ?? {};
   writeFileSync(resolve(extensionContents, 'Info.plist'), plistFile({

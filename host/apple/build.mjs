@@ -81,10 +81,10 @@ const read = (cmd, args, opts = {}) => spawnSync(...appleCargo(cmd, args, { cwd:
 const hasStd = (flag, target) => read('rustup', ['target', 'list', '--installed', '--toolchain', PINNED_RUST]).stdout?.split('\n').includes(target) || (console.error(`${flag} needs Rust's ${target} std, which the pinned toolchain lacks. Install it with \`rustup target add ${target} --toolchain ${PINNED_RUST}\``), process.exitCode = 1, false);
 // Fail on deployment-target and sysroot warnings because Apple tools can still link incompatible inputs
 // @ref LLP 1008
-const runApple = (cmd, args, opts = {}) => {
-  const { cargoMessages = false, ...spawnOptions } = opts;
+export const runApple = (cmd, args, opts = {}) => {
+  const { cargoMessages = false, read = false, ...spawnOptions } = opts;
   const r = spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions }));
-  if (!cargoMessages) process.stdout.write(quiet(r.stdout ?? ''));
+  if (!cargoMessages && !read) process.stdout.write(quiet(r.stdout ?? ''));
   process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
   refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);

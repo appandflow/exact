@@ -29,7 +29,7 @@ export function assertActivityRefusals(bundle, runApple, app, ceiling = '') {
   const visit = directory => {
     const plist = resolve(directory, 'Info.plist');
     if (existsSync(plist)) {
-      const info = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', plist], { cargoMessages: true }).stdout);
+      const info = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', plist], { read: true }).stdout);
       if (info.UIBackgroundModes?.includes('remote-notification')) throw new Error(`${directory}: remote-notification background mode is refused (LLP 1126.001 WP9)`);
       if (info.CFBundleExecutable) executables.push(resolve(directory, info.CFBundleExecutable));
     }
@@ -44,7 +44,7 @@ export function assertActivityRefusals(bundle, runApple, app, ceiling = '') {
   visit(bundle);
   for (const binary of executables) {
     const bytes = readFileSync(binary);
-    const symbols = runApple('xcrun', ['nm', '-u', binary], { cargoMessages: true }).stdout;
+    const symbols = runApple('xcrun', ['nm', '-u', binary], { read: true }).stdout;
     const found = forbidden.filter(name => bytes.includes(Buffer.from(name)) || symbols.includes(name));
     if (found.length) throw new Error(`${binary}: ${found.join(', ')} refused (LLP 1126.001 WP9)`);
   }
