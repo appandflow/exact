@@ -97,9 +97,10 @@ const adb = (env = process.env) => {
   return existsSync(tool) ? tool : 'adb';
 };
 
-/** The environment `androidBuild` needs: the NDK's clang as the target's linker and C compiler. On a Windows host the
- * NDK's prebuilt folder is `windows-x86_64`, its compilers are `.cmd` scripts and its tools `.exe`. */
-export function androidToolchainEnv(env = process.env, platform = process.platform) {
+/** The environment `androidBuild` needs: the NDK's clang as the target's linker and C compiler, the compiler at `API`
+ * and the linker at `linkApi`. On a Windows host the NDK's prebuilt folder is `windows-x86_64`, its compilers are
+ * `.cmd` scripts and its tools `.exe`. */
+export function androidToolchainEnv(env = process.env, platform = process.platform, linkApi = API) {
   let ndk = env.ANDROID_NDK_HOME;
   if (!ndk) {
     const root = resolve(androidSdk(env), 'ndk');
@@ -109,12 +110,12 @@ export function androidToolchainEnv(env = process.env, platform = process.platfo
   }
   const windows = platform === 'win32', script = windows ? '.cmd' : '', exe = windows ? '.exe' : '';
   const bin = resolve(ndk, 'toolchains/llvm/prebuilt', { darwin: 'darwin-x86_64', win32: 'windows-x86_64' }[platform] ?? 'linux-x86_64', 'bin');
-  const cc = resolve(bin, `aarch64-linux-android${API}-clang${script}`);
-  if (!existsSync(cc)) throw new Error(`the NDK at ${ndk} has no ${basename(cc)}`);
+  const cc = resolve(bin, `aarch64-linux-android${API}-clang${script}`), linker = resolve(bin, `aarch64-linux-android${linkApi}-clang${script}`);
+  for (const tool of [cc, linker]) if (!existsSync(tool)) throw new Error(`the NDK at ${ndk} has no ${basename(tool)}`);
   // The pinned bundle is named only against a developer's HERMES_LEAN_SYS_DIR: hermes-lean-sys checks a bundle it finds
   // itself against the pin's digest, and takes a named one as it is.
   const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android || hermesAndroidBundle() || (env.HERMES_LEAN_SYS_DIR === undefined ? null : androidHermesDir(env));
-  return { ...cargoEnvironment(env), ANDROID_NDK_HOME: ndk, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
+  return { ...cargoEnvironment(env), ANDROID_NDK_HOME: ndk, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: linker, CC_aarch64_linux_android: cc,
     CXX_aarch64_linux_android: resolve(bin, `aarch64-linux-android${API}-clang++${script}`), AR_aarch64_linux_android: resolve(bin, `llvm-ar${exe}`),
     // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
     // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.
@@ -131,6 +132,16 @@ export function androidHermesDir(env = process.env, local = hermesAndroidBundle(
   if (named) return named;
   const { HERMES_LEAN_SYS_DIR, ...unhosted } = env, pinned = hermesBundle(ANDROID_TARGET, unhosted);
   return pinned.installed ? pinned.root : null;
+}
+
+/** The API level an Android Hermes bundle was built for (its receipt's ANDROID_PLATFORM), or null. Its objects call
+ * what bionic has from that level on: the pinned bundle's, built at 30, call `pthread_cond_clockwait`. */
+export function hermesApi(dir) {
+  try {
+    const flags = JSON.parse(readFileSync(resolve(dir, 'hermes-input-receipt.json'), 'utf8')).build?.flags ?? [];
+    const level = flags.map((flag) => /^-DANDROID_PLATFORM=android-(\d+)$/.exec(flag)?.[1]).find(Boolean);
+    return level ? Number(level) : null;
+  } catch { return null; }
 }
 
 /** The device a drive uses: ANDROID_SERIAL, else the one adb lists as ready. With several and none named it refuses to
@@ -152,7 +163,8 @@ const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
  * path its screenshots are written to, and `pull(path)` to copy one here. HOME is the app's, kept
  * across drives so a named scratch store (`--storage`) survives, as on the desktop carriers; a run
  * directory is this drive's, so two drives of one app do not share a binary or a screenshot. Only
- * EXACT_* variables cross, with the device's own HOME, assets, native-module directory and fonts. */
+ * EXACT_* variables cross, with the device's own HOME, assets, native-module directory and fonts. A dev loop and
+ * the app's server on this Mac are reached through `adb reverse` for the drive (`reversedPorts`). */
 export function androidDeploy(app, bin, env) {
   if (bin.endsWith('.apk')) return readerDeploy(app, bin, env);
   const serial = androidDevice(env), tool = adb(env);
@@ -179,11 +191,12 @@ export function androidDeploy(app, bin, env) {
   }
   Object.assign(vars, { HOME: home, EXACT_ASSETS: dir, EXACT_NATIVE_LIBS: dir, EXACT_PAINTER: env.EXACT_PAINTER ?? 'cpu' });
   const assignments = Object.entries(vars).map(([k, v]) => `${k}=${quote(v)}`).join(' ');
-  const shot = `${dir}/agent-shot.png`;
+  const shot = `${dir}/agent-shot.png`, { release: releasePorts } = reverseForDrive(tool, serial, vars);
   return {
     serial, dir, shot,
     spawn: (args = []) => spawn(tool, ['-s', serial, 'shell', '-T',
-      `cd ${quote(dir)} && env ${assignments} ${[`./${exe}`, ...args].map(quote).join(' ')}; s=$?; cd / && rm -rf ${quote(dir)}; exit $s`], { stdio: ['pipe', 'pipe', 'pipe'] }),
+      `cd ${quote(dir)} && env ${assignments} ${[`./${exe}`, ...args].map(quote).join(' ')}; s=$?; cd / && rm -rf ${quote(dir)}; exit $s`], { stdio: ['pipe', 'pipe', 'pipe'] })
+      .on('exit', releasePorts),
     pull(path) {
       const r = spawnSync(tool, ['-s', serial, 'pull', shot, resolve(path)], { encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`adb pull the screenshot: ${(r.stderr || r.stdout).trim()}`);
@@ -193,6 +206,33 @@ export function androidDeploy(app, bin, env) {
 
 /** The app's `kind` crate's Cargo.toml, beside app.json or in the workspace generated for it (scripts/app-shells.mjs). */
 const crateManifest = (app, kind) => [resolve(app.dir, kind, 'Cargo.toml'), resolve(app.workspace, kind, 'Cargo.toml')].find(existsSync);
+
+/** Only the selected package's Android runtime graph links Hermes. Other workspace members and host
+ * procedural macros must not raise this binary's minimum API or require an Android bundle. */
+export function androidUsesHermes(app, kind) {
+  const env = cargoEnvironment();
+  const options = { cwd: app.workspace, env, encoding: 'utf8', maxBuffer: 1 << 26 };
+  let fetched = false;
+  const fetchMissing = error => {
+    if (fetched || !/--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(error ?? '')) return false;
+    fetched = true;
+    const result = spawnSync('cargo', ['fetch', '--locked', '--target', ANDROID_TARGET], options);
+    if (result.status !== 0) throw new Error(`${error}\ncargo fetch --locked --target ${ANDROID_TARGET}:\n${result.stderr || result.error?.message}`);
+    return true;
+  };
+  // Game preparation resolves the captured lock too, before the package query can run.
+  try { app.prepare(false, { target: ANDROID_TARGET, env }); }
+  catch (error) {
+    if (!fetchMissing(error.message)) throw error;
+    app.prepare(false, { target: ANDROID_TARGET, env });
+  }
+  const args = ['tree', '-p', app.crate(kind), '--target', ANDROID_TARGET, '-e', 'normal,no-proc-macro',
+    '--prefix', 'none', '--format', '{p}', '--locked', '--offline'];
+  let result = spawnSync('cargo', args, options);
+  if (result.status !== 0 && fetchMissing(result.stderr)) result = spawnSync('cargo', args, options);
+  if (result.status !== 0) throw new Error(`cargo tree for Android: ${result.stderr || result.error?.message}`);
+  return /^exact-js v/m.test(result.stdout);
+}
 
 /** The Gradle project that holds the Canvas reader and the shell that packages one app with it. */
 const READER = resolve(import.meta.dir, '../host/android');
@@ -216,6 +256,9 @@ export function apkRecord(app, apk = readerApk(app)) {
 /** The reader's own sources, which every APK compiles. */
 export const READER_SOURCES = ['canvas/src', 'app/src'].map((d) => resolve(READER, d));
 
+// A relay failure that still released its mappings; other failures leave cleanup to its parent.
+const RELAY_CLEANED_ERROR = 70;
+
 /** The reader carrier (LLP 1107 D1): install the APK and return what `androidDeploy` returns, with a process that
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
  * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
@@ -223,7 +266,7 @@ export const READER_SOURCES = ['canvas/src', 'app/src'].map((d) => resolve(READE
  * drive's local `--plan`, pushed to the device and named by the launch extra `x_plan` (EXACT_PLAN, which the reader
  * reads as the Linux host does). A drive's `--world`, `--size` and launch URL do not reach it, and all but the size
  * are refused. A dev loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this
- * Mac's loopback. */
+ * Mac's loopback, as is the app's server a test runs here. */
 function readerDeploy(app, apk, env) {
   for (const [name, flag] of [['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
@@ -252,23 +295,68 @@ function readerDeploy(app, apk, env) {
     run(['shell', `chmod 644 ${quote(plan)}`], 'chmod the plan');
     env = { ...env, EXACT_PLAN: plan };
   }
-  if (devUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname)) {
-    const port = devUrl.port || (devUrl.protocol === 'https:' ? '443' : '80');
-    run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
-  }
-  // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), EXACT_STORE (`real`: the platform's stores, a conformance suite's), a pushed plan and a
-  // dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || ['EXACT_STORE', 'EXACT_DEV_PLAN', 'EXACT_PLAN'].includes(k)));
+  const vars = readerVariables(env), { added, release: releasePorts } = reverseForDrive(tool, serial, vars);
   return {
     serial, dir, shot,
-    spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
+    spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars), JSON.stringify(added)], { env, stdio: ['pipe', 'pipe', 'pipe'] })
+      .on('exit', code => { if (code !== 0 && code !== RELAY_CLEANED_ERROR) releasePorts(); }),
     pull(path) {
       const r = spawnSync(tool, ['-s', serial, 'pull', shot, resolve(path)], { encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`adb pull the screenshot: ${(r.stderr || r.stdout).trim()}`);
       spawnSync(tool, ['-s', serial, 'shell', `rm -f ${quote(shot)}`]);
     },
   };
+}
+
+/** What the reader reads of a drive's `env`, which reaches it as its `x_<name>` launch extras (`ExactActivity`'s
+ * `environment`): EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the seed, the fetch faults),
+ * EXACT_STORE (`real`: the platform's stores, a conformance suite's), the auth fixture a test declares
+ * (EXACT_AUTH_FIXTURE, LLP 1146 D4), a pushed plan and a dev loop's URL. */
+export const readerVariables = (env) => Object.fromEntries(Object.entries(env).filter(([k]) =>
+  k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || ['EXACT_STORE', 'EXACT_AUTH_FIXTURE', 'EXACT_DEV_PLAN', 'EXACT_PLAN'].includes(k)));
+
+/** The ports of this Mac's loopback the reader is to reach through `adb reverse`, for the drive: a dev loop's
+ * (`--url`) and the app's server that a test declares its auth fixture (`test android` starts it here). */
+export const reversedPorts = (vars) => [...new Set([vars.EXACT_DEV_PLAN, vars.EXACT_AUTH_FIXTURE].map((v) => URL.parse(v ?? ''))
+  .filter((url) => url && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
+  .map((url) => url.port || (url.protocol === 'https:' ? '443' : '80')))];
+
+// Reverse mappings belong to the device. Keep those already present, including a person's manual setup.
+function reverseForDrive(tool, serial, vars) {
+  const ports = reversedPorts(vars), added = [];
+  const release = () => releaseReverse(tool, serial, added.splice(0));
+  const run = (...args) => {
+    const r = spawnSync(tool, ['-s', serial, 'reverse', ...args], { encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`adb reverse ${args.join(' ')}: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
+    return r.stdout;
+  };
+  if (ports.length) {
+    const present = new Map(run('--list').trim().split('\n').filter(Boolean).map(line => line.trim().split(/\s+/).slice(1, 3)));
+    try {
+      for (const port of ports.map(port => `tcp:${port}`)) {
+        if (present.has(port)) {
+          if (present.get(port) !== port) throw new Error(`adb reverse: ${port} maps to ${present.get(port)}; needed ${port}`);
+          continue;
+        }
+        run('--no-rebind', port, port);
+        added.push(port);
+      }
+    } catch (e) { release(); throw e; }
+  }
+  return { added, release };
+}
+
+// A failed relay may have removed some ports already; another drive can have acquired them since.
+function releaseReverse(tool, serial, ports) {
+  if (!ports.length) return true;
+  const listed = spawnSync(tool, ['-s', serial, 'reverse', '--list'], { encoding: 'utf8' });
+  if (listed.status !== 0) return false;
+  const present = new Map(listed.stdout.trim().split('\n').filter(Boolean).map(line => line.trim().split(/\s+/).slice(1, 3)));
+  let released = true;
+  for (const port of ports) if (present.get(port) === port) {
+    if (spawnSync(tool, ['-s', serial, 'reverse', '--remove', port]).status !== 0) released = false;
+  }
+  return released;
 }
 
 /** How long after an operation's answer a screenshot is taken: the reader draws what the operation painted over
@@ -279,73 +367,89 @@ const SHOT_SETTLE_MS = 400;
  * adb forward it, and carry the protocol's lines between this process's stdio and the app. Every line is the app's
  * to answer but `screenshot`, whose picture is the device's (`screencap`), tagged as the app tags a reply. The
  * app's own stderr (logcat's `exact` tag) is this process's. Ends when stdin does, and the app with it. */
-async function relay([serial, id, vars]) {
+async function relay([serial, id, vars, added]) {
   const tool = adb(), sh = (...args) => spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
-  const name = `exact-agent-${process.pid}`;
-  // EXACT_AGENT_INTENT: `am start` words the launch carries besides the drive's, for a drive that starts the app
-  // as another app would (a share's `-a android.intent.action.SEND …`, LLP 1133.024 D5).
-  const { EXACT_AGENT_INTENT: intent = '', ...launch } = JSON.parse(vars);
-  const extras = Object.entries(launch).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
-  sh('shell', 'am', 'force-stop', id);
-  sh('logcat', '-c');
-  // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
-  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
-  if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
-  const port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
-  if (!port) throw new Error('adb forward gave no port');
-  const logs = spawn(tool, ['-s', serial, 'logcat', '-v', 'raw', 'exact:V', 'AndroidRuntime:E', '*:S'], { stdio: ['ignore', 'pipe', 'ignore'] });
-  logs.stdout.pipe(process.stderr);
-  // A dev loop's port the deploy reversed (`readerDeploy`) goes with the drive.
-  const dev = URL.parse(JSON.parse(vars).EXACT_DEV_PLAN ?? '');
-  const reversed = dev && ['127.0.0.1', 'localhost', '[::1]'].includes(dev.hostname) ? dev.port || (dev.protocol === 'https:' ? '443' : '80') : null;
-  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); if (reversed) sh('reverse', '--remove', `tcp:${reversed}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
-  // The app opens its socket as its activity is made; the forward connects when it is there.
-  let socket;
-  for (let tries = 0; !socket; tries++) {
-    socket = await new Promise((r) => { const c = createConnection(port, '127.0.0.1', () => r(c)); c.once('error', () => r(null)); });
-    if (!socket && tries > 50) throw new Error(`the reader opened no agent socket (${name}): is the APK built from a tree that has AgentDrive?`);
-    if (!socket) await new Promise((r) => setTimeout(r, 100));
-  }
-  // Lines from the app, in order: each goes to whoever waits for one.
-  const waiting = [], ready = [];
-  let rest = '';
-  socket.setEncoding('utf8');
-  socket.on('data', (d) => { const lines = (rest + d).split('\n'); rest = lines.pop(); for (const l of lines) (waiting.shift() ?? ((x) => ready.push(x)))(l); });
-  socket.on('close', () => done(1));
-  socket.on('error', () => done(1));
-  const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
-  const say = (line) => process.stdout.write(line + '\n');
-  const pollsLanded = async () => {
-    for (const end = Date.now() + 2000; Date.now() < end;) {
-      socket.write('{"op":"polls"}\n');
-      if (!JSON.parse(await answer()).asking) return;
-      await new Promise((r) => setTimeout(r, 10));
-    }
+  const name = `exact-agent-${process.pid}`, ports = JSON.parse(added);
+  let port, logs, cleaned = false, released = true, connected = false, turn = Promise.resolve(), buffered = '';
+  let input = data => { buffered += data; };
+  const cleanup = () => {
+    if (cleaned) return released;
+    cleaned = true;
+    logs?.kill();
+    if (port && sh('forward', '--remove', `tcp:${port}`).status !== 0) released = false;
+    sh('shell', 'am', 'force-stop', id);
+    if (!releaseReverse(tool, serial, ports)) released = false;
+    return released;
   };
-  say(await answer()); // the app's `ready`
-  let pending = '', turn = Promise.resolve();
-  const one = async (line) => {
-    let req = null;
-    try { req = JSON.parse(line); } catch {}
-    if (req?.op === 'quit') return done(0);
-    if (req?.op !== 'screenshot') {
-      socket.write(line + '\n');
-      const reply = await answer();
-      // A jump's asks of polled module sources land before its reply is given (LLP 1133.009 D10 item 7). The
-      // reader's extensions answer on its main thread, which takes their asks between requests, so the wait is here.
-      if (req?.op === 'clock' && !req.settle) await pollsLanded();
-      return say(reply);
-    }
-    if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
-    await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
-    const shot = sh('shell', `screencap -p ${quote(req.path)}`);
-    socket.write('{"op":"tags"}\n');
-    const tags = JSON.parse(await answer());
-    say(JSON.stringify(shot.status === 0 ? { screenshot: req.path, device: true, ...tags } : { error: `screencap: ${(shot.stderr || shot.stdout).trim()}` }));
-  };
+  const done = code => { process.exit(cleanup() ? (code === 0 ? 0 : RELAY_CLEANED_ERROR) : 1); };
   process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (d) => { const lines = (pending + d).split('\n'); pending = lines.pop(); for (const l of lines) if (l.trim()) turn = turn.then(() => one(l)); });
-  process.stdin.on('end', () => { turn.then(() => done(0)); });
+  process.stdin.on('data', data => input(data));
+  process.stdin.on('end', () => { if (connected) turn.then(() => done(0)); else done(0); });
+  if (process.stdin.readableEnded) return done(0);
+  try {
+    // EXACT_AGENT_INTENT: `am start` words the launch carries besides the drive's, for a drive that starts the app
+    // as another app would (a share's `-a android.intent.action.SEND …`, LLP 1133.024 D5).
+    const { EXACT_AGENT_INTENT: intent = '', ...launch } = JSON.parse(vars);
+    const extras = Object.entries(launch).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
+    sh('shell', 'am', 'force-stop', id);
+    sh('logcat', '-c');
+    // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
+    const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
+    if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
+    port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
+    if (!port) throw new Error('adb forward gave no port');
+    logs = spawn(tool, ['-s', serial, 'logcat', '-v', 'raw', 'exact:V', 'AndroidRuntime:E', '*:S'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    logs.stdout.pipe(process.stderr);
+    // The app opens its socket as its activity is made; the forward connects when it is there.
+    let socket;
+    for (let tries = 0; !socket; tries++) {
+      socket = await new Promise((r) => { const c = createConnection(port, '127.0.0.1', () => r(c)); c.once('error', () => r(null)); });
+      if (!socket && tries > 50) throw new Error(`the reader opened no agent socket (${name}): is the APK built from a tree that has AgentDrive?`);
+      if (!socket) await new Promise((r) => setTimeout(r, 100));
+    }
+    // Lines from the app, in order: each goes to whoever waits for one.
+    const waiting = [], ready = [];
+    let rest = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (d) => { const lines = (rest + d).split('\n'); rest = lines.pop(); for (const l of lines) (waiting.shift() ?? ((x) => ready.push(x)))(l); });
+    socket.on('close', () => done(1));
+    socket.on('error', () => done(1));
+    const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
+    const say = (line) => process.stdout.write(line + '\n');
+    const pollsLanded = async () => {
+      for (const end = Date.now() + 2000; Date.now() < end;) {
+        socket.write('{"op":"polls"}\n');
+        if (!JSON.parse(await answer()).asking) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
+    say(await answer()); // the app's `ready`
+    connected = true;
+    let pending = '';
+    const one = async (line) => {
+      let req = null;
+      try { req = JSON.parse(line); } catch {}
+      if (req?.op === 'quit') return done(0);
+      if (req?.op !== 'screenshot') {
+        socket.write(line + '\n');
+        const reply = await answer();
+        // A jump's asks of polled module sources land before its reply is given (LLP 1133.009 D10 item 7). The
+        // reader's extensions answer on its main thread, which takes their asks between requests, so the wait is here.
+        if (req?.op === 'clock' && !req.settle) await pollsLanded();
+        return say(reply);
+      }
+      if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
+      await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
+      const shot = sh('shell', `screencap -p ${quote(req.path)}`);
+      socket.write('{"op":"tags"}\n');
+      const tags = JSON.parse(await answer());
+      say(JSON.stringify(shot.status === 0 ? { screenshot: req.path, device: true, ...tags } : { error: `screencap: ${(shot.stderr || shot.stdout).trim()}` }));
+    };
+    input = d => { const lines = (pending + d).split('\n'); pending = lines.pop(); for (const l of lines) if (l.trim()) turn = turn.then(() => one(l)); };
+    input(buffered); buffered = '';
+    await new Promise(() => {}); // The socket or stdin ends the relay through done().
+  } catch (error) { console.error(error.message); done(1); }
+  finally { cleanup(); }
 }
 
 /** The build script's output directory of `crate`, where it wrote its plan, `compat.json` and `uses.txt`
@@ -712,14 +816,18 @@ if (import.meta.main && process.argv[2] === 'relay') {
     console.error(`the pinned toolchain ${PINNED_RUST} has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} --toolchain ${PINNED_RUST}`);
     process.exit(1);
   }
-  // With what the bake watches named (`bakeWatchEnv`), as every baking build.
-  const app = resolveApp(name), env = { ...androidToolchainEnv(), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
+  const app = resolveApp(name);
   // A TypeScript app's library links the Android Hermes bundle: said before minutes of compiling, not at the link.
-  const crateToml = crateManifest(app, apkWanted ? 'android' : 'linux');
-  if (!androidHermesDir() && crateToml && /^exact-js\s*=/m.test(readFileSync(crateToml, 'utf8'))) {
+  const typescript = androidUsesHermes(app, apkWanted ? 'android' : 'linux'), hermes = androidHermesDir();
+  if (!hermes && typescript) {
     console.error(`${app.name}'s TypeScript needs the Android Hermes bundle, which is not installed: ${hermesBundle(ANDROID_TARGET).fix} (once; exact setup does it where the Android SDK is)`);
     process.exit(1);
   }
+  // An executable resolves every symbol at its link, so the headless host with Hermes links at the bundle's API level
+  // when that is above `API`. The APK's library is a shared object, whose symbols the device resolves when it loads it.
+  const linkApi = !apkWanted && typescript ? Math.max(API, hermesApi(hermes) ?? API) : API;
+  // With what the bake watches named (`bakeWatchEnv`), as every baking build.
+  const env = { ...androidToolchainEnv(process.env, process.platform, linkApi), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
   if (apkWanted) {
     const started = Date.now();
     const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'));

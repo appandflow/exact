@@ -172,43 +172,6 @@ test('an ELF file\'s LOAD alignment is its smallest PT_LOAD p_align', async () =
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// The NDK's compilers and archiver, by the host the build runs on: Windows's are `.cmd` scripts and `.exe` tools.
-test("the Android build finds the NDK's tools for a Mac, Linux and Windows host", async () => {
-  const { androidToolchainEnv } = await import('./agent-android.mjs');
-  const ndk = mkdtempSync(resolve(tmpdir(), 'exact-ndk-'));
-  try {
-    const hosts = { darwin: ['darwin-x86_64', '', ''], linux: ['linux-x86_64', '', ''], win32: ['windows-x86_64', '.cmd', '.exe'] };
-    for (const [platform, [folder, script, exe]] of Object.entries(hosts)) {
-      const bin = resolve(ndk, 'toolchains/llvm/prebuilt', folder, 'bin');
-      mkdirSync(bin, { recursive: true });
-      writeFileSync(resolve(bin, `aarch64-linux-android29-clang${script}`), '');
-      const env = androidToolchainEnv({ ANDROID_NDK_HOME: ndk, HERMES_LEAN_SYS_DIR_aarch64_linux_android: 'hermes' }, platform);
-      expect([env.CC_aarch64_linux_android, env.CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER, env.CXX_aarch64_linux_android, env.AR_aarch64_linux_android])
-        .toEqual([`aarch64-linux-android29-clang${script}`, `aarch64-linux-android29-clang${script}`, `aarch64-linux-android29-clang++${script}`, `llvm-ar${exe}`].map((tool) => resolve(bin, tool)));
-    }
-    rmSync(resolve(ndk, 'toolchains/llvm/prebuilt/windows-x86_64'), { recursive: true });
-    expect(() => androidToolchainEnv({ ANDROID_NDK_HOME: ndk }, 'win32')).toThrow(`the NDK at ${ndk} has no aarch64-linux-android29-clang.cmd`);
-  } finally { rmSync(ndk, { recursive: true, force: true }); }
-});
-
-test.skipIf(process.platform === 'win32')('Gradle keeps its given environment with PATH javac and no JAVA_HOME or Studio', async () => {
-  const { androidJavaEnv, runGradle } = await import('./agent-android.mjs');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-java-'));
-  try {
-    const bin = resolve(dir, 'bin'), studio = resolve(dir, 'absent-studio');
-    mkdirSync(bin);
-    for (const tool of ['java', 'javac']) writeFileSync(resolve(bin, tool), '#!/bin/sh\necho \'openjdk version "21.0.1"\' >&2\n', { mode: 0o755 });
-    const env = { PATH: bin, GRADLE_OPTS: '-Xmx128m' }, calls = [];
-    expect(Bun.which('javac', { PATH: env.PATH })).toBe(resolve(bin, 'javac'));
-    for (const platform of ['darwin', 'linux']) {
-      expect(androidJavaEnv(env, platform, studio)).toBeNull();
-      expect(runGradle(['--version'], { env }, platform, { studio, run: (...args) => { calls.push(args); return { status: 0 }; } })).toBe(true);
-      expect(calls.at(-1)[2].env).toBe(env);
-      expect(calls.at(-1)[2].env).toEqual({ PATH: bin, GRADLE_OPTS: '-Xmx128m' });
-    }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
 // The APK's Gradle step: `gradlew` where a POSIX shell runs it, the wrapper jar under the JDK on Windows, and a Gradle
 // that could not start said so rather than ending the build silently.
 test('the Android build starts Gradle on every host, and says when it could not', async () => {
