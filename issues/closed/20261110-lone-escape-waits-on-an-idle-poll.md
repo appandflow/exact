@@ -1,6 +1,7 @@
 # A lone ESC becomes the Escape key at the next idle poll, not after 25 ms
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The decoder records when a held ESC becomes the Escape key (25 ms after the read that ended in it), the loop bounds its poll by that time as well as the next timer, and every pass that reads no input delivers the Escape key once that time has come, however the poll ended.
 **Systems:** host/terminal (term/unix.rs, term.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -69,13 +69,19 @@ pub enum Input {
 pub struct Decoder {
     out: Vec<Input>,
     paste: Option<String>,
-    /// A lone ESC ended the last read.
-    escape: bool,
+    /// A lone ESC ended the last read: when it becomes the Escape key, in
+    /// milliseconds on the caller's clock.
+    escape: Option<f64>,
 }
 
 impl Decoder {
     fn key(&mut self, k: Key) {
         self.out.push(Input::Key(k));
+    }
+
+    /// When a held ESC becomes the Escape key, if one is held.
+    pub fn escape_due(&self) -> Option<f64> {
+        self.escape
     }
 }
 
@@ -287,10 +293,11 @@ fn alt_of(byte: u8) -> Option<Key> {
 /// else through vte. vte ignores DEL, and it executes a C0 byte inside an
 /// escape sequence without leaving it, which would make the key after it
 /// Alt+key. A read ending in a lone ESC is held: it is the Escape key only
-/// if nothing follows within [`ESC_WAIT_MS`] (`flush_escape`), and otherwise
-/// the start of a sequence split across reads.
-pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<Input> {
-    let held = std::mem::take(&mut decoder.escape);
+/// if nothing follows within [`ESC_WAIT_MS`] of `now`, the read's time
+/// (`flush_escape`), and otherwise the start of a sequence split across
+/// reads.
+pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8], now: f64) -> Vec<Input> {
+    let held = decoder.escape.take().is_some();
     let joined;
     let bytes = if held {
         joined = [&[0x1b][..], bytes].concat();
@@ -329,22 +336,27 @@ pub fn decode(parser: &mut Parser, decoder: &mut Decoder, bytes: &[u8]) -> Vec<I
     let rest = &bytes[start..];
     if rest.last() == Some(&0x1b) && decoder.paste.is_none() {
         parser.advance(decoder, &rest[..rest.len() - 1]);
-        decoder.escape = true;
+        decoder.escape = Some(now + ESC_WAIT_MS);
     } else {
         parser.advance(decoder, rest);
     }
     std::mem::take(&mut decoder.out)
 }
 
-/// How long a lone ESC waits for the rest of a sequence.
+/// How long a lone ESC waits for the rest of a sequence, timed from the
+/// ESC whatever else wakes the loop, as ncurses' `ESCDELAY` and tmux's
+/// `escape-time` are.
 pub const ESC_WAIT_MS: f64 = 25.0;
 
-/// The held ESC, now that nothing followed it: the Escape key.
-pub fn flush_escape(decoder: &mut Decoder) -> Vec<Input> {
-    if std::mem::take(&mut decoder.escape) {
-        vec![Input::Key(Key::Named("Escape"))]
-    } else {
-        Vec::new()
+/// The held ESC, once nothing has followed it for [`ESC_WAIT_MS`]: the
+/// Escape key. Before then, nothing.
+pub fn flush_escape(decoder: &mut Decoder, now: f64) -> Vec<Input> {
+    match decoder.escape {
+        Some(due) if now >= due => {
+            decoder.escape = None;
+            vec![Input::Key(Key::Named("Escape"))]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -744,7 +756,7 @@ mod tests {
     }
 
     fn keys(bytes: &[u8]) -> Vec<Input> {
-        decode(&mut Parser::new(), &mut Decoder::default(), bytes)
+        decode(&mut Parser::new(), &mut Decoder::default(), bytes, 0.0)
     }
 
     #[test]
@@ -772,14 +784,23 @@ mod tests {
             vec![Input::Key(Key::Chord("Control+ArrowUp".into()))]
         );
         let (mut p, mut d) = (Parser::new(), Decoder::default());
-        assert_eq!(decode(&mut p, &mut d, b"\x1b"), vec![]);
-        assert_eq!(flush_escape(&mut d), vec![Input::Key(Key::Named("Escape"))]);
-        // An arrow split across reads stays an arrow.
-        assert_eq!(decode(&mut p, &mut d, b"\x1b"), vec![]);
+        // A lone ESC is the Escape key once ESC_WAIT_MS passed, not before.
+        assert_eq!(decode(&mut p, &mut d, b"\x1b", 100.0), vec![]);
+        assert_eq!(d.escape_due(), Some(100.0 + ESC_WAIT_MS));
+        assert_eq!(flush_escape(&mut d, 110.0), vec![]);
         assert_eq!(
-            decode(&mut p, &mut d, b"[A"),
+            flush_escape(&mut d, 100.0 + ESC_WAIT_MS),
+            vec![Input::Key(Key::Named("Escape"))]
+        );
+        assert_eq!(d.escape_due(), None);
+        // An arrow split across reads stays an arrow.
+        assert_eq!(decode(&mut p, &mut d, b"\x1b", 200.0), vec![]);
+        assert_eq!(flush_escape(&mut d, 210.0), vec![]);
+        assert_eq!(
+            decode(&mut p, &mut d, b"[A", 215.0),
             vec![Input::Key(Key::Named("ArrowUp"))]
         );
+        assert_eq!(d.escape_due(), None);
         assert_eq!(
             keys(b"\x1b[200~x\ny\x1b[201~"),
             vec![Input::Paste("x\ny".into())]
@@ -829,20 +850,20 @@ mod tests {
             (b"\x1b\t", "Alt+Tab"),
             (b"\x1b\x01", "Control+Alt+a"),
         ] {
-            assert_eq!(decode(&mut p, &mut d, bytes), vec![chord(alt)]);
+            assert_eq!(decode(&mut p, &mut d, bytes, 0.0), vec![chord(alt)]);
             // The key after it is itself, not Alt+key.
             assert_eq!(
-                decode(&mut p, &mut d, b"a"),
+                decode(&mut p, &mut d, b"a", 0.0),
                 vec![Input::Key(Key::Char('a'))]
             );
         }
         // Split across reads: the held ESC and the key that follows it.
         assert_eq!(
-            decode(&mut p, &mut d, b"x\x1b"),
+            decode(&mut p, &mut d, b"x\x1b", 0.0),
             vec![Input::Key(Key::Char('x'))]
         );
         assert_eq!(
-            decode(&mut p, &mut d, b"\x7fa"),
+            decode(&mut p, &mut d, b"\x7fa", 0.0),
             vec![chord("Alt+Backspace"), Input::Key(Key::Char('a'))]
         );
     }
@@ -850,9 +871,9 @@ mod tests {
     #[test]
     fn a_paste_split_across_reads_stays_a_paste() {
         let (mut p, mut d) = (Parser::new(), Decoder::default());
-        assert_eq!(decode(&mut p, &mut d, b"\x1b[200~line one\r"), vec![]);
+        assert_eq!(decode(&mut p, &mut d, b"\x1b[200~line one\r", 0.0), vec![]);
         assert_eq!(
-            decode(&mut p, &mut d, b"q\x7fline two\x1b[201~"),
+            decode(&mut p, &mut d, b"q\x7fline two\x1b[201~", 0.0),
             vec![Input::Paste("line one\nqline two".into())]
         );
     }

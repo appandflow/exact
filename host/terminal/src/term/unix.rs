@@ -1,6 +1,6 @@
 //! Unix raw mode, terminal signals and the interactive event loop.
 
-use super::{decode, flush_escape, record, Decoder, Inline, Input, ESC_WAIT_MS};
+use super::{decode, flush_escape, record, Decoder, Inline, Input};
 use crate::host::{After, Host, Mode};
 use crate::image::Protocol;
 use exact_runner::DataSource;
@@ -419,15 +419,15 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
         if poll(&mut input, Some(&zero)).is_ok_and(|ready| ready == 0) {
             host.idle_timer(now());
         }
-        // Sleep until input, a wake, the next timer, or a size check.
+        // Sleep until input, a wake, the next timer, a held ESC's time, or
+        // a size check.
         let wait = host
             .timer_due_ms()
             .map(|due| (due - now()).clamp(0.0, 250.0))
             .unwrap_or(250.0);
-        let wait = if decoder.escape {
-            wait.min(ESC_WAIT_MS)
-        } else {
-            wait
+        let wait = match decoder.escape_due() {
+            Some(due) => wait.min((due - now()).max(0.0)),
+            None => wait,
         };
         let timeout = Timespec {
             tv_sec: 0,
@@ -439,25 +439,29 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
             PollFd::new(&wake_rx, PollFlags::IN),
             PollFd::new(signal_rx, PollFlags::IN),
         ];
-        let ready = match poll(&mut fds, Some(&timeout)) {
-            Ok(ready) => ready,
-            Err(rustix::io::Errno::INTR) => continue,
+        let interrupted = match poll(&mut fds, Some(&timeout)) {
+            Ok(_) => false,
+            Err(rustix::io::Errno::INTR) => true,
             Err(e) => return Err(e.into()),
         };
         if !fds[2].revents().is_empty() || SIGNAL.load(Ordering::SeqCst) != 0 {
             return Ok(());
         }
-        if ready == 0 {
-            for input in flush_escape(&mut decoder) {
+        let input_ready = !interrupted && !fds[0].revents().is_empty();
+        let woken = !interrupted && !fds[1].revents().is_empty();
+        // However the poll ended (a timer, a wake, a signal), a held ESC
+        // with nothing after it is the Escape key once its time is up. With
+        // input waiting, the input is read first: it may be the rest of
+        // the sequence.
+        if !input_ready {
+            for input in flush_escape(&mut decoder, now()) {
                 if let Input::Key(k) = input {
                     if host.key(k) == After::Quit {
                         return Ok(());
                     }
                 }
             }
-            continue;
         }
-        let (input_ready, woken) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
         if woken {
             let mut sink = [0u8; 256];
             while matches!(wake_rx.read(&mut sink), Ok(n) if n > 0) {}
@@ -476,7 +480,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
         }
         // These keys were typed against what the terminal showed by now.
         host.read_at = host.frames;
-        for input in decode(&mut parser, &mut decoder, &buf[..n]) {
+        for input in decode(&mut parser, &mut decoder, &buf[..n], now()) {
             match input {
                 Input::Key(k) => {
                     if host.key(k) == After::Quit {
