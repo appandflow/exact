@@ -67,7 +67,7 @@ On Apple, the local `recent` query reports `sent: true` only for rows acknowledg
 
 The web exporter drops queued rows when configuration, sampling or development mode prevents dispatch. It retains metadata only for the current session and sessions with queued rows. The tabs of an app share one queue in `localStorage`; one tab at a time sends it, holding a Web Lock, so each row is sent once.
 
-On Linux, startup has a 30-second deadline; a pending activation or resource reports a timeout without a TTI value. The exporter subscribes after startup and replays the journal's retained events. Headless runs keep the bounded in-memory journal but do not start the exporter or emit startup metrics. Crash capture records Rust panics, not fatal signals. Refused dispatches drop Linux's pending rows; Apple retains rows with `sent: false`.
+On Linux, the processes of an app share one queue file; each changes it under a file lock, and one process at a time sends it. Startup has a 30-second deadline; a pending activation or resource reports a timeout without a TTI value. The exporter subscribes after startup and replays the journal's retained events. Headless runs keep the bounded in-memory journal but do not start the exporter or emit startup metrics. Crash capture records Rust panics, not fatal signals. Refused dispatches drop Linux's pending rows; Apple retains rows with `sent: false`.
 
 ## Tests
 
