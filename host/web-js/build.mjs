@@ -478,7 +478,11 @@ writeFileSync(resolve(gen, 'admission-data.js'), `import {createGrantSet} from '
 // The app's launch modules that have a web service.
 const launchWeb = launchModules(appDir, manifest).filter(m => m.web);
 if (launchWeb.length) cpSync(resolve(here, 'marks.js'), resolve(gen, 'marks.js'));
+// Held fetches and fetches tied to no answer (LLP 1016.000 D9): ts-fetch.js counts them through held.js, which it
+// does not import. Each entry imports this first, so a fetch an app module makes as it loads is counted too.
+if (ts) writeFileSync(resolve(gen, 'held-hooks.js'), "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });\n");
 writeFileSync(resolve(gen, 'main.js'), [
+  ...(ts ? ["import './held-hooks.js';"] : []),
   "import app, { sources, wait } from './app.js';",
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
@@ -508,9 +512,7 @@ writeFileSync(resolve(gen, 'main.js'), [
     "let told = reportTime(clock.now)[1];",
     "Clocked.push(() => { const o = reportTime(clock.now)[1]; if (o === told) return; told = o; commit(() => { for (const r of Resources) if (r.source === 'exactTime') R(r); }, 'time'); });",
   ] : []),
-  ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`,
-    // Held fetches (LLP 1016.000 D9): ts-fetch.js counts them through held.js, which it does not import.
-    "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
+  ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`, "import { answering } from './ts-fetch.js';"] : []),
   // The schemes `openURL` may hand to the browser beyond its own (app.json `open_url`, navigation.js `declaredScheme`).
   ...(manifest.open_url?.schemes?.length ? [`globalThis.exact = Object.assign(globalThis.exact ?? {}, { openSchemes: ${JSON.stringify(manifest.open_url.schemes)} });`] : []),
   // Before the first render, whose hatched nodes read them (hatches.js `ht`, `page`): the hatch words the web handles,
@@ -669,16 +671,17 @@ cpSync(resolve(here, 'clockin.js'), resolve(gen, 'clockin.js'));
 cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
+  ...(ts ? ["import './held-hooks.js';"] : []),
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
-  "import { data, clock, inflight, Resources, Mutations, routeAt, Head, canSetStatus, unfinishedAnswers, resolvedLanguage } from './rt.js';",
+  "import { data, clock, inflight, Resources, Mutations, routeAt, Head, canSetStatus, resolvedLanguage } from './rt.js'; import { answersAtWork, looseOut } from './held.js';",
   "import { types, sourceTypes, pages, viewportMedia, activation, markdownPaths } from './names.js';",
   ...(existsSync(resolve(gen, 'markdown.flag')) ? ["import { compileReaders } from './markdown.js';", 'globalThis.__markdown = () => compileReaders(markdownPaths, planResources.map(g => g.r));'] : []),
   "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
   "import { markRoutes, markDocument } from './document.js';",
-  ...(ts ? ["import { install as ts } from './ts-data.js';", "import { answering, unfinishedIO } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
+  ...(ts ? ["import { install as ts } from './ts-data.js';", "import { unfinishedIO } from './ts-fetch.js';"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // `exactTime` is a fact of the reader's device, which a render has not got: it answers as the runner does before a
   // host says the date (runner/src/time.rs, as the Rust renderer does), the unknown date in UTC, never the app's
@@ -701,10 +704,17 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   // `language`: the resolved table's `lang` and `dir`, which the page's head carries (render.mjs `headOf`).
   '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2], readsViewport: activation.viewport, canSetStatus: canSetStatus(), language: resolvedLanguage() };',
   '};',
+  // A render waits for work in flight, as the render host settles (host/render/src/lib.rs `settle`, LLP 1048.000 D9):
+  // requests and streams before their first message (`inflight`), a source not ready yet, an answer's I/O and timers
+  // (`answersAtWork`), a fetch tied to no answer. An answer waiting on nothing the render runs stays pending. A page
+  // that can declare a status also waits for work a let-go answer or one past its answer still has out.
   'globalThis.__render = async (deadline, waitStatus = true) => {',
   '  const end = t0 + deadline;',
-  `  const unfinished = () => unfinishedAnswers()${ts ? ' || unfinishedIO()' : ''};`,
-  '  const outstanding = () => inflight.n > 0 || Resources.some(r => r.waiting) || (waitStatus && unfinished());',
+  `  const unfinished = () => answersAtWork(true)${ts ? ' || unfinishedIO()' : ''};`,
+  // A stream or long poll holds the page until its first message, as on the render host (runner.rs `in_flight`): a long
+  // poll's reply that carries none (a 204, a 503 to wait out) takes it out of `inflight`, for clocks, but not here.
+  '  const unmessaged = t => !!t && (!!t.stream || !!t.req?.stream) && !t.messages && !t.closed;',
+  '  const outstanding = () => inflight.n > 0 || Resources.some(r => r.waiting || (r.pending() && unmessaged(r.ticket))) || answersAtWork() || looseOut() || (waitStatus && unfinished());',
   '  do await new Promise(r => setTimeout(r, 1)); while (outstanding() && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
   '  markRoutes(document.getElementById("exact-root")); markDocument(); // a hidden route\'s page scroller is off the page',
@@ -714,8 +724,9 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
   '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
   // `open`: each resource that answered and keeps its ticket, an open stream (rt.js `land`), which the client asks again;
-  // `continuing`: other work still going, for which the client asks every answer again (render.mjs `revalidate`).
-  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: [...new Set(Resources.filter(r => r.ticket && !r.pending()).map(r => r.name))], outstanding: outstanding(), continuing: unfinished() || Resources.some(r => r.ticket && r.pending()), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
+  // `continuing`: work that outlives the render, whatever it waited for (a page with no status does not wait for an
+  // answered source's I/O): the client asks every answer again (render.mjs `revalidate`).
+  '    pending: Resources.filter(r => r.pending()).map(r => r.name), open: [...new Set(Resources.filter(r => r.ticket && !r.pending()).map(r => r.name))], outstanding: outstanding(), continuing: outstanding() || unfinished(), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
   // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
   '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
   // Only a TypeScript source is held to no clock and no Math.random (ts-fetch.js): a Rust module's page is never kept.

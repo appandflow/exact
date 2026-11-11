@@ -289,7 +289,8 @@ export function renderer(dist, { closed = false } = {}) {
         makeAhead();
         // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
         // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
-        const settled = !out.pending.length && !out.outstanding;
+        // Settled when no work was left in flight, whatever is still pending (lib.rs `Settled::Complete`).
+        const settled = !out.outstanding;
         const status = info.notfound ? (out.status === 410 ? 410 : 404) : !settled ? 503 : out.status ?? 200;
         // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
         // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page

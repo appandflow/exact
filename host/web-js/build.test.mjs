@@ -611,10 +611,13 @@ test.each(['request', 'cached'])('serve renders home "/" render=%s and a notfoun
 test('serve preserves the retry delay for unfinished pages, request and cached, GET and HEAD', async () => {
   const root = resolve(import.meta.dir, '../..');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-retry-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  // A fetch its server never answers: work still in flight at the deadline. (A promise nothing settles holds no page,
+  // as the render host settles: render-storage.test.mjs.)
+  const silent = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Promise(() => {}) });
   let serve;
   try {
     site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=request\n  feed "/feed" render=cached\n\ncomponent App\n  resource note = note("waiting") as shape Note\n  view\n    text note.text\n');
-    writeFileSync(resolve(app, 'app.ts'), "export const grants = '';\nexport const answer = () => new Promise<never>(() => {});\n");
+    writeFileSync(resolve(app, 'app.ts'), `export const grants = 'net.fetch ${silent.url.origin}';\nexport const answer = (): any => fetch('${silent.url.origin}/').then(r => r.json());\n`);
     const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
     serve = await serving(root, out);
@@ -624,7 +627,7 @@ test('serve preserves the retry delay for unfinished pages, request and cached, 
     const head = await fetch(`http://127.0.0.1:${serve.port}/feed`, { method: 'HEAD', headers: { accept: 'text/html', 'accept-encoding': 'gzip' } });
     expect([head.status, head.headers.get('retry-after'), head.headers.get('content-encoding'), await head.text()]).toEqual([503, '1', 'gzip', '']);
   } finally {
-    await serve?.stop();
+    await serve?.stop(); silent.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);

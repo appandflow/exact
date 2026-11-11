@@ -46,8 +46,10 @@ export const unfinishedIO = () => RenderIO > 0;
 function counting(kind, start) {
   if (globalThis.__exactRender) RenderIO++;
   const call = answering.call;
-  const end = () => { if (globalThis.__exactRender) RenderIO--; if (call) { call[kind]--; if (kind === 'held') answering.heldReply(call); call.recount?.(); } else answering.loose(-1); };
-  if (call) { call[kind] = (call[kind] ?? 0) + 1; call.recount?.(); } else answering.loose(1);
+  // The hook that counted the start counts the end, so the two always pair.
+  const loose = answering.loose;
+  const end = () => { if (globalThis.__exactRender) RenderIO--; if (call) { call[kind]--; if (kind === 'held') answering.heldReply(call); call.recount?.(); } else loose(-1); };
+  if (call) { call[kind] = (call[kind] ?? 0) + 1; call.recount?.(); } else loose(1);
   let out;
   try { out = start(); } catch (e) { end(); throw e; }
   return Promise.resolve(out).finally(end);
