@@ -1,6 +1,7 @@
 # The task-gate clock check misses a clock read through a derive named like its `fn`, and refuses a parameter spelled like a clock derive
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Task and sequence clock checks distinguish derives from functions and honor lexical bindings.
 **Systems:** contract/analyze/src/gates.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
