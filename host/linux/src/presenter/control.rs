@@ -382,11 +382,17 @@ impl<D: DataSource> Presenter<D> {
         let Some(b) = self.boxes.iter().find(|b| b.id == id).copied() else {
             return true;
         };
-        let (bx, _, bw, _) = b.rect;
-        let t = if bw > 16.0 {
-            ((x - bx - 8.0) / (bw - 16.0)).clamp(0.0, 1.0) as f64
+        // The point under the thumb's centre, as the painter places it.
+        let (bx, _, bw, bh) = b.rect;
+        let d = crate::paint::control::range_thumb(&node, bw, bh);
+        let t = if bw > d {
+            ((x - bx - d / 2.0) / (bw - d)).clamp(0.0, 1.0) as f64
         } else {
             0.5
+        };
+        let t = match crate::paint::control::range_mirrored(&node) {
+            true => 1.0 - t,
+            false => t,
         };
         let value = range.min + t * (range.max - range.min);
         if let Err(e) = self.set_control_value(id, &value.to_string()) {
@@ -940,3 +946,7 @@ mod tests {
 #[cfg(test)]
 #[path = "material_tests.rs"]
 mod material_tests;
+
+#[cfg(test)]
+#[path = "range_tests.rs"]
+mod range_tests;

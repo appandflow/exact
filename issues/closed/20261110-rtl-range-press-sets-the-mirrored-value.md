@@ -1,6 +1,7 @@
 # A press on a right-to-left range sets the value of the mirrored point, so the thumb jumps away from the pointer
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The painter and the press read one thumb geometry (`paint::control::range_thumb`, `range_mirrored`), so a right-to-left range has its minimum at the right under both looks and a press sets the value under the pointer.
 **Systems:** host/linux/src/presenter/control.rs, host/linux/src/paint/neutral.rs (the neutral look: Linux desktop, Windows)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

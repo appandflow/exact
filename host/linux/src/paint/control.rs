@@ -99,6 +99,25 @@ pub(crate) fn choice<'a>(
         .map(|(c, _)| c.as_str())
 }
 
+/// A range's thumb's diameter in a box `w` by `h`: the neutral look's mark,
+/// else 16 px. The painter and the pointer both read it and
+/// [`range_mirrored`], so the thumb lands under a press.
+pub(crate) fn range_thumb(node: &NodeRef<'_>, w: f32, h: f32) -> f32 {
+    let d = match look::neutral() {
+        true => look::px(metric::MARK_SIZE, neutral::em(node)),
+        false => 16.0,
+    };
+    d.min(h).min(w)
+}
+
+/// Whether a range's minimum is at the right. A horizontal range runs from
+/// its inline start, so under `direction: rtl` it is, as a browser draws it
+/// and Android's `SeekBar` (`mirrorForRtl`) does.
+pub(crate) fn range_mirrored(node: &NodeRef<'_>) -> bool {
+    node.computed_row(exact_kernel::StyleId::Direction, |s| s.direction)
+        == exact_kernel::Direction::Rtl
+}
+
 /// What a date control shows: its [`choice`], else the bound value. Under
 /// the neutral look that is HTML's value, its placeholder form when empty;
 /// else the device's writing of it (`dates.rs`), nothing when empty.
@@ -327,14 +346,15 @@ impl super::Painter {
         } else {
             0.0
         };
+        let (x, y, w, h) = content;
+        let (d, mirrored) = (range_thumb(node, w, h), range_mirrored(node));
+        let along = if mirrored { 1.0 - t } else { t };
         if look::neutral() {
-            neutral::range(self.backend.as_mut(), node, content, ts, dark, t);
+            neutral::range(self.backend.as_mut(), node, content, ts, dark, d, along);
             return;
         }
-        let (x, y, w, h) = content;
-        let d = 16f32.min(h).min(w);
         let cy = y + h / 2.0;
-        let tx = x + (w - d) * t;
+        let tx = x + (w - d) * along;
         let track =
             |from: f32, to: f32| Shape::new((from, cy - 2.0, (to - from).max(0.0), 4.0), [2.0; 4]);
         let rest = if dark {
@@ -344,8 +364,12 @@ impl super::Painter {
         };
         self.backend.fill(&track(x, x + w), alpha(rest), ts);
         let (accent, _) = accents(accent(node, dark), dark);
-        self.backend
-            .fill(&track(x, tx + d / 2.0), alpha(accent), ts);
+        // The fill runs from the minimum to the thumb.
+        let filled = match mirrored {
+            true => track(tx + d / 2.0, x + w),
+            false => track(x, tx + d / 2.0),
+        };
+        self.backend.fill(&filled, alpha(accent), ts);
         let thumb = Shape::new((tx, cy - d / 2.0, d, d), [d / 2.0; 4]);
         self.backend.fill(&thumb, alpha(accent), ts);
     }
