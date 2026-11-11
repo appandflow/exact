@@ -1,6 +1,7 @@
 # A virtualized list reads `scroll-behavior` once, so a bound value that changes is ignored
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Virtualized lists refresh scroll-behavior from the latest emitted binding before planning end-follow corrections.
 **Systems:** runner/src/instance/collection/mod.rs, runner/src/instance.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
