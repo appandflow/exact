@@ -286,6 +286,82 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["type": "text"], clear: [])
         XCTAssertFalse(node.field is NSSearchField)
     }
+    func testChangingAFocusedFieldsClassKeepsItsEditing() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "field-class-change")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = p.viewport
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "input", "props": ["id": "secret", "type": "password"],
+             "handlers": ["input", "change", "focus", "blur", "focusin", "focusout", "select"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 240.0, "h": 30.0],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        var events: [String] = []
+        p.onInput = { _, _ in events.append("input") }
+        p.onChange = { _, _ in events.append("change") }
+        p.onFocus = { _ in events.append("focus") }
+        p.onBlur = { _ in events.append("blur") }
+        p.onFocusEvent = { _, kind, _, _ in events.append(kind) }
+        p.fieldSelections.onSelect = { _, _, _ in events.append("select") }
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(node.field)))
+        let editor = try XCTUnwrap(node.editingEditor)
+        editor.insertText("hunter2", replacementRange: editor.selectedRange())
+        XCTAssertEqual(events, ["focus", "focusin", "input"])
+
+        let changes: [(String, [String: Any], FieldClass, NSRange)] = [
+            ("props", ["type": "text"], .plain, NSRange(location: 3, length: 0)),
+            ("props", ["type": "password"], .secure, NSRange(location: 2, length: 3)),
+            ("props", ["type": "search"], .search, NSRange(location: 3, length: 0)),
+            ("style", ["appearance": "none"], .plain, NSRange(location: 2, length: 3)),
+            ("style", ["appearance": "auto"], .search, NSRange(location: 3, length: 0)),
+        ]
+        for (op, set, kind, range) in changes {
+            let selection = FieldSelection(start: range.location, end: NSMaxRange(range), direction: range.length == 0 ? "none" : "backward")
+            let scripted = !selection.collapsed
+            if scripted {
+                p.fieldSelections.set(node, selection, notify: false)
+            } else {
+                let editor = try XCTUnwrap(node.editingEditor)
+                editor.moveToBeginningOfDocument(nil)
+                for _ in 0..<range.location { editor.moveRight(nil) }
+                XCTAssertEqual(p.fieldSelections.current(node), selection)
+            }
+            events.removeAll()
+            let old = try XCTUnwrap(node.field)
+            p.apply(wireBatch([["op": op, "id": 1, op == "style" ? "style" : "set": set]]))
+            let field = try XCTUnwrap(node.field), current = try XCTUnwrap(node.editingEditor)
+            XCTAssertFalse(field === old)
+            XCTAssertEqual(FieldClass(field), kind)
+            XCTAssertTrue(window.firstResponder === current)
+            XCTAssertEqual(current.selectedRange(), range)
+            XCTAssertEqual(p.fieldSelections.current(node), selection)
+            XCTAssertEqual(current.string, "hunter2")
+            XCTAssertEqual(p.edited, node.id, "a type or appearance change does not commit the pending edit")
+            XCTAssertEqual(events, [], "a replacement field continues the same editing")
+            p.fieldSelections.setSelectionRange(["secret", selection.start, selection.end, selection.direction])
+            XCTAssertEqual(events, scripted ? [] : ["select"], "restoring a user's caret is not a script command")
+            p.fieldSelections.setSelectionRange(["secret", selection.start, selection.end, selection.direction])
+            XCTAssertEqual(events, scripted ? [] : ["select"], "an identical script command stays suppressed")
+        }
+        let current = try XCTUnwrap(node.editingEditor)
+        current.insertText("X", replacementRange: current.selectedRange())
+        XCTAssertEqual(node.fieldText, "hunXter2", "typing continues at the saved caret")
+        events.removeAll()
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        waitForMainQueue()
+        XCTAssertEqual(events, ["change", "blur", "focusout"], "leaving the input still commits and blurs once")
+        events.removeAll()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["type": "password"]]]))
+        XCTAssertNil(node.editingEditor, "an unfocused input stays unfocused")
+        XCTAssertEqual(events, [])
+    }
+
     func testTextareaBorderContentRectAndFocusMask() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "native-textarea-mappings")

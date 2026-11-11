@@ -78,7 +78,7 @@ extension NodeView {
         return .plain
     }
     /// A different class on AppKit, so a changed `type` or appearance remakes
-    /// the field in place.
+    /// the field in place, keeping its editing and selection.
     func remakeFieldIfNeeded() {
         guard let f = field, pageField == nil else { return }
         let wanted = wantedFieldClass
@@ -88,11 +88,16 @@ extension NodeView {
         n.stringValue = f.stringValue
         n.font = f.font
         n.textColor = f.textColor
-        let focused = window != nil && editingEditor != nil
-        f.removeFromSuperview()
-        addSubview(n)
-        field = n
-        if focused { window?.makeFirstResponder(n) }
+        let selection = editingEditor.map { presenter?.fieldSelections.current(self) ?? FieldSelection($0.selectedRange()) }
+        keepingEditing(f) {
+            f.removeFromSuperview()
+            addSubview(n)
+            field = n
+            if let selection, window?.makeFirstResponder(n) == true {
+                if let selections = presenter?.fieldSelections { selections.restore(self, selection) }
+                else { _ = showSelection(selection.range) }
+            }
+        }
     }
     func styleNativeField() {
         remakeFieldIfNeeded()

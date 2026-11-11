@@ -1,6 +1,7 @@
 # Changing a focused Mac input's `type` blurs it, refocuses it and selects its whole value
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Changing a focused Mac input's field class preserves its focus, selection and pending edit without blur or focus events.
 **Systems:** host/apple/Sources/ExactKit/Mac/NativeFieldsMac.swift, FieldEditingMac.swift, FocusEvents
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
