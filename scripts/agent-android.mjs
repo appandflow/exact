@@ -60,8 +60,9 @@ const adb = (env = process.env) => {
   return existsSync(tool) ? tool : 'adb';
 };
 
-/** The environment `androidBuild` needs: the NDK's clang as the target's linker and C compiler. */
-export function androidToolchainEnv(env = process.env) {
+/** The environment `androidBuild` needs: the NDK's clang as the target's linker and C compiler. On a Windows host the
+ * NDK's prebuilt folder is `windows-x86_64`, its compilers are `.cmd` scripts and its tools `.exe`. */
+export function androidToolchainEnv(env = process.env, platform = process.platform) {
   let ndk = env.ANDROID_NDK_HOME;
   if (!ndk) {
     const root = resolve(androidSdk(env), 'ndk');
@@ -69,14 +70,15 @@ export function androidToolchainEnv(env = process.env) {
     if (!versions.length) throw new Error(`no Android NDK: install one with the SDK manager (ndk;27.1.12297006), or set ANDROID_NDK_HOME (looked in ${root})`);
     ndk = resolve(root, versions.at(-1));
   }
-  const bin = resolve(ndk, 'toolchains/llvm/prebuilt', process.platform === 'darwin' ? 'darwin-x86_64' : 'linux-x86_64', 'bin');
-  const cc = resolve(bin, `aarch64-linux-android${API}-clang`);
+  const windows = platform === 'win32', script = windows ? '.cmd' : '', exe = windows ? '.exe' : '';
+  const bin = resolve(ndk, 'toolchains/llvm/prebuilt', { darwin: 'darwin-x86_64', win32: 'windows-x86_64' }[platform] ?? 'linux-x86_64', 'bin');
+  const cc = resolve(bin, `aarch64-linux-android${API}-clang${script}`);
   if (!existsSync(cc)) throw new Error(`the NDK at ${ndk} has no ${basename(cc)}`);
   // The pinned bundle is named only against a developer's HERMES_LEAN_SYS_DIR: hermes-lean-sys checks a bundle it finds
   // itself against the pin's digest, and takes a named one as it is.
   const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android || hermesAndroidBundle() || (env.HERMES_LEAN_SYS_DIR === undefined ? null : androidHermesDir(env));
   return { ...cargoEnvironment(env), ANDROID_NDK_HOME: ndk, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
-    CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar'),
+    CXX_aarch64_linux_android: resolve(bin, `aarch64-linux-android${API}-clang++${script}`), AR_aarch64_linux_android: resolve(bin, `llvm-ar${exe}`),
     // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
     // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.
     CXXSTDLIB_aarch64_linux_android: 'c++_static',

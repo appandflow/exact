@@ -172,6 +172,25 @@ test('an ELF file\'s LOAD alignment is its smallest PT_LOAD p_align', async () =
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// The NDK's compilers and archiver, by the host the build runs on: Windows's are `.cmd` scripts and `.exe` tools.
+test("the Android build finds the NDK's tools for a Mac, Linux and Windows host", async () => {
+  const { androidToolchainEnv } = await import('./agent-android.mjs');
+  const ndk = mkdtempSync(resolve(tmpdir(), 'exact-ndk-'));
+  try {
+    const hosts = { darwin: ['darwin-x86_64', '', ''], linux: ['linux-x86_64', '', ''], win32: ['windows-x86_64', '.cmd', '.exe'] };
+    for (const [platform, [folder, script, exe]] of Object.entries(hosts)) {
+      const bin = resolve(ndk, 'toolchains/llvm/prebuilt', folder, 'bin');
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(resolve(bin, `aarch64-linux-android29-clang${script}`), '');
+      const env = androidToolchainEnv({ ANDROID_NDK_HOME: ndk, HERMES_LEAN_SYS_DIR_aarch64_linux_android: 'hermes' }, platform);
+      expect([env.CC_aarch64_linux_android, env.CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER, env.CXX_aarch64_linux_android, env.AR_aarch64_linux_android])
+        .toEqual([`aarch64-linux-android29-clang${script}`, `aarch64-linux-android29-clang${script}`, `aarch64-linux-android29-clang++${script}`, `llvm-ar${exe}`].map((tool) => resolve(bin, tool)));
+    }
+    rmSync(resolve(ndk, 'toolchains/llvm/prebuilt/windows-x86_64'), { recursive: true });
+    expect(() => androidToolchainEnv({ ANDROID_NDK_HOME: ndk }, 'win32')).toThrow(`the NDK at ${ndk} has no aarch64-linux-android29-clang.cmd`);
+  } finally { rmSync(ndk, { recursive: true, force: true }); }
+});
+
 // An app's directory pins no toolchain, so the Android build asks rustup about the pinned one by name.
 test.skipIf(process.platform === 'win32')('the Android build checks the pinned toolchain for its Rust target', () => {
   const bin = mkdtempSync(resolve(tmpdir(), 'exact-rustup-'));
