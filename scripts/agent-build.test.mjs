@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, lockHolder, logged, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, lockHolder, logged, nativeBuild, overrideDir, planOverride, planSource, planSources, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { openStdio } from './agent-stdio.mjs';
 import { linuxBinary, resolveApp } from './app.mjs';
 
@@ -575,6 +575,30 @@ test('a failed background build is said once by the next drive, from its part of
     said.length = 0;
     await drive();
     assert.ok(!said.some(line => line.includes('background')), said.join('\n'));
+    // Changed sources explain the older failure; signing or linking may still fail.
+    write('app.ts', 'export const grants = \'\';');
+    const sourceRecord = () => ({ id: 'old', args: ['--ios'], started: '08:02:54', pid: 1, exit: 1, bytes: build.length,
+      sources: { ...planSources(app), [resolve(dir, 'app.json')]: createHash('sha256').update(readFileSync(resolve(dir, 'app.json'))).digest('hex') } });
+    write('.exact/ios-build.log', build);
+    write('.exact/ios-prebuild.json', JSON.stringify(sourceRecord()));
+    said.length = 0;
+    await drive();
+    assert.ok(said.some(line => line.includes('bake failed')), 'a failure with matching sources is still reported');
+    for (const file of ['app.ts', 'app.contract', 'app.json']) {
+      const record = sourceRecord(), original = readFileSync(resolve(dir, file), 'utf8');
+      write('.exact/ios-prebuild.json', JSON.stringify(record));
+      write(file, file === 'app.json' ? original.replace(/}\s*$/, ', "env": {"API_URL": {}} }') : original + '\n');
+      write('.exact/ios-build.log', build);
+      said.length = 0;
+      await drive();
+      assert.ok(said[0].startsWith("This failure is from a background build started before the app's sources last changed; the current sources are checked now.\n"), said.join('\n'));
+      assert.ok(said[0].includes(build.trim()) && said[0].includes('failed (exit 1)'), said[0]);
+      assert.equal(readFileSync(resolve(dir, '.exact/ios-prebuild-failed.log'), 'utf8'), build);
+      assert.ok(said.some(line => line.startsWith('building for iOS:')), 'the current build still runs');
+      assert.ok(!existsSync(resolve(dir, '.exact/ios-prebuild.json')));
+      write(file, original);
+    }
+    said.length = 0;
     // One that ended before it could say (its shell gone) is dropped, unsaid.
     write('.exact/ios-prebuild.json', JSON.stringify({ args: ['--ios'], started: '08:02:54', pid: 2 ** 22 + 1 }));
     await drive();
