@@ -1,6 +1,7 @@
 # A harness reply that streams for more than 120 seconds fails with "stream broke: timeout: receive response"
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Streaming replies may exceed 120 seconds; idle reads fail, and leaving a request stops its reader even when a partial line keeps arriving.
 **Systems:** apps/harness/data (providers/mod.rs)
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
