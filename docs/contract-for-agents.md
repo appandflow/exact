@@ -3020,6 +3020,12 @@ function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+Transform springs retain velocity when interrupted. An SVG path's `d` instead
+plays the spring as an easing curve: retargeting starts from the displayed path
+with no inherited velocity, including when toggling back (LLP 1055.000 D15,
+LLP 1062 D3). This is the same on the web and native hosts. Use a transform for
+a rigid path move that must keep its momentum.
+
 Computed animation longhands cannot accompany a literal list in `animation` or
 another longhand. For a list that changes with state, compute the complete `animation`
 shorthand, including each animation's play state or duration.
