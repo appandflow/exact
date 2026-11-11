@@ -1,6 +1,7 @@
 # Styling `n` boxes that differ only by an inset, a maximum size or a grid placement takes `n²` style comparisons
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Engine style hashes include insets, maximum sizes, grid placements, all margins and paddings, and both gaps, avoiding quadratic comparisons when these values differ.
 **Systems:** kernel/src/shared_style.rs, kernel/src/layout.rs, kernel/src/layout/table.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
