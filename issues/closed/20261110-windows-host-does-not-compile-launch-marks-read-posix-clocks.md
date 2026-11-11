@@ -1,6 +1,7 @@
 # The Windows host does not compile for Windows: the painting host's launch marks call POSIX clock functions with no `cfg`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Windows host compiles with a process-local monotonic journal clock; POSIX clocks stay on Unix and process-start and DRM timing stay on Linux.
 **Systems:** host/linux/src/launch_marks.rs, host/linux/src/lib.rs, host/windows
 **Severity:** P1
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
