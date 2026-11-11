@@ -144,7 +144,7 @@ impl Lowerer<'_> {
             return Ok(());
         }
         let row = row_list(attrs);
-        self.collection_axis(attrs, row, span)?;
+        self.collection_axis(attrs, row, span, scope)?;
         // Computed bounds are checked by the bake's measured-layout lint.
         // Merely spelling `auto` or a non-growing flex is not a bound.
         if !row
@@ -281,7 +281,13 @@ impl Lowerer<'_> {
     /// The rules that make a list's axis CSS's and keep its index's starts
     /// prefix sums (LLP 1070 H2, §8): a row list is a literal-height flex row,
     /// left to right, that neither wraps, reverses nor spreads its items.
-    fn collection_axis(&self, attrs: &[Attr], row: bool, span: Span) -> Result<(), LowerError> {
+    fn collection_axis(
+        &self,
+        attrs: &[Attr],
+        row: bool,
+        span: Span,
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
         if let Some(display) = literal(attrs, "display") {
             if !matches!(string(display), Some("block" | "flex")) {
                 return err("lower-collection-flow", "a virtualized list's `display` is a literal `block` (it scrolls vertically) or `flex` (a row that scrolls horizontally)", display.span);
@@ -319,10 +325,18 @@ impl Lowerer<'_> {
         if !row {
             return Ok(());
         }
-        if !literal(attrs, "height")
-            .is_some_and(|a| numeric_literal(&a.value).is_some_and(|n| n > 0.0))
-        {
-            return err("lower-collection-cross", "a virtualized row list needs a literal `height`: an auto height would be its tallest mounted item, which changes as items mount", span);
+        // A computed number is points, as a literal is; a computed string
+        // could be `auto`.
+        let definite = |a: &Attr| match (numeric_literal(&a.value), &a.value) {
+            (Some(n), _) => n > 0.0,
+            (None, Expr::Str(..)) => false,
+            (None, value) => matches!(
+                contract_types::infer(value, scope, &self.types.shapes),
+                Ok(Ty::Number)
+            ),
+        };
+        if !literal(attrs, "height").is_some_and(definite) {
+            return err("lower-collection-cross", "a virtualized row list needs a `height` in points, a literal or a computed number: an auto height would be its tallest mounted item, which changes as items mount", span);
         }
         for a in attrs {
             let refusal = match a.name.as_str() {

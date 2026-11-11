@@ -452,7 +452,7 @@ none of it.
 A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
-a literal positive `height`, takes
+a positive `height` in points (a literal or a computed number), takes
 `estimated-item-width` and a literal `gap` between its cards, and refuses
 `justify-content` other than `flex-start`. A vertical one is a block, where CSS
 lays out no gap: space its rows with a margin. Padding along the list's
