@@ -327,7 +327,7 @@ impl<D: DataSource> Presenter<D> {
             .keys()
             .any(|view| self.surfaces.wants_input(*view))
     }
-    fn pad_target(&self) -> Option<u32> {
+    pub(crate) fn pad_target(&self) -> Option<u32> {
         match self.focus {
             Some(id) => self.input_surface(id),
             None => {

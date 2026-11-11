@@ -60,9 +60,10 @@ open class ExactActivity : Activity() {
     /** The process's gamepads ([Pads]): every key and motion event is offered to them first. */
     private val pads: Pads get() = Pads.attach(this)
 
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = pads.key(event) || super.dispatchKeyEvent(event)
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        pads.key(event, requests.padInput) || super.dispatchKeyEvent(event)
     override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean =
-        pads.motion(event) || super.dispatchGenericMotionEvent(event)
+        pads.motion(event, requests.padInput) || super.dispatchGenericMotionEvent(event)
 
     override fun onCreate(state: Bundle?) {
         // An activity made again in a process whose host runs (LLP 1115.001 D15.1: a configuration change this

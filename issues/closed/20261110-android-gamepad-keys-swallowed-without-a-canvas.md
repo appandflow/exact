@@ -1,6 +1,7 @@
 # On Android the reader consumes every game controller event, so a controller cannot go Back in any app, or drive an app on a TV
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Android observes controller state but consumes buttons and joystick motion only while a canvas receives pad input, leaving fallback navigation keys unhandled.
 **Systems:** host/android/canvas/src/main/java/dev/exact/canvas/Pads.kt, host/android/canvas/src/main/java/dev/exact/canvas/ExactActivity.kt
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
