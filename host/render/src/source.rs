@@ -69,6 +69,10 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Anonymous<D> {
         self.inner.note_storage_changed();
     }
 
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.inner.linked_sources()
+    }
+
     // A render acquires no host storage, secrets or document handles.
     fn set_document_owner(&mut self, _: u64) {}
 

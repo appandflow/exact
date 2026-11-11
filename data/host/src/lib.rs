@@ -172,6 +172,10 @@ impl<D: DataSource> exact_runner::DataSourceWrapper for Storage<D> {
         self.source.note_storage_changed();
     }
 
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.source.linked_sources()
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
         self.source.set_document_owner(owner);

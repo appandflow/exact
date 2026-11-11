@@ -3252,6 +3252,15 @@ factory at bake time. A custom host adapter must do the same (and depend on
 `Swappable::browser` explicitly. Merely declaring a module does not retrofit
 a custom, manually implemented `DataSource` host.
 
+A Wasm module has no imports: it cannot read the app's files, and one module
+serves both the browser and the iOS interpreter, so it cannot tell which host
+runs it. Name the sources that need the host itself in
+`DataSource::linked_sources`; while a module runs, they keep answering from the
+binary's own copy of the data source, made with the constructor
+`Swappable::with_native` names (every development bake sets it), and that copy
+receives the host's storage directories. The binary's list is the one that
+counts, so changing it needs a new build.
+
 [Update Lab](../apps/update-lab/README.md) composes one Rust probe with one
 TypeScript executor. Its complete development candidate carries both modules,
 so a TypeScript or Contract edit retains the last accepted Rust version.

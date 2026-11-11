@@ -650,6 +650,11 @@ impl<J: DataSource, R: DataSource> exact_runner::DataSourceWrapper for Mixed<J, 
         self.rust.note_storage_changed();
     }
 
+    /// A replaced module is the Rust crate; the JavaScript one names none.
+    fn linked_sources(&self) -> &'static [&'static str] {
+        self.rust.linked_sources()
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.javascript.set_document_owner(owner);
         self.rust.set_document_owner(owner);
