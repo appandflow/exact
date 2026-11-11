@@ -1,7 +1,8 @@
 // `exact release` signs every nested Mach-O file and bundle, innermost first (#119); `exact contract build`
 // refreshes an app's types (LLP 1116.001 D4.5).
 // `bun test ./scripts/exact.test.mjs`.
-import { test } from 'bun:test';
+import { test, spyOn } from 'bun:test';
+import * as childProcess from 'node:child_process';
 import { pathFrom } from './app.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -64,6 +65,28 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
 }));
 
 const tools = process.platform === 'darwin' && ['clang', 'codesign'].every((tool) => Bun.which(tool));
+
+test.skipIf(!tools)('release signs an accented main executable only after its nested code', () => inDir(dir => {
+  const bundle = resolve(dir, 'Cafe\u0301.app'), binary = resolve(bundle, 'Contents/MacOS/Cafe\u0301');
+  const library = resolve(bundle, 'Contents/MacOS/libnested.dylib');
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(binary, readFileSync('/usr/bin/true'), { mode: 0o755 });
+  writeFileSync(resolve(dir, 'nested.c'), 'void nested(void) {}');
+  const built = spawnSync('clang', ['-dynamiclib', resolve(dir, 'nested.c'), '-o', library], { encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr);
+  for (const form of ['NFD', 'NFC']) {
+    writeFileSync(resolve(bundle, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: 'dev.exact.accent', CFBundleExecutable: 'Café'.normalize(form), CFBundlePackageType: 'APPL' }));
+    const signed = [], spawn = childProcess.spawnSync;
+    const commands = spyOn(childProcess, 'spawnSync').mockImplementation((cmd, args, options) => {
+      if (cmd === 'codesign') signed.push(args.at(-1));
+      return spawn(cmd, args, options);
+    });
+    try { signRelease(bundle, { manifest: {}, identity: '-', id: 'dev.exact.accent', scratch: dir, timestamp: ['--timestamp=none'] }); } finally { commands.mockRestore(); }
+    assert.deepEqual(signed, [library, bundle]);
+    const verified = spawnSync('codesign', ['--verify', '--deep', '--strict', bundle], { encoding: 'utf8' });
+    assert.equal(verified.status, 0, verified.stderr);
+  }
+}));
 
 test.skipIf(!tools)('widget packaging preserves parent platform and device capabilities in device and simulator extensions', () => inDir(dir => {
   const library = resolve(dir, 'fixture.dylib');

@@ -1,18 +1,51 @@
 // What a package's Apple implementation adds to Info.plist: `"plistKeys"` against the allow-list, `"plist"`
 // dictionaries, and the merge into `infoPlist` and `macInfoPlist`.
-import { test } from 'bun:test';
+import { test, spyOn } from 'bun:test';
+import * as childProcess from 'node:child_process';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PLIST_KEYS, modulePlist, packageKeys } from './plist.mjs';
 import { infoPlist, macInfoPlist } from './build.mjs';
+import { buildPainted } from '../apple-painted/build.mjs';
 
 const packages = resolve(import.meta.dir, '../../packages');
 const purchases = JSON.parse(readFileSync(resolve(packages, 'purchases/apple/exact.json'), 'utf8'));
 const impl = (plistKeys) => [{ extension: 'purchases', plistKeys }];
 const flat = (plist) => plist.replace(/>\s+</g, '><');
 const KEY = /<key>SKIncludeConsumableInAppPurchaseHistory<\/key><true\/>/;
+
+test.skipIf(process.platform !== 'darwin')('the painted Café bundle agrees with its plist and verifies after signing', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-painted-sign-'));
+  const name = dir.split('/').at(-1), root = resolve(import.meta.dir, '../..');
+  const app = { id: 'dev.exact.painted', displayName: 'Café', name, dir, workspace: dir, manifest: {}, crate: () => name };
+  const output = resolve(root, 'target/apple-painted', name);
+  const binary = resolve(root, 'target/host-dev', `${name}-painted`);
+  const spawn = childProcess.spawnSync;
+  const compiler = spyOn(childProcess, 'spawnSync').mockImplementation((command, args, options) => {
+    assert.equal(command, 'cargo');
+    compiler.mockRestore();
+    assert.equal(args[args.indexOf('--bin') + 1], `${name}-painted`);
+    mkdirSync(resolve(root, 'target/host-dev'), { recursive: true });
+    writeFileSync(binary, readFileSync('/usr/bin/true'), { mode: 0o755 });
+    return { status: 0 };
+  });
+  try {
+    buildPainted(app, [], { macInfoPlist });
+    const bundle = resolve(output, 'host-dev/Cafe\u0301 benchmark carrier.app');
+    assert.deepEqual(readdirSync(resolve(output, 'host-dev')), ['Cafe\u0301 benchmark carrier.app']);
+    assert.deepEqual(readdirSync(resolve(bundle, 'Contents/MacOS')), ['Cafe\u0301']);
+    const info = spawn('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Contents/Info.plist')], { encoding: 'utf8' });
+    assert.equal(info.status, 0, info.stderr);
+    assert.equal(JSON.parse(info.stdout).CFBundleExecutable, readdirSync(resolve(bundle, 'Contents/MacOS'))[0]);
+    const verified = spawn('codesign', ['--verify', '--deep', '--strict', bundle], { encoding: 'utf8' });
+    assert.equal(verified.status, 0, verified.stderr);
+  } finally {
+    compiler.mockRestore();
+    for (const path of [dir, output, binary]) rmSync(path, { recursive: true, force: true });
+  }
+});
 
 /** An app in a temporary directory whose `app.ts` is `source`, with `names` (directories under packages/) linked
  * into its node_modules, or copied when `edit` changes their Apple `exact.json`. */
@@ -88,3 +121,48 @@ test('a plist entry that is not "<call>.<option>" is refused, naming the package
     }, (json) => ({ ...json, plist }));
   }
 });
+
+for (const displayName of ['Plain', 'Caf\u00e9', 'Cafe\u0301', '東京', '', '... ']) {
+  test.skipIf(process.platform !== 'darwin')(`Apple bundles keep ${JSON.stringify(displayName)} as their display name and verify after signing`, async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { appleArtifacts, appClip } = await import('./build.mjs');
+    const { executableName, windowsFile } = await import('../../scripts/app.mjs');
+    const { executableIn, installedAt } = await import('../../scripts/exact.mjs');
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-unicode-sign-'));
+    const app = { id: 'com.exact.signing', displayName, dir, target: dir, manifest: { host: { ios: { appClip: { name: displayName } } } }, crate: () => 'fixture-windows' };
+    const run = (command, args) => {
+      const result = spawnSync(command, args, { encoding: 'utf8' });
+      assert.equal(result.status, 0, `${command}: ${result.stderr}`);
+      return result.stdout;
+    };
+    try {
+      for (const destination of ['macos', 'ios-simulator']) {
+        const paths = appleArtifacts(app, { destination });
+        const contents = destination === 'macos' ? resolve(paths.bundle, 'Contents') : paths.bundle;
+        const binaries = destination === 'macos' ? resolve(contents, 'MacOS') : contents;
+        mkdirSync(binaries, { recursive: true });
+        const binary = resolve(binaries, paths.executable);
+        writeFileSync(binary, readFileSync('/usr/bin/true'), { mode: 0o755 });
+        const plist = resolve(contents, 'Info.plist');
+        writeFileSync(plist, destination === 'macos' ? macInfoPlist(app) : infoPlist(app));
+        const info = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', plist]));
+        assert.equal(info.CFBundleDisplayName, displayName);
+        assert.equal(info.CFBundleName, displayName);
+        assert.equal(info.CFBundleExecutable, paths.executable);
+        assert.equal(info.CFBundleIdentifier, app.id);
+        if (destination === 'macos') {
+          assert.equal(executableIn(paths.bundle, app), binary);
+          assert.equal(installedAt(app).split('/').at(-1), `${paths.executable}.app`);
+        }
+        run('codesign', ['--force', '--sign', '-', paths.bundle]);
+        run('codesign', ['--verify', '--deep', '--strict', paths.bundle]);
+        const seal = run('plutil', ['-extract', 'files2', 'xml1', '-o', '-', resolve(contents, '_CodeSignature/CodeResources')]);
+        assert.ok(!seal.includes(`<key>${destination === 'macos' ? 'MacOS/' : ''}${paths.executable}</key>`), 'the main executable is code, not a sealed resource');
+        assert.equal(paths.executable, executableName(app).normalize('NFD'));
+        assert.equal(appClip(app).executable, executableName({ ...app, id: app.id + '.Clip' }).normalize('NFD'));
+      }
+      assert.equal(windowsFile(app, 'fixture-windows.exe'), `${executableName(app)}.exe`);
+      if (displayName === 'Caf\u00e9') assert.equal(executableName(app), displayName);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

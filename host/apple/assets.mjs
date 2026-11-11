@@ -321,7 +321,7 @@ function machO(path) {
 function bundleExecutable(bundle) {
   const executable = (plist) => {
     if (!existsSync(plist)) return null;
-    const xml = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(readFileSync(plist, 'latin1'))?.[1];
+    const xml = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(readFileSync(plist, 'utf8'))?.[1];
     if (xml) return xml;
     const read = spawnSync('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist], { encoding: 'utf8' });
     return read.status === 0 ? read.stdout.trim() || null : null;
@@ -372,7 +372,7 @@ export function signingOrder(bundle, compat = null, identity = null) {
         walk(path, bundleExecutable(path));
         order.push(path);
       } else if (name.isDirectory()) walk(path, main);
-      else if (name.isFile() && path !== main && !preserved.has(path) && machO(path)) order.push(path);
+      else if (name.isFile() && path.normalize('NFD') !== main?.normalize('NFD') && !preserved.has(path) && machO(path)) order.push(path);
     }
   };
   walk(resolve(bundle, 'Contents'), bundleExecutable(bundle));

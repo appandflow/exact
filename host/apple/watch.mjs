@@ -2,7 +2,7 @@
 import { resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
-import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
+import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, appleExecutableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
 import { appleProduction } from './link.mjs';
 import { reportBuilt } from '../../scripts/help.mjs';
@@ -39,7 +39,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const parent = appleArtifacts(app, { destination: 'ios-simulator', trust: production ? 'production' : 'development', optimize: production ? optimize : 'speed' });
     const entries = watchEntries(app);
     const watch = { ...app, id: `${app.id}.watchkitapp` };
-    const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
+    const bundle = resolve(parent.bundle, 'Watch', `${appleExecutableName(app)}.app`);
     rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });
     // LLP 1126.002 D4: the watch entry of an app with `app.ts` waits for the bake to refuse
     // only an entry that reaches TypeScript, which runs nowhere on the watch before §5 Q3's gate.

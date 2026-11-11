@@ -50,7 +50,7 @@ import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { grantAdvice } from './grant-advice.mjs';
 export { grantAdvice, grantLines } from './grant-advice.mjs';
-const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, pathFrom, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { cargoEnvironment, appleExecutableName, HERMES_INSTALLER, hermesBundle, hermesTarget, pathFrom, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
 const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
 const { appleArtifacts, assertAppleIdentity } = await import('../host/apple/build.mjs');
@@ -72,11 +72,11 @@ const APPLICATIONS = resolve(homedir(), 'Applications');
 /** The app's assembled bundle in this repo — `host/apple/build.mjs --bundle`'s one stable output. */
 export const bundleOf = (app) => appleArtifacts(app).bundle;
 /** The executable inside a bundle: what a terminal launches to keep stdio. */
-export const executableIn = (bundle, app) => resolve(bundle, 'Contents/MacOS', executableName(app));
+export const executableIn = (bundle, app) => resolve(bundle, 'Contents/MacOS', appleExecutableName(app));
 /** The name this app answers to on the command line (`app.command`, else its directory's name). */
 export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
-export const installedAt = (app) => resolve(APPLICATIONS, `${executableName(app)}.app`);
+export const installedAt = (app) => resolve(APPLICATIONS, `${appleExecutableName(app)}.app`);
 
 /** The targets a Mac cross-compiles its Apple destinations for, each needing the pinned toolchain's Rust std and, for
  * TypeScript, a Hermes bundle; each is needed only for its destination (and only with Xcode). */
@@ -308,7 +308,7 @@ function release(app) {
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  const staged = resolve(out, `${executableName(app)}.app`);
+  const staged = resolve(out, `${appleExecutableName(app)}.app`);
   sh('/usr/bin/ditto', [bundle, staged]);
   // The production build already stripped the executable; keep its matching dSYM with the release.
   const symbols = resolve(out, `${app.displayName}.dSYM`);
@@ -356,7 +356,7 @@ function release(app) {
   sh('xcrun', ['stapler', 'staple', staged]);
   const dmg = resolve(out, `${app.displayName}.dmg`);
   const image = mkdtempSync(resolve(out, '.dmg-'));
-  sh('/usr/bin/ditto', [staged, resolve(image, `${executableName(app)}.app`)]);
+  sh('/usr/bin/ditto', [staged, resolve(image, `${appleExecutableName(app)}.app`)]);
   symlinkSync('/Applications', resolve(image, 'Applications'));
   sh('hdiutil', ['create', '-volname', app.displayName, '-srcfolder', image, '-ov', '-format', 'UDZO', '-quiet', dmg]);
   rmSync(image, { recursive: true, force: true });

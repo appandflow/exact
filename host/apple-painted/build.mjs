@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cargoReproducibilityFlags, executableName, injectedProfiles } from '../../scripts/app.mjs';
+import { cargoReproducibilityFlags, appleExecutableName, injectedProfiles } from '../../scripts/app.mjs';
 import { reportBuilt } from '../../scripts/help.mjs';
 import { syncStaticTree } from '../web/serve.mjs';
 
@@ -21,8 +21,8 @@ export function buildPainted(app, args, { macInfoPlist }) {
   const profile = args.includes('--release') ? 'release' : 'host-dev';
   const target = resolve(root, 'target');
   const out = resolve(target, 'apple-painted', app.name, profile);
-  const bundle = resolve(out, `${executableName(app)} benchmark carrier.app`);
-  const executable = resolve(bundle, 'Contents/MacOS', executableName(app));
+  const bundle = resolve(out, `${appleExecutableName(app)} benchmark carrier.app`);
+  const executable = resolve(bundle, 'Contents/MacOS', appleExecutableName(app));
   mkdirSync(resolve(bundle, 'Contents/MacOS'), { recursive: true });
   mkdirSync(resolve(bundle, 'Contents/Resources'), { recursive: true });
   const probe = process.env.EXACT_PAINTED_PROBE;
