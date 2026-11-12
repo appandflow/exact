@@ -1267,7 +1267,7 @@ export function buildBake(app, platform, target, options = {}) {
   // logic to determinism lints; the gpu-dev loop runs them in its preceding check.
   if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
   const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={}, preparedProducts=new Map();
-  delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES; delete env.EXACT_BAKE_INPUTS;
+  delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES; delete env.EXACT_GPU_WEB_PRODUCTS; delete env.EXACT_BAKE_INPUTS;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
     const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
     env.EXACT_GPU_DEVELOPMENT = `lib${cargoLibraryTarget(graph.surface).name.replaceAll('-','_')}.${extension}`;
@@ -1321,6 +1321,8 @@ export function buildBake(app, platform, target, options = {}) {
       if (module) { moduleProducts[module.name] = prepared; env.EXACT_GPU_MODULES = JSON.stringify(moduleProducts); }
       else if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = prepared;
     }
+    // The web's bake binds no GPU digest but reads each wasm product's surface arguments (expo/exact#176).
+    if (gpuPackage(pkg) && platform === 'web') env.EXACT_GPU_WEB_PRODUCTS = JSON.stringify([...JSON.parse(env.EXACT_GPU_WEB_PRODUCTS ?? '[]'), ...output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id).flatMap(m => m.filenames).filter(f => f.endsWith('.wasm'))]);
   }
   if (options.part === 'gpu') {
     // The proof completes the independent input/product receipt. There is no

@@ -963,6 +963,27 @@ fn a_canvas_argument_the_gpu_product_does_not_declare_refuses_the_bake() {
     let refusal = surface_arguments(b.plan(), &declared).unwrap_err();
     assert!(refusal.starts_with("canvas surface `dice` passes `session_carry`, which the GPU product libdice_gpu.dylib does not declare (it declares count): a source changed after the GPU product compiled"), "{refusal}");
     assert!(refusal.ends_with("build again"), "{refusal}");
+    // More values by position than the product declares: the edit added an
+    // argument and the canvas passes it by position.
+    let mut positional = exact_plan::builder::PlanBuilder::new(0, 0);
+    let one = positional.constant(&exact_plan::Value::Number(1.));
+    let yes = positional.constant(&exact_plan::Value::Bool(true));
+    positional.surface("dice", &[("", one)]);
+    assert_eq!(surface_arguments(positional.plan(), &declared), Ok(()));
+    positional.surface("dice", &[("", one), ("", yes)]);
+    let refusal = surface_arguments(positional.plan(), &declared).unwrap_err();
+    assert!(refusal.starts_with("canvas surface `dice` passes 2 values by position, and the GPU product libdice_gpu.dylib declares 1 argument (count): a source changed after the GPU product compiled"), "{refusal}");
+    // The web's wasm product is read without a digest.
+    let mut web = Declared::new();
+    let wasm = dir.join("dice_gpu.wasm");
+    assert_eq!(
+        declare(&wasm, &[b"\0asm".as_slice(), &RECORD].concat(), &mut web),
+        Ok("dice_gpu.wasm".into())
+    );
+    assert_eq!(
+        web["dice"],
+        (vec!["count".to_owned()], "dice_gpu.wasm".to_owned())
+    );
     std::fs::write(&product, b"no declaration").unwrap();
     let mut none = Declared::new();
     gpu_product(&product, &mut none).unwrap();

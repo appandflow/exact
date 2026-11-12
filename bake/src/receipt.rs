@@ -56,6 +56,7 @@ pub(crate) fn emit(
         "EXACT_GPU_PRODUCT",
         "EXACT_GPU_MODULES",
         "EXACT_GPU_DEVELOPMENT",
+        "EXACT_GPU_WEB_PRODUCTS",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -142,6 +143,19 @@ pub(crate) fn emit(
                 }
             }
             compat.embedded["gpuModules"] = Value::Object(cards);
+        }
+        surface_arguments(&plan, &declared)?;
+    } else if let Ok(products) = std::env::var("EXACT_GPU_WEB_PRODUCTS") {
+        // The web binds no GPU digest (its wasm and its files are one build),
+        // but its GPU products compile before this bake too.
+        let paths: Vec<PathBuf> =
+            serde_json::from_str(&products).map_err(|e| format!("EXACT_GPU_WEB_PRODUCTS: {e}"))?;
+        let mut declared = Declared::new();
+        for path in paths {
+            println!("cargo:rerun-if-changed={}", path.display());
+            let bytes =
+                std::fs::read(&path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+            declare(&path, &bytes, &mut declared)?;
         }
         surface_arguments(&plan, &declared)?;
     }
@@ -851,21 +865,29 @@ type Declared = std::collections::BTreeMap<String, (Vec<String>, String)>;
 fn gpu_product(path: &Path, declared: &mut Declared) -> Result<(String, String), String> {
     println!("cargo:rerun-if-changed={}", path.display());
     let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+    let name = declare(path, &bytes, declared)?;
+    Ok((name, code_digest(&bytes)))
+}
+
+/// The product's file name, after adding the surfaces whose arguments its
+/// `bytes` declare to `declared`.
+fn declare(path: &Path, bytes: &[u8], declared: &mut Declared) -> Result<String, String> {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("GPU product filename is not UTF-8")?
         .to_string();
-    let surfaces = exact_plan::surface_arguments::declared(&bytes)
+    let surfaces = exact_plan::surface_arguments::declared(bytes)
         .map_err(|e| format!("GPU product {}: {e}", path.display()))?;
     for (surface, arguments) in surfaces {
         declared.insert(surface, (arguments, name.clone()));
     }
-    Ok((name, code_digest(&bytes)))
+    Ok(name)
 }
 
 /// Refuse a plan whose canvas passes a named argument that its surface's GPU
-/// product, bound beside the plan, does not declare (expo/exact#176). The product
+/// product, bound beside the plan, does not declare, or more values by position
+/// than it has arguments (expo/exact#176). The product
 /// compiles before this bake reads the Contract, so the two disagree only
 /// when a source changed in between; at run time the canvas would fail to
 /// bind.
@@ -878,10 +900,15 @@ fn surface_arguments(plan: &exact_plan::Plan, declared: &Declared) -> Result<(),
     if missing.is_empty() {
         return Ok(());
     }
-    let each = missing.iter().map(|(surface, argument)| {
+    let each = missing.iter().map(|found| {
+        use exact_plan::surface_arguments::Undeclared;
+        let surface = found.surface();
         let (names, product) = &declared[surface];
         let has = if names.is_empty() { "none".to_owned() } else { names.join(", ") };
-        format!("canvas surface `{surface}` passes `{argument}`, which the GPU product {product} does not declare (it declares {has})")
+        match found {
+            Undeclared::Name { argument, .. } => format!("canvas surface `{surface}` passes `{argument}`, which the GPU product {product} does not declare (it declares {has})"),
+            Undeclared::Arity { passed, .. } => format!("canvas surface `{surface}` passes {passed} values by position, and the GPU product {product} declares {} argument{} ({has})", names.len(), if names.len() == 1 { "" } else { "s" }),
+        }
     });
     Err(format!(
         "{}: a source changed after the GPU product compiled and before the Contract bake read it (an edit while the build ran); build again",

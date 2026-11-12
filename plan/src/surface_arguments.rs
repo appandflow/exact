@@ -1,16 +1,17 @@
-//! The named arguments a GPU product's surfaces accept, as the product itself
+//! The arguments a GPU product's surfaces accept, as the product itself
 //! carries them, so a build can compare them with the plan it packages beside
 //! the product (expo/exact#176).
 //!
-//! A surface's arguments are bound by name at run time (`exact_gpu`'s
-//! `bind_json`), so a canvas passing a name the product lacks is otherwise
-//! found only when the canvas binds. The product is compiled before the
-//! Contract bake reads its sources, and an edit between the two leaves a plan
-//! and a product that disagree. A product whose surfaces' arguments are known
-//! at compile time (a game's `Args::FIELDS`) carries one [`record`] per
-//! surface in its data; the bake finds them in the product's bytes
-//! ([`declared`]) and refuses a plan that passes an undeclared name
-//! ([`undeclared`]). A surface without a record is not checked.
+//! A surface's arguments are bound at run time (`exact_gpu`'s `bind_json`),
+//! so a canvas passing a name the product lacks, or more values by position
+//! than it has arguments, is otherwise found only when the canvas binds. The
+//! product is compiled before the Contract bake reads its sources, and an
+//! edit between the two leaves a plan and a product that disagree. A product
+//! whose surfaces' arguments are known at compile time (a game's
+//! `Args::FIELDS`) carries one [`record`] per surface in its data; the bake
+//! finds them in the product's bytes ([`declared`]) and refuses a plan that
+//! passes what a record does not admit ([`undeclared`]). A surface without a
+//! record is not checked.
 //!
 //! A record is the marker, then the surface's name and each argument's name,
 //! each followed by NUL, then one more NUL. No name is empty or contains NUL,
@@ -103,37 +104,82 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-/// A record's name: printable UTF-8, and for an argument an identifier.
-fn text(bytes: &[u8], identifier: bool) -> Result<String, String> {
+/// A record's name: UTF-8 with no control character, and for an argument no
+/// white space either. Any Rust identifier passes, Unicode ones included
+/// (`énergie`), which `#[derive(Args)]` keeps in `FIELDS` as written.
+fn text(bytes: &[u8], argument: bool) -> Result<String, String> {
     let name = std::str::from_utf8(bytes)
         .ok()
-        .filter(|s| !s.is_empty() && !s.chars().any(char::is_control))
+        .filter(|s| !s.is_empty())
         .filter(|s| {
-            !identifier
-                || (s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                    && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+            s.chars()
+                .all(|c| !c.is_control() && !(argument && c.is_whitespace()))
         });
     name.map(str::to_owned)
         .ok_or_else(|| format!("a surface argument record names {bytes:?}"))
 }
 
-/// Each `(surface, argument)` a canvas of `plan` passes by name that
-/// `declared` gives its surface no argument of, in plan order, once each.
-pub fn undeclared(plan: &Plan, declared: &BTreeMap<String, Vec<String>>) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
+/// What a canvas of a plan passes that its surface's record does not admit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Undeclared {
+    /// A name the surface has no argument of.
+    Name {
+        /// The surface.
+        surface: String,
+        /// The argument the canvas names.
+        argument: String,
+    },
+    /// More values by position than the surface has arguments.
+    Arity {
+        /// The surface.
+        surface: String,
+        /// How many values the canvas passes.
+        passed: usize,
+    },
+}
+
+impl Undeclared {
+    /// The surface the canvas binds.
+    pub fn surface(&self) -> &str {
+        match self {
+            Undeclared::Name { surface, .. } | Undeclared::Arity { surface, .. } => surface,
+        }
+    }
+}
+
+/// What the canvases of `plan` pass that `declared` does not admit, in plan
+/// order, once each: a name the surface has no argument of, or more values by
+/// position than it has arguments, which binding refuses as a game's `Args`
+/// decoding does.
+pub fn undeclared(plan: &Plan, declared: &BTreeMap<String, Vec<String>>) -> Vec<Undeclared> {
+    let mut out: Vec<Undeclared> = Vec::new();
+    let mut push = |found: Undeclared| {
+        if !out.contains(&found) {
+            out.push(found);
+        }
+    };
     for surface in plan.surfaces.iter() {
         let name = plan.str(surface.name);
         let Some(known) = declared.get(name) else {
             continue;
         };
-        if surface.mode != SurfaceArgsMode::Named {
+        if surface.mode == SurfaceArgsMode::Positional {
+            let passed = surface.args.len as usize;
+            if passed > known.len() {
+                push(Undeclared::Arity {
+                    surface: name.to_owned(),
+                    passed,
+                });
+            }
             continue;
         }
         for id in surface.args.iter() {
-            let arg = plan.str(plan.surface_arg(id).name);
-            let pair = (name.to_owned(), arg.to_owned());
-            if !known.iter().any(|k| k == arg) && !out.contains(&pair) {
-                out.push(pair);
+            let argument = plan.str(plan.surface_arg(id).name);
+            if !known.iter().any(|k| k == argument) {
+                push(Undeclared::Name {
+                    surface: name.to_owned(),
+                    argument: argument.to_owned(),
+                });
             }
         }
     }
@@ -172,6 +218,21 @@ mod tests {
         assert!(declared(cut).unwrap_err().contains("no end"));
         let bad = [MARKER, b"dice\0not an identifier\0\0"].concat();
         assert!(declared(&bad).unwrap_err().contains("names"));
+        let control = [MARKER, b"dice\0count\x07\0\0"].concat();
+        assert!(declared(&control).unwrap_err().contains("names"));
+        let invalid = [MARKER, b"dice\0\xff\0\0"].concat();
+        assert!(declared(&invalid).unwrap_err().contains("names"));
+    }
+
+    #[test]
+    fn a_unicode_identifier_reads_back_as_written() {
+        // Rust identifiers `#[derive(Args)]` keeps as written: a Latin letter
+        // with a diacritic, and Devanagari with its vowel signs and virama
+        // (combining marks, neither alphabetic nor numeric).
+        const FIELDS: &[(&str, ())] = &[("énergie", ()), ("नमस्ते", ()), ("_x1", ())];
+        let record: [u8; record_len("wörld", FIELDS)] = record("wörld", FIELDS);
+        let found = declared(&record).unwrap();
+        assert_eq!(found["wörld"], ["énergie", "नमस्ते", "_x1"]);
     }
 
     #[test]
@@ -183,12 +244,51 @@ mod tests {
         b.surface("chart", &[("series", one)]);
         let plan = b.plan();
         let found = declared(&RECORD).unwrap();
-        assert_eq!(
-            undeclared(plan, &found),
-            [("dice".to_owned(), "extra".to_owned())]
-        );
+        let extra = Undeclared::Name {
+            surface: "dice".into(),
+            argument: "extra".into(),
+        };
+        assert_eq!(extra.surface(), "dice");
+        assert_eq!(undeclared(plan, &found), [extra]);
         let all: [u8; record_len("dice", &[("count", ()), ("extra", ())])] =
             record("dice", &[("count", ()), ("extra", ())]);
         assert!(undeclared(plan, &declared(&all).unwrap()).is_empty());
+    }
+
+    #[test]
+    fn more_values_by_position_than_the_record_has_are_undeclared() {
+        // The product accepts `count`; an edit adds a second argument and the
+        // canvas becomes `dice(1, true)` before the bake reads it.
+        let mut b = crate::builder::PlanBuilder::new(0, 0);
+        let one = b.constant(&crate::Value::Number(1.));
+        let yes = b.constant(&crate::Value::Bool(true));
+        b.surface("dice", &[("", one)]);
+        assert!(undeclared(b.plan(), &declared(&RECORD).unwrap()).is_empty());
+        let fewer: [u8; record_len("dice", &[("count", ())])] = record("dice", &[("count", ())]);
+        let fewer = declared(&fewer).unwrap();
+        assert!(undeclared(b.plan(), &fewer).is_empty());
+        b.surface("dice", &[("", one), ("", yes)]);
+        b.surface("dice", &[("", one), ("", yes)]);
+        assert_eq!(
+            undeclared(b.plan(), &fewer),
+            [Undeclared::Arity {
+                surface: "dice".into(),
+                passed: 2
+            }]
+        );
+        // A surface with no arguments takes no value by position, and a
+        // surface without a record is not checked.
+        b.surface("still", &[("", one)]);
+        b.surface("chart", &[("", one), ("", yes), ("", one)]);
+        const NONE: &[(&str, ())] = &[];
+        let still: [u8; record_len("still", NONE)] = record("still", NONE);
+        let both = declared(&[still.as_slice(), &RECORD].concat()).unwrap();
+        assert_eq!(
+            undeclared(b.plan(), &both),
+            [Undeclared::Arity {
+                surface: "still".into(),
+                passed: 1
+            }]
+        );
     }
 }
