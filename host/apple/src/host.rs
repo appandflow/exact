@@ -1183,7 +1183,15 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+    fn finish(&mut self, mut batch: Batch, error: Option<String>) -> String {
+        // A host's fact laid out again (a native control's measured size, an
+        // inset, the text size): a box already moving was retargeted from where
+        // it shows, and its new frame and offset go in one batch. Without the
+        // offset the presenter showed the new frame with the old offset until
+        // the next tick, which then put the box back where it started (#134).
+        if self.presence.unauthored {
+            self.present(&mut batch, false);
+        }
         // Clear the mark first: the resize handlers below commit the app's own moves
         self.presence.unauthored = false;
         let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).

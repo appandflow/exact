@@ -1175,7 +1175,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            drainReports()
+            presenter.controls.reportMeasured(); drainReports() // the controls' sizes before the batch's frame shows
             presenter.collections.flush()
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
