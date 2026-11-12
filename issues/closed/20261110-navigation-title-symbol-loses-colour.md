@@ -1,6 +1,7 @@
 # A coloured symbol beside an iOS navigation title is drawn in the title's colour after its first projection
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `HeaderTitleView.update` takes the heading's colour and sets the label's `textColor` only as it builds the line, so a projection that changes nothing leaves a coloured symbol its own colour.
 **Systems:** host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift (richTitle, HeaderTitleView.update)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
