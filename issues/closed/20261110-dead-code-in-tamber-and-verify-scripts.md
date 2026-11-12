@@ -1,6 +1,7 @@
 # Dead code in the design server's and verify's scripts: a function only its test calls, three unused imports, a branch that cannot run
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `mapFor`, its two assertions, the three unused imports and the branch that cannot run are deleted; the selection test passes its fixture map to `join` directly.
 **Systems:** scripts/tamber-inspect.mjs, scripts/tamber-server.mjs, scripts/tamber-pairing.mjs, scripts/verify.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

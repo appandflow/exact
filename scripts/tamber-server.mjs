@@ -83,7 +83,7 @@ import { fileURLToPath } from 'node:url';
 // server-sent events and no WebSocket, so stage 3 streams a POST's response.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs';
+import { readFileSync, realpathSync, statSync, watch } from 'node:fs';
 import { messageScrubber, namedPaths, pathName, scrubbedMessages } from './tamber-paths.mjs';
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
