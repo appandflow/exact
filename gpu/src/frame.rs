@@ -281,13 +281,12 @@ impl Module {
         let timing = self.timing(id, frame.now_ms);
         let gpu = self.gpu.as_ref()?;
         let inst = self.instances.get_mut(&id)?;
-        if inst
-            .ring
-            .as_ref()
-            .is_some_and(|r| r.size != (w.max(1), h.max(1)))
-        {
-            inst.ring = crate::buffers::Ring::new(gpu, w, h, inst.offscreen_format());
-        }
+        let (size, format) = ((w.max(1), h.max(1)), inst.offscreen_format());
+        inst.presented.refit(
+            &mut inst.ring,
+            |r| r.size == size,
+            || crate::buffers::Ring::new(gpu, w, h, format),
+        );
         // The GPU's word on the frames it has finished, before counting them.
         let _ = gpu.device.poll(wgpu::PollType::Poll);
         let ring = inst.ring.as_mut()?;

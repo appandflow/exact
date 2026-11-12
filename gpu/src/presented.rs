@@ -65,6 +65,22 @@ impl Presented {
         self.epoch += 1;
     }
 
+    /// Replace `target` with `make()` when it no longer `fits` (Android's
+    /// buffers at a new size): what was presented was the old target's, so
+    /// the picture starts over, as for any target let go of.
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn refit<T>(
+        &mut self,
+        target: &mut Option<T>,
+        fits: impl FnOnce(&T) -> bool,
+        make: impl FnOnce() -> Option<T>,
+    ) {
+        if target.as_ref().is_some_and(|t| !fits(t)) {
+            *target = make();
+            self.reset();
+        }
+    }
+
     /// The surface says which picture it draws; a new one starts over.
     pub(crate) fn generation(&mut self, generation: u64) {
         if generation != self.generation {
@@ -168,6 +184,22 @@ mod tests {
         p.now();
         assert!(p.is());
         assert_eq!(p.take(None).as_deref(), Some(r#"{"presented":true}"#));
+    }
+
+    /// A presented canvas whose buffers are made again at a new size is not
+    /// presented until a frame in the new ones is; the same size keeps them.
+    #[test]
+    fn buffers_made_again_at_a_new_size_start_the_picture_over() {
+        let mut p = Presented::default();
+        let mut ring = Some((4, 4));
+        p.pending().unwrap().shown();
+        p.refit(&mut ring, |r| *r == (4, 4), || panic!("same size"));
+        assert!(p.is());
+        p.refit(&mut ring, |r| *r == (8, 4), || Some((8, 4)));
+        assert_eq!(ring, Some((8, 4)));
+        assert!(!p.is(), "the new buffers hold no frame");
+        p.pending().unwrap().shown();
+        assert!(p.is());
     }
 
     #[test]
