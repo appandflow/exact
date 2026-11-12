@@ -89,3 +89,92 @@ fn bake_compiles_no_value_that_drew_randomness() {
     assert!(runner.resource_draws_entropy("id") && runner.resource_reads_store("id"));
     assert!(!runner.resource_draws_entropy("session"));
 }
+
+const WRITES: &str = r#"
+shape Flag
+  ok: bool
+
+component App
+  resource id = token() as shape string
+  resource session = session() as shape string
+  resource both = both() as shape string
+  mutation signedIn as shape Flag
+
+  action signIn
+    send signedIn = signIn()
+
+  view
+    column
+      text id testId="id"
+      text session testId="session"
+      text both testId="both"
+"#;
+
+/// Counts each source's asks; `signIn` keeps a secret.
+#[derive(Default)]
+struct Writer {
+    asks: std::collections::HashMap<String, u32>,
+}
+
+impl DataSource for Writer {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        _: &[Value],
+    ) -> Result<Answer, DataError> {
+        *self.asks.entry(source.into()).or_default() += 1;
+        match source {
+            "token" => store.observe_entropy(),
+            "session" => {
+                store.get("session");
+            }
+            "both" => {
+                store.observe_entropy();
+                store.get("session");
+            }
+            "signIn" => {
+                store.set("session", "ada")?;
+                return Ok(Answer::Now(Value::record(vec![Value::Bool(true)])));
+            }
+            other => return Err(DataError::UnknownSource(other.into())),
+        }
+        Ok(Answer::Now(Value::str(source)))
+    }
+
+    fn grants(&self) -> &str {
+        "secret.keep session\n"
+    }
+}
+
+/// D2, "Asking again": a draw does not make a resource ask again, so a write
+/// to the store asks again the resources that read it, and not one that only
+/// drew randomness (expo/exact#54: Convex's socket, which draws its session
+/// id, was opened again by every sign-in).
+#[test]
+fn a_store_write_asks_again_what_read_the_store_not_what_only_drew() {
+    let plan = contract::bake(contract::compile(WRITES).unwrap(), Writer::default()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Writer::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asks = |r: &mut Runner<Writer>| {
+        ["token", "session", "both"].map(|s| r.data().asks.get(s).copied().unwrap_or(0))
+    };
+    let before = asks(&mut r);
+    r.act("signIn", vec![]).unwrap();
+    let after = asks(&mut r);
+    assert_eq!(after[0], before[0], "a draw alone is not asked again");
+    assert_eq!(after[1], before[1] + 1, "a store reader is");
+    assert_eq!(after[2], before[2] + 1, "and so is one that drew and read");
+    // Still the device's: bake keeps no value for it.
+    assert!(r.resource_draws_entropy("id") && r.resource_reads_store("id"));
+}

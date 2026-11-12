@@ -680,14 +680,12 @@ impl<D: DataSource> Runner<D> {
         Ok(change)
     }
 
+    /// The resources a change to the store asks again.
     pub(super) fn store_readers(&self) -> Vec<usize> {
-        crate::vm::Column::rows(&self.resources, |row| &row.store_reader)
-            .iter()
-            .enumerate()
-            .filter_map(|(i, reads)| {
-                (*reads
-                    && !exact_plan::runner_owned_source(self.plan.str(self.resource_row(i).source)))
-                .then_some(i)
+        (0..self.resources.len())
+            .filter(|&i| {
+                self.asks_on_store_change(i)
+                    && !exact_plan::runner_owned_source(self.plan.str(self.resource_row(i).source))
             })
             .collect()
     }

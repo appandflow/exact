@@ -281,6 +281,7 @@ impl<D: DataSource> Runner<D> {
         };
         self.store.set_clock_ms(self.now_ms);
         let (reads_before, revision_before) = (self.store.reads(), self.store.revision());
+        let draws_before = self.store.entropy_draws();
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome).map(Some)
         } else if self.plan.module_named(&p.source).is_some() {
@@ -326,7 +327,7 @@ impl<D: DataSource> Runner<D> {
             // A read in a later turn (after an `await`) makes a store reader
             // as one in the first does (LLP 1146 §2.3).
             if self.store.reads() > reads_before {
-                self.resources[i].store_reader = true;
+                self.note_reads(i, reads_before, draws_before);
                 self.module_work.reply_reader = Some(i);
             }
             // A module's source that data code read: the answer is asked
