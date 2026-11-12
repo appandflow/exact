@@ -1,6 +1,7 @@
 # The render server's HTTP cache serves an answer staler than `must-revalidate` or the request's `max-age` allows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An entry whose response said `must-revalidate` or `proxy-revalidate` is never given stale, and a request's `max-age`, `min-fresh` and `max-stale` bound the age of the answer it is given, any it does not meet going to the origin; `s-maxage` with `stale-while-revalidate` is still served stale, as the header comment says.
 **Systems:** host/web-js/http-cache.mjs
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)
