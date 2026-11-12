@@ -130,6 +130,29 @@ public struct ExactDevelopmentPlan {
             return "local generation refused: \(error.localizedDescription)"
         }
     }
+
+    /// The dev loop's file form (LLP 1007 §6): every 100 ms, a changed
+    /// revision is applied to `app`. A module pair starts unseen, so the
+    /// first tick applies it. Keep the timer for as long as the watch runs.
+    public func watch(_ app: ExactApp) -> DispatchSourceTimer {
+        var last = hasModule ? [] : revision
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 0.1, repeating: 0.1)
+        t.setEventHandler {
+            last = Self.seen(revision, last: last, apply: { apply(to: app) }, pending: { app.generationPending })
+        }
+        t.resume()
+        return t
+    }
+
+    /// The revision seen after a tick. A candidate refused while a
+    /// generation is pending (a module still preparing, a request in
+    /// flight) stays unseen, so the next tick asks again, as the URL form
+    /// does; one applied, or refused otherwise, waits for its files to change.
+    static func seen(_ revision: [Double], last: [Double], apply: () -> Bool, pending: () -> Bool) -> [Double] {
+        guard revision != last else { return last }
+        return apply() || !pending() ? revision : last
+    }
 }
 
 /// Explicit development-only opening action (LLP 1030.000 §7). The locator

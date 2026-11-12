@@ -116,18 +116,7 @@ func watchPlan() {
         return
     }
     devPlanPath = planPath
-    let candidate = ExactDevelopmentPlan(planPath)
-    var last = candidate.hasModule ? [] : candidate.revision
-    let t = DispatchSource.makeTimerSource(queue: .main)
-    t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-    t.setEventHandler {
-        let revision = candidate.revision
-        guard revision != last else { return }
-        last = revision
-        candidate.apply(to: exact)
-    }
-    t.resume()
-    planWatch = t
+    planWatch = ExactDevelopmentPlan(planPath).watch(exact)
 }
 
 /// Announce `ready` after the driver connects and the first frame is applied.

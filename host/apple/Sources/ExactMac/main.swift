@@ -821,17 +821,7 @@ func finishLaunching() {
             exact.connect(planPath)
         } else {
             devPlanPath = planPath
-            let candidate = ExactDevelopmentPlan(planPath)
-            var last = candidate.hasModule ? [] : candidate.revision
-            let t = DispatchSource.makeTimerSource(queue: .main)
-            t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-            t.setEventHandler {
-                let revision = candidate.revision
-                guard revision != last else { return }
-                if candidate.apply(to: exact) || !exact.generationPending { last = revision }
-            }
-            t.resume()
-            planWatch = t
+            planWatch = ExactDevelopmentPlan(planPath).watch(exact)
         }
     }
     DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"], frameHealthContainer: window.contentView?.superview)

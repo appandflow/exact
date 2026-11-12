@@ -1,6 +1,7 @@
 # The iOS dev-plan watcher drops a reload that was refused as pending; the Mac's asks again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The file form's timer is `ExactDevelopmentPlan.watch` in ExactKit, with the Mac's rule that a candidate refused as pending stays unseen, and both adapters call it.
 **Systems:** host/apple/Sources/ExactIOS/main.swift, host/apple/Sources/ExactMac/main.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
