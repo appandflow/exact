@@ -64,8 +64,10 @@ export function rememberWorkspace(dir, outside, manifests, workspace, check) {
 /** The generated native workspace of an app that authored none (LLP 1153 D1): under its `.exact/`, which is ignored. */
 export const shellsDir = (dir) => resolve(dir, '.exact/shells');
 const readToml = (path) => { try { return Bun.TOML.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+/** The host crates an app writes beside app.json: each one only its host's build reads. */
+export const HOST_CRATES = ['apple', 'ios', 'macos', 'linux', 'web', 'windows', 'android'];
 /** The crates an app writes beside app.json. */
-export const APP_CRATES = ['apple', 'ios', 'macos', 'linux', 'web', 'windows', 'android', 'data', 'gpu'];
+export const APP_CRATES = [...HOST_CRATES, 'data', 'gpu'];
 /** How an app with Rust of its own gets the workspace it needs (LLP 1153 D1.4: the generated one, copied up). */
 export const NO_WORKSPACE = 'An app with Rust of its own (a gpu/ or data/ crate) copies the generated workspace up from .exact/shells/, which a native verb writes only while no such crate is there: `bun exact.mjs contract vocab gpu-module` says how.';
 /** Whether the workspace at `root` owns the package at `path`, as Cargo reads it: a `members` glob names it, or a

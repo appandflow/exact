@@ -2,7 +2,7 @@
 // defaults and overrides are host/web/agent.test.mjs's "launch setup" test.
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, resolve } from 'node:path';
 import { PINNED_RUST } from './app.mjs';
@@ -1205,6 +1205,35 @@ test('a setting is named the backend\'s source only where the grant takes it, an
     writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\n// export const grants = \`net.fetch \${API}\`;\nexport const grants = 'net.fetch ${origin}/v2';\n`);
     expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test("another host's crate or Android's Gradle files are no input of the Apple, web or plan check", async () => {
+  const {receiptChanges,webInputs}=await import('./agent-launch.mjs');
+  const {planSources}=await import('./agent-build.mjs');
+  const {resolveApp}=await import('./app.mjs');
+  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact-other-hosts-'))), before=process.env.EXACT_APP_DIR;
+  try {
+    const files=['app.json','app.contract','gradle.lockfile','gradle-verification.xml',
+      ...['android','windows','linux','web'].flatMap(host=>[`${host}/Cargo.toml`,`${host}/src/lib.rs`])];
+    const inputTime=new Date('2026-01-01T00:00:00Z'), builtTime=new Date('2026-01-01T00:01:00Z'), edited=new Date('2026-01-01T00:02:00Z');
+    for (const file of files) {
+      mkdirSync(dirname(resolve(dir,file)),{recursive:true});
+      writeFileSync(resolve(dir,file),file==='app.json'?JSON.stringify({name:'Hosts',app:{id:'com.exact.hosts',name:'Hosts'}}):file==='app.contract'?'component App\n  view\n    text "x"\n':'');
+      utimesSync(resolve(dir,file),inputTime,inputTime);
+    }
+    const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');
+    mkdirSync(dirname(receipt),{recursive:true});
+    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:builtTime.toISOString()}));
+    utimesSync(receipt,builtTime,builtTime);
+    for (const file of files) utimesSync(resolve(dir,file),edited,edited);
+    const contract=resolve(dir,'app.contract');
+    expect(receiptChanges(receipt,app).filter(path=>path.startsWith(dir+'/')).sort()).toEqual([contract,resolve(dir,'app.json')]);
+    expect(webInputs(app,true,+builtTime).app.filter(path=>!path.includes('/.exact/')).sort()).toEqual([contract,resolve(dir,'app.json'),resolve(dir,'web/Cargo.toml'),resolve(dir,'web/src/lib.rs')]);
+    expect(Object.keys(planSources(app))).toEqual([contract]);
+  } finally {
+    if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
 });
 
 test('a native build is stale when a setting its module inlined has another value now', async () => {

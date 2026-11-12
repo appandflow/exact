@@ -1,6 +1,7 @@
 # An edit to an app's Android or Windows crate makes its Apple build stale to the driver
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `otherHosts` (`scripts/agent-launch.mjs`) skips the app's host crates from `HOST_CRATES` (`scripts/cargo-check.mjs`) but the check's own, and Android's Gradle lock and checksums, and `receiptChanges`, `webInputs` and `planSources` use it (the `windowsBuild` copy no longer exists).
 **Systems:** scripts/agent-launch.mjs (`receiptChanges`, `webInputs`), scripts/agent-build.mjs (`planSources`, `windowsBuild`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

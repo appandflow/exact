@@ -19,6 +19,7 @@ import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 import { directoryInputSnapshot, packageTests } from './cargo-dep-info.mjs';
+import { HOST_CRATES } from './cargo-check.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -1012,6 +1013,14 @@ export function notBuildInput(dir, keep = []) {
   };
 }
 
+/** A skip for what beside app.json only other hosts' builds read: their crates, all but `kept`, and Android's Gradle
+ * lock and checksums unless `kept` names `android`. */
+export function otherHosts(app, kept = []) {
+  const names = [...HOST_CRATES.filter(host => !kept.includes(host)), ...(kept.includes('android') ? [] : ['gradle.lockfile', 'gradle-verification.xml'])];
+  const paths = new Set(names.map(name => resolve(app.dir, name)));
+  return path => paths.has(path);
+}
+
 const fileDigest = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
@@ -1025,7 +1034,9 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
   const game = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const skip = path => ignored(path) || game(path);
-  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || skip(path));
+  // The Apple crates are read by digest below; every other host's are no input.
+  const hosts = otherHosts(app);
+  const own = newerThan(since, [app.dir], path => hosts(path) || skip(path));
   // Platform-local modules live under the host crate directory skipped above,
   // but their separate dylib's sources are absent from the binary receipt.
   const platform = target.includes('-ios') ? 'ios' : 'macos';
@@ -1081,7 +1092,8 @@ export function webInputs(app, js, since = -Infinity) {
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const backend = resolve(app.dir, '.exact/backend-origin');
-  const appFiles = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const hosts = otherHosts(app, ['web']);
+  const appFiles = newerThan(since, [app.dir], path => hosts(path) || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   // Absence is an input too: removing a selection must invalidate its bake.
   appFiles.push(backend);
