@@ -1431,8 +1431,7 @@ export async function withAppFixture(app, use, { warm = false } = {}) {
   if (!warm) return fixtureRun(app, use, realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-'))), null);
   const run = resolve(realpathSync(tmpdir()), `exact-diagnostic-${key}`);
   mkdirSync(run, { recursive: true });
-  // An OS lock a helper process holds: released however this process ends,
-  // never mistaken for a reused process id.
+  // An OS lock a helper process holds: released however this process ends, never mistaken for a reused process id.
   const { filesystemLock } = await import('./filesystem.mjs');
   let entered = false;
   try {
@@ -1448,8 +1447,7 @@ async function fixtureRun(app, use, run, key) {
   let snapshot;
   try {
     snapshot = snapshotOf(app, { dirty: true, ...(warm ? { captureRoot: resolve(realpathSync(tmpdir()), `exact-capture-${key}`) } : {}) }, ROOT);
-    // materializeSnapshot honors the caller's target override. Scope this
-    // synchronous call to the diagnostic's private target, then restore it.
+    // materializeSnapshot honors the caller's target override. Scope this synchronous call to the diagnostic's private target, then restore it.
     const previousTarget = process.env.CARGO_TARGET_DIR;
     let fixture;
     try {
@@ -1459,9 +1457,8 @@ async function fixtureRun(app, use, run, key) {
       if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR;
       else process.env.CARGO_TARGET_DIR = previousTarget;
     }
-    // Hermes (js/build.rs) is provisioned beside the checkout, in `ibex`; a
-    // capture has none there, so a TypeScript app's bake failed in it. Link
-    // the live checkout's, as that layout expects.
+    // Hermes (js/build.rs) is provisioned beside the checkout, in `ibex`; a capture has none there, so a TypeScript app's bake failed in it. Link the
+    // live checkout's, as that layout expects.
     const ibex = resolve(dirname(ROOT), 'ibex'), besideCapture = resolve(dirname(fixture.exactRoot), 'ibex');
     if (existsSync(ibex) && !existsSync(besideCapture)) symlinkSync(ibex, besideCapture);
     const env = { ...process.env, EXACT_APP_DIR: fixture.app.dir, EXACT: fixture.exactRoot, EXACT2: fixture.exactRoot,
