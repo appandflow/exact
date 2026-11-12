@@ -1,6 +1,7 @@
 # The vendored Rapier's patch note lists two changes and says the rest is unchanged; the source marks six more places
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The README's Exact section now lists all seven changes a diff against the crates.io 0.35.3 archive finds (the collision-type fix, the hole format, and the weight-bounded friction and pair touch state added since the issue among them) and says that `game/physics` selects the copy by path.
 **Systems:** vendor/rapier3d
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
