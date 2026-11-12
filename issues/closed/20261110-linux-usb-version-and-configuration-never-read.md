@@ -1,6 +1,7 @@
 # On Linux a USB device's `usbVersion*` is always 0, and a native connection's `configuration` is always null
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Linux reads the USB version from sysfs's `version` and both Linux and macOS answer `usbConnection`'s `configuration` with the device's active configuration, which macOS now reads from `kUSBCurrentConfiguration` (its device node has no `bConfigurationValue`, so the record's `configuration` was null there too).
 **Systems:** packages/usb/linux/lib.rs, packages/usb/apple/USB.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
