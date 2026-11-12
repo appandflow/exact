@@ -138,8 +138,10 @@ impl Surfaces {
     }
 
     /// Upload each canvas's picture of its children (`gpu_texture`), when it
-    /// is not the one uploaded last: an upload marks the canvas dirty, and the
-    /// surface renders again with it.
+    /// is not the one this canvas was last given: an upload marks the canvas
+    /// dirty, and the surface renders again with it. What a canvas was given
+    /// goes with it, so a canvas that replaces it under the same view (a
+    /// reload) is given its first picture whatever it shows.
     pub(crate) fn children_pictures(
         &mut self,
         pictures: Vec<(u32, std::sync::Arc<tiny_skia::Pixmap>)>,
@@ -148,13 +150,10 @@ impl Surfaces {
             let (Some(c), true) = (self.canvases.get(&view), picture.width() > 0) else {
                 continue;
             };
-            let same = UPLOADED.with_borrow(|u| {
-                u.get(&view)
-                    .is_some_and(|last: &std::sync::Arc<tiny_skia::Pixmap>| {
-                        last.width() == picture.width()
-                            && last.height() == picture.height()
-                            && last.data() == picture.data()
-                    })
+            let same = c.uploaded.as_ref().is_some_and(|last| {
+                last.width() == picture.width()
+                    && last.height() == picture.height()
+                    && last.data() == picture.data()
             });
             if same {
                 continue;
@@ -181,18 +180,11 @@ impl Surfaces {
                 self.error = abi.error().filter(|e| e != "no device");
                 continue;
             }
-            UPLOADED.with_borrow_mut(|u| {
-                u.retain(|v, _| self.canvases.contains_key(v));
-                u.insert(view, picture);
-            });
+            if let Some(c) = self.canvases.get_mut(&view) {
+                c.uploaded = Some(picture);
+            }
         }
     }
-}
-
-thread_local! {
-    /// The picture each composited canvas was last given.
-    static UPLOADED: std::cell::RefCell<BTreeMap<u32, std::sync::Arc<tiny_skia::Pixmap>>> =
-        const { std::cell::RefCell::new(BTreeMap::new()) };
 }
 
 /// Whether two sets of placements differ in any child, bit for bit.
@@ -334,6 +326,7 @@ uint32_t test_texture_alpha(void) { return texture_pixel[3]; }
                 restore_input: false,
                 restore_bytes: None,
                 restore_logged: false,
+                uploaded: None,
             },
         );
         p.dirty = true;
@@ -358,6 +351,14 @@ uint32_t test_texture_alpha(void) { return texture_pixel[3]; }
         p.dirty = true;
         p.frame();
         assert_eq!(call(&p.surfaces.abis[""], b"test_textures"), 1);
+        // A canvas that replaces it under the same view (a reload) is given
+        // the same picture: what was given went with the canvas.
+        let mut replacement = p.surfaces.canvases.remove(&canvas).unwrap();
+        (replacement.id, replacement.uploaded) = (2, None);
+        p.surfaces.canvases.insert(canvas, replacement);
+        p.dirty = true;
+        p.frame();
+        assert_eq!(call(&p.surfaces.abis[""], b"test_textures"), 2);
         // The label keeps its hit box at its layout frame.
         let label = p
             .host

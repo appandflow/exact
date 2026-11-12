@@ -396,6 +396,8 @@ struct Canvas {
     restore_input: bool,
     restore_bytes: Option<Vec<u8>>,
     restore_logged: bool,
+    /// The picture of its children last given to it (`gpu_texture`), which dies with it.
+    uploaded: Option<std::sync::Arc<tiny_skia::Pixmap>>,
 }
 impl Canvas {
     fn finish_restore(&mut self, error: Option<String>, state: Option<&Value>) -> Option<String> {
@@ -679,6 +681,7 @@ impl Surfaces {
                         restore_input: false,
                         restore_bytes: None,
                         restore_logged: false,
+                        uploaded: None,
                     },
                 );
             }

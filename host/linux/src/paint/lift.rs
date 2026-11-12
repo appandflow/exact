@@ -49,9 +49,6 @@ impl Painter {
         child_offset: (f32, f32),
         child_rect: Option<Rect4>,
     ) {
-        if self.composite(walk, node, ts, child_offset, child_rect) {
-            return;
-        }
         let lift = self.lifted_child(walk, node);
         // A native button's children are its face, painted above (LLP 1069.011 D5).
         let native =
@@ -83,6 +80,11 @@ impl Painter {
             });
         }
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
+        // A surface that composites its children takes them in this order.
+        if self.composites.canvases.contains(&node.id) {
+            self.composite(walk, node, &children, ts, child_offset, child_rect);
+            return;
+        }
         // A scroller's rows are its children; a scroller holding one
         // container (a column of settings) keeps that container's children
         // apart instead, so one of them changing records only itself.
