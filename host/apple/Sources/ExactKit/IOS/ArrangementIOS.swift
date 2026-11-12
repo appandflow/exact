@@ -61,6 +61,12 @@ final class ArrangementHost {
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
+    /// The policy last applied to this backend, until the next inset sync.
+    func insets(_ node: NodeView) -> Bool {
+        guard let scroll = node.scrollView else { return false }
+        return insetScrollers[node.id] === scroll
+    }
+
     func set(_ node: UInt32, controller: UIArrangementViewController?) -> Bool {
         guard let root = presenter.views[node] else { return false }
         if controller != nil, paneIDs(of: root) == nil { return false }
