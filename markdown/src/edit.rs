@@ -500,7 +500,10 @@ fn footnote(source: &str, sel: B) -> Draft {
             next = next.max(rest[..digits].parse::<u64>().map_or(next, |n| n + 1));
         }
     }
-    let gap = if source.is_empty() || source.ends_with("\n\n") {
+    // At the end of the source the definition follows the reference, not the old ending.
+    let gap = if sel.end == source.len() {
+        "\n\n"
+    } else if source.ends_with("\n\n") {
         ""
     } else if source.ends_with('\n') {
         "\n"

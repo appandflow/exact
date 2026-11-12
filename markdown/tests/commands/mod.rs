@@ -294,4 +294,18 @@ fn a_footnote_command_numbers_itself_and_opens_its_definition() {
         run("A[^1] claim|.\n\n[^1]: one\n", Command::Footnote),
         "A[^1] claim[^2].\n\n[^1]: one\n\n[^2]: |"
     );
+    // At the end of the source the definition starts a line of its own.
+    for (before, after) in [
+        ("Text\n\n|", "Text\n\n[^1]\n\n[^1]: |"),
+        ("Text\n|", "Text\n[^1]\n\n[^1]: |"),
+        ("Text|", "Text[^1]\n\n[^1]: |"),
+        ("|", "[^1]\n\n[^1]: |"),
+    ] {
+        assert_eq!(run(before, Command::Footnote), after, "{before:?}");
+        let source = after.replace('|', "");
+        let notes = style(&source, None).footnotes;
+        assert_eq!(notes.len(), 1, "{source:?}");
+        assert_eq!(notes[0].references.len(), 1, "{source:?}");
+        assert!(notes[0].definition.is_some(), "{source:?}");
+    }
 }

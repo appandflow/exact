@@ -1,6 +1,7 @@
 # A footnote inserted at the end of a source that ends in a blank line has no definition
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** When the reference goes at the end of the source, the footnote command puts a blank line between it and the definition, so the definition starts its own paragraph.
 **Systems:** markdown/src/edit.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
