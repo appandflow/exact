@@ -176,7 +176,7 @@ impl Abi {
         }
         #[cfg(target_os = "android")]
         if load {
-            android::load(&abi)?;
+            android::load(&abi, artifact.is_empty())?;
         }
         #[cfg(not(target_os = "android"))]
         let _ = load;

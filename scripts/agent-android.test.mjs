@@ -653,3 +653,23 @@ test('Android bundles and unattended APKs have explicit command flags', async ()
     expect(r.stderr).not.toContain('no app at');
   }
 });
+
+test('an APK carries each named GPU module beside the primary, unstripped (#306)', async () => {
+  const { gpuLibraries, stageGpuLibraries } = await import('./agent-android.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-apk-gpu-'));
+  try {
+    const app = { hasGpu: true, manifest: { gpu: { modules: { extra: ['extra'], 'toy-box': ['toy'] } } }, crate: (kind) => `fiddl-${kind}` };
+    const built = (name) => resolve(dir, `lib${name.replaceAll('-', '_')}.so`);
+    const libraries = gpuLibraries(app, built);
+    expect(libraries).toEqual(['libfiddl_gpu.so', 'libfiddl_gpu_extra.so', 'libfiddl_gpu_toy_box.so'].map((file) => resolve(dir, file)));
+    // An app whose surfaces are all in named modules has no primary.
+    expect(gpuLibraries({ ...app, hasGpu: false }, built)).toEqual(libraries.slice(1));
+    expect(gpuLibraries({ ...app, manifest: {} }, built)).toEqual(libraries.slice(0, 1));
+    for (const library of libraries) writeFileSync(library, library);
+    const jniLibs = resolve(dir, 'jniLibs/arm64-v8a');
+    mkdirSync(jniLibs, { recursive: true });
+    expect(stageGpuLibraries(libraries, jniLibs)).toEqual(['-PgpuModules=libfiddl_gpu.so,libfiddl_gpu_extra.so,libfiddl_gpu_toy_box.so']);
+    for (const library of libraries) expect(readFileSync(resolve(jniLibs, library.split('/').pop()), 'utf8')).toBe(library);
+    expect(stageGpuLibraries([], jniLibs)).toEqual([]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

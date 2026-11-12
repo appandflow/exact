@@ -22,8 +22,10 @@ pub(super) fn library_dir() -> Option<PathBuf> {
     std::env::var_os("EXACT_NATIVE_LIBS").map(|d| PathBuf::from(d).join("app"))
 }
 
-/// Load `abi` with a device and register the app's shaders.
-pub(super) fn load(abi: &Abi) -> Result<(), String> {
+/// Load `abi` with a device and, for the primary module, register the app's
+/// shaders. The shader pack is the primary's (LLP 1030 D8), as on Linux: a
+/// named module (LLP 1009 D6) refuses a shader its Rust does not bind.
+pub(super) fn load(abi: &Abi, primary: bool) -> Result<(), String> {
     agent_tier(abi);
     if unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() } != 0 {
         return Err(abi.error().unwrap_or_else(|| "gpu_load failed".into()));
@@ -39,7 +41,8 @@ pub(super) fn load(abi: &Abi) -> Result<(), String> {
     let shader = unsafe {
         abi.symbol::<unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> u32>(b"gpu_shader")
     };
-    if let Ok(dir) = std::fs::read_dir(root.join("shaders")) {
+    let pack = primary.then(|| std::fs::read_dir(root.join("shaders")).ok());
+    if let Some(dir) = pack.flatten() {
         for entry in dir.flatten() {
             let path = entry.path();
             let (Some(name), Some("wgsl")) = (
