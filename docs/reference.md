@@ -1760,7 +1760,10 @@ and refuses a store reached through a symbolic link; one drive holds a native st
 at a time. On the web it is Chrome's profile for the name and its page's origin,
 empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own). A drive that compares with a
 reference starts empty on every host unless `--keep-storage`. An authored test gets a fresh
-one of its own, removed after it. A data module's `secret.keep` rides that same
+one of its own, removed after it. If Chrome (including its headless shell) survives an
+interrupted drive, the next drive refuses before resetting or opening its profile and
+names the profile and PID; close that browser or use another store name. A drive also refuses when the profile's
+owner cannot be verified. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
