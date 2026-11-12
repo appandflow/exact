@@ -57,7 +57,7 @@ const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
 const { chromium } = await import('./agent-launch.mjs');
-const { androidLockCommand, androidSdk, androidSdkPackages, androidSdkFix } = await import('./agent-android.mjs');
+const { androidLockCommand, androidSdk, androidSdkPackages, androidSdkFix, androidJavaEnv, androidJavaFix, androidToolchainEnv } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
@@ -388,7 +388,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
   return `binaryen-${version}-${arch}-${platform}.tar.gz`;
 }
 /** Install the versions declared by the SDK, once per machine. */
-export function setup({check = false} = {}) {
+export async function setup({check = false, platform = null, device = false} = {}) {
   // Steps only a game needs (its SDK lock, the engine's rustdoc for `game vocab`): a failure is named, not fatal.
   const gameFailures = [];
   if (!check) { const room = freeSpace(homedir()); if (room && room.gb < ROOM_GB) console.warn(`exact setup: ${room.text}`); }
@@ -473,7 +473,8 @@ export function setup({check = false} = {}) {
       catch (error) { gameFailures.push(`the engine rustdoc for game vocab did not build:\n${error.message.trim().split('\n').slice(-3).join('\n')}`); }
     }
   }
-  const report = sdkReport();
+  const rows = sdkReport(process.env, { only: platform, device });
+  const report = platform ? (await platformReport(platform, rows, { device })).map(row => ({ ...row, required: true })) : rows;
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
@@ -492,13 +493,13 @@ export function setup({check = false} = {}) {
  * iOS its target's Rust std. */
 export function platformRowNames(platform, { os = process.platform, cpu = process.arch, device = false } = {}) {
   const host = `Hermes bundle (${hermesTarget(os, cpu)})`, ios = device ? 'aarch64-apple-ios' : appleCrossTargets(os, cpu)[0]?.target;
-  const rows = platform === 'android' ? androidSdkPackages().map(p => p.name) : ({
+  const rows = platform === 'android' ? [...androidSdkPackages().map(p => p.name), 'Android NDK', 'Android JDK'] : ({
     web: ['Bun', 'node_modules', 'Chrome'],
     ios: ['Xcode', 'iOS SDK', `Hermes bundle (${ios})`, `Rust ${ios}`],
     macos: ['Xcode', host],
     linux: [host],
   }[platform] ?? []);
-  return ['rustup', 'Rust', ...rows];
+  return [...new Set(['rustup', 'Rust', 'Bun', 'node_modules', ...rows])];
 }
 /** The rows of `rows` a platform's build reads (`device`: an iOS build for a phone, whose Hermes bundle is the device's),
  * and for Android its Rust target, NDK and Hermes bundle (scripts/agent-android.mjs finds them, or says
@@ -516,8 +517,6 @@ export async function platformReport(platform, rows, { device = false } = {}) {
   if (platform !== 'android') return own;
   const android = /^aarch64-linux-android$/m.test(targets());
   own.push(row('Rust target aarch64-linux-android', android, android ? 'installed' : 'missing', 'aarch64-linux-android', `rustup target add aarch64-linux-android --toolchain ${pin}`));
-  try { (await import('./agent-android.mjs')).androidToolchainEnv(); own.push(row('Android NDK', true, 'found', 'an NDK', '')); }
-  catch (error) { own.push(row('Android NDK', false, 'missing', 'an NDK with the aarch64-linux-android toolchain', String(error.message ?? error))); }
   const bundle = androidHermes();
   own.push(row('Hermes bundle (aarch64-linux-android)', bundle.ok, bundle.have, 'the Android Hermes bundle a TypeScript app links', bundle.fix));
   return own;
@@ -642,9 +641,14 @@ export function sdkReport(env = process.env, { only = null, device = false, tv =
   }
   // Android, where its SDK is (LLP 1107), in the whole report: what `bun exact.mjs android` needs besides it
   // (`platformReport` checks the same for a first Android build).
+  if (only === 'android' || !only && existsSync(androidSdk(env))) {
+    const java = androidJavaEnv(env);
+    rows.push(row('Android JDK', java ? java.JAVA_HOME ?? 'java and javac on PATH' : '', 'JDK 17 or newer', !!java, java ? '' : androidJavaFix(env), 'Android'));
+    let ndk = '', fault = '';
+    try { ndk = androidToolchainEnv(env).ANDROID_NDK_HOME; } catch (error) { fault = error.message; }
+    rows.push(row('Android NDK', ndk, 'NDK with the aarch64 toolchain', !!ndk, fault, 'Android'));
+  }
   if (!only && existsSync(androidSdk(env))) {
-    const ndks = resolve(androidSdk(env), 'ndk'), ndk = env.ANDROID_NDK_HOME ?? (existsSync(ndks) ? readdirSync(ndks).filter(v => /^\d/.test(v)).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).at(-1) : '');
-    rows.push(row('Android NDK', ndk && basename(ndk), 'any (27.1 is tried)', !!ndk, 'the SDK manager: sdkmanager "ndk;27.1.12297006" (or set ANDROID_NDK_HOME)', 'Android'));
     const target = output('rustup', ['target', 'list', '--installed', '--toolchain', pin.channel]).split('\n').includes('aarch64-linux-android');
     rows.push(row('Rust aarch64-linux-android', target ? 'installed' : '', pin.channel, target, 'exact setup', 'Android'));
     const bundle = androidHermes(env);
@@ -820,7 +824,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]       install pinned Rust, wasm-bindgen, Binaryen and
+  exact setup [--check [--platform <host> [--device]]]
+                              install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline;
                                build the engine rustdoc that game vocab reads
@@ -1353,8 +1358,12 @@ async function main(argv) {
   }
   if (verb === 'setup') {
     const flags = argv.slice(1);
-    if (flags.some(flag => !['--check'].includes(flag))) throw new Error('Usage: exact setup [--check]');
-    return setup({check:flags.includes('--check')});
+    const at = flags.indexOf('--platform'), platform = at < 0 ? null : flags[at + 1];
+    const rest = flags.filter((_, i) => i !== at && i !== at + 1 || at < 0);
+    if (rest.some(flag => !['--check', '--device'].includes(flag)) || at >= 0 && (!flags.includes('--check') || !['ios', 'macos', 'android', 'web', 'linux', 'windows'].includes(platform)) || flags.includes('--device') && platform !== 'ios')
+      throw new Error('Usage: exact setup [--check [--platform ios|macos|android|web|linux|windows [--device]]]');
+    if (['ios', 'macos'].includes(platform) && process.platform !== 'darwin') throw new Error(`${platform} needs a Mac with Xcode`);
+    return setup({check:flags.includes('--check'), platform, device:flags.includes('--device')});
   }
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).

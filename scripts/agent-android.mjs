@@ -71,14 +71,27 @@ export function androidSdkPackages(gradle = readFileSync(resolve(import.meta.dir
   ];
 }
 
-/** Gradle's JDK: JAVA_HOME, else Android Studio's on macOS. */
-export function androidJavaEnv(env = process.env, platform = process.platform, studio = '/Applications/Android Studio.app/Contents/jbr/Contents/Home') {
-  const home = env.JAVA_HOME?.replaceAll('"', '') || (platform === 'darwin' && existsSync(resolve(studio, 'bin/java')) ? studio : null);
-  if (!home) return null;
-  const java = resolve(home, 'bin', platform === 'win32' ? 'java.exe' : 'java');
-  const checked = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeout: 5000 });
-  const major = /version "(\d+)/.exec(`${checked.stderr ?? ''}${checked.stdout ?? ''}`)?.[1];
-  return checked.status === 0 && Number(major) >= 17 ? { ...env, JAVA_HOME: home } : null;
+const STUDIO_JAVA_HOME = '/Applications/Android Studio.app/Contents/jbr/Contents/Home';
+
+/** Gradle's JDK: JAVA_HOME, else a usable Android Studio JDK on macOS, else PATH. */
+export function androidJavaEnv(env = process.env, platform = process.platform, studio = STUDIO_JAVA_HOME) {
+  const suffix = platform === 'win32' ? '.exe' : '';
+  const check = home => {
+    const tool = name => home ? resolve(home, 'bin', name + suffix) : Bun.which(name + suffix, { PATH: env.PATH ?? '' });
+    const java = tool('java'), javac = tool('javac');
+    if (!java || !javac || !existsSync(java) || !existsSync(javac)) return null;
+    const checked = spawnSync(java, ['-version'], { env, encoding: 'utf8', timeout: 5000 });
+    const major = /version "(\d+)/.exec(`${checked.stderr ?? ''}${checked.stdout ?? ''}`)?.[1];
+    return checked.status === 0 && Number(major) >= 17 ? (home ? { ...env, JAVA_HOME: home } : env) : null;
+  };
+  if (env.JAVA_HOME) return check(env.JAVA_HOME.replaceAll('"', ''));
+  return (platform === 'darwin' ? check(studio) : null) ?? check(null);
+}
+
+export function androidJavaFix(env = process.env, platform = process.platform, studio = STUDIO_JAVA_HOME) {
+  const rejected = env.JAVA_HOME ? `JAVA_HOME=${env.JAVA_HOME}`
+    : platform === 'darwin' && existsSync(resolve(studio, 'bin/java')) ? `Android Studio JDK at ${studio} and java/javac on PATH` : 'java/javac on PATH';
+  return `Android needs a JDK 17 or newer (${rejected} is unusable): set JAVA_HOME to a JDK directory${env.JAVA_HOME ? '' : ', or put java and javac on PATH'}`;
 }
 
 function sdkManager(env, platform) {
@@ -769,6 +782,9 @@ export function androidReleaseEnvironment(env = process.env, bundle = false) {
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
 export function buildApk(app, env, profile, writeLocks = false, bundle = false) {
   env = androidReleaseEnvironment(env, bundle);
+  const java = androidJavaEnv(env);
+  if (!java) throw new Error(androidJavaFix(env));
+  env = java;
   const crate = app.crate('android');
   if (!app.manifest.game && !crateManifest(app, 'android')) throw new Error(`${app.dir} has no android/ crate, the app's library for the Canvas host: bun exact.mjs update adds one to an app that names android in app.json (apps/shelf/android is one)`);
   // The icon and banner first, so a refused one costs no compile.

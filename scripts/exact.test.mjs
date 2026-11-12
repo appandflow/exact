@@ -1409,13 +1409,14 @@ test.skipIf(process.platform === 'win32')('setup reports Gradle SDK packages and
     const sdk = resolve(root, 'SDK with spaces'), jdk = resolve(root, 'JDK with spaces');
     mkdirSync(resolve(jdk, 'bin'), { recursive: true });
     writeFileSync(resolve(jdk, 'bin/java'), '#!/bin/sh\necho \'openjdk version "21.0.1"\' >&2\n', { mode: 0o755 });
+    writeFileSync(resolve(jdk, 'bin/javac'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     const tool = resolve(sdk, 'cmdline-tools/19.0/bin/sdkmanager');
     mkdirSync(dirname(tool), { recursive: true });
     writeFileSync(tool, '#!/bin/sh\nexit 99\n', { mode: 0o755 });
     const env = { ...process.env, ANDROID_HOME: sdk, JAVA_HOME: jdk }, packages = androidSdkPackages();
     assert.deepEqual(androidSdkPackages('compileSdk { version = release(42) { minorApiLevel = 3 } }\nbuildToolsVersion = "41.0.2"').map(p => p.id), ['platforms;android-42.3', 'build-tools;41.0.2']);
     assert.throws(() => androidSdkPackages(''), /cannot read/);
-    const rows = () => sdkReport(env, { only: 'android' }).filter(r => r.name.startsWith('Android'));
+    const rows = () => sdkReport(env, { only: 'android' }).filter(r => packages.some(p => p.name === r.name));
     assert.deepEqual(rows().map(r => [r.name, r.ok, r.want]), packages.map(p => [p.name, false, p.version]));
     for (const [i, row] of rows().entries()) {
       assert.equal(row.fix, `'${tool}' '--sdk_root=${sdk}' '${packages[i].id}'`);
@@ -1425,6 +1426,8 @@ test.skipIf(process.platform === 'win32')('setup reports Gradle SDK packages and
     assert.ok(rows().every(r => r.ok));
     assert.ok(!sdkReport(env, { only: 'web' }).some(r => r.name.startsWith('Android')));
     assert.ok(!platformRowNames('web').some(name => name.startsWith('Android')));
+    assert.equal(sdkReport(env, { only: 'android' }).find(r => r.name === 'Android JDK')?.ok, true);
+    assert.equal(sdkReport({ ...env, JAVA_HOME: resolve(root, 'absent') }, { only: 'android' }).find(r => r.name === 'Android JDK')?.ok, false);
     assert.equal(androidJavaEnv(env, 'linux').JAVA_HOME, jdk);
     assert.equal(androidJavaEnv({ PATH: '', JAVA_HOME: resolve(root, 'missing-jdk') }, 'linux'), null);
     assert.equal(androidJavaEnv({ PATH: '' }, 'darwin', jdk).JAVA_HOME, jdk);

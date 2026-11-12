@@ -36,7 +36,13 @@ keeps Hermes's OS-backed Intl; Android has no `Intl` yet. A Rust-only app needs 
 `exact setup` installs the host bundle and, on macOS, the iOS and tvOS Simulator
 bundles, and the iOS device bundle where Xcode's iphoneos SDK is installed.
 `exact setup --check` runs Ibex's own offline resolver validation over that
-same set.
+same set. On a CI worker, `bun <exact2>/scripts/exact.mjs setup --check
+--platform ios --device` checks the archive's prerequisites; `--platform
+android` checks the APK/AAB prerequisites, including JDK 17+ and the NDK's
+actual compiler paths. A scoped check fails when any of its rows is missing
+and does not check unrelated web tools. `--platform` is check-only; install
+commands are in the platform's CI recipe. The general check still reports
+optional tools separately (LLP 1086 D6).
 
 ### Windows painter
 

@@ -561,6 +561,30 @@ for (const failure of ['retained', 'replaced']) test(`the Android reader retries
   }
 });
 
+test.skipIf(process.platform === 'win32')('Android tries PATH after an unusable Studio JDK but honors JAVA_HOME', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-jdk-fallback-'));
+  try {
+    const studio = resolve(dir, 'Studio Home'), pathJdk = resolve(dir, 'path-jdk');
+    for (const [home, version] of [[studio, 16], [pathJdk, 17]]) {
+      mkdirSync(resolve(home, 'bin'), { recursive: true });
+      writeFileSync(resolve(home, 'bin/java'), `#!/bin/sh\necho 'openjdk version "${version}.0.1"' >&2\n`, { mode: 0o755 });
+      writeFileSync(resolve(home, 'bin/javac'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
+    const env = { PATH: resolve(pathJdk, 'bin') };
+    expect(androidJavaEnv(env, 'darwin', studio)).toBe(env);
+    expect(androidJavaEnv({ ...env, JAVA_HOME: studio }, 'darwin', pathJdk)).toBeNull();
+    expect(androidJavaEnv({ PATH: '' }, 'darwin', studio)).toBeNull();
+    writeFileSync(resolve(studio, 'bin/java'), `#!/bin/sh\necho 'openjdk version "21.0.1"' >&2\n`, { mode: 0o755 });
+    rmSync(resolve(studio, 'bin/javac'));
+    expect(androidJavaEnv(env, 'darwin', studio)).toBe(env);
+    expect(androidJavaEnv({ ...env, JAVA_HOME: studio }, 'darwin', pathJdk)).toBeNull();
+    const { androidJavaFix } = await import('./agent-android.mjs');
+    expect(androidJavaFix({ PATH: '' }, 'darwin', studio)).toContain(studio);
+    expect(androidJavaFix({ ...env, JAVA_HOME: pathJdk }, 'darwin', studio)).toContain(pathJdk);
+    expect(androidJavaFix({ ...env, JAVA_HOME: pathJdk }, 'darwin', studio)).not.toContain(studio);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 const releaseJavaEnv = androidJavaEnv(process.env);
 const releaseSdk = androidSdk(process.env);
 test.skipIf(process.platform !== 'darwin' || !releaseJavaEnv ||

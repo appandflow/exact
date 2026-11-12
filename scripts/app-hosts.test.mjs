@@ -197,3 +197,14 @@ test('setup accepts the Bun range the builds accept', async () => {
     }
   } finally { Object.defineProperty(process.versions, 'bun', descriptor); }
 });
+
+test('a CI setup check names only the requested build toolchain and fails when it is missing', () => {
+  const result = spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), 'setup', '--check', '--platform', 'android'], {
+    encoding: 'utf8', env: { HOME: process.env.HOME, PATH: '', BUN: process.execPath,
+      ANDROID_HOME: '/absent-exact-ci-sdk', JAVA_HOME: '/absent-exact-ci-jdk', CARGO_HOME: '/absent-exact-ci-cargo' },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /Android JDK: missing/);
+  assert.match(result.stdout, /Android NDK: missing/);
+  assert.doesNotMatch(result.stdout, /Chrome|web nightly|wasm-bindgen|Xcode/);
+});
