@@ -1399,8 +1399,9 @@ The cut was the smallest one. Left in the reader:
     frame by frame (`WindowInsetsAnimation`).
   - *The device's settings* (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size
     is 16 times it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that
-    the screen is a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change
-    nothing yet: exact2 has no door for them.
+    the screen is a finger's. The 12 or 24-hour clock is `exactTime().formatLocale`'s hour cycle: where it differs
+    from the locale's own, the locale with `-u-hc-h12` or `-u-hc-h23`, as Apple tells it. The layout direction and
+    bold text cross too and change nothing yet: exact2 has no door for them.
   - *Back, in order* (D6, `Native.back`): from the navigation root's selected route, the Back control the root names,
     else the root's `navigate`, else the runner's own `back`. The reader takes Back only while exact2 says it has
     somewhere to go (a request, above), so at the first screen Back is the system's own and leaves the app with
