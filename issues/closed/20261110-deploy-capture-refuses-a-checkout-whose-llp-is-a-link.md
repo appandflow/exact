@@ -1,6 +1,7 @@
 # A deploy's source capture refuses a checkout whose `llp` is a symbolic link, the arrangement AGENTS.md gives a worktree
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already fixed by 13ca8570, which excludes the Exact checkout's `llp` from the captured tree in `sourcePathspec`, so neither the link nor a real corpus directory is captured or published; after it, `bun test scripts/deploy.test.mjs` passes both named cases in a worktree whose `llp` is an absolute link.
 **Systems:** scripts/deploy.mjs (validateCapturedTree), scripts/deploy.test.mjs, AGENTS.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
