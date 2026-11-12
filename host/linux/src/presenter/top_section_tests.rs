@@ -38,8 +38,12 @@ const APP: &str = r#"component App
 "#;
 
 fn boot() -> Presenter<()> {
+    boot_app(APP)
+}
+
+fn boot_app(app: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &crate::test_plan(APP),
+        &crate::test_plan(app),
         (),
         (400., 800.),
         1.,
@@ -139,6 +143,72 @@ fn a_group_in_a_menu_is_a_section_headed_by_its_label() {
     let node = p.host().kernel().node(said).unwrap();
     let text: String = node.text_runs().iter().map(|r| &*r.text).collect();
     assert_eq!(text, "comet", "an item in a section presses its row");
+}
+
+/// A menu whose section holds `ODD` beside a row.
+const ODD_SECTION: &str = r#"component App
+  state said = "nothing"
+  action pick(name: string)
+    said = name
+  action type(value: string)
+    said = value
+  view
+    column
+      text said testId="said"
+      button popovertarget="m" testId="pick" width=80 height=40
+        text "Pick"
+      column id="m" popover="auto" role="menu" aria-label="Presets"
+        button press=pick("pair") popovertarget="m" popovertargetaction="hide" testId="pair"
+          text "Pair"
+        column role="group" aria-label="Your presets"
+          ODD
+          button press=pick("fireball") popovertarget="m" popovertargetaction="hide" testId="fireball"
+            text "Fireball"
+"#;
+
+/// A section holding anything but button rows, a field or another group,
+/// keeps the popover from being a menu: it is painted as written, as on
+/// Apple, not shown as a menu of the rows it has.
+#[test]
+fn a_section_of_more_than_rows_is_no_menu() {
+    let field = r#"input value=said input=type testId="field" width=120 height=30"#;
+    let group = r#"column role="group" aria-label="Inner"
+            button press=pick("inner") testId="inner"
+              text "Inner""#;
+    for (what, odd) in [("a field", field), ("a nested group", group)] {
+        let mut p = boot_app(&ODD_SECTION.replace("ODD", odd));
+        let menu = {
+            let kernel = p.host().kernel();
+            kernel.node_by_key(kernel.find_by_id("m")[0]).unwrap().id
+        };
+        assert!(p.surface_plan(menu, false).is_none(), "{what}: no menu");
+        // The desktop's overlays (Windows) paint it as written too.
+        p.serve_overlays();
+        assert!(
+            p.surface_plan(menu, false).is_none(),
+            "{what}: no menu, overlaid"
+        );
+        p.frame();
+        p.tap(id(&p, "pick")).unwrap();
+        p.run_commands(|| ());
+        p.frame();
+        assert!(p.surface().is_none(), "{what}: no menu surface");
+        let nodes = p.access_tree().0;
+        let buttons: Vec<&str> = (nodes.iter())
+            .filter(|n| n.role == role::BUTTON)
+            .map(|n| n.name.as_str())
+            .collect();
+        assert!(
+            buttons.contains(&"Pair") && buttons.contains(&"Fireball"),
+            "{what}: the popover's rows are on the page, {buttons:?}"
+        );
+        if what == "a field" {
+            assert!(
+                (nodes.iter()).any(|n| n.role == role::EDIT || n.role == role::FIELD),
+                "the field is on the page"
+            );
+        }
+    }
 }
 
 fn shown_target(p: &Presenter<()>, node: ViewId) -> &look::Target {

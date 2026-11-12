@@ -286,11 +286,14 @@ pub fn menu(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> O
             continue;
         };
         if is_section(&node) {
-            let items: Vec<Entry> = rows(&node)
-                .into_iter()
-                .filter_map(item)
-                .map(Entry::Item)
-                .collect();
+            // A section holds button rows only. Anything else in it, a
+            // field or another group, keeps the popover from being a menu,
+            // so it is painted as written, as Apple's `menuShaped` rules.
+            let rows = rows(&node);
+            if !(rows.iter()).all(|id| kernel.node(*id).is_some_and(|n| is_button(&n))) {
+                return None;
+            }
+            let items: Vec<Entry> = rows.into_iter().filter_map(item).map(Entry::Item).collect();
             if items.is_empty() {
                 continue;
             }
