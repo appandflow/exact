@@ -650,8 +650,7 @@ impl Painter {
         self.backend.window_overlay_rows()
     }
 
-    /// Another backend from here on (the CPU's, once the GPU's failed a
-    /// frame).
+    /// Another backend from here on (the CPU's, once the GPU's failed a frame).
     pub fn replace_backend(&mut self, backend: Box<dyn Backend>) {
         self.backend = backend;
     }
