@@ -1,6 +1,7 @@
 # Under a page zoom the Mac draws an SVG's pattern, mask and filter pictures at the unzoomed scale
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An SVG scene takes its scale from its view's `pixelScale` on the Mac, which includes the page zoom, and `SvgHost.rescale` applies each scene again when the zoom or the display's scale changes.
 **Systems:** host/apple/Sources/ExactKit/SvgScene.swift (SvgHost.scene), host/apple/Sources/ExactKit/Mac/NodeViewMac.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
