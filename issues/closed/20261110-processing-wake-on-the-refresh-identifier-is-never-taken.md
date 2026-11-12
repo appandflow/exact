@@ -1,6 +1,7 @@
 # A processing wake request scheduled on the refresh identifier is never handed to its package
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `schedule()` and a task's arrival ask one predicate, `WakeStore.carries`, which task carries a request, so the refresh task takes the processing requests it was submitted for when the processing identifiers are not permitted; the Apple implementation declares `apple.task` and `apple.requiresExternalPower`.
 **Systems:** host/apple/Sources/ExactKit/Wakes.swift, packages/background/apple
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
