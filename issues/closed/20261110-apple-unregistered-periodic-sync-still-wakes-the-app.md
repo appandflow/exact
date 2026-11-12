@@ -1,6 +1,7 @@
 # On Apple, `unregisterPeriodicSync` leaves the tag's wake request with the host, so the app is still woken for it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `unregisterPeriodicSync` cancels the tag's `periodicsync <tag>` wake request with the host, which then drops it from its store and resubmits (or cancels) the platform task without it.
 **Systems:** packages/background/apple/Background.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
