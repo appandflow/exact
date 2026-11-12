@@ -196,7 +196,7 @@ pub mod jni;
 #[cfg(target_os = "android")]
 #[path = "canvas/journal.rs"]
 mod journal;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
