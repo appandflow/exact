@@ -1,6 +1,7 @@
 # `caret-color` on an `input` with `appearance="none"` is ignored on iOS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A bare `input` takes its `caret-color` as its field's tint, set by its style and kept by every props write, as a bare `textarea` does.
 **Systems:** host/apple/Sources/ExactKit/IOS/NativeFieldsIOS.swift (applyField, styleNativeField)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
