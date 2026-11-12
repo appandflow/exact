@@ -63,7 +63,18 @@ pub(super) fn disk(device: &wgpu::Device, artifact: u64) -> Option<Disk> {
     Some(disk)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_abi = "sim"))]
+mod simulator {
+    #[test]
+    fn the_simulator_installs_no_archive() {
+        let Some(gpu) = crate::fixture::device_or_skip(crate::fixture::device()) else {
+            return;
+        };
+        assert!(super::install(&gpu.device, None).is_none());
+    }
+}
+
+#[cfg(all(test, not(target_abi = "sim")))]
 mod tests {
     use super::*;
     fn pipelines(gpu: &crate::Gpu, blue: bool) {
