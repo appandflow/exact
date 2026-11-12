@@ -14,13 +14,14 @@ const fixture = `<!doctype html>
 <div id="box" style="position:absolute;left:300px;top:20px;width:180px;height:80px;padding:10px;border:0 solid"></div>
 <div id="scaled" style="position:absolute;left:300px;top:200px;scale:0.5"><div id="inner" style="width:200px;height:100px"></div></div>
 <div id="row" style="position:absolute;left:300px;top:400px;width:200px;height:44px;touch-action:pan-y"></div>
+<div id="sized" style="position:absolute;left:600px;top:20px;width:200px;height:100px;padding:10px 20px;border:5px solid;box-sizing:border-box"></div>
 <svg id="art" viewBox="0 0 400 200" style="position:absolute;left:0;top:500px;width:200px;height:100px">
   <rect id="rect" x="10" y="10" width="40" height="20" stroke="black" stroke-width="4"/>
 </svg>
 <script type="module">
   import { motionController } from './motion-glue.js';
   const byId = id => document.getElementById(id);
-  const views = new Map([[1, byId('box')], [2, byId('inner')], [3, byId('row')], [4, byId('rect')]]);
+  const views = new Map([[1, byId('box')], [2, byId('inner')], [3, byId('row')], [4, byId('rect')], [5, byId('sized')]]);
   window.calls = [];
   let serial = 0;
   window.motion = motionController({ views, now: () => performance.now(), generation: () => 1,
@@ -91,6 +92,14 @@ check('a percentage is of the untransformed box, under its own and its ancestors
   try {
     for (const style of ['translate: 50%', 'translate: 50%; scale: 2', 'translate: 50%; rotate: 90deg'])
       expect([style, await page.evaluate(s => caught(1, s), style)]).toEqual([style, [100, 0]]);
+    // A box's `transform-box` (CSS Transforms 1 §5): content-box and fill-box are its content box; border-box,
+    // stroke-box and view-box its border box. #box sizes its content (180×80, 10px padding); #sized its border box
+    // (200×100, 10px and 20px padding, 5px border: a 150×70 content box).
+    for (const [box, wants] of [['content-box', [[90, 40], [75, 35]]], ['fill-box', [[90, 40], [75, 35]]], ['border-box', [[100, 50], [100, 50]]],
+      ['stroke-box', [[100, 50], [100, 50]]], ['view-box', [[100, 50], [100, 50]]]]) {
+      const style = `translate: 50% 50%; transform-box: ${box}`;
+      expect([style, await page.evaluate(s => [caught(1, s), caught(5, s)], style)]).toEqual([style, wants]);
+    }
     // #inner is 200×100 inside an ancestor drawn at half size.
     expect(await page.evaluate(() => caught(2, 'translate: 50% 50%'))).toEqual([100, 50]);
     // An SVG element's box is its `transform-box`: the view box by default, else its bounding box (CSS Transforms 1 §4).
@@ -131,6 +140,26 @@ check('a swipe claims a row whose translate is calc() of px and %', async () => 
     expect(begin && [begin.x, begin.y]).toEqual([-160, 0]);
     expect(await page.evaluate(() => calls.map(c => c.op))).not.toContain('cancel');
     await page.mouse.up();
+    expect(errors).toEqual([]);
+  } finally { await page.context().close(); }
+});
+
+// Presence's own transform (presence-glue.js `own`) reads the same computed translate.
+check('presence measures a translate of calc() in its reference box', async () => {
+  const { page, errors } = await open();
+  try {
+    const moved = await page.evaluate(async () => {
+      const { own } = await import('./presence-glue.js');
+      const el = document.getElementById('sized'), at = [];
+      for (const style of ['translate: calc(50% + 10px) calc(-25% - 5px)', 'translate: 50% 50%; transform-box: content-box']) {
+        el.style.cssText += style;
+        const m = own(el, getComputedStyle(el));
+        at.push([m.e, m.f].map(v => Math.round(v * 1000) / 1000));
+        el.style.removeProperty('translate'); el.style.removeProperty('transform-box');
+      }
+      return at;
+    });
+    expect(moved).toEqual([[110, -30], [75, 35]]);
     expect(errors).toEqual([]);
   } finally { await page.context().close(); }
 });

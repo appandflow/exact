@@ -85,12 +85,12 @@ export function timelineEasing(timing,p) {
   }
   return `linear(${points.map(([x,y])=>`${+y.toPrecision(12)} ${+(x*100).toPrecision(12)}%`).join(', ')})`;
 }
-// The box a translate percentage is of (CSS Transforms 1 §4, `transform-box`), untransformed: getBoundingClientRect()
-// would include the element's own scale and rotate and its ancestors' transforms. A box's is its border box; an SVG
-// element's, which has no CSS box, is its viewport's view box, or its bounding box for `fill-box` (`stroke-box` adds
-// the stroke), as the kernel's (svg/scene.rs).
-function referenceBox(el) {
-  const cs=getComputedStyle(el),n=v=>parseFloat(v)||0;
+// The box a translate percentage is of (CSS Transforms 1 §5, `transform-box`), untransformed: getBoundingClientRect()
+// would include the element's own scale and rotate and its ancestors' transforms. A CSS box's is its content box for
+// `content-box` and `fill-box`, else its border box; an SVG element's, which has no CSS box, is its viewport's view
+// box, or its bounding box for `fill-box` (`stroke-box` adds the stroke), as the kernel's (svg/scene.rs).
+export function referenceBox(el,cs=getComputedStyle(el)) {
+  const n=v=>parseFloat(v)||0;
   if(el instanceof SVGElement&&el.ownerSVGElement) {
     const box=cs.transformBox;
     if(box!=='view-box'&&el.getBBox) {
@@ -101,21 +101,24 @@ function referenceBox(el) {
     if(view?.width>0&&view?.height>0) return [view.width,view.height];
     return v.ownerSVGElement?[v.width.baseVal.value,v.height.baseVal.value]:[v.clientWidth,v.clientHeight];
   }
-  if(!cs.width.endsWith('px')) return [el.offsetWidth??0,el.offsetHeight??0];
-  const edges=(a,b)=>cs.boxSizing==='border-box'?0:n(cs[`padding${a}`])+n(cs[`padding${b}`])+n(cs[`border${a}Width`])+n(cs[`border${b}Width`]);
-  return [n(cs.width)+edges('Left','Right'),n(cs.height)+edges('Top','Bottom')];
+  const edges=(a,b)=>n(cs[`padding${a}`])+n(cs[`padding${b}`])+n(cs[`border${a}Width`])+n(cs[`border${b}Width`]);
+  const sides=[edges('Left','Right'),edges('Top','Bottom')],content=cs.transformBox==='content-box'||cs.transformBox==='fill-box';
+  // `width` is the content box's, or the border box's under `box-sizing: border-box`; one that is not a length (an
+  // inline box's `auto`) leaves the layout's border box.
+  const border=cs.width.endsWith('px')?[n(cs.width),n(cs.height)].map((v,i)=>cs.boxSizing==='border-box'?v:v+sides[i]):[el.offsetWidth??0,el.offsetHeight??0];
+  return content?border.map((v,i)=>Math.max(0,v-sides[i])):border;
 }
 // A computed `translate` in px per axis, NaN for one it cannot read. An axis with a length and a percentage computes
 // as one `calc()`, its terms in any order (the glue writes `calc(Apx + B%)`; Chrome gives `calc(B% + Apx)`), so its
 // terms are summed.
-function translation(el,text) {
+export function translation(el,text,cs) {
   if(text==='none') return [0,0];
   const axes=text.match(/calc\([^)]*\)|\S+/g)??[];
   let box=null;
   return [0,1].map(i=>{
     let v=0,terms=0;
     for(const [,sign,number,unit] of (axes[i]??'0px').matchAll(/([+-]?)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(px|%)/gi)) {
-      v+=(sign==='-'?-1:1)*Number(number)*(unit==='%'?(box??=referenceBox(el))[i]/100:1);terms++;
+      v+=(sign==='-'?-1:1)*Number(number)*(unit==='%'?(box??=referenceBox(el,cs))[i]/100:1);terms++;
     }
     return terms?v:NaN;
   });
