@@ -229,16 +229,7 @@ pub fn preview(name: &str, input: &Json) -> (String, Vec<Line>, Option<Result<Pr
             let summary = format!("{verb} {}?", arg(input, "path"));
             match prepare(name, input) {
                 Ok(edit) => {
-                    let before =
-                        String::from_utf8_lossy(edit.before.as_deref().unwrap_or_default());
-                    let after = String::from_utf8_lossy(&edit.after);
-                    let lines = if before == after && edit.before.as_ref() != Some(&edit.after) {
-                        vec![Line::plain(
-                            "(the bytes change, though the text reads the same: the file is not UTF-8)",
-                        )]
-                    } else {
-                        diff(&before, &after)
-                    };
+                    let lines = edit_lines(edit.before.as_deref(), &edit.after);
                     (summary, lines, Some(Ok(edit)))
                 }
                 Err(e) => (summary, vec![Line::plain(&e)], Some(Err(e))),
@@ -449,8 +440,6 @@ fn publish_new_file_with(
 }
 
 fn completed_edit(name: &str, edit: &Prepared) -> Done {
-    let before = String::from_utf8_lossy(edit.before.as_deref().unwrap_or_default());
-    let after = String::from_utf8_lossy(&edit.after);
     Done {
         text: format!(
             "{} {}",
@@ -461,9 +450,66 @@ fn completed_edit(name: &str, edit: &Prepared) -> Done {
             },
             edit.path.display()
         ),
-        lines: diff(&before, &after),
+        lines: edit_lines(edit.before.as_deref(), &edit.after),
         is_error: false,
     }
+}
+
+/// What an edit of a file holding `before` (none: no file) shows: the diff
+/// of its text, or, when the text reads line for line the same, what the
+/// bytes change, which the diff cannot show.
+fn edit_lines(before: Option<&[u8]>, after: &[u8]) -> Vec<Line> {
+    let old = String::from_utf8_lossy(before.unwrap_or_default());
+    let new = String::from_utf8_lossy(after);
+    if before == Some(after) || !old.lines().eq(new.lines()) {
+        return diff(&old, &new);
+    }
+    let notes = if before.is_none() {
+        vec!["(a new, empty file)".to_string()]
+    } else if old == new {
+        vec![
+            "(the bytes change, though the text reads the same: the file is not UTF-8)".to_string(),
+        ]
+    } else {
+        line_ending_changes(&old, &new)
+    };
+    notes.into_iter().map(Line::plain).collect()
+}
+
+/// How two texts whose `lines()` agree differ: `lines()` drops each line's
+/// `\n` or `\r\n`, and whether the last line has one.
+fn line_ending_changes(old: &str, new: &str) -> Vec<String> {
+    fn last(s: &str) -> (&str, &str) {
+        s.strip_suffix("\r\n")
+            .map(|body| (body, "\r\n"))
+            .or_else(|| s.strip_suffix('\n').map(|body| (body, "\n")))
+            .unwrap_or((s, ""))
+    }
+    fn kind(s: &str) -> &'static str {
+        let crlf = s.matches("\r\n").count();
+        match (crlf > 0, s.matches('\n').count() > crlf) {
+            (true, true) => "mixed CRLF and LF",
+            (true, false) => "CRLF",
+            _ => "LF",
+        }
+    }
+    let ((old_body, old_end), (new_body, new_end)) = (last(old), last(new));
+    let mut notes = Vec::new();
+    if old_body != new_body || (!old_end.is_empty() && !new_end.is_empty()) {
+        notes.push(format!(
+            "(the line endings change from {} to {})",
+            kind(old),
+            kind(new)
+        ));
+    }
+    if old_end.is_empty() != new_end.is_empty() {
+        notes.push(if new_end.is_empty() {
+            "(the final newline is removed)".to_string()
+        } else {
+            "(a final newline is added)".to_string()
+        });
+    }
+    notes
 }
 
 fn read_file(input: &Json, cancel: &AtomicBool) -> Done {
@@ -1093,6 +1139,41 @@ mod tests {
         let (_, lines, _) = preview("write_file", &json!({"path":path, "content":"\u{fffd}"}));
         let shown: Vec<String> = lines.iter().map(|l| l.text()).collect();
         assert!(shown.iter().any(|l| l.contains("not UTF-8")), "{shown:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_change_to_line_endings_alone_says_what_it_does() {
+        let dir = test_dir("line-endings");
+        let path = dir.join("note.txt");
+        let shown = |lines: &[Line]| lines.iter().map(Line::text).collect::<Vec<_>>();
+        std::fs::write(&path, "one\r\ntwo\r\n").unwrap();
+        let (_, lines, edit) = preview("write_file", &json!({"path":path, "content":"one\ntwo\n"}));
+        assert_eq!(shown(&lines), ["(the line endings change from CRLF to LF)"]);
+        let done = run_prepared(
+            "write_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(shown(&done.lines), shown(&lines));
+        std::fs::write(&path, "one\ntwo\n").unwrap();
+        let (_, lines, _) = preview(
+            "edit_file",
+            &json!({"path":path, "old":"two\n", "new":"two"}),
+        );
+        assert_eq!(shown(&lines), ["(the final newline is removed)"]);
+        std::fs::write(&path, "one").unwrap();
+        let (_, lines, _) = preview("write_file", &json!({"path":path, "content":"one\r\n"}));
+        assert_eq!(shown(&lines), ["(a final newline is added)"]);
+        std::fs::write(&path, "one\r\ntwo").unwrap();
+        let (_, lines, _) = preview("write_file", &json!({"path":path, "content":"one\ntwo\n"}));
+        assert_eq!(
+            shown(&lines),
+            [
+                "(the line endings change from CRLF to LF)",
+                "(a final newline is added)"
+            ]
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1,6 +1,7 @@
 # A harness approval shows "(no changes)" for a write that changes line endings or the final newline
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** When a write or edit leaves every line's text the same, its approval and its entry say whether the line endings change (from which to which) or the final newline is added or removed, in place of "(no changes)".
 **Systems:** apps/harness/data (tools.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
