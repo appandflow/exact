@@ -5009,8 +5009,8 @@ or `font-size` written on a bar's heading replaces that one part of the
 platform's title font: on iOS in the navigation title (a level-1 heading's size
 is the large title's, any other's the inline title's), on the Mac in a modal
 route's sheet title. The Mac's window title keeps AppKit's font, which no public
-API changes, and on iOS a heading inside a pressable title group keeps the
-platform's.
+API changes. A heading inside an iOS pressable title group takes the same
+authored typography over the bar's headline font.
 On iOS, a route's level-1 heading gives a large navigation title; other levels
 give an inline title. Set UIKit's `largeTitleDisplayMode` through a native access
 hatch to change presentation while keeping the semantic rank. Check the host's
