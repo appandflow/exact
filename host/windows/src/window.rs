@@ -947,6 +947,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                         p.set_clipboard(Box::new(crate::clipboard::Clipboard(handle.hwnd.get())));
                         let hwnd = handle.hwnd.get();
                         p.set_url_opener(move |url| crate::url::open(hwnd, url));
+                        let proxy = self.proxy.clone();
+                        p.set_window_closer(move || {
+                            let _ = proxy.send_event(crate::accessibility::Event::Close);
+                        });
                     }
                 }
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
@@ -989,6 +993,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
     }
     fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
         let _span = crate::probe::Span::new("user event", 0);
+        if matches!(event, crate::accessibility::Event::Close) {
+            if let Some(window) = &self.window {
+                self.window_event(events, window.id(), WindowEvent::CloseRequested);
+            }
+            return;
+        }
         if let crate::accessibility::Event::Timer(fired) = event {
             if counters::enabled() {
                 self.service_causes |= counters::TIMER;

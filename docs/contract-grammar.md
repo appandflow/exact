@@ -2118,9 +2118,11 @@ Every element that declares it hears it; an action that calls `preventDefault()`
 keeps the window open. The browser then asks "Leave site?" itself; a Mac app asks
 its own question, and calls the host command `close()` once it is answered,
 which closes the window without asking again (on the web, `window.close()`, which
-a browser honours only for a window a script opened). iOS and Linux close no
-window. `head edited=…` marks the document as unsaved: on macOS the dot in the
-window's close button, beside the proxy icon of the file the window opened;
+a browser honours only for a window a script opened). On Windows, bare `close()`
+closes the window and ends the one-window app; Windows does not ask
+`beforeunload`. iOS and Linux close no window. `head edited=…` marks the document
+as unsaved: on macOS the dot in the window's close button, beside the proxy icon
+of the file the window opened;
 other hosts show nothing (a declared deviation: the web has no unsaved mark).
 
 HTML's global `title` attribute, on any element but `head` (whose `title` is the
