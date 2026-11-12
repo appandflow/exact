@@ -186,6 +186,15 @@ public final class ExactTicket {
     public func stop() { end?(); end = nil }
 }
 
+/// `value` as JSON, a bare number or string included, or nil for a value
+/// JSON cannot hold (NaN, an infinity, a `Date`): for one of those
+/// `JSONSerialization.data` raises an Objective-C exception, which `try?`
+/// does not catch, rather than throwing.
+func exactJSON(_ value: Any) -> Data? {
+    guard JSONSerialization.isValidJSONObject([value]) else { return nil }
+    return try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+}
+
 /// The answer to one `native.later` call. Only the first `send` or `fail`
 /// answers; one dropped unanswered fails the call.
 public final class ExactReply: @unchecked Sendable {
@@ -209,11 +218,7 @@ public final class ExactReply: @unchecked Sendable {
     /// an absent `option`; ExactPackage.swift).
     public func send(_ value: [String: Any]) {
         let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
-        let scalar = sent is NSNull || sent is NSNumber || sent is String
-        guard scalar || JSONSerialization.isValidJSONObject(sent),
-              let data = try? JSONSerialization.data(withJSONObject: sent, options: .fragmentsAllowed) else {
-            return fail("the reply was not JSON")
-        }
+        guard let data = exactJSON(sent) else { return fail("the reply was not JSON") }
         answer(200, String(decoding: data, as: UTF8.self))
     }
 
@@ -509,8 +514,7 @@ public final class ExactDiagnostics: @unchecked Sendable {
     /// A snapshot, as JSON, the latest kept. One over 4 KB is refused whole.
     public func publish(_ name: String, _ value: Any) {
         guard recordFn != nil else { return }
-        let json = JSONSerialization.isValidJSONObject([value]) ? (try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)) : nil
-        record(5, name, 0, json.map(Array.init) ?? [])
+        record(5, name, 0, exactJSON(value).map(Array.init) ?? [])
     }
     /// Ask for Save Trace (LLP 1079 D5): at most one a second.
     public func saveTrace() { record(6) }
@@ -1032,8 +1036,8 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
             return answer(500, "the request was not a JSON object")
         }
         let value = try ExactExtensions.call(m, request) ?? m.call(request)
-        guard JSONSerialization.isValidJSONObject(value) else { return answer(500, "the reply was not JSON") }
-        answer(200, String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self))
+        guard let json = exactJSON(value) else { return answer(500, "the reply was not JSON") }
+        answer(200, String(decoding: json, as: UTF8.self))
     } catch {
         answer(500, String(describing: error))
     }

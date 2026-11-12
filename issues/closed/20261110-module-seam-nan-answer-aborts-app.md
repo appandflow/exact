@@ -1,6 +1,7 @@
 # A module's NaN in a scalar answer or an event's arguments aborts the app instead of failing the call
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Every site in the module seam that encodes a value a module or package supplies asks `JSONSerialization.isValidJSONObject` first (`exactJSON` in the seam), so a NaN, an infinity or a `Date` fails the call (`the reply was not JSON`; a `TypeError` for a handler's arguments), is not sent as an event or activation, or answers a service query nil, and the app keeps running.
 **Systems:** host/apple/modules/ExactNativeModule.swift, ExactPackage.swift, ExactExtensions.swift, ExactServices.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
