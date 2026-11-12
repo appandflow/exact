@@ -1,6 +1,7 @@
 # The painted host replaces its runner by clearing a hand-kept list, and five filed defects are state the list lacks
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Presenter::replaced` (`presenter/replace.rs`) destructures every field of the presenter without `..`, so each is said to be the tree's (made anew there, which now covers the callers' lists and the per-tree fields no list named) or kept and why, and a field added later does not compile until it is placed; of the five defects named, four were closed by their own fixes, and the bars' equal-epoch read is `bars-stale-after-reload-at-equal-epoch`.
 **Systems:** host/linux/src/presenter.rs (`Presenter::replaced`), host/linux/src/presenter/delivery.rs, runner/src/instance.rs (`Ids`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
