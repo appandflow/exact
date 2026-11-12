@@ -1,6 +1,7 @@
 # A terminal textarea's ArrowUp and ArrowDown wrap its value at the border box's width, the painter at the content width
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The painter and ArrowUp/ArrowDown take a textarea's width from one helper, `paint::content_cells`, and break its lines by one rule, `paint::wraps_before`, over the painter's clusters.
 **Systems:** host/terminal (keys.rs, paint.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

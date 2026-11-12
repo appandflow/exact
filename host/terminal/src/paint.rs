@@ -247,18 +247,8 @@ fn node(
         grouped::separator(scene, out, &n, clip, dx, dy);
     }
     let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
-    let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
-    let content = n.field_content_rect().map_or_else(
-        || {
-            cells(
-                f.x - dx + bl + pl,
-                f.y - dy + bt + pt,
-                f.width - bl - br - pl - pr,
-                f.height - bt - bb - pt - pb,
-            )
-        },
-        |c| cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height),
-    );
+    let (pl, _, pr, _) = kernel.resolved_padding(n.key).unwrap_or_default();
+    let content = content_cells(kernel, &scene.env, &n, dx, dy);
     let seen = rect.intersect(clip);
     if visible && seen.w > 0 && seen.h > 0 {
         out.shown.push(id);
@@ -345,6 +335,36 @@ fn node(
     if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
     }
+}
+
+/// A node's content box in cells, less the offsets above it: inside its
+/// borders and padding, or a field's own text rectangle. A textarea's
+/// lines are this wide for the painter and for the arrow keys alike.
+pub(crate) fn content_cells(
+    kernel: &Kernel,
+    env: &exact_kernel::Env,
+    n: &NodeRef<'_>,
+    dx: f32,
+    dy: f32,
+) -> CellRect {
+    let f = n.frame;
+    if let Some(c) = n.field_content_rect() {
+        return cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height);
+    }
+    let [bt, br, bb, bl] = n.style.border_widths_in(env);
+    let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
+    cells(
+        f.x - dx + bl + pl,
+        f.y - dy + bt + pt,
+        f.width - bl - br - pl - pr,
+        f.height - bt - bb - pt - pb,
+    )
+}
+
+/// Whether a textarea's cluster of `cols` at `col` starts a new visual
+/// line in `width` columns: one that does not fit, unless the line is empty.
+pub(crate) fn wraps_before(col: usize, cols: usize, width: usize) -> bool {
+    col > 0 && col + cols > width
 }
 
 /// A determinate `progress` (LLP 1116 D8).
@@ -878,7 +898,7 @@ fn field(
         if *cols == 0 {
             continue;
         }
-        if multiline && col + cols > width {
+        if multiline && wraps_before(col, *cols, width) {
             row += 1;
             col = 0;
         }
@@ -915,7 +935,7 @@ fn field(
     }
 }
 
-fn clusters(s: &str) -> Vec<(String, usize)> {
+pub(crate) fn clusters(s: &str) -> Vec<(String, usize)> {
     s.graphemes(true)
         .map(|g| {
             if g == "\n" || g == "\r\n" {
