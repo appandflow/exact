@@ -1174,7 +1174,8 @@ running read counts its ceiling, and one that does not fit waits for the reads
 before it, so keep the ceiling near the largest reply you expect. An open
 stream (`exactStream`) counts twice its ceiling on the same budget for as long
 as it is open, and a read whose ceiling does not fit beside the open streams is
-refused when it is made. A download written to a file (`exactBodyTo`) counts
+refused when it is made or while it waits if a later stream takes its room.
+A download written to a file (`exactBodyTo`) counts
 only the 1 MiB it can hold, whatever its ceiling. A browser has no lanes and schedules every fetch itself, so
 there only the ceiling applies. On every host a reply larger than
 `maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB (1 GiB

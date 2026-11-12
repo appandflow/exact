@@ -220,8 +220,9 @@ impl Shared {
 /// native work. Those trusted-source costs are count/worker bounded only.
 /// On both lanes a waiting job is charged its request buffers, a running one
 /// its response ceiling, and a completed one what it retains; a worker waits
-/// for bytes rather than refusing (LLP 1041 §8.4, LLP 1054.000 R3). The ordered
-/// queue also bounds waiting request buffers, leaving room to start its head.
+/// for bytes unless open streams leave no room for its ceiling
+/// (LLP 1041 §8.4, LLP 1054.000 R3). The ordered queue also bounds waiting
+/// request buffers, leaving room to start its head.
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
@@ -533,14 +534,8 @@ impl Core {
         let one_shot = r.request.is_process() && !r.request.stream;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
-            let streams: usize = state
-                .running
-                .iter()
-                .filter(|run| run.lane == lane && run.stream)
-                .map(|run| run.charge)
-                .sum();
-            if lane == 1 && !r.request.stream && limit > BYTES[lane].saturating_sub(streams) {
-                return Err("native response ceiling exceeds the lane budget held by open streams");
+            if !r.request.stream {
+                stream_room(&state, lane, limit)?;
             }
             // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
@@ -647,6 +642,7 @@ impl Core {
                 generation: 0,
                 claim: asynch::Claim::None,
             });
+            rouse(&self.shared, &state);
             drop(state);
             let (shared, grants) = (self.shared.clone(), self.grants.clone());
             let (ticket, request, forced) = (r.ticket, r.request, r.forced);
@@ -967,6 +963,20 @@ fn read(request: &Request, work: bool) -> bool {
         && !request.is_auth()
 }
 
+fn stream_room(state: &State, lane: usize, limit: usize) -> Result<(), &'static str> {
+    let streams: usize = state
+        .running
+        .iter()
+        .filter(|run| run.lane == lane && run.stream)
+        .map(|run| run.charge)
+        .sum();
+    if lane == 1 && limit > BYTES[lane].saturating_sub(streams) {
+        Err("native response ceiling exceeds the lane budget held by open streams")
+    } else {
+        Ok(())
+    }
+}
+
 fn has_ready(state: &State) -> bool {
     !state.completed[1].is_empty()
         || state
@@ -975,9 +985,11 @@ fn has_ready(state: &State) -> bool {
             .is_some_and(|ticket| state.completed[0].iter().any(|done| done.ticket == *ticket))
 }
 
-/// The next job `lane`'s worker may start, with its abort, charging an
-/// ordered one its response ceiling — or `None` until those bytes are free.
-fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
+/// The next job `lane`'s worker may start, with its abort, charging its
+/// response ceiling — or `None` until those bytes are free. A read crowded
+/// out by open streams is refused before considering its successor.
+fn next_job(shared: &Shared, state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
+    while forget::refuse_crowded(shared, state, lane, 0) {}
     let job = state.jobs[lane].front()?;
     // A module handoff's outcome is the owner's to make; it is charged
     // what it retains when it completes.
@@ -1228,7 +1240,7 @@ fn worker(
                     state = shared.state.lock().unwrap();
                     continue;
                 }
-                if let Some(next) = next_job(&mut state, lane) {
+                if let Some(next) = next_job(&shared, &mut state, lane) {
                     break next;
                 }
                 state = shared.ready.wait(state).unwrap();
