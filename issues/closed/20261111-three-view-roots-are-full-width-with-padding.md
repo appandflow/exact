@@ -1,6 +1,7 @@
 # Three sources in the repository write a view's root `width="100%"` with padding and are wider than the window
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each of the three roots says box-sizing="border-box", so its width="100%" includes its padding and it is as wide as the window.
 **Systems:** apps/motion-gallery/app.contract, apps/select-walk-fixture/app.contract, scripts/fixtures/prevent-focus.contract
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the fix lanes of the 2026-11-10 project review
