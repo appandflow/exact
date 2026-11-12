@@ -230,6 +230,7 @@ impl NodeArena {
                 out.to_mut().copy_rows(start, defaults);
             }
         }
+        self.bar_symbol_style(slot, &mut out);
         out
     }
 

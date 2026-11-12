@@ -1096,7 +1096,9 @@ impl<D: DataSource> Host<D> {
                 {
                     continue;
                 }
-                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
+                let size = node.bar_symbol_size().unwrap_or_else(|| {
+                    node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size)
+                });
                 sizes.push((node.id, (size > 0.).then_some((size, size))));
             }
         }
