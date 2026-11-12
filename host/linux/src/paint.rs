@@ -403,7 +403,7 @@ pub struct Scene<'a> {
     pub page: (f32, f32),
     /// Decoded images by node.
     pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
-    /// The focused input, if any (its caret is painted).
+    /// The focused node, if any (its ring, or a field's caret, is painted).
     pub focus: Option<ViewId>,
     /// The focused text field's selection (x2apps codeedit #2).
     pub selection: Option<exact_runner::FieldSelection>,
@@ -479,8 +479,7 @@ pub struct Painter {
     decoration_warning: bool,
     /// The node a 3D island paints flat, its own transform being the warp's (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
-    /// The control a finger's press focused: it is the focus and shows no
-    /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
+    /// The focused node that shows no ring until a key (LLP 1115.001 D7.6).
     pub(crate) ringless: Option<ViewId>,
     /// The focus visual follows WinUI's input tracking, not Chrome's `:focus-visible` (LLP
     /// 1115.004 D9.2): no ring for a focus the app moves before any key (`keyless`), and a key
@@ -1229,18 +1228,8 @@ impl Painter {
         if clips {
             self.backend.pop_clip();
         }
-        // LLP 1104 D6: native buttons ring their own chrome; a bare
-        // button rings its outer box even without a press handler.
-        if paints_self
-            && (node.node_type == NodeType::Pressable
-                || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
-            && node.props.str(PropId::Href).is_none()
-            && walk.scene.focus == Some(node.id)
-            && !self.unringed(node)
-            && node.props.bool(PropId::Disabled) != Some(true)
-        {
-            let accent = control::ring(node, self.dark);
-            self.field_ring(&outer, accent, ts);
+        if paints_self {
+            self.node_ring(walk, node, &outer, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
         // node's own paint and its descendants, clipped to its border box.
