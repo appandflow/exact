@@ -228,6 +228,8 @@ pub struct Presenter<D: DataSource> {
     window_focus: Option<exact_kernel::NodeKey>,
     clipboard: Option<Box<dyn clipboard::Clipboard>>,
     url_opener: Option<links::UrlOpener>,
+    /// The desktop portal's answers to document pickers (`portal.rs`).
+    portal: crate::portal::Inbox,
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
@@ -536,6 +538,7 @@ impl<D: DataSource> Presenter<D> {
             window_focus: None,
             clipboard: None,
             url_opener: None,
+            portal: Default::default(),
             held: 0,
             shortcut_keys: Default::default(),
             key_text: None,
