@@ -16,7 +16,7 @@ import { moduleBinding } from './__exact_binding.mjs';
 // And the settings' reader beside it (resident.rs `ENV`).
 import { envReads, inlineSettings } from './__exact_env.mjs';
 // And the check of what package code may use (resident.rs `PORTABLE`).
-import { bare, lineColumn, packageRefusals, propertyName } from './__exact_portable.mjs';
+import { bare, lineColumn, packageRefusals, propertyName, walkRuntime } from './__exact_portable.mjs';
 
 export { moduleBinding };
 
@@ -760,55 +760,8 @@ function refusal(node,local) {
   if (node.type==='NewExpression' && ambientGlobal(node.callee,'Date',local) && !node.arguments.length) return ambient('new Date()');
   return null;
 }
-const VALUES=['FunctionDeclaration','VariableDeclaration','ClassDeclaration','ExpressionStatement','TSEnumDeclaration','TSImportEqualsDeclaration'];
-function instantiated(ns) {
-  const body=ns.body;
-  if (!body) return false;
-  if (body.type==='TSModuleDeclaration') return instantiated(body);
-  return (body.body ?? []).some(statement=>{
-    const s=['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(statement.type) ? statement.declaration : statement;
-    if (!s || s.declare || (s.type==='TSEnumDeclaration' && s.const)) return false;
-    return VALUES.includes(s.type) || (s.type==='TSModuleDeclaration' && instantiated(s));
-  });
-}
-// The names the module binds itself, anywhere (a parameter, a variable, a
-// function, class or import): such a `Date` is not the guarded global, so
-// it is left alone; the runtime's refusal still guards the global behind it.
-function bound(ast) {
-  const names=new Set();
-  const pattern=(p)=>{
-    p=bare(p);
-    if (!p) return;
-    if (p.type==='Identifier') names.add(p.name);
-    else if (p.type==='ObjectPattern') p.properties.forEach(q=>pattern(q.type==='RestElement' ? q.argument : q.value));
-    else if (p.type==='ArrayPattern') p.elements.forEach(pattern);
-    else if (p.type==='AssignmentPattern') pattern(p.left);
-    else if (p.type==='RestElement') pattern(p.argument);
-    else if (p.type==='TSParameterProperty') pattern(p.parameter);
-  };
-  // Only bindings that exist at run time: a `declare` or type-only one is
-  // erased, and the global is what runs.
-  const walk=(node,typeOnly)=>{
-    if (!node || typeof node!=='object') return;
-    if (Array.isArray(node)) { node.forEach(n=>walk(n,typeOnly)); return; }
-    if (node.declare) return;
-    if (node.type==='VariableDeclarator') pattern(node.id);
-    if (['FunctionDeclaration','FunctionExpression','ClassDeclaration','ClassExpression'].includes(node.type) && node.id) names.add(node.id.name);
-    if (['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) node.params?.forEach(pattern);
-    if (node.type==='CatchClause') pattern(node.param);
-    // A namespace emits a value only when it holds one (an empty or
-    // type-only one is erased, and the global runs).
-    if (node.type==='TSModuleDeclaration' && node.id?.type==='Identifier' && instantiated(node)) names.add(node.id.name);
-    if (node.type==='TSImportEqualsDeclaration' && node.importKind!=='type') names.add(node.id.name);
-    if (node.type==='ImportDeclaration') typeOnly=node.importKind==='type';
-    if (['ImportSpecifier','ImportDefaultSpecifier','ImportNamespaceSpecifier'].includes(node.type) && !typeOnly && node.importKind!=='type') names.add(node.local.name);
-    for (const key in node) if (key!=='parent') walk(node[key],typeOnly);
-  };
-  walk(ast,false);
-  return names;
-}
-/** The direct uses of the clock, randomness and timers in the captured
- * module `file`, as `path:line:col: why` with its path in the app: `parse`
+/** The direct uses of the global clock, randomness and timers where no enclosing
+ * scope binds them at run time, as `path:line:col: why` with `file`'s path in the app: `parse`
  * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
  * An early warning a Bun test cannot give, not the guard: an alias still
  * reaches the runtime's refusal. */
@@ -816,14 +769,9 @@ export function ambientRefusals(stage, file, code, parse) {
   if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';
   const label=relative(stage,file).split(sep).join('/'), found=[], at=lineColumn(code);
-  const ast=parse(code,{lang}), local=bound(ast);
-  const walk=(node)=>{
-    if (!node || typeof node!=='object') return;
-    if (Array.isArray(node)) { node.forEach(walk); return; }
+  walkRuntime(parse(code,{lang}),(node,local)=>{
     if (typeof node.type==='string') { const why=refusal(node,local); if (why) found.push(label+':'+at(node.start)+': '+why); }
-    for (const key in node) if (key!=='parent') walk(node[key]);
-  };
-  walk(ast);
+  });
   return found;
 }
 
