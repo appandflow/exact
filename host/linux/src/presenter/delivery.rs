@@ -236,8 +236,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// First pixel has been acknowledged ([`Presenter::first_pixel`]).
-    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    pub(crate) fn first_pixel_told(&self) -> bool {
+    pub fn first_pixel_told(&self) -> bool {
         self.painted
     }
 

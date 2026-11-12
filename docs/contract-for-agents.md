@@ -3594,11 +3594,11 @@ when there is none. On macOS the button takes no room in the page; elsewhere,
 Windows included (its notification-area icon is not built), it is an
 ordinary button. An accessory app's status menu ends with the host's Quit,
 which `-exact-menu-remove="status-quit"` removes. Bare `focus()` brings the
-window forward on macOS, showing it if it was hidden (Windows and Linux log
+window forward on macOS and Windows, showing it if it was hidden (Linux logs
 it as unsupported); `hideWindow()` puts it away again with the app still
-running, as the person's ⌘W does while a status item is placed or under
-`keepRunning` (macOS only; refused in the journal elsewhere, and where the
-app would end without its window); the agent lists the items as
+running, as the person's close does while a status item is placed or under
+`keepRunning` (macOS and Windows; refused in the journal elsewhere, and where
+the app would end without its window); the agent lists the items as
 `state.statusItems` and `state.dockMenu`.
 
 
@@ -3811,8 +3811,8 @@ choose an in-window message over a system notification), `persisted` and
 `restores` (the back/forward cache: `persisted` is true while the page is put
 away, from a `pagehide` with `persisted` until the `pageshow`; `restores`
 counts those `pageshow` events, so `task t when page.restores > 0
-key=page.restores` runs once for each return, never at launch; a Mac window a
-`keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
+key=page.restores` runs once for each return, never at launch; a Mac or Windows
+window a `keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
 open a route uses `showNotification(title="Done", navigate="/thread/42")`
 (`@exact/notifications`); its click reaches the navigation root as a warm
 `navigate` event or a cold launch location, and without `navigate=` it is

@@ -195,6 +195,10 @@ fn direct_window_blinks_without_a_softbuffer_surface() {
         appearance: Default::default(),
         modal: Default::default(),
         desktop: crate::desktop::Desktop::install("Ink caret regression"),
+        closing: false,
+        keep_running: false,
+        hidden: false,
+        instance: None,
     };
     assert!(!state.presenter.as_ref().unwrap().dirty());
     state.blink(due).unwrap();
@@ -329,6 +333,10 @@ fn windowless_app(events: &EventLoop<crate::accessibility::Event>, plan: &[u8]) 
         appearance: Default::default(),
         modal: Default::default(),
         desktop: crate::desktop::Desktop::install("Frame scheduling regression"),
+        closing: false,
+        keep_running: false,
+        hidden: false,
+        instance: None,
     }
 }
 
