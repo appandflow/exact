@@ -1,6 +1,7 @@
 # `check` on the web reports `RoundButton`'s six light tints as contrast findings: only iOS's observer says a button is tinted
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web's `check` observer marks the label of a `buttonStyle="tinted"` button whose colour nobody wrote `tinted`, as iOS's does, so the rule's tinted exemption applies on the web.
 **Systems:** host/web-js/check.js, scripts/agent-check.mjs (`floor`), host/apple/Sources/ExactKit/IOS/AgentCheckIOS.swift, contract/lib/content.contract (`RoundButton`), docs/card.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
