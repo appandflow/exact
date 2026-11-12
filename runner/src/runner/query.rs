@@ -24,7 +24,7 @@ pub(super) struct Churn {
 
 impl<D: DataSource> Runner<D> {
     pub(super) fn query(&mut self, i: usize, args: &[Value]) -> Result<Answer, RunnerError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         let source = self.plan.str(row.source).to_string();
         let resource = self.plan.str(row.name).to_string();
         // Delivery is the runner's own (LLP 1030 D7): the data seam never
@@ -259,20 +259,20 @@ mod tests {
             vec![("r", "storage is not ready")]
         );
         assert_eq!(
-            failed.failed_why[0].as_ref().map(|f| f.code),
+            failed.resources[0].failed_why.as_ref().map(|f| f.code),
             Some(crate::failure::FailureCode::Storage)
         );
-        assert!(!failed.pending_res[0]);
+        assert!(!failed.resources[0].pending);
         for pending in [Some(DataError::DeferredAtBake("at bake".into())), None] {
-            assert!(boot(pending).unwrap().pending_res[0]);
+            assert!(boot(pending).unwrap().resources[0].pending);
         }
         let mut overrun = boot(Some(DataError::Overrun("over budget".into()))).unwrap();
-        assert!(overrun.pending_res[0] && overrun.failed_resources().is_empty());
+        assert!(overrun.resources[0].pending && overrun.failed_resources().is_empty());
         let t0 = overrun.now_ms();
         overrun.advance(t0 + 250.).unwrap();
-        assert!(overrun.pending_res[0] && overrun.failed_resources().is_empty());
+        assert!(overrun.resources[0].pending && overrun.failed_resources().is_empty());
         overrun.advance(t0 + 1250.).unwrap();
-        assert!(!overrun.pending_res[0]);
+        assert!(!overrun.resources[0].pending);
         assert_eq!(overrun.failed_resources(), vec![("r", "over budget")]);
         // The same plan with `r` as `s`'s `else source()` row: each of the
         // kinds that booted above refuses, `Failed` and `Overrun` as `r`'s,

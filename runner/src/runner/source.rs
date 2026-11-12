@@ -271,14 +271,14 @@ pub struct Overlaid {
     pub keep: Vec<u64>,
 }
 
-/// What a request answers: a resource, a mutation, or one send of a
-/// `parallel` mutation, by index in the plan. The runner keeps at most one
-/// request in flight per target (LLP 1016 D5), so an executor that parks a
-/// call until its reply comes keys it by target: two targets may ask one
-/// source with equal arguments.
+/// What a request answers: a runtime resource row, a plan mutation, or one
+/// send of a `parallel` mutation. The runner keeps at most one request in
+/// flight per target (LLP 1016 D5), so an executor that parks a call until
+/// its reply comes keys it by target: two targets may ask one source with
+/// equal arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Target {
-    /// `plan.resources[i]`.
+    /// A declared resource or a runtime member of a resource over a list.
     Resource(usize),
     /// `plan.mutations[i]`.
     Mutation(usize),

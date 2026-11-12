@@ -361,7 +361,7 @@ impl EdgeState {
     pub(super) fn capture<D: DataSource>(r: &Runner<D>, frames: &[Frame]) -> Self {
         Self {
             slots: r.slots.clone(),
-            resources: r.resources.clone(),
+            resources: r.resources.iter().map(|row| row.state.clone()).collect(),
             rows: frames
                 .iter()
                 .filter_map(|f| f.row.as_ref())
@@ -386,7 +386,7 @@ impl EdgeState {
             || self
                 .resources
                 .iter()
-                .zip(&r.resources)
+                .zip(r.resources.iter().map(|row| &row.state))
                 .any(|(a, b)| match (a, b) {
                     (None, None) => false,
                     (Some(a), Some(b)) => {

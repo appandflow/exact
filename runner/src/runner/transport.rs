@@ -140,7 +140,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `exactTransport()`'s answer, by the declared fields.
     pub(super) fn transport_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         if row.args.len > 0 {
             return Err(DataError::BadArguments(format!(
                 "{SOURCE} takes no arguments"
