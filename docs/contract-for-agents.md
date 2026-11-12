@@ -1264,8 +1264,9 @@ A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
 `store.set(name, value)`, `store.get(name)` (a string, or `null`) and
 `store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
-web, the page's `localStorage`, readable by any script on that origin; a Linux
-launch keeps it only until the app exits for now. A drive keeps it, by default,
+web, the page's `localStorage`, readable by any script on that origin; on Linux,
+unencrypted files in the app's data directory, retained across launches (an app
+without an ID keeps them in memory). A drive keeps it, by default,
 only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive, on a Mac, a simulator or a phone, the Keychain a normal launch reads).
 A secret that only the person in front of the device may read (an account's token
 behind Face ID) carries a policy on its line, `secret.keep token user-presence`
