@@ -1,6 +1,7 @@
 # A closed stage's gate, its fixtures and a one-time migration are still in the tree
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The stage 11 gate and its test, `apps/scale-gate`, the two scale fixture packages (with their `package.json` and `bun.lock` entries) and the 1116.015 migration are deleted; an app still on the old spelling is refused with the edit named (`syntax-view-keyword`).
 **Systems:** scripts/stage11-gate.mjs, apps/scale-gate, packages/scale-fixture-cards, packages/scale-fixture-notes, scripts/migrate-1116-015.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
