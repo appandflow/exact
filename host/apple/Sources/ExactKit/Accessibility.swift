@@ -1183,6 +1183,12 @@ extension Agent {
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
+                if row["type"] as? String == "NativeView" {
+                    let parts = Agent.packageParts(in: node)
+                    let existing = row["parts"] as? [[String: Any]] ?? []
+                    let ids = Set(existing.compactMap { $0["id"] as? String })
+                    if !parts.isEmpty { row["parts"] = existing + parts.filter { !ids.contains($0["id"] as? String ?? "") } }
+                }
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
                 #if os(iOS) || os(tvOS)
                 if let why = unshown[node.id] { row["unshown"] = why }
