@@ -1254,8 +1254,8 @@ sits on that list carries the trade it would take.
 4. **Markdown viewer follow-ups** (LLP 1033, macOS milestone 2026-09-05):
    iOS selection and link gestures; iOS/web file-opening adapters; heading anchors,
    tables, and syntax highlighting. macOS drag selection across paragraphs and copy
-   now use CoreText's existing lines. Keyboard selection extension and bidi selection
-   geometry still need dedicated fixtures. Variable-height windowing and scroll
+   now use CoreText's existing lines. Keyboard selection extension still needs
+   dedicated fixtures. Variable-height windowing and scroll
    anchoring now run; startup against Legend is still a tie, and scrolling is
    ahead on one 60 Hz machine (see `apps/markdown/README.md` and the 120 Hz item
    above). At a 420-point
