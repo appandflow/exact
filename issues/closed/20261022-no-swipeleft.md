@@ -1,6 +1,7 @@
 # There is `swiperight` but no `swipeleft`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `swipeleft` (2aa560c2) now also passes on iOS: `SwipeScrollDragTests` on an iOS 27.0 simulator, and a `--touch platform` drive where a real 150 pt left drag ran the action once and a 30 pt one or a rightward one ran nothing.
 **Systems:** gestures (runner, every host)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)
