@@ -1,6 +1,7 @@
 # `push --watch` does not publish after a save to the design file, a font or a sound
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The watcher asks `pushReads`, which takes the design (`.tamber`) and any file under `assets/` or `deck/` whatever its type, and skips `.exact/` with `target/` and a `.DS_Store`.
 **Systems:** scripts/push.mjs (--watch)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
