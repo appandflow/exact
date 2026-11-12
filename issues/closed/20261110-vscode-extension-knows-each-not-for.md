@@ -1,6 +1,7 @@
 # The VS Code extension highlights and indents the retired `each`, and does neither for `for`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The grammar's control keywords and the indentation rule name `for` where they named the retired `each`.
 **Systems:** editors/vscode/syntaxes/exact-contract.tmLanguage.json, editors/vscode/language-configuration.json
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
