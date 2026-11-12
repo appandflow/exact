@@ -66,8 +66,7 @@ final class CanvasAssetReadsMacTests: XCTestCase {
         requested = ["a.tex"]
         s.surfaceHost.messages(e)
         XCTAssertEqual(delivered, [], "the file is still being read")
-        let deadline = Date().addingTimeInterval(5)
-        while delivered.isEmpty && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        waitFor("the read to land") { !delivered.isEmpty }
         XCTAssertEqual(delivered, ["a.tex"])
 
         s.clock = 0
@@ -96,7 +95,10 @@ final class CanvasAssetReadsMacTests: XCTestCase {
         s.clock = 0
         s.surfaceHost.messages(e)
         XCTAssertEqual(delivered, ["a.tex"])
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        // Once the read has finished and the main queue has run its result,
+        // that late result is not delivered.
+        s.surfaceHost.assetReads.sync {}
+        waitForMainQueue()
         s.surfaceHost.messages(e)
         XCTAssertEqual(delivered, ["a.tex"])
     }
