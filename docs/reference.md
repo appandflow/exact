@@ -3021,7 +3021,8 @@ fails `TypeError`. A valid format unsupported by the host fails `NotSupportedErr
 | iOS, iPadOS, macOS | Vision, stills and live scanning. |
 | tvOS | Vision on stills; `tracks: false`. |
 | Web | The browser's `BarcodeDetector`, where present; otherwise empty `formats`, `tracks: false`, and detection fails `NotSupportedError`. |
-| Android, Windows, Linux, terminal, and targets without an implementation | Declared default: `formats: []`, `tracks: false`; `detectBarcodes` and `detectedBarcodes` fail `NotSupportedError`. |
+| Android | Bundled ML Kit (`barcode-scanning` 17.3.0), stills and live scanning; `tracks: true`. |
+| Windows, Linux, terminal, and targets without an implementation | Declared default: `formats: []`, `tracks: false`; `detectBarcodes` and `detectedBarcodes` fail `NotSupportedError`. |
 
 `detectedBarcodes(track=, formats=, interval=)` analyses a camera track already
 shown by a viewfinder; it never starts or keeps a camera open. Its answer includes
