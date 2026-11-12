@@ -385,6 +385,8 @@
       return arm("setTimeout()", callback, Math.max(Number(delay) | 0, 0), Array.prototype.slice.call(arguments, 2)); // `long`, as WebIDL converts it
     });
     fixed("clearTimeout", function clearTimeout(id) {
+      var timer = armed.get(id);
+      if (timer) timer.call.ran = true; // Its parked deadline must be read again (LLP 1162 D3).
       armed.delete(id);
       reports = reports.filter(function (r) { return r.id !== id; });
     });
@@ -447,10 +449,12 @@
       left: function (signal) { var s = deadline(signal); return s && !signal.aborted ? Math.max(1, s.due - time()) : undefined; },
       expire: function (signal) { var s = deadline(signal); if (s && !signal.aborted) { armed.delete(s.id); s.abort(); } },
       checkpoint: function () {
+        var ran = reports.length > 0;
         while (reports.length) {
           var report = reports.shift();
           try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
         }
+        return ran;
       },
     };
   }
@@ -908,9 +912,33 @@
         return steps.length;
       },
       inModuleTurn: function () { return turn === MODULE.id; },
+      readied: function (call) { return ready.has(call); },
       adopted: function () { adopted++; note(); },
       landed: function () { adopted--; note(); },
       outstanding: function () { return adopted + waiting() > 0; },
     });
+  };
+})(globalThis);
+
+// A parked answer needs a turn only when its chain or its next operation moved (LLP 1162 D3).
+(function (global) {
+  "use strict";
+  global.__exact_waiting_answers = function (calls, pending, work, headOwner) {
+    return function (ids) {
+      var own = new Set(), unclaimed = false, at = headOwner(), ready = [];
+      pending.forEach(function (p) {
+        if (p.claimed || p.stream || p.module) return;
+        if (p.call && p.call.status === "pending" && !p.call.letGo && calls.has(p.call.id)) own.add(p.call.id);
+        else unclaimed = true;
+      });
+      JSON.parse(ids).forEach(function (id) {
+        var c = calls.get(id);
+        if (!c) return;
+        var claims = unclaimed && c.status === "pending" && !c.storage;
+        if (claims) unclaimed = false;
+        if (c.ran || c.status !== "pending" || work.readied(c) || own.has(id) || c.storage && (!at || at === c) || claims) ready.push(id);
+      });
+      return JSON.stringify(ready);
+    };
   };
 })(globalThis);

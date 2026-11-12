@@ -2,6 +2,17 @@
 use super::*;
 
 impl Module {
+    pub(super) fn settle_reply(
+        engine: &mut Watched,
+        call: &str,
+        final_settle: &str,
+    ) -> Result<String, String> {
+        let text = engine.call("__exact_settle", [call, final_settle, ""]);
+        // Reply cleanup and serialization can queue other answers' reactions (LLP 1162 D3).
+        let drained = engine.drain();
+        text.and_then(|text| drained.map(|()| text))
+    }
+
     /// Continue an answer: fulfil its fetch, drain, settle. No store at
     /// bake, where only a timer continues one (`source.rs`, `query`).
     pub(super) fn resume(
@@ -84,9 +95,6 @@ impl Module {
                 return Err(DataError::Unavailable(message));
             }
         }
-        if ticket != WAITING {
-            self.progress += 1; // a delivery: what a waiting answer waits for
-        }
         let outcome_text = outcome_to_json(&outcome).to_string();
         let now = store
             .as_deref()
@@ -142,8 +150,7 @@ impl Module {
                 .drain()
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let settle = if last { "final" } else { "" };
-            let text = engine
-                .call("__exact_settle", [&call.to_string(), settle, ""])
+            let text = Module::settle_reply(engine, &call.to_string(), settle)
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let Some(sig) = self.sigs.get(source) else {
                 engine.clear_reply();
@@ -213,10 +220,7 @@ impl Module {
                 Ok(Some(Answer::Later(request)))
             }
         };
-        // After the park, so a waiter records this progress and the let-go
-        // delivery is a later one it is asked again for (files F18). No
-        // store: the let-go call's file writes land and its Store writes do
-        // not (LLP 1097; a934686a0).
+        // No store: a let-go call's file writes land and its Store writes do not (LLP 1097).
         self.finish_let_go();
         answer
     }
@@ -245,7 +249,8 @@ impl Module {
             more: None,
             effects: request.has_effects(),
             work_taken: false,
-            progress: self.progress,
+            ready: false,
+            due: request.wake_ms.or(request.due_ms),
             last: false,
         };
         if request.stream {
@@ -298,7 +303,6 @@ impl Module {
         };
         let call = self.streams[at].1.call;
         let ended = !matches!(outcome, Outcome::Message(_));
-        self.progress += 1;
         let (outcome_text, binary) = wire::message_to_json(outcome);
         self.host.binary = binary;
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
@@ -325,9 +329,7 @@ impl Module {
                 mapper = reply.fields.get("call").and_then(Json::as_u64);
                 let id = mapper.unwrap_or_default().to_string();
                 engine.drain().map_err(threw)?;
-                let text = engine
-                    .call("__exact_settle", [&id, "", ""])
-                    .map_err(threw)?;
+                let text = Module::settle_reply(engine, &id, "").map_err(threw)?;
                 reply = Module::decode_reply(sig, engine, source, &text)?;
             }
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
