@@ -1340,6 +1340,63 @@ fn presence_bindings_link_only_where_an_exit_or_layout_transition_is_bound() {
     }
 }
 
+/// @ref LLP 1047.002 D1 — the projection frames a sheet (navigation/routes.js `sheetFrame`)
+/// only for a plan with a route whose `navigationPresentation` is, or may be,
+/// `modal`, handed over before the router connects the projection.
+#[test]
+fn sheet_frames_link_only_where_a_route_can_be_a_sheet() {
+    let emitted = |route: &str| {
+        let source = format!("routes nav\n  home \"/\"\ncomponent App\n  state sheet = true\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` {route}\n          text \"Card\"\n");
+        crate::emit::emit(&contract::compile(&source).unwrap(), false, false)
+            .unwrap()
+            .js
+    };
+    for route in [
+        "navigationPresentation=\"modal\"",
+        "navigationPresentation=(sheet ? \"modal\" : \"fullscreen\")",
+    ] {
+        let js = emitted(route);
+        let install = js.find("$useSheets($sheetFrame);");
+        assert!(install.is_some() && install < js.find("router(s_"), "{js}");
+    }
+    for route in ["", "navigationPresentation=\"fullscreen\""] {
+        let js = emitted(route);
+        assert!(
+            !js.contains("sheetFrame") && !js.contains("useSheets"),
+            "{js}"
+        );
+    }
+}
+
+/// @ref LLP 1047.002 D1 — a link's `rel` and `target` are kept by links.js only
+/// for a plan that binds a link's `href`, `rel` or `target`, handed over before
+/// the first commit builds the view; a static link's are the template's.
+#[test]
+fn links_link_only_where_a_links_href_rel_or_target_is_bound() {
+    let emitted = |link: &str| {
+        let source = format!("component App\n  state url = \"https://example.com\"\n  view\n    column\n      {link}\n        text \"Go\"\n");
+        crate::emit::emit(&contract::compile(&source).unwrap(), false, false)
+            .unwrap()
+            .js
+    };
+    for link in [
+        "link href=url",
+        "link href=\"/\" rel=(url == \"\" ? \"nofollow\" : \"noreferrer\")",
+        "link href=\"/\" target=(url == \"\" ? \"_self\" : \"_blank\")",
+    ] {
+        let js = emitted(link);
+        let install = js.find("useLinks($links());");
+        assert!(install.is_some() && install < js.find("mount($R=>"), "{js}");
+    }
+    for link in [
+        "link href=\"/\"",
+        "link href=\"https://example.com\" rel=\"noreferrer\"",
+    ] {
+        let js = emitted(link);
+        assert!(!js.contains("linkUse") && !js.contains("useLinks"), "{js}");
+    }
+}
+
 #[test]
 fn scroll_snap_emits_both_axes_and_center() {
     for axis in ["x", "y"] {
