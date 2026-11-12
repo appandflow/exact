@@ -1,6 +1,7 @@
 # The plist writer leaves dictionary keys unescaped and throws a bare TypeError on `null`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The plist writer escapes keys as it escapes strings and refuses null, a non-finite number or an unsafe integer by its key path, and an Apple build refuses such a `moduleConfig` value by its `app.json` path before it compiles anything.
 **Systems:** host/apple/assets.mjs (`plistFile`), host/apple/build.mjs (`infoPlist`, `macInfoPlist`, `modulePlist`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
