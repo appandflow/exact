@@ -297,7 +297,7 @@ provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "for" IDENT "in" expr [ "key" "=" expr ] ]
                 [ "with" expr { "," expr } ] [ "when" expr ] "as" "shape" type
-                [ "else" source-call ] [ "transient" ] NL ;
+                [ "else" source-call ] [ "transient" | "keep" ] NL ;
 mutation      = "mutation" IDENT "as" "shape" type [ "queue" | "parallel" ]
                 [ "refreshes" IDENT { "," IDENT } ]
                 [ "then" IDENT ] NL ;

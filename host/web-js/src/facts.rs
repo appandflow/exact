@@ -45,8 +45,26 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
                 let surface = surface_record::surface_name(plan, r).ok_or_else(|| {
                     format!("resource {resource}: `{source}` takes one string-literal surface name")
                 })?;
+                let keep = if r.keep
+                    && !r.transient
+                    && source == "exactSurface"
+                    && plan.surfaces.iter().any(|s| plan.str(s.name) == surface)
+                {
+                    surface_record::keep_signature(plan, r.ty)
+                        .map(|signature| {
+                            let hex = signature
+                                .to_bytes()
+                                .iter()
+                                .map(|b| format!("{b:02x}"))
+                                .collect::<String>();
+                            serde_json::to_string(&hex).unwrap()
+                        })
+                        .unwrap_or_else(|| "false".into())
+                } else {
+                    "false".into()
+                };
                 format!(
-                    "{},{}",
+                    "{},{},{keep}",
                     serde_json::to_string(surface).unwrap(),
                     surface_type_json(plan, r.ty),
                 )

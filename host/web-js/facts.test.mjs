@@ -21,7 +21,7 @@ test('a viewport-only plan reads the tier the agent prefers', async () => {
   try {
     copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
     writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
-    writeFileSync(resolve(dir, 'rt.js'), `export const data = {}, Resources = [], commits = []; export const commit = (f, why) => { commits.push(why); f(); }; export function R() {} export const Refusal = Error;`);
+    writeFileSync(resolve(dir, 'rt.js'), `export const data = {}, Resources = [], commits = []; export const commit = (f, why) => { commits.push(why); f(); }; export function R() {} export const Refusal = Error; export const Kept = kind => 'exact.' + kind + '.'; export const say = () => {};`);
     const { viewport } = await import(resolve(dir, 'facts.js'));
     const { data, commits } = await import(resolve(dir, 'rt.js'));
     viewport({ v: [['gpuTier']], ratio: [['devicePixelRatio']], geometry: [['safeAreaTop', 'safeAreaBottom', 'segments'], { safeAreaTop: 'n', safeAreaBottom: 'n', segments: ['[]', { height: 'n', x: 'n', width: 'n', y: 'n' }] }] });
@@ -61,7 +61,7 @@ test('canvas performance keeps unsupported metrics unavailable and refuses bad s
     copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
     writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
     writeFileSync(resolve(dir, 'rt.js'), `export const data = {}, Resources = [{name:'hud',source:'exactCanvasPerformance'}], answers = {};
-export const Refusal = Error; export function R(r) { answers[r.name] = data.reserved[r.source](null,null,r.name); }
+export const Refusal = Error; export const Kept = kind => 'exact.' + kind + '.'; export const say = () => {}; export function R(r) { answers[r.name] = data.reserved[r.source](null,null,r.name); }
 export function commit(f) { try { f(); return true; } catch { return false; } }`);
     const { canvasPerformance } = await import(resolve(dir, 'facts.js'));
     const { data, answers } = await import(resolve(dir, 'rt.js'));
@@ -83,4 +83,44 @@ export function commit(f) { try { f(); return true; } catch { return false; } }`
     expect(read()).toEqual([null, null]);
     expect(exact.canvasPerformanceRefusals()).toEqual({});
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('kept surface readers seed launch, replace only on live publication and invalidate shape changes', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kept-surface-')), saved = new Map();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {configurable:true, value:{get length(){return saved.size;}, key:i=>[...saved.keys()][i], getItem:k=>saved.get(k)??null, setItem:(k,v)=>saved.set(k,v), removeItem:k=>saved.delete(k)}});
+  try {
+    copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
+    writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
+    writeFileSync(resolve(dir, 'rt.js'), `export const data={}, Resources=[{name:'hud',source:'exactSurface'}]; export const Kept=k=>'exact.'+k+'.', say=()=>{}, Refusal=Error;
+export function R(r){data.reserved[r.source](null,null,r.name);} export function commit(f){try{f();return true;}catch{return false;}}`);
+    const {surfaces} = await import(resolve(dir, 'facts.js')), {data} = await import(resolve(dir, 'rt.js'));
+    const boot = (shape={count:'n'}, keep=true) => surfaces({hud:['world',shape,keep ? Buffer.from(JSON.stringify(shape)).toString('hex') : false]});
+    const read = () => data.reserved.exactSurface(null,null,'hud');
+    boot(); expect(read()).toEqual([0]);
+    exact.surfaceRecord('world','{"count":7,"ignored":"not saved"}');
+    expect(saved.size).toBe(1);
+    boot(); expect(read()).toEqual([7]);
+    exact.surfaceRecord('world','{"count":"bad"}'); expect(read()).toEqual([7]);
+    exact.surfaceRecord('world','{"count":9}'); expect(read()).toEqual([9]);
+    exact.surfaceRecord('world',null); expect(read()).toEqual([0]);
+    boot(); expect(read()).toEqual([9]);
+    exact.surfaceRecord('world','{"count":-0}'); boot(); expect(Object.is(read()[0], -0)).toBe(true);
+    boot({renamed:'n'}); expect(read()).toEqual([0]); expect(saved.size).toBe(0);
+    exact.surfaceRecord('world','{"renamed":3}');
+    boot({renamed:'n'},false); expect(read()).toEqual([0]); expect(saved.size).toBe(0);
+    boot({text:'s'});
+    const max = 262144 - (5 + 5) - Buffer.byteLength(JSON.stringify({text:'s'})) - 5 - 5;
+    exact.surfaceRecord('world',JSON.stringify({text:'\0'.repeat(max)}));
+    expect(saved.size).toBe(1); boot({text:'s'}); expect(read()[0].length).toBe(max);
+    exact.surfaceRecord('world',JSON.stringify({text:'x'.repeat(max + 1)}));
+    expect(saved.size).toBe(0);
+    boot(); exact.surfaceRecord('world','{"count":8}'); data.keepSurfaceAnswers = false;
+    boot(); expect(read()).toEqual([0]); expect(saved.size).toBe(0); data.keepSurfaceAnswers = true;
+    Object.defineProperty(globalThis,'localStorage',{configurable:true,get(){throw Error('storage blocked');}});
+    boot(); expect(read()).toEqual([0]);
+  } finally {
+    previous ? Object.defineProperty(globalThis,'localStorage',previous) : delete globalThis.localStorage;
+    rmSync(dir,{recursive:true,force:true});
+  }
 });

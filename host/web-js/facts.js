@@ -12,7 +12,7 @@
 //   baked; a JS build links no update store, so nothing is ever staged.
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
-import { data, Resources, commit, R, Refusal } from "./rt.js";
+import { data, Resources, commit, R, Refusal, Kept, say } from "./rt.js";
 import { environment, displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
@@ -111,10 +111,12 @@ export function canvasPerformance(readers) {
 
 export function surfaces(readers, source = "exactSurface", report = "surfaceRecord", limit = MAX_RECORD) {
   const records = new Map(), refusals = new Map(), names = new Set(Object.values(readers).map(r => r[0]));
+  const kept = source === "exactSurface" ? surfaceKeeps(readers) : null;
   let why = null;
   (data.reserved ??= {})[source] = (_, args, name) => {
     const [surface, shape] = readers[name];
     const text = records.get(surface);
+    if (text === undefined) { const seed = kept?.seed(name); if (seed !== undefined) return seed; }
     let json;
     try {
       if (text != null) {
@@ -138,7 +140,10 @@ export function surfaces(readers, source = "exactSurface", report = "surfaceReco
     why = null;
     if (!commit(() => { for (const r of Resources) if (r.source === source && readers[r.name]?.[0] === surface) R(r); }, `surface ${surface}`)) {
       put(was); refusals.set(surface, why ?? "refused");
-    } else refusals.delete(surface);
+    } else {
+      refusals.delete(surface);
+      kept?.published(surface, json, name => data.reserved[source](null, null, name));
+    }
   };
   x[report === "surfaceRecord" ? "surfaceRefusals" : "canvasPerformanceRefusals"] = () => Object.fromEntries(refusals);
 }
@@ -162,3 +167,87 @@ function shaped(t, v, path, name) {
   return Object.keys(t).map(k => shaped(t[k], v?.[k], `${path}.${k}`, name));
 }
 const KIND = { n: "Number", b: "Bool", s: "String", u: "Unit" };
+
+
+// The launch cache contains only typed values from successful publications.
+function surfaceKeeps(readers) {
+  const prefix = Kept('kept'), seeds = new Map(), live = new Set(), wanted = new Set(Object.entries(readers).filter(([, r]) => r[2]).map(([name]) => name));
+  const limit = 256 * 1024, totalLimit = 2 * (limit + 5), bytes = text => new TextEncoder().encode(text).length;
+  const entry = (name, text) => {
+    if (typeof text !== 'string' || bytes(text) > 6 * (limit + 5)) throw Error('too large');
+    const [surface, signature, value] = JSON.parse(text), row = readers[name];
+    if (!row || !row[2] || surface !== row[0] || signature !== row[2] || !keptFits(row[1], value)) throw Error('shape changed');
+    const size = keptSize(row[1], value) + 5 + bytes(surface) + signature.length / 2;
+    if (size > limit) throw Error('too large');
+    return {value, size:size + 5};
+  };
+  let cleared = false;
+  const available = () => {
+    try { if (globalThis.__exactRender || typeof localStorage === 'undefined') return false; } catch { return false; }
+    if (data.keepSurfaceAnswers !== false) return true;
+    if (!cleared) { cleared = true; try { for (const key of entries()) localStorage.removeItem(key); } catch {} }
+    return false;
+  };
+  const entries = () => Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).filter(k => k?.startsWith(prefix));
+  const remove = name => { try { if (available()) localStorage.removeItem(prefix + name); } catch {} };
+  try { if (available()) for (const key of entries()) if (!wanted.has(key.slice(prefix.length))) localStorage.removeItem(key); } catch {}
+  return {
+    seed(name) {
+      if (!wanted.has(name) || live.has(readers[name][0]) || !available()) return undefined;
+      if (!seeds.has(name)) {
+        let value;
+        try {
+          const text = localStorage.getItem(prefix + name);
+          if (text !== null) {
+            value = entry(name, text).value;
+          }
+        } catch { remove(name); }
+        seeds.set(name, value);
+      }
+      return seeds.get(name);
+    },
+    published(surface, json, read) {
+      live.add(surface);
+      for (const [name, row] of Object.entries(readers)) {
+        if (row[0] !== surface || !wanted.has(name)) continue;
+        seeds.delete(name);
+        if (json == null || !available()) continue;
+        const value = read(name), text = `[${JSON.stringify(surface)},${JSON.stringify(row[2])},${keptEncode(row[1], value)}]`;
+        let size;
+        try { size = entry(name, text).size; } catch { remove(name); say(`too big to keep: resource ${name}`); continue; }
+        try {
+          const key = prefix + name, others = entries().filter(k => k !== key).flatMap(k => {
+            try { return [[k, entry(k.slice(prefix.length), localStorage.getItem(k)).size]]; } catch { localStorage.removeItem(k); return []; }
+          }).sort((a, b) => b[1] - a[1]);
+          let total = size + others.reduce((n, [, size]) => n + size, 0);
+          for (const [other, size] of others) { if (total <= totalLimit) break; localStorage.removeItem(other); total -= size; }
+          if (localStorage.getItem(key) !== text) localStorage.setItem(key, text);
+        } catch (e) { say(`kept surface ${name}: ${e}`); }
+      }
+    }
+  };
+}
+function keptFits(t, v) {
+  if (typeof t === 'string') return t === 'n' ? typeof v === 'number' && Number.isFinite(v) : t === 's' ? typeof v === 'string' : t === 'b' ? typeof v === 'boolean' : v === null;
+  if (t[0] === '?') return v === null || keptFits(t[1], v);
+  if (t[0] === 'e') return typeof v === 'string' && t[1].includes(v);
+  if (Array.isArray(t)) return Array.isArray(v) && v.every(x => keptFits(t[1], x));
+  const fields = Object.values(t); return Array.isArray(v) && v.length === fields.length && fields.every((f, i) => keptFits(f, v[i]));
+}
+function keptSize(t, v) {
+  if (t === 'n') return 9;
+  if (t === 'b') return 2;
+  if (t === 's' || t[0] === 'e') return 5 + new TextEncoder().encode(v).length;
+  if (t === 'u') return 1;
+  if (t[0] === '?') return 1 + (v === null ? 0 : keptSize(t[1], v));
+  if (Array.isArray(t)) return 5 + v.reduce((n, x) => n + keptSize(t[1], x), 0);
+  return 5 + Object.values(t).reduce((n, f, i) => n + keptSize(f, v[i]), 0);
+}
+
+function keptEncode(t, v) {
+  if (t === 'n') return Object.is(v, -0) ? '-0' : JSON.stringify(v);
+  if (typeof t === 'string' || t[0] === 'e') return JSON.stringify(v);
+  if (t[0] === '?') return v === null ? 'null' : keptEncode(t[1], v);
+  if (Array.isArray(t)) return `[${v.map(x => keptEncode(t[1], x)).join(',')}]`;
+  return `[${Object.values(t).map((f, i) => keptEncode(f, v[i])).join(',')}]`;
+}

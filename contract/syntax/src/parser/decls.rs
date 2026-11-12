@@ -190,6 +190,10 @@ impl Parser {
         if transient {
             self.next();
         }
+        let keep = self.at_ident("keep");
+        if keep {
+            self.next();
+        }
         self.newline()?;
         Ok(ResourceDecl {
             name,
@@ -200,6 +204,7 @@ impl Parser {
             placeholder,
             each,
             transient,
+            keep,
             gate,
             span,
         })

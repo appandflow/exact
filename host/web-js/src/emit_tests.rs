@@ -754,7 +754,7 @@ fn virtual_surface_finite_defaults_run_unpublished_omitted_and_nested() {
         r#"
 const src = await Bun.file(process.argv[1]).text();
 const data = {{}}, Resources = [], commit = f => {{ f(); return true; }}, R = () => {{}}, Refusal = Error;
-const surfaces = new Function('data','Resources','commit','R','Refusal',src.replace(/^import .*;$/gm,'').replace(/^export /gm,'') + ';return surfaces;')(data,Resources,commit,R,Refusal);
+const surfaces = new Function('data','Resources','commit','R','Refusal','Kept','say',src.replace(/^import .*;$/gm,'').replace(/^export /gm,'') + ';return surfaces;')(data,Resources,commit,R,Refusal,k=>'exact.'+k+'.',()=>{{}});
 surfaces({{hud:['world',{descriptor}]}});
 const read = () => data.reserved.exactSurface(null, [], 'hud');
 const expected = ['a|b', ['a|b', null, []]];

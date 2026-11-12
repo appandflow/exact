@@ -3763,6 +3763,16 @@ and CPU tick/feed/encode durations; GPU, memory and audio measurements remain
 unavailable. The 16 KiB snapshot limit is separate from the public surface
 record's limit.
 
+A GPU HUD can show its last successful publication while its world loads:
+`resource hud = exactSurface("world") as shape Hud keep`. Only a successful
+live publication is kept; defaults, refused publications and disposal do not
+replace it. The saved value stands until the first live publication. A changed
+surface name or incompatible declared shape discards it. Removing `keep` starts
+from the shape's defaults again. Each kept answer has the data-resource limit
+of 256 KiB, including its identity and shape, and shares the bounded launch
+cache. An app whose device grants forbid kept answers stores none. Other host
+facts, including canvas performance, cannot opt in.
+
 `exactSurface(name)` is the host's channel for read-only facts about where
 the app is running, not only for a GPU surface's published record. The
 terminal host publishes `exactSurface("terminal")` (`mode`, `images`,

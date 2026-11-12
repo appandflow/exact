@@ -520,6 +520,8 @@ pub struct ResourceDecl {
     /// `transient` (LLP 1156.005 D4): its answer is never kept across
     /// launches.
     pub transient: bool,
+    /// Keep this surface reader's last publication for launch.
+    pub keep: bool,
     /// `when cond` (LLP 1161.002): asked only while `cond` holds.
     pub gate: Option<Expr>,
     /// Where.

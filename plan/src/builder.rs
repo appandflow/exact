@@ -616,6 +616,7 @@ impl PlanBuilder {
             placeholder_value: self.no_data(),
             each: ArgsRange { start: 0, len: 0 },
             transient: false,
+            keep: false,
             gate: ArgsRange { start: 0, len: 0 },
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
@@ -1087,6 +1088,11 @@ impl PlanBuilder {
     /// 1156.005 D4).
     pub fn set_resource_transient(&mut self, id: ResourcesId) {
         self.plan.resources[id.0 as usize].transient = true;
+    }
+
+    /// Keep only successful live publications of this surface reader.
+    pub fn set_resource_keep(&mut self, id: ResourcesId) {
+        self.plan.resources[id.0 as usize].keep = true;
     }
 
     /// A resource's `when` (LLP 1161.002 D1): the condition under which it is asked.

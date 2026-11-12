@@ -793,7 +793,11 @@ impl<D: DataSource> Runner<D> {
                         && !unknown
                         && states[i].as_ref().is_some_and(|s| {
                             s.kept_seed
-                                && !self.data.ready()
+                                && (if super::kept::kept_surface(&self.plan, i) {
+                                    self.surface_seed_waiting(i)
+                                } else {
+                                    !self.data.ready()
+                                })
                                 && s.args
                                     == args[..row.args.len as usize - usize::from(row.context)]
                         });
