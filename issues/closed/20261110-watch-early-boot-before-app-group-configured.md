@@ -1,6 +1,7 @@
 # The watch app starts its live session's boot before it configures the app group, so which store the session binds depends on timing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `ExactWatch.init` configures the app group before it starts the early boot, so the boot reads the group's variables and binds the group's stores on every launch.
 **Systems:** host/apple/Sources/ExactWatch/App.swift, host/apple/Sources/ExactCore/WidgetContainer.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
