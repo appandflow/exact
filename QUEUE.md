@@ -86,7 +86,6 @@
 - **An iOS bar item's share test fails on main** (2026-11-07). `NavigationBarIOSTests.testAShareFromABarItemPresentsFromTheItem` misses its presentation assertion on iOS 27.1 (24A94232). It fails with this branch's navigation code and after swapping `NavigationBarIOS.swift` and `HeaderShape` back to upstream main in the same checkout. Check the native share presentation and test isolation.
 
 
-- **A test that names an app by path leaves `EXACT_APP_DIR` set** (2026-11-08). `resolveApp` (`scripts/app.mjs`) sets `process.env.EXACT_APP_DIR` for a path, so the processes it starts inherit it, and never restores it. `host/web-js/store-readers.test.mjs` passes its temporary app to `runTests` that way, so later files in the same `bun test` process, such as `longpoll.test.mjs` and `document-render.test.mjs`, build that deleted app. Give the path to the started processes' environment, not this process's.
 
 
 - **Conformance compares a rendered tab's cached content with an unopened live panel** (2026-11-05). In `list-structures`, the JS tree includes `route-saved` at boot and after the radio arrow; the wasm target leaves its panel unopened. The layout comparison reports that node on screen only for JS. Main reproduces the difference, and later tab interactions agree. Check how the comparison treats prerendered and lazily built panels.
