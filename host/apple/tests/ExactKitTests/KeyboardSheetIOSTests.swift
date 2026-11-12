@@ -87,5 +87,26 @@ final class KeyboardSheetIOSTests: XCTestCase {
             abs(bar.convert(bar.bounds, to: nil).maxY - sheet.convert(sheet.bounds, to: nil).maxY + sheet.safeAreaInsets.bottom) < 1
         }
     }
+
+    /// A dialog sheet's editor: the page is not avoided under it (the sheet
+    /// ends at the keys itself), and the app still reads what they cover.
+    func testADialogSheetsEditorStillTellsTheKeyboardHeight() throws {
+        let session = try fixture()
+        let p = session.presenter
+        p.press(try XCTUnwrap(named("open-note")).id)
+        until("the dialog sheet is presented") { self.named("note")?.field?.window != nil && p.menus.sheets.top != nil }
+        let field = try XCTUnwrap(named("note")?.field)
+        let shown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
+        field.becomeFirstResponder()
+        wait(for: [shown], timeout: 10)
+        until("the app reads the keys under a dialog sheet") {
+            ((try? self.viewport()["keyboardHeight"] as? Double) ?? 0) > 100
+        }
+        XCTAssertEqual(p.keyboardInset, 0, "the page under a dialog sheet is not avoided")
+        let hidden = expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
+        field.resignFirstResponder()
+        wait(for: [hidden], timeout: 10)
+        until("the overlap is 0 again") { (try? self.viewport()["keyboardHeight"] as? Double) == 0 }
+    }
 }
 #endif

@@ -455,25 +455,32 @@ export const pageFacts = pageReporter(agentMode), pageChanged = () => {
     if (host.wasm.exact_set_display_scale) {
       applyBatch(JSON.parse(readOut(host.wasm.exact_set_display_scale(pageFacts.displayScale()))));
     }
-    if (host.wasm.exact_set_viewport_geometry && document.body) {
+    // A size the runner has not been told goes with the geometry, in one
+    // commit (LLP 1039 D9): the visual viewport's `resize` can come first.
+    if (host.toldSize !== `${innerWidth}x${innerHeight}`) {
+      resizeRunner();
+    } else if (host.wasm.exact_set_viewport_geometry && document.body) {
       applyBatch(JSON.parse(readOut(host.wasm.exact_set_viewport_geometry(writeIn(pageGeometry())))));
     }
   }
 };
 pageFacts.onChange(pageChanged);
-addEventListener("resize", pageChanged);
 // @ref LLP 1039 D9 — the page's geometry as the browser resolves it: the safe-area insets, the segments and the keyboard's overlap
 export const pageGeometry = () => {
   const env = environment();
   return JSON.stringify([["top", "right", "bottom", "left"].map(edge => env[`safe-area-inset-${edge}`]), fold().rects, env["keyboard-inset-height"]]);
 };
-// @ref LLP 1069.000 D2, D3
-const mediaChanged = () => {
+// @ref LLP 1069.000 D2, D3 — the size, the preferences and, riding them, the page's geometry: a rotation's insets and size are one commit (LLP 1039 D9)
+const resizeRunner = () => {
   if (host.wasm && host.incarnation && innerWidth > 0 && innerHeight > 0) {
-    // The geometry rides the size: a rotation's insets and size are one commit (LLP 1039 D9).
     const told = host.wasm.exact_set_viewport_geometry && document.body ? writeIn(pageGeometry()) : 0;
+    host.toldSize = `${innerWidth}x${innerHeight}`;
     applyBatch(presence.resize(JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)))));
   }
+};
+// The window's `resize` comes here alone: the page's facts follow the size, never before it.
+const mediaChanged = () => {
+  resizeRunner();
   pageChanged();
   requestAnimationFrame(positionContexts);
 };

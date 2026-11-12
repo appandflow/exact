@@ -590,6 +590,48 @@ fn a_resize_carries_the_page_geometry_in_its_own_commit() {
     assert_eq!(viewport(&mut bridge)["keyboardHeight"], 291);
 }
 
+/// LLP 1039 D9: the page's geometry is checked whole before anything
+/// changes. A bad keyboard leaves new insets out of the kernel, and a
+/// segment off the grid leaves the size and the keyboard as they were; a
+/// later commit that publishes the kernel's environment shows neither.
+#[test]
+fn a_refused_part_of_the_page_geometry_changes_nothing() {
+    let source = "shape Viewport\n  width: number\n  safeAreaLeft: number\n  keyboardHeight: number\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    column\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData)
+        .unwrap()
+        .encode();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
+    bridge.boot(&plan, NoData, 600.0, 800.0, "/");
+    let viewport = |bridge: &mut exact_web::abi::Bridge<NoData>| {
+        let n = bridge.input_write(br#"{"op":"state"}"#);
+        let len = bridge.agent(n);
+        let state: serde_json::Value =
+            serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        state["resources"]["viewport"].clone()
+    };
+    let refused = |bridge: &mut exact_web::abi::Bridge<NoData>, len: u32| {
+        let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+        assert!(out.contains("\"error\":\""), "{out}");
+    };
+    let unchanged = serde_json::json!({"width": 600, "safeAreaLeft": 0, "keyboardHeight": 0});
+    // New insets with a negative keyboard, with a size and alone.
+    let n = bridge.input_write(b"[[0, 0, 21, 47], [], -1]");
+    let len = bridge.resize_with(800.0, 600.0, 0, 0.0, n);
+    refused(&mut bridge, len);
+    let n = bridge.input_write(b"[[0, 0, 21, 47], [], -1]");
+    let len = bridge.viewport_geometry(n);
+    refused(&mut bridge, len);
+    // A segment on a one-segment grid, with a new size and keyboard.
+    let n = bridge.input_write(b"[[0, 0, 0, 0], [[0, 0, 10, 10]], 300]");
+    let len = bridge.resize_with(800.0, 600.0, 0, 0.0, n);
+    refused(&mut bridge, len);
+    assert_eq!(viewport(&mut bridge), unchanged);
+    // A commit that publishes the kernel's environment finds it as it was.
+    bridge.resize(600.0, 790.0, 0, 0.0);
+    assert_eq!(viewport(&mut bridge), unchanged);
+}
+
 /// LLP 1121 stage 4, commit 3: a value-only edit of the app's design
 /// publishes no plan (its file is written, for a host that watches it); its
 /// batch says what changed. An edit that changes the plan's

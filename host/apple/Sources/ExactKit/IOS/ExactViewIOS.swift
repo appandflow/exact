@@ -45,6 +45,9 @@ public final class ExactView: UIView {
     private var lastScreen: CGSize?
     /// The keyboard's overlap last told (`exactViewport().keyboardHeight`).
     private var lastKeyboard: CGFloat = 0
+    /// What the keys cover of the page, whatever is presented over it
+    /// (`fitKeyboard`); `presenter.keyboardInset` is what avoidance takes.
+    package private(set) var keyboardCovers: CGFloat = 0
     /// The bounds' size the last fit read (`fitAheadOfLayout`).
     private var fittedSize = CGSize.zero
     /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
@@ -336,8 +339,12 @@ public final class ExactView: UIView {
         #endif
         let top = presenter.keyboardGuideTop(in: self)
         presenter.keyboardTop = top.map { convert(CGPoint(x: 0, y: $0), to: window).y }
-        let overlap = presenter.menus.sheets.top == nil
-            ? top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0 : 0
+        // What the keys cover of the page, whatever is presented over it: the
+        // fact (`exactViewport().keyboardHeight`, LLP 1039 D9). Avoidance leaves
+        // the page alone while a dialog sheet, which ends at the keys itself, is up.
+        let covered = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
+        keyboardCovers = covered
+        let overlap = presenter.menus.sheets.top == nil ? covered : 0
         presenter.setKeyboardInset(overlap)
         presenter.keyboardToolbars.ride(overlap: overlap)
         if top == nil { presenter.pinnedRoom.release() }
@@ -530,9 +537,9 @@ public final class ExactView: UIView {
         }
         let resized = size != lastSize
         if resized { lastSize = size; change.size = size }
-        // LLP 1039 D9: what the agent's `layout.env` reports as `keyboard-inset-height`.
-        if presenter.keyboardInset != lastKeyboard {
-            lastKeyboard = presenter.keyboardInset
+        // LLP 1039 D9: what the keys cover, a dialog sheet's editor's too.
+        if keyboardCovers != lastKeyboard {
+            lastKeyboard = keyboardCovers
             change.keyboard = lastKeyboard
         }
         // Rects that change on the same grid (a keyboard ending the

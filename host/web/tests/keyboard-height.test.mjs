@@ -84,11 +84,14 @@ test('keyboardHeight is what the keyboard covers', () => served([
 }), 180000);
 
 // Under `interactive-widget=resizes-content` the keys shrink the layout
-// viewport as well as the visual one: the overlap is measured against the
-// height the page had before them, while a text field has the focus.
-test('keyboardHeight under resizes-content is the keys, not 0', () => served([
+// viewport as well as the visual one: on a phone (a coarse pointer) the
+// overlap is measured against the height the page had before them, in its
+// orientation, and carried through the screen when it turns with the keys up.
+// A window resized on a desktop is a window, focused field or not.
+const FIELD = [
   'shape Viewport',
   '  keyboardHeight: number',
+  '  width: number',
   '  height: number',
   'component App',
   '  resource viewport = exactViewport() as shape Viewport',
@@ -100,28 +103,52 @@ test('keyboardHeight under resizes-content is the keys, not 0', () => served([
   '      input value=name input=edit aria-label="Name" testId="name"',
   '      text `${viewport.keyboardHeight}` testId="keyboard"',
   '',
-].join('\n'), async ({ page, resource, until }) => {
-  const full = await page.evaluate(() => innerHeight);
-  const keys = height => page.evaluate(height => {
-    window.keys = height;
-    dispatchEvent(new Event('resize'));
-    visualViewport.dispatchEvent(new Event('resize'));
-  }, height);
+].join('\n');
+// The window's size (`window.size`, else the browser's) less the keys, which
+// both viewports lose, as `resizes-content` has it.
+const viewportsUnderKeys = () => {
+  const width = Object.getOwnPropertyDescriptor(window, 'innerWidth').get;
+  const height = Object.getOwnPropertyDescriptor(window, 'innerHeight').get;
+  Object.defineProperty(window, 'innerWidth', { configurable: true, get() { return window.size?.[0] ?? width.call(this); } });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, get() { return (window.size?.[1] ?? height.call(this)) - (window.keys ?? 0); } });
+  Object.defineProperty(VisualViewport.prototype, 'height', { configurable: true, get() { return innerHeight; } });
+};
+const turn = (page, size, keys) => page.evaluate(([size, keys]) => {
+  window.size = size;
+  window.keys = keys;
+  dispatchEvent(new Event('resize'));
+  visualViewport.dispatchEvent(new Event('resize'));
+}, [size, keys]);
+const PHONE = { hasTouch: true, viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 } };
+
+test('keyboardHeight on a phone under resizes-content is the keys, in either orientation', () => served(FIELD, async ({ page, resource, until }) => {
+  expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
   await page.focus('[data-testid="name"]');
-  await keys(291);
-  const v = await until(v => v.keyboardHeight === 291, 'the keys under resizes-content');
-  expect(v.height).toBe(full - 291);
-  await page.waitForFunction(() => document.querySelector('[data-testid="keyboard"]')?.textContent === '291');
-  await keys(0);
-  await until(v => v.keyboardHeight === 0 && v.height === full, 'the keys gone');
-  // Nothing typed into: a shorter window is a shorter window, not keys.
+  await turn(page, [390, 844], 300);
+  let v = await until(v => v.keyboardHeight === 300, 'the keys under resizes-content');
+  expect(v.height).toBe(544);
+  await page.waitForFunction(() => document.querySelector('[data-testid="keyboard"]')?.textContent === '300');
+  // Turned with the keys up: a landscape page 390 tall, 200 of it keys.
+  await turn(page, [844, 390], 200);
+  v = await until(v => v.width === 844, 'the turn');
+  expect(v.keyboardHeight).toBe(200);
+  expect(v.height).toBe(190);
+  // Back, the keys gone: the portrait page again, no keys.
+  await turn(page, [390, 844], 0);
+  await until(v => v.keyboardHeight === 0 && v.height === 844, 'the keys gone');
+  // Nothing typed into: a shorter page is not keys.
   await page.evaluate(() => document.activeElement.blur());
-  await keys(120);
+  await turn(page, [390, 844], 120);
+  await until(v => v.height === 724, 'the shorter page');
+  expect((await resource()).keyboardHeight).toBe(0);
+}, PHONE, viewportsUnderKeys), 180000);
+
+test('keyboardHeight on a desktop is 0 when the window shrinks with a field focused', () => served(FIELD, async ({ page, resource, until }) => {
+  expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(false);
+  const full = await page.evaluate(() => innerHeight);
+  const width = await page.evaluate(() => innerWidth);
+  await page.focus('[data-testid="name"]');
+  await turn(page, [width, full], 120);
   await until(v => v.height === full - 120, 'the shorter window');
   expect((await resource()).keyboardHeight).toBe(0);
-}, {}, () => {
-  for (const [proto, name] of [[VisualViewport.prototype, 'height'], [window, 'innerHeight']]) {
-    const read = Object.getOwnPropertyDescriptor(proto, name).get;
-    Object.defineProperty(proto, name, { configurable: true, get() { return read.call(this) - (window.keys ?? 0); } });
-  }
-}), 180000);
+}, {}, viewportsUnderKeys), 180000);

@@ -767,15 +767,26 @@ impl<D: DataSource> Host<D> {
         self.now_ms = a.now_ms.max(self.now_ms);
         let mut receipts = a.receipts;
         let mut error = a.error.map(|e| format!("{e:?}"));
-        let keyboard = geometry.as_ref().map(|g| f64::from(g.2));
-        if let Some(Err(e)) = geometry.map(|g| self.put_geometry(&g, viewport.fold)) {
-            error = Some(e);
-        }
         let size = Some((viewport.width, viewport.height));
+        // The geometry is checked whole before anything of the report
+        // changes: a refused part refuses it all (LLP 1039 D9).
+        let checked = match geometry.map(|g| (self.checked_view(size, &g, viewport.fold), g.2)) {
+            Some((Err(refused), _)) => {
+                let error = error.map_or(refused.clone(), |e| format!("{e}; {refused}"));
+                return self.batch_for(&receipts, Some(&error));
+            }
+            Some((Ok(env), keyboard)) => Some((env, keyboard)),
+            None => None,
+        };
+        let viewport_error = |e| format!("viewport: {e:?}");
         let answers = [
-            self.runner.set_view(size, keyboard),
-            self.runner.set_preferences(viewport.preferences),
-            self.runner.set_fold(viewport.fold), // the fold rides the same report (LLP 1078 D6)
+            match checked {
+                Some((env, keyboard)) => self.put_view(env, size, keyboard),
+                None => self.runner.set_view(size, None).map_err(viewport_error),
+            },
+            (self.runner.set_preferences(viewport.preferences)).map_err(viewport_error),
+            // the fold rides the same report (LLP 1078 D6)
+            (self.runner.set_fold(viewport.fold)).map_err(viewport_error),
         ];
         for answer in answers {
             match answer {
@@ -784,8 +795,7 @@ impl<D: DataSource> Host<D> {
                     receipt,
                 }),
                 Ok(None) => {}
-                Err(e) => {
-                    let viewport_error = format!("viewport: {e:?}");
+                Err(viewport_error) => {
                     error = Some(match error {
                         Some(timer_error) => format!("{timer_error}; {viewport_error}"),
                         None => viewport_error,

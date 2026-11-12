@@ -18,7 +18,7 @@ export function environment() {
     ...foldEnv()
   };
 }
-/** `env(keyboard-inset-height)` (LLP 1039 D9): the VirtualKeyboard API's rect where the page overlays the keyboard, else how far the visual viewport, its zoom aside, falls short of the layout viewport's height before the keys. Under `interactive-widget=resizes-content` the keys shrink the layout viewport too, so its height before them is the one last read while no text field had the focus, at this width (a rotation reads it again): no software keyboard is up without one. */
+/** `env(keyboard-inset-height)` (LLP 1039 D9): the VirtualKeyboard API's rect where the page overlays the keyboard, else how far the visual viewport, its zoom aside, falls short of the layout viewport's height before the keys. Under `interactive-widget=resizes-content` the keys shrink the layout viewport too, so on a device that has software keyboards (a coarse pointer) its height before them is the one read while no text field had the focus, in this orientation, or, rotated with the keys up, the other orientation's carried across through the screen. A device with a fine pointer takes a shorter window for a shorter window, never for keys. */
 export function keyboardInset(platform = globalThis) {
   const rect = platform.navigator?.virtualKeyboard?.boundingRect;
   if (rect?.height > 0) {
@@ -29,12 +29,23 @@ export function keyboardInset(platform = globalThis) {
     return 0;
   }
   const { innerWidth: width, innerHeight: height } = platform;
-  if (!typing(platform) || keysless.width !== width) {
-    keysless = { width, height };
+  const visible = vv.height * (vv.scale || 1);
+  if (!platform.matchMedia?.("(pointer: coarse)").matches) {
+    return r2(Math.max(0, height - visible));
   }
-  return r2(Math.max(0, Math.max(keysless.height, height) - vv.height * (vv.scale || 1)));
+  const screen = platform.screen, long = Math.max(screen?.width ?? 0, screen?.height ?? 0), short = Math.min(screen?.width ?? 0, screen?.height ?? 0);
+  // The orientation by the width, which the keys never change.
+  const portrait = long > 0 ? width < (long + short) / 2 : width <= height;
+  if (!typing(platform)) {
+    keysless[portrait ? "portrait" : "landscape"] = { width, height };
+    // The browser's own bars, what the screen's side has over the page: the same in either orientation.
+    keysless.bars = long > 0 ? (portrait ? long : short) - height : null;
+  }
+  const seen = keysless[portrait ? "portrait" : "landscape"];
+  const before = seen?.width === width ? seen.height : keysless.bars != null && long > 0 ? (portrait ? long : short) - keysless.bars : height;
+  return r2(Math.max(0, Math.max(before, height) - visible));
 }
-let keysless = { width: -1, height: 0 };
+const keysless = { portrait: null, landscape: null, bars: null };
 const KEYLESS_INPUTS = new Set(["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"]);
 /** Whether the focus is in a field a software keyboard types into. */
 function typing(platform) {
