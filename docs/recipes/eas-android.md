@@ -51,15 +51,16 @@ project repositories; no replacement Gradle home is required for that case.
 
 `EXACT_VERSION` becomes `versionName`; the resolved number becomes
 `versionCode`. A bundle requires all four signing inputs and bakes
-production update trust (LLP 1030.003 D6, D8). Supply `EXACT_UPDATE_RECEIPT`
-(or genesis for a new stream) unless `deploy.store.android` is `"0"`.
+production update trust (LLP 1030.003 D6, D8). Android uses the Linux bake:
+set `deploy.store.linux` to `"0"` for a binary without Exact updates;
+`deploy.store.android` does not disable the bake's update checks. Otherwise,
+supply the update signing keys and `EXACT_UPDATE_RECEIPT` (or genesis for a new stream).
 For an APK, set `EXACT_UPDATE_TRUST=production` and use
 `android --release --no-install --json`; its path is
 `target/android/app/outputs/apk/release/app-release.apk`. Neither command
 contacts adb. JSON reports the artifact path; logs go to stderr.
 
 Run `bunx eas build --platform android --profile exact --non-interactive`
-after the account, credentials and build counter are ready. Local Gradle
-configuration tests and the clean prerequisite check passed. APK/AAB
-packaging, an EAS worker, upload and Play submission remain unverified.
-The publisher owns the Play record, upload key and submission credentials.
+after the account, credentials and build counter are ready. A real EAS
+worker, upload and Play submission remain unverified. The publisher owns
+the Play record, upload key and submission credentials.
