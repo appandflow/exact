@@ -146,17 +146,38 @@ extension NavigationHost {
 
     /// What tab `index` shows of its face on its `UITab`: the title, the
     /// image (both states), the badge and enablement as its item has them,
-    /// and its test id. A search tab with no symbol or label keeps UIKit's
-    /// magnifying glass and "Search" (LLP 1141.002 D1).
+    /// and its test id. A search tab with no symbol or label has UIKit's
+    /// magnifying glass and "Search" (LLP 1141.002 D1), again once the
+    /// author's are gone: those of a search tab nobody has customized.
     func writeBuiltTab(_ index: Int, item: UITabBarItem, title: String) {
         guard #available(iOS 18.0, tvOS 18.0, *), builtTabs.indices.contains(index), let tab = builtTabs[index] as? UITab else { return }
-        let search = tab is UISearchTab
-        if !(search && title.isEmpty), tab.title != title { tab.title = title }
-        if !(search && item.image == nil) { tab.image = item.image }
-        if #available(iOS 26.1, tvOS 26.1, *), !(search && item.image == nil) { tab.selectedImage = item.selectedImage }
+        let platform = tab is UISearchTab && (title.isEmpty || item.image == nil) ? UISearchTab(viewControllerProvider: nil) : nil
+        let wanted = title.isEmpty ? platform?.title ?? title : title
+        if tab.title != wanted { tab.title = wanted }
+        tab.image = item.image ?? platform?.image
+        if #available(iOS 26.1, tvOS 26.1, *) { tab.selectedImage = item.image == nil ? platform?.selectedImage : item.selectedImage }
         if tab.badgeValue != item.badgeValue { tab.badgeValue = item.badgeValue }
         if #available(iOS 18.4, tvOS 18.4, *), tab.isEnabled != item.isEnabled { tab.isEnabled = item.isEnabled }
         tab.accessibilityIdentifier = item.accessibilityIdentifier
+    }
+
+    /// Whether the app's tab bar delegate declines a tap on `controller`'s
+    /// tab, asked as UIKit asks it: by its `UITab` on a bar built from them.
+    func appDeclinesTab(_ tabs: UITabBarController, _ controller: UIViewController) -> Bool {
+        if #available(iOS 18.0, tvOS 18.0, *), let index = tabIndex(of: controller), builtTabs.indices.contains(index), let tab = builtTabs[index] as? UITab {
+            return tabProxy.app?.tabBarController?(tabs, shouldSelectTab: tab) == false
+        }
+        return tabProxy.app?.tabBarController?(tabs, shouldSelect: controller) == false
+    }
+
+    /// UIKit's `didSelect` for a tap on the tab it shows, which selects
+    /// nothing in code, sent through the delegate Exact keeps as a tap sends
+    /// it: by `UITab` on a bar built from them.
+    func sendReselect(_ tabs: UITabBarController, _ controller: UIViewController) {
+        if #available(iOS 18.0, tvOS 18.0, *), let index = tabIndex(of: controller), builtTabs.indices.contains(index), let tab = builtTabs[index] as? UITab {
+            return tabProxy.tabBarController(tabs, didSelectTab: tab, previousTab: tab)
+        }
+        tabProxy.tabBarController(tabs, didSelect: controller)
     }
 
     /// The search tab activates its field on selection when its root route's
@@ -166,8 +187,9 @@ extension NavigationHost {
     func followSearchTab() {
         #if os(iOS)
         guard #available(iOS 26.0, *), let index = builtSearch, let tab = builtTabs[index] as? UISearchTab,
-              let root = tabStack(index)?.stackRoutes.first as? RouteController, let field = root.search?.field else { return }
-        let activates = field.props["autofocus"].map { $0 != "false" } ?? false
+              let root = tabStack(index)?.stackRoutes.first as? RouteController else { return }
+        // A built root with no field, or one that lost it, is a landing page
+        let activates = root.search?.field?.props["autofocus"].map { $0 != "false" } ?? false
         guard tab.automaticallyActivatesSearch != activates else { return }
         tab.automaticallyActivatesSearch = activates
         presenter.session?.log("navigation: the search tab \(activates ? "activates its field when selected" : "is a landing page")")

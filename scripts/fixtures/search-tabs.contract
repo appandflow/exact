@@ -2,7 +2,8 @@
 // placement is the tabs recipe's, unsaid, so an iPad shows them as UIKit's
 // sidebar-adaptable bar. The last says `rel="search"`, so iOS 18 and later
 // make it a `UISearchTab`; its root's header field says `autofocus`, so
-// iOS 26 activates the field when the tab is selected. Home pushes Detail.
+// iOS 26 activates the field when the tab is selected. Home pushes Detail;
+// Strip takes away the search tab's symbol, label and field.
 routes nav
   tab home "/"
     detail "/detail"
@@ -11,6 +12,7 @@ routes nav
 
 component SearchTabs
   state query = ""
+  state bare = false
   action pick(name: string)
     nav = select(nav, name)
   action follow(url: string)
@@ -21,6 +23,8 @@ component SearchTabs
     nav = back(nav)
   action edit(v: string)
     query = v
+  action strip
+    bare = true
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
       display="flex" flex-direction="column"
@@ -36,13 +40,15 @@ component SearchTabs
                       text "Back"
                   text (e.name == "home" ? "Home" : e.name == "saved" ? "Saved" : e.name == "find" ? "Speakers" : "Detail")
                     role="heading" aria-level=(e.name == "detail" ? 2 : 1)
-                  if e.name == "find"
+                  if e.name == "find" and not bare
                     input type="search" autofocus value=query input=edit placeholder="Search speakers"
                       testId="speaker-search"
                 scroll flex=1 min-height=0 testId=`content-${e.name}`
                   if e.name == "home"
                     button press=open testId="open-detail"
                       text "Open"
+                    button press=strip testId="strip"
+                      text "Strip"
                   text `${e.name} ${query}` testId=`text-${e.name}`
       row role="tablist" testId="tabs"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
@@ -55,5 +61,6 @@ component SearchTabs
           text "Saved"
         button role="tab" rel="search" aria-controls="panel-find" aria-selected=(nav.tab == "find") press=pick("find")
           testId="tab-find" flex=1
-          image "symbol:people"
-          text "Speakers"
+          if not bare
+            image "symbol:people"
+            text "Speakers"

@@ -368,7 +368,7 @@ extension NavigationHost {
             if let tabsController = tabController, let controller = tabStack(index), barItem(ofTab: index) != nil {
                 let reselect = controller === tabsController.selectedViewController
                 // Ask the app's delegate, then `mayShow`, as `TabDelegateProxy` does, so the reply can say which declined
-                if tabProxy.app?.tabBarController?(tabsController, shouldSelect: controller) == false {
+                if appDeclinesTab(tabsController, controller) {
                     return ["error": "tab #\(id): the app's tab bar delegate declined the tap (its shouldSelect returned false), so UIKit selects nothing"]
                 }
                 guard mayShow(tabsController, controller) else {
@@ -379,7 +379,7 @@ extension NavigationHost {
                 if reselect { (controller as? UINavigationController)?.popToRootViewController(animated: !ExactEnv.agentFreezes) }
                 else { tabsController.selectedViewController = controller }
                 // A container built from `UITab`s sends `didSelectTab` for the selection itself, not for a reselect
-                if builtTabs.isEmpty { tabProxy.tabBarController(tabsController, didSelect: controller) } else if reselect { followUIKit(tabsController) }
+                if reselect { sendReselect(tabsController, controller) } else if builtTabs.isEmpty { tabProxy.tabBarController(tabsController, didSelect: controller) }
                 return reply
             }
             // Press a row of More's list's tab: the router selects it, which UIKit shows under More

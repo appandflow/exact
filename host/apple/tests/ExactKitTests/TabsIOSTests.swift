@@ -166,6 +166,46 @@ final class TabsIOSTests: XCTestCase {
         until("Saved shown") { self.topRoute(session) == "route-saved" }
     }
 
+    /// The search tab's face and form follow its author: with its symbol,
+    /// label and field gone it is UIKit's own again, the magnifying glass and
+    /// "Search", and a landing page that activates nothing.
+    func testASearchTabLosingItsFaceAndFieldIsUIKitsAgain() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UITab is iOS 18") }
+        let session = try fixture("EXACT_SEARCH_TABS_PLAN")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let search = try XCTUnwrap(tabs.tabs.last as? UISearchTab)
+        until("the authored label") { search.title == "Speakers" }
+        if #available(iOS 26.0, *) { until("its field activates") { search.automaticallyActivatesSearch } }
+        _ = Agent(session: session).tap(["id": Int(try node(session, "strip").id)])
+        let platform = UISearchTab(viewControllerProvider: nil)
+        until("UIKit's label again") { search.title == platform.title }
+        XCTAssertEqual(search.image, platform.image, "UIKit's symbol again")
+        if #available(iOS 26.0, *) { until("no field, no activation") { !search.automaticallyActivatesSearch } }
+    }
+
+    /// A tap the agent delivers asks the app's delegate as UIKit asks it on
+    /// a bar built from `UITab`s, by tab, and a reselect tells it as a tap
+    /// does; a tab the app declines is not selected.
+    func testTheAgentsTapAsksTheAppsDelegateByTab() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UITab is iOS 18") }
+        let session = try fixture("EXACT_SEARCH_TABS_PLAN")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let app = RecordingTabDelegate()
+        navigation.setAppDelegate(tabs, app)
+        XCTAssertNil(navigation.activateChrome(try node(session, "tab-saved"))?["error"])
+        XCTAssertEqual(app.calls, ["shouldSelectTab panel-saved", "didSelectTab panel-saved"])
+        app.calls = []
+        XCTAssertNil(navigation.activateChrome(try node(session, "tab-saved"))?["error"])
+        XCTAssertEqual(app.calls, ["shouldSelectTab panel-saved", "didSelectTab panel-saved"], "a reselect is told too")
+        app.calls = []
+        app.declines = "panel-home"
+        let refused = navigation.activateChrome(try node(session, "tab-home"))?["error"] as? String
+        XCTAssertTrue(refused?.contains("declined") == true, "\(String(describing: refused))")
+        XCTAssertEqual(app.calls, ["shouldSelectTab panel-home"])
+        XCTAssertEqual(tabs.selectedTab?.identifier, "panel-saved")
+    }
+
     /// A phone's tab bar with no search tab stays on `viewControllers`.
     func testAPhoneTabBarWithNoSearchTabKeepsItsControllers() throws {
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("an iPad builds UITabs for its sidebar") }
@@ -198,6 +238,24 @@ final class TabsIOSTests: XCTestCase {
         let nav = try XCTUnwrap(navigation.primaryNavigation)
         until("the bar's layout clears the column") { nav.navigationBar.safeAreaInsets.left >= sidebar.bounds.width - 0.5 }
         if case .edges(let edges)? = navigation.covers[route.id] { XCTAssertEqual(edges.left, 0, "no left cover on the route") }
+    }
+}
+
+/// An app's tab bar delegate that records what UIKit, or the agent, asks it.
+@available(iOS 18.0, *)
+private final class RecordingTabDelegate: NSObject, UITabBarControllerDelegate {
+    var calls: [String] = []
+    var declines: String?
+    func tabBarController(_ tabs: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+        calls.append("shouldSelectTab \(tab.identifier)")
+        return tab.identifier != declines
+    }
+    func tabBarController(_ tabs: UITabBarController, didSelectTab tab: UITab, previousTab: UITab?) {
+        calls.append("didSelectTab \(tab.identifier)")
+    }
+    func tabBarController(_ tabs: UITabBarController, shouldSelect controller: UIViewController) -> Bool {
+        calls.append("shouldSelect controller")
+        return true
     }
 }
 #endif
