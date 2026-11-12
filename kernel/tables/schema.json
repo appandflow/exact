@@ -1421,7 +1421,7 @@
       "snapshot": "admit",
       "watch": "admit",
       "kind": "str",
-      "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
+      "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS, the tooltip control on Windows (`host/windows/src/tooltip.rs`); touch hosts show none. The painted hosts' accessibility reads it as the description, or the name where nothing else names the node."
     },
     {
       "id": 238,
