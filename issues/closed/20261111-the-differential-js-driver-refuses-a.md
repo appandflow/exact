@@ -1,6 +1,7 @@
 # The differential JS driver refuses a valid select change when option text has whitespace
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The driver reads an option without a `value` attribute as its text with HTML's ASCII whitespace stripped and collapsed, as the kernel's `option_label` does, and a corpus case covers padded, tabbed, inner-run and nonbreaking-space labels.
 **Systems:** semantics/difftest/js/drive.mjs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
