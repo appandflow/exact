@@ -122,6 +122,9 @@ mod svg_lower;
 mod svg_tests;
 #[path = "timeline_scroll.rs"]
 mod timeline_scroll;
+#[cfg(test)]
+#[path = "timeline_scroll_tests.rs"]
+mod timeline_scroll_tests;
 #[path = "transform_drag.rs"]
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]

@@ -13,11 +13,10 @@ use super::*;
 use exact_kernel::timeline::TimelineScroller;
 
 /// The scrollers the last placement reads, each with the offset its
-/// presenter last gave (zero until it scrolls), and the page's.
+/// presenter last gave.
 #[derive(Default)]
 pub(super) struct TimelineScrolls {
     scrollers: Vec<(TimelineScroller, [f64; 2])>,
-    page: [f64; 2],
 }
 
 impl<D: DataSource> Host<D> {
@@ -34,7 +33,6 @@ impl<D: DataSource> Host<D> {
         if now.is_empty() && was.is_empty() {
             return;
         }
-        let page = self.timeline_scrolls.page;
         let mut scrollers = Vec::with_capacity(now.len());
         for s in now {
             // A view this batch creates is a new scroller, at its start.
@@ -45,11 +43,13 @@ impl<D: DataSource> Host<D> {
                 let mark = if s.page { "page" } else { "1" };
                 batch.props(s.view, &[("scrollTimeline", mark.into())], &[]);
             }
-            let offset = if s.page {
-                page
-            } else {
-                kept.map_or([0.0; 2], |k| k.1)
-            };
+            // A scroller marked anew is where the presenter last showed it,
+            // which the runner notes for every scroll, marked or not; a
+            // node created since has none noted, and is at its start.
+            let offset = kept.map(|k| k.1).unwrap_or_else(|| {
+                let (x, y) = self.runner.scroll_offset((!s.page).then_some(s.view));
+                [x, y]
+            });
             scrollers.push((*s, offset));
         }
         for (s, _) in was {
@@ -67,11 +67,7 @@ impl<D: DataSource> Host<D> {
     /// `(left, top)` CSS px: the timelines it drives, presented.
     pub fn timeline_scrolled(&mut self, view: Option<ViewId>, left: f64, top: f64) -> String {
         let mut batch = Batch::new();
-        let scrolls = &mut self.timeline_scrolls;
-        if view.is_none() {
-            scrolls.page = [left, top];
-        }
-        for (s, offset) in scrolls.scrollers.iter_mut() {
+        for (s, offset) in self.timeline_scrolls.scrollers.iter_mut() {
             let moved = match view {
                 Some(v) => s.view == v,
                 None => s.page,

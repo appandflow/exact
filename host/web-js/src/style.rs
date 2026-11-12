@@ -945,6 +945,13 @@ pub fn style_fallback(name: &str) -> String {
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+/// `animation-timeline` as CSS's own row where a name may be a drag's: only
+/// `scroll()` and `view()` (css.rs).
+pub(super) const ANONYMOUS_TIMELINE: &str = "v=>v!=null&&/^\\s*(scroll|view)\\(/i.test(v)?v:null";
+
+/// `animation-range` as CSS's own row.
+pub(super) const ANIMATION_RANGE: &str = "v=>v==null||/^\\s*normal\\s*$/i.test(v)?null:v";
+
 /// A name's consumer is paused for the drag code; `scroll()` or `view()`
 /// only where the browser has no `animation-timeline` (css.rs, index.html).
 pub(super) const TIMELINE_PLAY_STATE: &str =
@@ -1165,9 +1172,10 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
                 "--exact-animation-timeline",
                 "v=>v==null||/^\\s*(unset|auto|(-exact-)?clock\\(.*\\))\\s*$/i.test(v)?null:v",
             ),
+            with("animation-timeline", ANONYMOUS_TIMELINE),
             with(
-                "animation-timeline",
-                "v=>v!=null&&/^\\s*(scroll|view)\\(/i.test(v)?v:null",
+                "--exact-css-timeline",
+                "v=>v!=null&&/^\\s*(scroll|view)\\(/i.test(v)?\"1\":null",
             ),
             with(
                 "--exact-animation-clock",
@@ -1183,10 +1191,7 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
                 "--exact-animation-range",
                 "v=>v==null||/^\\s*normal\\s*$/i.test(v)?null:v",
             ),
-            with(
-                "animation-range",
-                "v=>v==null||/^\\s*normal\\s*$/i.test(v)?null:v",
-            ),
+            with("animation-range", ANIMATION_RANGE),
         ],
         StyleId::ScrollTimelineName => vec![
             with("scroll-timeline-name", NONE),

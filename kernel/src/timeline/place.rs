@@ -163,6 +163,10 @@ impl Timeline {
             } => {
                 let x = reads_x(axis);
                 shown(arena, subject)?;
+                // Unlike a scroll timeline's, a view timeline's progress
+                // stands with no scroll range: Chrome 156 shows it (the
+                // timelines fixture's `vn`), and Scroll-driven Animations 1
+                // §3 makes it inactive only with no box or no scroller.
                 let scroller = nearest_scroller(arena, subject);
                 let (port_start, port) = scrollport(arena, scroller, x);
                 let frame = arena.frame(subject);

@@ -179,7 +179,7 @@ fn css_text_in(
                     let t = t.css();
                     push_text!(
                         &mut out,
-                        "--exact-animation-timeline:{};animation-timeline:{};animation-play-state:var(--exact-timeline-play,paused);",
+                        "--exact-animation-timeline:{};animation-timeline:{};animation-play-state:var(--exact-timeline-play,paused);--exact-css-timeline:1;",
                         t,
                         t
                     );

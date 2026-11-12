@@ -533,7 +533,8 @@ impl Em<'_> {
         if id == StyleId::AnimationTimeline && !self.drag_timelines {
             crate::timelines::css_writes(&mut writes);
         }
-        // An animation shorthand resets play state, so read its live timeline again.
+        // An animation shorthand resets the play state, the timeline and the
+        // range, so read them live again after it.
         if id == StyleId::Animation && timeline {
             let getter = self.bound(i, e, &binding(StyleId::AnimationTimeline).unwrap(), scope)?;
             for (name, _, map) in &mut writes {
@@ -544,6 +545,10 @@ impl Em<'_> {
                     ));
                 }
             }
+            let range = (binding(StyleId::AnimationRange))
+                .map(|r| self.bound(i, e, &r, scope))
+                .transpose()?;
+            crate::timelines::after_shorthand(&mut writes, self.drag_timelines, &getter, range);
         }
         writes.extend(sized);
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
@@ -849,6 +854,8 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-animation-range:",
             "--exact-timeline-scope:",
             "--exact-scroll-timeline:",
+            // A browser timeline's consumer, which index.html's `[style*=…]` finds.
+            "--exact-css-timeline:",
             "--exact-view-timeline:",
             // The press feedback's factor (LLP 1061) and haptic (LLP 1077
             // D14), which input-glue.js reads from the element's own style.

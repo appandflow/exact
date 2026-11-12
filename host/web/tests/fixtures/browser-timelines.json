@@ -575,6 +575,14 @@
     "h-auto": 1,
     "h-inset": 1
    }
+  },
+  {
+   "scroller": "vn",
+   "at": 0,
+   "values": {
+    "vflat": 0.6,
+    "vflat-anon": 0.4
+   }
   }
  ]
 }
