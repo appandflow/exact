@@ -3012,6 +3012,14 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   paints (on iOS only when `scripts/agent.mjs` runs alone: `exact.mjs` shows UIKit's
   bars); `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
   presses its row (`native: "sidebar-row"`).
+- On an iPad (iPadOS 18 and later) the same root tablist, placed as above, is UIKit's
+  sidebar-adaptable tab bar (`UITabBarController.mode = .tabSidebar`): a sidebar of the
+  tabs where the window is regular-width and wide enough (an iPad in landscape), the
+  floating tab bar with its sidebar button otherwise, and the bottom tab bar in a compact
+  width. UIKit switches between them as the window changes; the routes clear the
+  sidebar as they clear any bar, so their content is laid out beside it. A tablist the
+  author places elsewhere, or draws (`appearance="none"`), stays a tab bar, and so,
+  for now, does a bar of six or more tabs.
 - **The search tab**: the root tab that says `rel="search"` (HTML's link type for "an
   interface for searching"; keep `role="tab"`) is the app's search tab, and is written
   last. On iOS 18 and later, in a bar of five tabs or fewer, it is a `UISearchTab` with
@@ -3028,6 +3036,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   UIKit's default, and an app that wants them sets them from the `tabs` hatch, which
   hands it the `UITabBarController` (docs/reference.md, "Access hatches"). The routes
   follow the safe area a minimizing bar changes.
+- A box written beside the routes in the navigation root (a column the routes are offset
+  past) shows on iOS as on the web: the native container that stands for the routes
+  paints under a child no route's box meets, and UIKit lays the navigation bar's title
+  and buttons out past such a column. For a sidebar of sections beside the content,
+  prefer the root tablist above, which an iPad shows as its sidebar.
 - On the Mac a route's `header` is the window's title bar and toolbar: its heading the
   window's title (under a `head title`, over the app's name; there is no large title),
   the first text after the heading the window's subtitle, its buttons toolbar items, a

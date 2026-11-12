@@ -1,8 +1,14 @@
 // @ref LLP 1141.002 D2 — Exact's tab container built from `UITab`s
-// (`UITabBarController.tabs`, iOS 18), which the app's search tab needs and
-// `viewControllers` cannot reach: a `UISearchTab` (LLP 1141.002 D1, D3).
-// A bar of more than five tabs keeps the `viewControllers` path, as do
-// iOS 17, tvOS and a bar with no search tab (NavigationTabsIOS.swift): in a
+// (`UITabBarController.tabs`, iOS 18), which two presentations need and
+// `viewControllers` cannot reach: the app's search tab as a `UISearchTab`
+// (LLP 1141.002 D1, D3), and, @ref LLP 1116.004 D1.1, on an iPad the root
+// tab bar whose placement the author left unsaid as UIKit's sidebar-adaptable
+// bar (`mode = .tabSidebar`): a sidebar in a regular width, the tab bar in a
+// compact one, which UIKit switches between. An iPad's bar is built from
+// `UITab`s whatever its placement, so a placement that changes switches the
+// mode and keeps the container; a phone's only for a search tab. A bar of
+// more than five tabs keeps the `viewControllers` path, as do iOS 17, tvOS
+// and a phone's bar with no search tab (NavigationTabsIOS.swift): in a
 // compact width UIKit lists a sixth tab under More, which Exact follows
 // through More's navigation controller, and on the `UITab` path More shows
 // a tab's routes but `selectedViewController` names the tab's own emptied
@@ -20,11 +26,12 @@ import UIKit
 
 extension NavigationHost {
     /// Whether the root's tabs are built from `UITab`s: on iOS 18 and later,
-    /// five or fewer, which no width lists under More, with a search tab.
+    /// five or fewer, which no width lists under More, of an iPad, or of a
+    /// phone with a search tab.
     func buildsTabs(_ tabs: NavigationTabs) -> Bool {
         #if os(iOS)
         guard #available(iOS 18.0, tvOS 18.0, *), tabs.panels.count <= 5 else { return false }
-        return Self.searchTab(tabs) != nil
+        return UIDevice.current.userInterfaceIdiom == .pad || Self.searchTab(tabs) != nil
         #else
         return false
         #endif
@@ -37,6 +44,15 @@ extension NavigationHost {
             (tab.props["rel"] ?? "").split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\u{0C}" })
                 .contains { $0.lowercased() == "search" }
         }
+    }
+
+    /// Whether the bar adapts to a sidebar (LLP 1116.004 D1.1): an iPad, the
+    /// placement unsaid (`unsaid`, the kernel's reading of the layout), and
+    /// the bar the platform's, not the authored tablist the agent paints or
+    /// one written `appearance: none`.
+    func sidebarAdapts(_ tabs: NavigationTabs, unsaid: Bool) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && unsaid && !ExactEnv.authoredChrome
+            && !(tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none")
     }
 
     /// The tabs for `navs`, the stacks in tab order: a `UISearchTab` for
@@ -53,15 +69,18 @@ extension NavigationHost {
 
     /// Fill `container` with tabs for `navs`, selecting tab `selected`.
     @available(iOS 18.0, tvOS 18.0, *)
-    func buildTabs(_ container: UITabBarController, _ navs: [UIViewController], _ tabs: NavigationTabs, selected: Int) {
+    func buildTabs(_ container: UITabBarController, _ navs: [UIViewController], _ tabs: NavigationTabs, unsaid: Bool, selected: Int) {
         let made = makeTabs(navs, tabs)
         builtTabs = made
         // The faces `syncItems` already wrote on each stack's item
         for (index, nav) in navs.enumerated() { writeBuiltTab(index, item: nav.tabBarItem, title: nav.title ?? "") }
+        #if os(iOS)
+        container.mode = sidebarAdapts(tabs, unsaid: unsaid) ? .tabSidebar : .tabBar
+        #endif
         container.setTabs(made, animated: false)
         if made.indices.contains(selected) { container.selectedTab = made[selected] }
         let search = Self.searchTab(tabs)
-        presenter.session?.log("navigation: the tabs are UITabs\(search.map { ", tab \($0) the search tab" } ?? "")")
+        presenter.session?.log("navigation: the tabs are UITabs (\(sidebarAdapts(tabs, unsaid: unsaid) ? "a sidebar on a regular width" : "a tab bar")\(search.map { ", tab \($0) the search tab" } ?? ""))")
         // The search tab's form is its root's field's: build its panel now, after this first frame, so the bar knows
         // it before a person can reach it (a panel is otherwise built when its tab is first selected)
         if let search, search != selected, tabs.panels.indices.contains(search) {
@@ -79,6 +98,19 @@ extension NavigationHost {
         guard tabController != nil, tabOwner === tabController, let tabs = p.tabs else { return false }
         let wanted = buildsTabs(tabs)
         return wanted != !builtTabs.isEmpty || wanted && builtSearch != Self.searchTab(tabs)
+    }
+
+    /// An iPad's bar as its placement now is (each batch): the sidebar while
+    /// it is unsaid, the tab bar once the author places or draws it.
+    func followSidebar(_ p: Projection) {
+        #if os(iOS)
+        guard #available(iOS 18.0, tvOS 18.0, *), !builtTabs.isEmpty, UIDevice.current.userInterfaceIdiom == .pad, let container = tabController,
+              tabOwner === container, let tabs = p.tabs, let kernel = presenter.session?.runtime.rootTabs(p.root.id) else { return }
+        let mode: UITabBarController.Mode = sidebarAdapts(tabs, unsaid: kernel.unsaid) ? .tabSidebar : .tabBar
+        guard container.mode != mode else { return }
+        container.mode = mode
+        presenter.session?.log("navigation: the tabs are \(mode == .tabSidebar ? "a sidebar on a regular width" : "a tab bar") now")
+        #endif
     }
 
     /// The built search tab's index.

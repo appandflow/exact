@@ -5,11 +5,15 @@ import XCTest
 
 /// Exact's tab container built from `UITab`s (TabsIOS.swift) over
 /// `scripts/fixtures/search-tabs.contract`: the search tab a `UISearchTab`
-/// (LLP 1141.002 D1–D3).
+/// (LLP 1141.002 D1–D3) and, on an iPad, the unsaid root tab bar UIKit's
+/// sidebar-adaptable one (LLP 1116.004 D1.1). And over
+/// `scripts/fixtures/beside-routes.contract`, a box beside the routes the
+/// native container does not cover (LLP 1083.000 D4).
 final class TabsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
     private var animationsWereEnabled = true
+    private var turned = false
 
     override func setUp() {
         super.setUp()
@@ -20,6 +24,7 @@ final class TabsIOSTests: XCTestCase {
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []
+        if turned { turn(.portrait) }
         window?.isHidden = true
         window = nil
         UIView.setAnimationsEnabled(animationsWereEnabled)
@@ -69,6 +74,12 @@ final class TabsIOSTests: XCTestCase {
         let navigation = session.presenter.navigation
         let stack = navigation.tabController?.selectedViewController ?? navigation.primaryNavigation
         return (stack?.stackRoutes.last as? RouteController)?.node.props["testId"]
+    }
+
+    private func turn(_ orientation: UIInterfaceOrientationMask) {
+        guard let scene = window?.windowScene ?? UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
+        spin(1)
     }
 
     /// LLP 1141.002 D1, D2: the tab that says `rel="search"` is a
@@ -127,12 +138,66 @@ final class TabsIOSTests: XCTestCase {
                        "the router followed the pop")
     }
 
-    /// A tab bar with no search tab stays on `viewControllers`.
-    func testATabBarWithNoSearchTabKeepsItsControllers() throws {
+    /// LLP 1116.004 D1.1: on an iPad, the root tab bar whose placement the
+    /// author left unsaid is UIKit's sidebar-adaptable bar. Where UIKit shows
+    /// the sidebar (a landscape window), the selected route clears it as it
+    /// clears any bar, and its content is laid out beside it; hidden, the
+    /// content takes the width back.
+    func testAnIPadShowsTheUnsaidTabBarAsASidebar() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UITab is iOS 18") }
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("the sidebar is an iPad's") }
+        turned = true
+        turn(.landscapeRight)
+        let session = try fixture("EXACT_SEARCH_TABS_PLAN")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        XCTAssertEqual(tabs.mode, .tabSidebar)
+        tabs.sidebar.isHidden = false
+        let route = try XCTUnwrap(tabs.selectedViewController?.stackRoutes.first as? RouteController)
+        until("the route clears the sidebar") { route.view.safeAreaInsets.left > 100 }
+        let text = try node(session, "text-home")
+        let sidebar = route.view.safeAreaInsets.left
+        until("its content is laid out beside the sidebar") { text.convert(text.bounds, to: nil).minX >= sidebar }
+        XCTAssertTrue(try node(session, "tabs").isHidden, "the sidebar takes the authored tablist's place")
+        tabs.sidebar.isHidden = true
+        until("hidden, the content takes the width back") { text.convert(text.bounds, to: nil).minX < sidebar }
+        // A row of the sidebar selects as the bar does.
+        tabs.sidebar.isHidden = false
+        tapTab(tabs, 1)
+        until("Saved shown") { self.topRoute(session) == "route-saved" }
+    }
+
+    /// A phone's tab bar with no search tab stays on `viewControllers`.
+    func testAPhoneTabBarWithNoSearchTabKeepsItsControllers() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("an iPad builds UITabs for its sidebar") }
         let session = try fixture("EXACT_TAB_EDGE_PLAN")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         XCTAssertNotNil(tabs.viewControllers)
         XCTAssertTrue(session.presenter.navigation.builtTabs.isEmpty)
+    }
+
+    /// LLP 1083.000 D4: a column the author placed beside routes offset past it paints
+    /// over the native container, whose box is the page's, and takes the
+    /// touches there, as the web shows it. A box a route's box meets keeps
+    /// CSS's order, under the container that stands for the routes.
+    func testABoxBesideTheRoutesPaintsOverTheNativeContainer() throws {
+        let session = try fixture("EXACT_BESIDE_ROUTES_PLAN")
+        let navigation = session.presenter.navigation
+        let holder = try XCTUnwrap(navigation.primaryOwner?.view)
+        let sidebar = try node(session, "sidebar"), over = try node(session, "over")
+        until("the column beside the routes is over the container") { sidebar.layer.zPosition > holder.layer.zPosition }
+        XCTAssertLessThanOrEqual(over.layer.zPosition, holder.layer.zPosition, "a box the route's box meets stays under it")
+        let window = try XCTUnwrap(self.window)
+        let point = sidebar.convert(CGPoint(x: sidebar.bounds.midX, y: sidebar.bounds.maxY - 40), to: window)
+        let hit = try XCTUnwrap(window.hitTest(point, with: nil))
+        XCTAssertTrue(hit === sidebar || hit.isDescendant(of: sidebar), "the column takes the touch, not \(hit)")
+        let route = try node(session, "route")
+        XCTAssertGreaterThanOrEqual(route.convert(route.bounds, to: window).minX, 289, "the route stays where it was laid out")
+        // The bar's contents clear the column, and the route, already past it, is not inset again.
+        let owner = try XCTUnwrap(navigation.primaryOwner)
+        XCTAssertEqual(owner.additionalSafeAreaInsets.left, sidebar.bounds.width, accuracy: 0.5)
+        let nav = try XCTUnwrap(navigation.primaryNavigation)
+        until("the bar's layout clears the column") { nav.navigationBar.safeAreaInsets.left >= sidebar.bounds.width - 0.5 }
+        if case .edges(let edges)? = navigation.covers[route.id] { XCTAssertEqual(edges.left, 0, "no left cover on the route") }
     }
 }
 #endif

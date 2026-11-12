@@ -96,7 +96,7 @@ extension NavigationHost {
             let container = UITabBarController()
             tabProxy.host = self
             if #available(iOS 18.0, tvOS 18.0, *), buildsTabs(tabs) {
-                buildTabs(container, navs, tabs, selected: p.at)
+                buildTabs(container, navs, tabs, unsaid: kernel?.unsaid ?? false, selected: p.at)
             } else {
                 container.setViewControllers(navs, animated: false)
                 container.selectedIndex = p.at
@@ -252,6 +252,7 @@ extension NavigationHost {
                 tablistHidBar = hidden && !authored
             }
         }
+        followSidebar(p)
         let navs = tabs.panels.compactMap { tabStacks[$0.id] }
         guard navs.count == tabs.panels.count else { return }
         // Write each other tab's routes where UIKit holds them: in More's
