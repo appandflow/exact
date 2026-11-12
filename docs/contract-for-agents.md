@@ -2947,11 +2947,14 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   presses its row (`native: "sidebar-row"`).
 - On the Mac a route's `header` is the window's title bar and toolbar: its heading the
   window's title (under a `head title`, over the app's name; there is no large title),
-  its buttons toolbar items, a button whose `popovertarget` is a menu a menu item, a
-  tablist of text tabs the centred segments, its `input type="search"` the toolbar's
-  search field, and the `id="back"` control the bar's own Back. A header holding
-  anything else (a picture, a second text, a pressable title, a button drawn as a box)
-  stays in the page as written, whole, and `logs` says what it was. Under the agent
+  the first text after the heading the window's subtitle, its buttons toolbar items, a
+  button whose `popovertarget` is a menu a menu item, a tablist of text tabs the
+  centred segments, its `input type="search"` the toolbar's search field, and the
+  `id="back"` control the bar's own Back, which is the back/forward pair where the
+  navigation root offers Forward (its `navigationHistory`, both when it says nothing).
+  A header holding anything else (a picture, a text before the heading or a second one
+  after the subtitle, a pressable title, a button drawn as a box) stays in the page as
+  written, whole, and `logs` says what it was. Under the agent
   the authored header paints; `--chrome platform` on `macos` shows the bar, `tap` and
   `type` naming a header's button, tab or search input go through it
   (`native: "NSToolbarItem"`), and `state window.toolbar.header` names its title, its

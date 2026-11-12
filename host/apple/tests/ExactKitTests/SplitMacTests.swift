@@ -565,12 +565,12 @@ final class SplitMacTests: XCTestCase {
         XCTAssertEqual(feed.table.selectedRow, 2)
         XCTAssertEqual(window.title, "Library")
         // Back is at the bar's leading end, after the sidebar's own items, and came with the push.
-        XCTAssertEqual(Array(items(window).prefix(3)), ["NSToolbarToggleSidebarItem", "NSToolbarSidebarTrackingSeparatorItemIdentifier", "exact.navigation.back"])
+        XCTAssertEqual(Array(items(window).prefix(3)), ["NSToolbarToggleSidebarItem", "NSToolbarSidebarTrackingSeparatorItemIdentifier", "exact.navigation.history"])
         XCTAssertTrue(p.navigation.goBack())
         XCTAssertFalse(has("route-notes"))
         XCTAssertFalse(other.isHidden)
         XCTAssertFalse(p.navigation.canGoBack)
-        XCTAssertFalse(items(window).contains("exact.navigation.back"), "and goes with it")
+        XCTAssertFalse(items(window).contains("exact.navigation.history"), "and goes with it")
 
         // The divider moves: the detail is laid out at its pane's new size.
         columns.splitView.setPosition(columns.sidebarWidth + 400, ofDividerAt: columns.listDivider)
