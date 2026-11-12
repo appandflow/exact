@@ -102,5 +102,43 @@ final class GlassMorphIOSTests: XCTestCase {
             XCTAssertNil(ghost.hitTest(CGPoint(x: 5, y: 5), with: nil))
         }
     }
+
+    /// A glass its author hid (`visibility: hidden`, its effect set to nil)
+    /// draws nothing as it leaves, and is no native glass button.
+    func testAHiddenGlassLeavesNothing() throws {
+        let p = group()
+        var hidden = glass(5, x: 128)
+        hidden[0]["style"] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "visibility": "hidden"]
+        p.apply(wireBatch(hidden + [["op": "children", "id": 1, "ids": [2, 5]]]))
+        XCTAssertNil(p.views[5]?.materialView?.effect, "hidden, its glass has no effect")
+        p.apply(pressed([["op": "destroy", "id": 5], ["op": "children", "id": 1, "ids": [2]]]))
+        XCTAssertTrue(try ghosts(p).isEmpty, "nothing is drawn into the pill")
+    }
+
+    /// What a leaving glass shows on it goes with it, a decorative child the
+    /// presenter mounted as a bare layer (a flat leaf) included.
+    func testALeavingGlassTakesItsFlatChildrenWithIt() throws {
+        let p = group()
+        let dot: [[String: Any]] = [
+            ["op": "create", "id": 6, "kind": "view",
+             "style": ["background_color": [255, 0, 0, 255], "text_color": [0, 0, 0, 255], "written": ["background_color"]]],
+            ["op": "frame", "id": 6, "x": 10.0, "y": 10.0, "w": 20.0, "h": 20.0]]
+        p.apply(wireBatch(glass(5, x: 128) + dot + [["op": "children", "id": 5, "ids": [6]], ["op": "children", "id": 1, "ids": [2, 5]]]))
+        XCTAssertTrue(p.flats.isFlat(6), "the dot is a bare layer in the glass's content")
+        p.apply(pressed([["op": "destroy", "id": 5], ["op": "destroy", "id": 6], ["op": "children", "id": 1, "ids": [2]]]))
+        let ghost = try XCTUnwrap(try ghosts(p).first)
+        let picture = try XCTUnwrap(ghost.contentView.subviews.first as? UIImageView)
+        let cg = try XCTUnwrap(picture.image?.cgImage)
+        let scale = CGFloat(cg.width) / picture.bounds.width
+        let data = try XCTUnwrap(cg.dataProvider?.data), bytes = try XCTUnwrap(CFDataGetBytePtr(data))
+        func pixel(_ x: CGFloat, _ y: CGFloat) -> [UInt8] {
+            let at = Int(y * scale) * cg.bytesPerRow + Int(x * scale) * cg.bitsPerPixel / 8
+            return (0..<4).map { bytes[at + $0] }
+        }
+        let inside = pixel(20, 20), outside = pixel(35, 35)
+        XCTAssertGreaterThan(inside[3], 200, "the dot is in the picture: \(inside)")
+        XCTAssertEqual(Set([inside[0], inside[2]]).contains(255), true, "red, in either channel order: \(inside)")
+        XCTAssertLessThan(outside[3], 20, "and nothing of the glass around it: \(outside)")
+    }
 }
 #endif

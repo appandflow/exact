@@ -150,30 +150,35 @@ extension NodeView {
     /// batch has laid out what stays; nil when it does not move.
     @available(iOS 26.0, tvOS 26.0, *)
     fileprivate func departure() -> GlassDeparture? {
-        guard let body = glassBody, glassPath().reasons.isEmpty, let group = morphingGroup() else { return nil }
+        // A glass not shown (`visibility: hidden` sets its effect to nil) leaves nothing to draw in.
+        guard let body = glassBody, !body.isHidden, !cssVisibilityHidden, glassPath().reasons.isEmpty, let group = morphingGroup() else { return nil }
         let frame = body.convert(body.bounds, to: group.contentView)
         guard frame.width > 0, frame.height > 0 else { return nil }
-        if let material = body as? UIVisualEffectView, let effect = material.effect {
+        if let material = body as? UIVisualEffectView {
+            guard let effect = material.effect else { return nil }
             let radius = BorderPaint.reduced(effectiveCornerSizes(in: bounds), in: bounds).first?.width ?? 0
             return GlassDeparture(group: group, frame: frame, effect: effect, corners: radius,
                                   content: GlassDeparture.picture(of: material.contentView))
         }
         // A native glass button: its glass, as a capsule, without its title, which goes with it.
+        guard body is NativeButtonIOS, body === nativeGlassBody else { return nil }
         return GlassDeparture(group: group, frame: frame, effect: UIGlassEffect(style: .regular), corners: min(frame.width, frame.height) / 2, content: nil)
     }
 }
 
 extension GlassDeparture {
-    /// What a glass shows on it, without the glass: each view in its
-    /// content view as a picture (a picture of the content view itself
-    /// would hold the glass's own rendering too).
+    /// What a glass shows on it, without the glass: its content view's
+    /// layer tree drawn, its children's views and the flat leaves mounted
+    /// as layers in it (`FlatLeaves`) alike. A snapshot of the content view
+    /// would hold the glass's own rendering too; drawing the layers leaves
+    /// out the effect, which is no layer of the content view's.
     static func picture(of content: UIView) -> UIView {
-        let picture = UIView(frame: content.bounds)
-        for view in content.subviews where !view.isHidden {
-            guard let copy = view.snapshotView(afterScreenUpdates: false) else { continue }
-            copy.frame = view.frame
-            picture.addSubview(copy)
-        }
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = content.traitCollection.displayScale > 0 ? content.traitCollection.displayScale : format.scale
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(bounds: content.bounds, format: format).image { content.layer.render(in: $0.cgContext) }
+        let picture = UIImageView(image: image)
+        picture.frame = content.bounds
         return picture
     }
 
