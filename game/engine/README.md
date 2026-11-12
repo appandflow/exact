@@ -226,6 +226,11 @@ observed session. `pinSave` also checks the saved marker and retained input queu
 that a pin should accept in the authored files. Arguments tune settings a save
 should not carry.
 
+`Camera::shift` moves the projected image in normalized device coordinates,
+without changing the camera pose or perspective: `(0., 0.25)` moves every depth
+up by one eighth of the viewport height. It defaults to zero and applies to
+perspective and orthographic cameras, rendered frames, layout and picking.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its
