@@ -14,7 +14,7 @@ use ibex2::{
 use std::{
     sync::{
         mpsc::{channel, Receiver, RecvTimeoutError, Sender},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -48,6 +48,9 @@ impl BodySource for Fed {
 #[derive(Default)]
 struct Script {
     feeds: Mutex<Vec<Option<Feed>>>,
+    opened: Condvar,
+    /// Hold an upload after its start outcome, before registering its feed.
+    opening: Mutex<Option<Sender<Sender<()>>>>,
     aborted: Arc<Mutex<usize>>,
     /// Told when `/upload-burst` has reported all its bytes sent.
     reported: Mutex<Option<Sender<()>>>,
@@ -75,6 +78,7 @@ impl Transport for Scripted {
             headers.set_response("content-type", kind);
             let (tx, rx) = channel();
             self.0.feeds.lock().unwrap().push(Some(tx));
+            self.0.opened.notify_all();
             let aborted = self.0.aborted.clone();
             let registration = signal.register(move || *aborted.lock().unwrap() += 1);
             std::mem::forget(registration);
@@ -120,18 +124,25 @@ impl Transport for Scripted {
                     .map_err(|_| HostError::Failed("the test let go".into()))
             };
             let fed = || {
+                let opening = self.0.opening.lock().unwrap().clone();
+                if let Some(opening) = opening {
+                    let (release, released) = channel();
+                    opening.send(release).unwrap();
+                    released.recv().expect("the test releases the opening");
+                }
                 let (tx, rx) = channel();
                 self.0.feeds.lock().unwrap().push(Some(tx));
+                self.0.opened.notify_all();
                 rx
             };
             match kind {
                 "upload" => {
-                    let rx = fed();
                     {
                         let mut going = self.0.going.lock().unwrap();
                         going.0 += 1;
                         going.1 = going.1.max(going.0);
                     }
+                    let rx = fed();
                     let steps = (|| {
                         for loaded in [total / 4, total / 2, total] {
                             step(&rx)?;
@@ -261,20 +272,17 @@ fn upload_within(ticket: u64, path: &str, size: usize, ceiling: u32) -> RequestO
 }
 
 fn feed(script: &Script, at: usize) -> Feed {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(feed) = script
-            .feeds
-            .lock()
-            .unwrap()
-            .get_mut(at)
-            .and_then(Option::take)
-        {
-            return feed;
-        }
-        assert!(Instant::now() < deadline, "stream {at} never opened");
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    let feeds = script.feeds.lock().unwrap();
+    let (mut feeds, _) = script
+        .opened
+        .wait_timeout_while(feeds, Duration::from_secs(5), |feeds| {
+            feeds.get(at).is_none_or(Option::is_none)
+        })
+        .unwrap();
+    feeds
+        .get_mut(at)
+        .and_then(Option::take)
+        .unwrap_or_else(|| panic!("stream {at} never opened"))
 }
 
 fn next(core: &Core, woke: &Receiver<()>) -> (u64, Outcome) {
@@ -1187,67 +1195,8 @@ fn an_uploads_file_is_read_once_it_has_room() {
     );
 }
 
-/// LLP 1016.000 D10: fifteen 2 MB photo uploads, in the budget a device
-/// has, go out three at a time, as upstream T3 Code sends them, and leave
-/// the app's other streams their places. An event stream opened before the
-/// burst and one opened after it both open at once, and every upload ends
-/// with its reply. Without the cap all fifteen would go out at once, since
-/// the budget and the lane have room for them, and with the first stream
-/// they would take all 16 places, so the second stream would be refused.
-/// (Fifteen, because the independent lane has room for no more of them at
-/// once on the asynchronous core, which counts a second copy of each body.)
-#[test]
-fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places() {
-    let (core, script, woke) = setup();
-    core.run_owned(stream(100, "/events", 1024), None).unwrap();
-    let before = feed(&script, 0);
-    for ticket in 1..=15 {
-        core.run_owned(upload(ticket, "/upload", 2 << 20), None)
-            .unwrap();
-    }
-    let going: Vec<Feed> = (1..=3).map(|at| feed(&script, at)).collect();
-    core.run_owned(stream(101, "/events", 1024), None)
-        .expect("a stream after the burst has its place");
-    let after = feed(&script, 4);
-    assert_eq!(
-        core.shared.uploads.waiting(),
-        (12, 3 * (2 << 20) * super::COPIES)
-    );
-    for (fed, ticket) in [(&before, 100), (&after, 101)] {
-        fed.send(format!("id: {ticket}\ndata: {ticket}\n\n").into_bytes())
-            .unwrap();
-        while !matches!(next(&core, &woke), (t, Outcome::Message(_)) if t == ticket) {}
-    }
-    // Feed each upload as it opens, whatever its order, until all fifteen replied.
-    let (mut fed, mut replies) = (going, 0);
-    let mut opened = 5;
-    while replies < 15 {
-        for step in fed.drain(..) {
-            for _ in 0..3 {
-                step.send(Vec::new()).unwrap();
-            }
-        }
-        if let (_, Outcome::Response(_)) = next(&core, &woke) {
-            replies += 1;
-        }
-        while let Some(more) = script
-            .feeds
-            .lock()
-            .unwrap()
-            .get_mut(opened)
-            .and_then(Option::take)
-        {
-            fed.push(more);
-            opened += 1;
-        }
-    }
-    assert_eq!(
-        script.going.lock().unwrap().1,
-        3,
-        "never more than three at once"
-    );
-    assert_eq!(core.shared.uploads.waiting(), (0, 0));
-}
+#[path = "executor_upload_burst_tests.rs"]
+mod upload_burst;
 
 /// LLP 1016.000 D10: an upload waiting in the queue holds no count or
 /// bytes of its lane. Thirty with a 1 MiB reply ceiling, `maxResponseBytes`'s
