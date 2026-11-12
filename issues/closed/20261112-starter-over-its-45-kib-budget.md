@@ -1,6 +1,7 @@
 # The production starter's app.js is over its 45 KiB budget, so build.test.mjs fails on main
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The starter's production app.js is 45,258 bytes brotli-11 (822 under): bound-exit and layout-transition probes (presence-bindings.js) link only for a plan that binds one, and uploads.js only for sources whose fetch is granted.
 **Systems:** host/web-js (runtime linked into every app), scripts/metrics.mjs (`JS_TARGET_KIB`), host/web-js/build.test.mjs
 **Severity:** P2
 **Author:** Claude (found while landing issue fixes)
