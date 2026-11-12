@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -17,11 +17,11 @@ function withRound(check) {
     for (const f of ['round.mjs', 'report.mjs', 'pairs.json']) copyFileSync(new URL(`./${f}`, import.meta.url), join(here, f));
     const home = join(root, 'home');
     const write = (path, text = '') => { mkdirSync(dirname(join(home, path)), { recursive: true }); writeFileSync(join(home, path), text); };
-    const run = (...args) => {
-      const r = spawnSync(process.execPath, [join(here, 'round.mjs'), ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    const run = (name, phase, env = {}) => {
+      const r = spawnSync(process.execPath, [join(here, 'round.mjs'), name, phase], { env: { ...process.env, HOME: home, ...env }, encoding: 'utf8' });
       assert.equal(r.status, 0, r.stderr);
     };
-    check({ root, here, home, write, run });
+    check({ here, home, write, run });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -38,4 +38,18 @@ test('report copies a grade\'s records and note, not what the grader wrote to dr
   write('bakeoff/rounds/zz/grades/chat-tools/d', '#!/bin/sh\n');
   run('zz', 'report');
   assert.deepEqual(files(join(here, 'results/zz/grades')), ['chat/GRADING-ABORTED.md', 'chat/grade.json', 'chat/key.json', 'chat/meta.json']);
+}));
+
+test('tidy keeps the pin another running round uses', () => withRound(({ home, write, run }) => {
+  for (const rev of ['aaa', 'bbb', 'ccc', 'ddd']) write(`bakeoff/pins/${rev}/README.md`);
+  write('bakeoff/rounds/b/pin.txt', 'bbb\n');
+  // A round building on aaa (this test's process stands in for it), and one on ccc that died without letting go.
+  write(`bakeoff/locks/pin-aaa-${process.pid}`);
+  write(`bakeoff/locks/pin-ccc-${spawnSync('true').pid}`);
+  // A `git` that fails, so tidy deletes each pin it would remove as a worktree.
+  write('bin/git', '#!/bin/sh\nexit 1\n');
+  chmodSync(join(home, 'bin/git'), 0o755);
+  run('b', 'tidy', { PATH: `${join(home, 'bin')}:${process.env.PATH}` });
+  assert.deepEqual(readdirSync(join(home, 'bakeoff/pins')).sort(), ['aaa', 'bbb']);
+  assert.deepEqual(readdirSync(join(home, 'bakeoff/locks')), [`pin-aaa-${process.pid}`]);
 }));

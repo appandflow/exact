@@ -1,6 +1,7 @@
 # A bake-off round's tidy deletes the pinned exact2 checkout of every other round, running or not
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A round marks its pin as in use (`~/bakeoff/locks/pin-<rev>-<pid>`) from before the checkout is made until its process exits, and `tidy` keeps every pin a live process has marked, discarding the marks of dead ones.
 **Systems:** bench/bakeoff/round.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
