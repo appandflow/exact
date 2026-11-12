@@ -1,6 +1,7 @@
 # Linux grouped dragging uses different edge scroll speed and timing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Linux grouped drag scrolls in a 32-point edge band at a flat 720 points a second with at most 32 ms of catch-up per step, as the web and Apple hosts do.
 **Systems:** host/linux/src/presenter/group.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
