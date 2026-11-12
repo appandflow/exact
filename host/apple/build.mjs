@@ -56,6 +56,7 @@ import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes
 import { appClip, associatedDomains as claimedDomains, appleExecutableName, HOST_DEV, PINNED_RUST, checkModuleRoster, moduleDirectory, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
+import { shaderLibraries } from './shader-libraries.mjs';
 import { appleBuildRefusal, guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
@@ -882,6 +883,9 @@ async function main(args, lockHeld = false) {
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
     copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans'], ['typescript', 'typescript'], ['activities', 'activities']]);
     copyShaders(app, resolve(capture, 'shaders'));
+    // The MSL development runs recorded, compiled for this SDK (shader-libraries.mjs).
+    rmSync(resolve(capture, 'exact-metal'), { recursive: true, force: true });
+    if (hasGpu) shaderLibraries(app, sdkName, resolve(capture, 'exact-metal'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true, ['typescript']));
     placeAppleArtifact(capture, paths.capture);

@@ -125,7 +125,22 @@ installation, copy its `exact-*.bin` files into the app bundle's resources under
 `exact-pipelines/`, or point `EXACT_GPU_CACHE_SEED` at that directory. The seed is
 read-only and is used when no valid writable cache exists. It must match the cache
 key, including device and OS build; this is not a portable archive for every GPU.
-A fresh installation without a matching seed still compiles its initial pipelines.
+A fresh installation without a matching seed still compiles its initial pipelines,
+but not their MSL when the build shipped it compiled (below).
+
+**Shader libraries compiled at build time.** wgpu writes each pipeline's MSL at run
+time. A development build on a Mac or a simulator records each source it compiled in
+the app's `.exact/metal/` (the bundle's `ExactMetalSources`); the next Apple build
+compiles those for its SDK (`host/apple/shader-libraries.mjs`, kept in
+`target/metal-kept/shaders`) into the bundle's `exact-metal/`, and the module loads
+a library in place of a source whose text and options match its name
+(`vendor/wgpu-hal/EXACT-PATCHES.md` 16). A changed shader, layout or OS that writes
+different MSL compiles at run time and is recorded for the next build. So a build
+ships what development runs drew: run the app's screens before building a release.
+`EXACT_METAL_LIBRARIES` and `EXACT_METAL_SOURCES` replace either directory. On an
+M5 Max, a fresh install's 28 first-frame pipelines took 0.8 to 1.1 s instead of 3.7
+to 3.9 s; on the iOS simulator, whose GPU compile no archive keeps, 3.8 to 4.0 s
+instead of 4.0 to 4.3.
 Render and compute pipelines participate; mesh-shader pipelines do not yet.
 
 The backend's `BinaryArchive::counts` reports successful binary lookups and misses.

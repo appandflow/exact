@@ -637,7 +637,7 @@ export function iosExecutableRefusal(manifest, name, key = 'app.name') {
 
 /** The trees every Apple bundle gets from the build's capture (`copyAppleStaticTrees`):
  *  under the Mac's `Contents/Resources`, at the top of an iOS bundle. */
-export const APPLE_STATIC_TREES = ['assets', 'deck', 'shaders', 'rust', 'plans', 'typescript', 'activities'];
+export const APPLE_STATIC_TREES = ['assets', 'deck', 'shaders', 'exact-metal', 'rust', 'plans', 'typescript', 'activities'];
 
 /** What the Mac build writes under `Contents/Resources` (bundle.mjs, intents.mjs) beside
  *  the trees an app declares, which may not take one of these places; and a
