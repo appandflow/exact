@@ -976,7 +976,7 @@ fn generate_anonymous_flex_items(
 /// For each dimension, if that dimension of the flex container’s content box is a definite size, use that;
 /// if that dimension of the flex container is being sized under a min or max-content constraint, the available space in that dimension is that constraint;
 /// otherwise, subtract border and padding from the border-box space supplied by the parent.
-/// The parent has already subtracted this container's margins.
+/// EXACT PATCH 25: the parent has already subtracted this container's margins.
 /// **This might result in an infinite value**.
 #[inline]
 #[must_use]

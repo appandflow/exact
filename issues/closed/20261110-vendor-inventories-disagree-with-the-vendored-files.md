@@ -1,6 +1,7 @@
 # Vendor inventories state facts the vendored files contradict
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The inventories now match their copies: Taffy drops a stale 0.9.2 `.cargo_vcs_info.json`, lists patch 25 and marks every remaining patch (31 and 60 had been marked 30 and 59), Vello marks and lists the `scene.rs` lint change, wgpu-hal names `exact-ink` (its count was already 15 everywhere, since patch 15), and AccessKit drops `Cargo.toml.orig`.
 **Systems:** vendor/taffy, vendor/vello, vendor/wgpu-hal, vendor/accesskit-windows
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
