@@ -127,9 +127,18 @@ function report() {
   process.stdout.write(r.stdout + r.stderr);
   const dest = resolve(HERE, 'results', name);
   mkdirSync(dest, { recursive: true });
-  for (const d of ['records', 'feel', 'grades']) {
+  for (const d of ['records', 'feel']) {
     if (!existsSync(resolve(ROUND, d))) continue;
-    cpSync(resolve(ROUND, d), resolve(dest, d), { recursive: true, filter: (p) => !/\/(shots|log\.jsonl|prompt\.md|trace\.jsonl)$/.test(p) && !p.endsWith('.png') && !p.endsWith('.mov') });
+    cpSync(resolve(ROUND, d), resolve(dest, d), { recursive: true, filter: (p) => !/\/trace\.jsonl$/.test(p) && !p.endsWith('.png') && !p.endsWith('.mov') });
+  }
+  // Of a grade, its three records and any note the grader wrote (GRADING-ABORTED.md); not its prompt, log, screenshots
+  // or the scripts it wrote to drive the apps, which run the driver by a path on this machine.
+  const grades = resolve(ROUND, 'grades');
+  for (const spec of existsSync(grades) ? readdirSync(grades).filter((s) => s in pairs) : []) {
+    mkdirSync(resolve(dest, 'grades', spec), { recursive: true });
+    for (const f of readdirSync(resolve(grades, spec), { withFileTypes: true })) {
+      if (f.isFile() && (/^(grade|key|meta)\.json$/.test(f.name) || (f.name.endsWith('.md') && f.name !== 'prompt.md'))) cpSync(resolve(grades, spec, f.name), resolve(dest, 'grades', spec, f.name));
+    }
   }
   for (const f of ['summary.md', 'pin.txt', 'round.log']) if (existsSync(resolve(ROUND, f))) cpSync(resolve(ROUND, f), resolve(dest, f));
   // The builders' notes on what was hard: the experience half of the loop.

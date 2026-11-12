@@ -1,6 +1,7 @@
 # The bake-off report copies each grader's scratch scripts into the committed results
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `report` copies of each graded spec only `grade.json`, `key.json`, `meta.json` and a grader's Markdown note (not `prompt.md`), and the 90 committed wrapper scripts, `r21/grades/podcasts-tools/` among them, are deleted.
 **Systems:** bench/bakeoff/round.mjs, bench/bakeoff/results
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
