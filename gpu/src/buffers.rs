@@ -236,6 +236,28 @@ impl Ring {
     }
 }
 
+impl crate::Module {
+    /// The newest frame a canvas with buffers has finished: `[generation,
+    /// slot, serial]` and the `AHardwareBuffer*`.
+    pub fn buffer(&mut self, id: u32) -> Option<([u32; 3], *mut c_void)> {
+        if let Some(gpu) = &self.gpu {
+            let _ = gpu.device.poll(wgpu::PollType::Poll);
+        }
+        let ring = self.instances.get_mut(&id)?.ring.as_mut()?;
+        ring.settle();
+        ring.take()
+    }
+
+    /// Whether a canvas with buffers has a complete frame
+    /// [`crate::Module::buffer`] has not published yet.
+    pub fn unpublished(&self, id: u32) -> bool {
+        self.instances
+            .get(&id)
+            .and_then(|i| i.ring.as_ref())
+            .is_some_and(|r| r.unpublished())
+    }
+}
+
 #[cfg(test)]
 #[path = "buffers_tests.rs"]
 mod tests;
