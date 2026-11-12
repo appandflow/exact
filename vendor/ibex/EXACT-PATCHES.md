@@ -856,3 +856,12 @@ admits a first hop (LLP 1162 D8). An embedder that ignores the URL behaves
 as before.
 
 Replay the parameter and its test on a refresh.
+
+## Local patch 36, a fetch binding under a narrower grant set
+
+`Fetch::with_grants` is the binding's transport and gate under another
+`GrantSet`. Exact's native executor runs a request that carries a source's
+narrower scope (`exact_data::Mixed` sets one on each of its sources'
+requests) on the worker's or lane's own transport with the scope's grants,
+so it reuses the connections that transport keeps rather than opening its
+own. Replay on a refresh.

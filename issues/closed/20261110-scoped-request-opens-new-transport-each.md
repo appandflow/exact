@@ -1,6 +1,7 @@
 # A request with a grant scope gets a new transport, so it never reuses a connection
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A scoped request runs on its worker's or lane's own fetch binding under the scope's grants (`Fetch::with_grants`, vendored Ibex patch 36), so it reuses that transport's connections, and no host is made per scoped request on either core.
 **Systems:** host/apple/src/executor_core.rs (compiled by every native host), data/src/mixed.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
