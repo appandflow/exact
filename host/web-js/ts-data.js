@@ -645,6 +645,14 @@ export function install(data, mixed = false, modules = null) {
       // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
       const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       call.abandon = settle;
+      // A stream opened in a later turn (ts-fetch.js `stream`) is the answer, as one opened by its source is: its ticket
+      // opens it (request-send.js `late`), and what the async function goes on to return is not the answer.
+      call.late = () => {
+        settle();
+        const t = call.ticket;
+        t.stream = opener(call.stream, v => conv(shaped(v), result, target_), target_); t.upload = requestKey(call.stream);
+        t.late?.();
+      };
       // In flight: its later turns may send (ts-stream.js `later`), behind what this source sent, once the commit
       // that asked it stands; a refused commit takes those batches back.
       call.flight = true;

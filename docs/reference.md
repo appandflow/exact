@@ -1920,9 +1920,12 @@ is still held. New arguments, `refresh` or the resource leaving the view close
 the stream without further mapper calls;
 `state.pending` lists it until its first mapped value commits, `state.streams`
 while it is open, with `grant`, the grant line that admitted it. The same holds on Hermes, the web's wasm host and the web build (the JS
-target), with one difference: on the web build the stream's `fetch` must be
-made while the answer is asked, before its first `await` (a later one is
-refused, saying so); on Hermes it may follow an `await`.
+target). The stream's `fetch` may follow an `await` in the answer (a token
+fetched first, or the answer's own timer), on every host: it is made in one of
+the answer's own turns, its source, its code after an `await` in an `async`
+function, or its timer, while the answer has not given its value or been let go.
+On the web build one made elsewhere (a plain `.then` callback, module
+initialization) is refused, saying so.
 
 An **upload** that tells its progress (LLP 1016.000 D10) is a stream with
 `exactUploadProgress: true` beside its body, for a percentage the view draws
