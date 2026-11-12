@@ -121,10 +121,10 @@ impl World {
             .validate()
             .map_err(|e| format!("generated `{name}`: {e}"))?;
         let digest = crate::hash::of(&model);
-        if let Some(prior) = self.assets.models.get(name) {
-            if self.assets.identities.get(name) != Some(&digest)
-                || crate::hash::of(prior.model.as_ref()) != digest
-            {
+        // A generated name's identity is its registered model's digest: the
+        // two are written together, so the prior model is not hashed again.
+        if self.assets.models.contains_key(name) {
+            if self.assets.identities.get(name) != Some(&digest) {
                 return Err(format!(
                     "generated `{name}`: immutable name already registered with different content"
                 ));

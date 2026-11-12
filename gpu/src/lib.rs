@@ -340,6 +340,12 @@ pub trait Surface {
     fn wants_input(&self) -> bool {
         false
     }
+    /// Whether this canvas reads gamepads; a host whose pad service costs
+    /// something to open (Apple's GameController) opens it only for one that
+    /// does. Every canvas that takes input does unless it says otherwise.
+    fn wants_pads(&self) -> bool {
+        self.wants_input()
+    }
     /// One device event in canvas points, stamped with the host's clock.
     fn input(&mut self, _event: &InputEvent) {}
     /// Whether the event the last [`Surface::input`] took changed what the
