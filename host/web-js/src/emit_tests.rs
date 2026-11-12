@@ -1327,3 +1327,17 @@ fn presence_bindings_link_only_where_an_exit_or_layout_transition_is_bound() {
         );
     }
 }
+
+#[test]
+fn scroll_snap_emits_both_axes_and_center() {
+    for axis in ["x", "y"] {
+        let source = format!("component App\n  view\n    scroll height=100 width=300 scroll-snap-type=\"{axis} mandatory\"\n      view scroll-snap-align=\"center\"\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        let all = format!("{}{}", out.js, out.css);
+        assert!(
+            all.contains(&format!("scroll-snap-type:{axis} mandatory")),
+            "{all}"
+        );
+        assert!(all.contains("scroll-snap-align:center"), "{all}");
+    }
+}

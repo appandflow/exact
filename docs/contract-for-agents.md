@@ -1687,6 +1687,20 @@ same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
 with `scroll-padding-top` equal to a header's height, the first row's
 `block="start"` is `scrollTop` 0. Any scroll container takes it, not only a
 virtualized list.
+For snapping, put `scroll-snap-type="x mandatory"` or `"y mandatory"` on the
+scroller and `scroll-snap-align="start"`, `"center"` or `"end"` on its areas
+(LLP 1008 §9). The web executes CSS; iOS chooses the nearest area to
+the platform's projected resting offset when a drag ends, including a release
+without a fling. An oversized area stays freely scrollable while it covers the
+viewport. Nested scroll containers own their descendants' snap areas: `hidden`
+is a boundary; `clip` is not. `none` disables
+snapping; `proximity` and `scroll-snap-stop` are not admitted.
+On iOS, a virtualized list also queries at most 64 unmounted row roots near the
+projection, using their measured or estimated sizes; descendants and
+layout-dependent displacement require mounted rows. Android, AppKit, Linux desktop
+and Windows do not execute snapping. No layout-change re-snap or
+one-card-per-fling behavior is implied.
+
 `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`

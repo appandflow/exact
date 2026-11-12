@@ -2352,7 +2352,8 @@
     "ScrollSnapType": {
       "values": [
         "none",
-        "x mandatory"
+        "x mandatory",
+        "y mandatory"
       ],
       "default": "none"
     },
@@ -2360,7 +2361,8 @@
       "values": [
         "none",
         "start",
-        "end"
+        "end",
+        "center"
       ],
       "default": "none"
     },
@@ -3481,7 +3483,8 @@
       "bit": 81,
       "field": "scroll_snap_type",
       "codec": "enum:ScrollSnapType",
-      "cold": true
+      "cold": true,
+      "_comment": "LLP 1008 §9: x or y mandatory snapping to the nearest projected rest; UIKit owns the motion; the web executes CSS."
     },
     {
       "bit": 82,

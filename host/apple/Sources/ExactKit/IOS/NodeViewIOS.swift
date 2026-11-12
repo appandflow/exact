@@ -1328,7 +1328,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // to match `auto` on such platforms; `none` only hides the track.
         // Indicators and deceleration are the app's once a hatch sets them
         // (LLP 1075.003 §3.5): written when what the style says changes.
-        let snap = style["scroll_snap_type"]?.string == "x mandatory"
+        let snap = ["x mandatory", "y mandatory"].contains(style["scroll_snap_type"]?.string ?? "none")
         let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
         if let sv = scrollView, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
             scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
