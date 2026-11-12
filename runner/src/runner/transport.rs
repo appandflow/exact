@@ -81,7 +81,8 @@ impl<D: DataSource> Runner<D> {
 
     /// Journal what the transport said, and answer `exactTransport` again
     /// when what it answers changed.
-    fn transport_said(&mut self, lines: Vec<String>, before: Answer) {
+    fn transport_said(&mut self, mut lines: Vec<String>, before: Answer) {
+        self.sounds.settle(&mut lines);
         lines.into_iter().for_each(|l| self.log(l));
         self.transport.publish();
         if !self.transport.readers.is_empty() && self.transport.answer() != before {
@@ -169,7 +170,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What the output plays since the last take: a `Play` per new voice,
-    /// an `End` per voice that now ends earlier (LLP 1096 D5), and a
+    /// an `End` per voice whose end changed (LLP 1096 D5; LLP 1125 D3), and a
     /// sequence's timed haptics (LLP 1125 D3).
     pub fn take_sounds(&mut self) -> Vec<crate::sound::SoundOp> {
         self.sounds.take()

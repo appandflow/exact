@@ -2222,8 +2222,14 @@ half a second is left on a wake of its own that runs no action and that
 loses no step. The bound is the same for a sequence's voices and a tap's: at
 most 32 voices sound at any voice's start (another is dropped and journaled),
 and at most 256 wait to start (another tap is dropped; a sequence stops
-expanding early and wakes when the first starts, dropping nothing). The
-Apple mixer has 288 slots and a ring of 1024 ops for it (a Play that finds no free slot takes one whose voice ends inside the buffer, mixing that voice's last frames first), and frees a voice
+expanding early and wakes when the first starts, dropping nothing).
+Retracting a future group voice restores the preceding voice's pending
+cut after the commit's commands and sequence expansion. If that extension
+exceeds the bound, excess future voices are cancelled and journaled;
+sounding voices play on. At each start, the last admitted voices are
+cancelled first.
+The Apple mixer has 288 slots and a ring of
+1024 ops for it (a Play that finds no free slot takes one whose voice ends inside the buffer, mixing that voice's last frames first), and frees a voice
 retracted before it starts at once; the web lets its node go. A step's haptic
 plays on the main thread at its time (Apple's feedback generators;
 `navigator.vibrate` on the web, where it exists): a blocked main thread makes
