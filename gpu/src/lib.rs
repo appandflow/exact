@@ -887,7 +887,6 @@ impl Module {
         inst.hdr = target::configure(&*inst.surface, &gpu.adapter, &caps, &mut config);
         swapchains(|| target.configure(&gpu.device, &config));
         inst.seen = Default::default();
-        inst.presented.reset();
         inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);
         inst.surface.device_ready(features);
@@ -1034,7 +1033,6 @@ impl Module {
         for inst in self.instances.values_mut() {
             self.retired.extend(inst.release());
             inst.surface.device_lost();
-            inst.presented.reset();
             inst.answered.clear();
             inst.outstanding.clear();
             inst.dirty = true;

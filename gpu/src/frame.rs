@@ -383,7 +383,9 @@ impl Module {
         // after recording: its drawable is in the submit, and must not be
         // shown.
         // Canvases whose first frame this is (`Module::seen`), or the first
-        // of their current picture (`presented`).
+        // of their current picture (`presented`). A frame in a buffer is
+        // presented when the reader is handed it (`Module::buffer`), once the
+        // GPU has finished it, not here.
         let first: Vec<First> = open
             .canvases
             .iter()
@@ -392,7 +394,9 @@ impl Module {
                 let i = self.instances.get(&c.id)?;
                 let first = First {
                     seen: (!i.seen.load(Ordering::Acquire)).then(|| i.seen.clone()),
-                    presented: c.drawn.then(|| i.presented.pending()).flatten(),
+                    presented: (c.drawn && c.texture.is_some())
+                        .then(|| i.presented.pending())
+                        .flatten(),
                 };
                 (first.seen.is_some() || first.presented.is_some()).then_some(first)
             })
@@ -461,7 +465,8 @@ impl Module {
             };
             #[cfg(target_os = "android")]
             if let (Some((slot, publish)), Some(ring)) = (c.buffer, inst.ring.as_mut()) {
-                ring.submitted(slot, publish, &gpu.queue);
+                let shown = publish.then(|| inst.presented.pending()).flatten();
+                ring.submitted(slot, publish, &gpu.queue, shown);
             }
             #[cfg(not(target_os = "android"))]
             let _ = c.buffer;

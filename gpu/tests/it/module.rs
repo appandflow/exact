@@ -250,7 +250,7 @@ mod seams {
     use exact_gpu::{wgpu, Frame, InputEvent, Registry, Surface, SurfaceError, Value};
     use std::cell::{Cell, RefCell};
     thread_local! { static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
-    /// `gpu_drew` after `fed`'s last render, before its flush
+    // `gpu_drew` after `fed`'s last render, before its flush
     thread_local! { static DREW: Cell<u32> = const { Cell::new(0) }; }
     thread_local! { static BINDS: RefCell<Vec<Option<f64>>> = const { RefCell::new(Vec::new()) }; }
     /// A live-clock render once the canvas's drawable, acquired off this

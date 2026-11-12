@@ -188,12 +188,18 @@ impl Ring {
     }
 
     /// `slot`'s frame was submitted: busy until the GPU has run it, then
-    /// published if `publish`.
-    pub(crate) fn submitted(&mut self, slot: usize, publish: bool, queue: &wgpu::Queue) {
+    /// published if `publish`, and `shown` said when it is ([`Order::take`]).
+    pub(crate) fn submitted(
+        &mut self,
+        slot: usize,
+        publish: bool,
+        queue: &wgpu::Queue,
+        shown: Option<crate::presented::Shown>,
+    ) {
         let done = Arc::new(AtomicBool::new(false));
         let flag = done.clone();
         queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
-        self.order.submitted(slot, done, publish);
+        self.order.submitted(slot, done, publish, shown);
     }
 
     /// Frames submitted that the GPU has not finished.
