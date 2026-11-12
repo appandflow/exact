@@ -385,6 +385,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if feed.mouse_look() {
             feed.unshown_motion(sim.unshown_motion());
         }
+        let pointer = feed.pointer_pan().and_then(|id| sim.frame_pointer(id));
+        feed.pointer_sample(pointer);
+        if let Some(trace) = &mut self.trace {
+            trace.pointer = pointer;
+        }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
         if let Some(rung) = self.rung {
             let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
@@ -499,7 +504,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 frame.now_ms,
                 sim.alpha(),
                 ticks,
-                feed.trace_camera(sim.alpha()),
+                input.camera_position.to_array().map(f64::from),
                 trace.times,
             );
             trace.times = [0.; 3];

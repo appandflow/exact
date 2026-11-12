@@ -962,6 +962,8 @@ impl World {
     }
 }
 
+mod pan;
+pub use pan::PointerPan;
 mod globals;
 pub use globals::Globals;
 mod hierarchy;
