@@ -47,9 +47,13 @@ export function subject(token: string): string | null | undefined {
 }
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, Convex-Client', 'Access-Control-Max-Age': '600' };
+/** `response` with permissive CORS headers, unless it has its own. A new response: a redirect's or a fetched
+ *  response's headers are immutable. */
 const withCors = (response: Response) => {
-  if (!response.headers.has('Access-Control-Allow-Origin')) for (const [name, value] of Object.entries(CORS)) response.headers.set(name, value);
-  return response;
+  if (response.headers.has('Access-Control-Allow-Origin')) return response;
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(CORS)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 };
 const canonical = (path: string) => path.replace(/\.js:/, ':');
 

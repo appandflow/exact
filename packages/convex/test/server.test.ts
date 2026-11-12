@@ -6,6 +6,8 @@ import { Sync, type Frame } from '../sync.ts';
 import { serve } from './server.ts';
 
 const notes: { by: string | null; body: string }[] = [];
+/** A route's response the test holds on to: the stand-in must not change it. */
+const kept = Response.json({ kept: true });
 const server = serve({
   port: 0,
   queries: {
@@ -13,7 +15,15 @@ const server = serve({
     'notes:mine': (_args, { identity }) => notes.filter(n => n.by === identity).map(n => n.body),
   },
   mutations: { 'notes:add': ({ body }, { identity }) => { notes.push({ by: identity, body }); } },
-  http: request => new URL(request.url).pathname === '/api/auth/token' ? Response.json({ token: jwt('alice') }) : undefined,
+  http: request => {
+    const { pathname } = new URL(request.url);
+    if (pathname === '/api/auth/token') return Response.json({ token: jwt('alice') });
+    if (pathname === '/old') return Response.redirect(`${origin}/api/auth/token`, 302);
+    // A proxy: what another route answers, as fetched.
+    if (pathname === '/proxied') return fetch(`${origin}/api/auth/token`);
+    if (pathname === '/kept') return kept;
+    return undefined;
+  },
 });
 afterAll(() => server.stop());
 const origin = `http://127.0.0.1:${server.port}`;
@@ -90,6 +100,18 @@ test('an app\'s own route answers, and every response carries CORS headers', asy
   const preflight = await fetch(`${origin}/api/mutation`, { method: 'OPTIONS' });
   expect([preflight.status, preflight.headers.get('Access-Control-Allow-Headers')]).toEqual([204, 'Content-Type, Authorization, Convex-Client']);
   expect((await fetch(`${origin}/elsewhere`)).status).toBe(404);
+});
+
+test('a redirect and a fetched response from an app route answer, with CORS headers', async () => {
+  const moved = await fetch(`${origin}/old`, { redirect: 'manual' });
+  expect([moved.status, moved.headers.get('Location'), moved.headers.get('Access-Control-Allow-Origin')]).toEqual([302, `${origin}/api/auth/token`, '*']);
+  const proxied = await fetch(`${origin}/proxied`);
+  expect([proxied.status, proxied.headers.get('Access-Control-Allow-Origin')]).toEqual([200, '*']);
+  expect(await proxied.json()).toEqual({ token: jwt('alice') });
+  // The headers are added to a copy: a redirect's or a fetched response's are immutable under the Fetch
+  // standard, so changing the handler's own would throw there.
+  expect((await fetch(`${origin}/kept`)).headers.get('Access-Control-Allow-Origin')).toBe('*');
+  expect(kept.headers.has('Access-Control-Allow-Origin')).toBe(false);
 });
 
 test('an Authenticate at a version the stand-in is not at closes the socket, as Convex does', async () => {
