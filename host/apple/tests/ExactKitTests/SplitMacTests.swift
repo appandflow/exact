@@ -815,6 +815,26 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(p.navigation.canGoBack)
     }
 
+    /// The list is never pushed: its header's Back control (the root's
+    /// `navigationBack`) stays its own item over the list's column when the
+    /// detail takes the window, since no platform Back stands for it there.
+    func testTheListsBackControlStaysAnItemWhenTheDetailOwnsTheWindow() throws {
+        let source = replacing("button press=openAdd", with: [
+            "button id=\"back\" press=back aria-label=\"Close\" testId=\"list-back\"",
+            "  image \"symbol:delete\"",
+            "button press=openAdd aria-label=\"Add Book\" aria-keyshortcuts=\"Meta+N\" testId=\"add-book\"",
+        ], in: app(tabs: false))
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500), source: source)
+        _ = compose(ExactView(session: session), width: 900, sidebar: false)
+        let window = try XCTUnwrap(self.window)
+        let close = try node("list-back")
+        XCTAssertTrue(items(window).contains("exact.command.\(close.id)"), "the list owns the window: \(items(window))")
+        try press("row-a")
+        XCTAssertEqual(window.title, "About a")
+        XCTAssertTrue(items(window).contains("exact.command.\(close.id)"), "the list beside the detail keeps it: \(items(window))")
+        XCTAssertFalse(items(window).contains(WindowToolbarHost.historyIdentifier.rawValue))
+    }
+
     /// The text pump paints the detail's pane as it paints the page: a route
     /// there is out of the root, and its kept heading, outside every scroll
     /// view, is in view. Left out, a rasterized heading kept the pixels of

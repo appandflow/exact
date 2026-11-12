@@ -555,8 +555,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             return nil
         }
         let back = routes.root.props["navigationBack"].flatMap { $0.isEmpty ? nil : $0 }
-        // The bar's own Back stands for its stack's Back control, enabled or not.
-        switch WindowHeader.read(route: route, back: back, pushed: true, shown: visible) {
+        // The bar's own Back stands for its stack's Back control where the route is pushed (`splitPushed`).
+        switch WindowHeader.read(route: route, back: back, pushed: presenter.navigation.splitPushed(route), shown: visible) {
         case .none:
             decideBeside(nil)
             return nil

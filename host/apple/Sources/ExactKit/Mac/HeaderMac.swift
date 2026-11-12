@@ -310,10 +310,16 @@ extension NavigationHost {
     /// batch showed (`selection`).
     var headerRoute: (root: NodeView, route: NodeView, pushed: Bool)? {
         // A stack that splits: one of its two routes owns the window.
-        // A detail is pushed only above where its pane begins: the base
-        // detail has no Back (LLP 1115.002 D4).
-        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, routes.owner !== split.shown?.list && windowRoute?.pushed == true) }
+        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, splitPushed(routes.owner)) }
         return windowRoute
+    }
+
+    /// Whether a split's route is pushed, so the bar's Back stands for its
+    /// header's Back control: the list never is, and a detail only above
+    /// where its pane begins, the base detail having no Back (LLP 1115.002
+    /// D4). Both headers of a split read it, whichever owns the window.
+    func splitPushed(_ route: NodeView) -> Bool {
+        route !== split.shown?.list && windowRoute?.pushed == true
     }
 
     /// The route under any modal or fullscreen segments: the window's
