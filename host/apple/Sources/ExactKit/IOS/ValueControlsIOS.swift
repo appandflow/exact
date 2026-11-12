@@ -9,6 +9,11 @@ import UIKit
 
 #if os(iOS)
 private final class SelectButtonIOS: UIButton {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
     var valueAlignment = UIControl.ContentHorizontalAlignment.left {
         didSet { if oldValue != valueAlignment { setNeedsLayout() } }
     }

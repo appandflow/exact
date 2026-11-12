@@ -53,6 +53,11 @@ enum ResignTrace {
 }
 
 final class TextField: UITextField {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
     weak var owner: NodeView?
     // A commit that changes no text sends no editing change: a `direction`
     // that came while it was marked applies here (LLP 1001 §1).
@@ -154,6 +159,11 @@ final class TextField: UITextField {
 }
 
 package final class TextArea: UITextView {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    package override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
     // UIKit already owns a specialized manager per editor. Its native text
     // undo actions require that manager; observe it without replacing it.
     private var textUndo: NativeTextUndo?
