@@ -1,6 +1,7 @@
 # Apple's min-content takes a run's end as a break, so a `break-word` paragraph splits a word that spans two runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `minContentWidth` takes the line-break opportunities once over the paragraph's joined text, as layout does, and walks the pieces across runs (`TextEngine.paragraphPieces`), so a run's end inside a word is no break.
 **Systems:** host/apple/Sources/ExactCore/Text.swift (`minContentWidth`), host/apple/Sources/ExactCore/TextBreaks.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
