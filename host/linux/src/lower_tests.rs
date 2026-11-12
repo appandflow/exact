@@ -256,6 +256,7 @@ fn a_look_arriving_mid_track_takes_the_readers_track_back() {
 /// A track of [`spinner_words`], read back as the reader reads it.
 struct Track {
     prop: u32,
+    hold: Option<f64>,
     duration: f64,
     keys: Vec<(f64, f64, Option<Easing>)>,
 }
@@ -283,7 +284,8 @@ fn read_tracks(words: &[u32]) -> Vec<Track> {
     let mut i = 0;
     while i < words.len() {
         let (prop, duration) = (words[i], at(i + 5));
-        assert_eq!((words[i + 2], at(i + 4), words[i + 7]), (0, 0.0, 0));
+        let hold = (words[i + 2] != 0).then(|| at(i + 3));
+        assert_eq!((words[i + 1], at(i + 4), words[i + 7]), (0, 0.0, 0));
         assert!(at(i + 6).is_infinite(), "endless");
         i += 9;
         assert!(easing(&mut i).is_none(), "each keyframe names its own");
@@ -297,6 +299,7 @@ fn read_tracks(words: &[u32]) -> Vec<Track> {
         }
         out.push(Track {
             prop,
+            hold,
             duration,
             keys,
         });
@@ -305,7 +308,7 @@ fn read_tracks(words: &[u32]) -> Vec<Track> {
 }
 
 fn sample(t: &Track, seconds: f64) -> f64 {
-    let p = (seconds / t.duration).fract();
+    let p = (t.hold.unwrap_or(seconds) / t.duration).fract();
     let k = t.keys.windows(2).find(|k| p < k[1].0).unwrap();
     let local = (p - k[0].0) / (k[1].0 - k[0].0);
     let eased = k[0].2.as_ref().map_or(local, |e| e.progress(local));
@@ -317,7 +320,7 @@ fn sample(t: &Track, seconds: f64) -> f64 {
 /// from the layer's rotation and dash phase the reader plays.
 #[test]
 fn the_indicator_tracks_move_as_composes_indicator() {
-    let tracks = read_tracks(&spinner_words(0.0));
+    let tracks = read_tracks(&spinner_words(false));
     let dash = tracks.iter().find(|t| t.prop == DASH).unwrap();
     let rotate = tracks.iter().find(|t| t.prop == ROTATE).unwrap();
     let ease = Easing::CubicBezier {
@@ -354,4 +357,45 @@ fn the_indicator_tracks_move_as_composes_indicator() {
             end - start
         );
     }
+}
+
+/// With the device's animations removed the indicator stands still at its
+/// longest arc, where its drawing already is; the tracks change with the
+/// setting both ways, so a host sends them again then and only then.
+#[test]
+fn the_indicator_stands_still_while_animations_are_removed() {
+    let (mut h, error) = Host::boot(
+        &contract::compile("component App\n  view\n    progress aria-label=\"Loading\"\n")
+            .unwrap()
+            .encode(),
+        (),
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(h.spinner_tracks().is_empty(), "no reader plays layers");
+    h.lowering = true;
+    let moving = h.spinner_tracks();
+    assert_eq!(moving, h.spinner_tracks(), "the same at every paint");
+    assert!(read_tracks(&moving).iter().all(|t| t.hold.is_none()));
+    let reduce = |h: &mut Host<()>, on: bool| {
+        let mut preferences = h.runner().viewport().preferences;
+        preferences.reduced_motion = on;
+        assert!(h.set_preferences(preferences).is_none());
+    };
+    reduce(&mut h, true);
+    let still = h.spinner_tracks();
+    assert_ne!(still, moving);
+    let tracks = read_tracks(&still);
+    for (prop, value) in [(ROTATE, 0.0), (DASH, SPINNER_REST)] {
+        let t = tracks.iter().find(|t| t.prop == prop).unwrap();
+        assert!(t.hold.is_some(), "held");
+        for s in [0.0, 0.4, 3.0] {
+            assert!((sample(t, s) - value).abs() < 1e-4, "{prop} at {s} s");
+        }
+    }
+    reduce(&mut h, false);
+    assert_eq!(h.spinner_tracks(), moving);
 }

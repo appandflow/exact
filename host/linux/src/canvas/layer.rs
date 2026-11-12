@@ -131,6 +131,14 @@ impl Recorder {
         pivot: (f32, f32),
         base: [f32; 7],
     ) {
+        // The clips around the layer stay where they are while the reader
+        // moves it: written before it, never in its drawing, where the
+        // first drawing that needs them would put them (a clipped spinner
+        // turned its container's clip with it). Written whole, not as the
+        // drawing's bounds need: the layer moves past them.
+        if !self.clips.is_empty() {
+            self.materialize(self.clips.len() - 1);
+        }
         let l = &mut self.layers;
         let id = *l.ids.entry(key).or_insert_with(|| {
             l.next += 1;
@@ -292,5 +300,84 @@ mod tests {
             let (ops, again) = frame(&mut r, keep);
             assert_eq!((ops, again), (vec![], alive), "kept: {keep}");
         }
+    }
+
+    /// The ops a stream draws, rows' bodies in place, and each layer's
+    /// drawing apart.
+    fn walk(b: &[u32], drawn: &mut Vec<u32>, layers: &mut Vec<Vec<u32>>) {
+        use super::super::ROW_BEGIN;
+        let mut i = 0;
+        while i < b.len() {
+            let j = end(b, i).unwrap();
+            match b[i] {
+                ROW_BEGIN => walk(&b[i + 6..j - 1], drawn, layers),
+                LAYER_SET => {
+                    let mut body = Vec::new();
+                    walk(&b[i + 19..j], &mut body, layers);
+                    layers.push(body);
+                }
+                op => drawn.push(op),
+            }
+            i = j;
+        }
+    }
+
+    /// Material's indicator (the Material look, so a process of its own) in
+    /// a container that clips half of it: the container's clip is written
+    /// around the indicator's layer, not inside the drawing the reader
+    /// turns, where the clip turned with it and let the clipped half show.
+    #[test]
+    fn a_spinner_turns_inside_its_containers_clip() {
+        use super::super::{clip::CLIP_UNION, CLIP_PATH, CLIP_RRECT, STROKE};
+        use crate::presenter::{PainterChoice, Presenter};
+        const CHILD: &str = "EXACT_MATERIAL_LOOK_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let name = std::thread::current().name().unwrap().to_owned();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &name, "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        crate::app::show_material_look();
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(
+                r##"component App
+  view
+    column padding=10
+      box width=20 height=40 overflow="hidden"
+        progress aria-label="Loading" width=40 height=40
+"##,
+            ),
+            (),
+            (400., 400.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.brush.replace_backend(Box::new(Recorder::new()));
+        p.frame();
+        let ops = FINISHED.with(|f| f.borrow_mut().take()).unwrap();
+        let (mut drawn, mut layers) = (Vec::new(), Vec::new());
+        walk(&ops, &mut drawn, &mut layers);
+        let clip = |op: &u32| matches!(*op, CLIP_RRECT | CLIP_PATH | CLIP_UNION);
+        let spinner = layers
+            .iter()
+            .find(|l| l.contains(&STROKE))
+            .expect("its layer");
+        assert!(
+            !spinner.iter().any(clip),
+            "the container's clip turns with it"
+        );
+        let at = drawn.iter().position(|op| *op == LAYER_REF).unwrap();
+        assert!(drawn[..at].iter().any(clip), "no clip around it: {drawn:?}");
     }
 }

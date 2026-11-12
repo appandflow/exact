@@ -1306,10 +1306,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let since = self.tracks_epoch;
         self.tracks_epoch = epoch;
         for (id, key, base) in alive {
-            // An indicator's tracks never change: sent once, with its layer.
+            // An indicator's tracks change only with the device's motion
+            // setting: sent with its layer, and again when that changes.
             if crate::host::lower::is_spinner(key) {
-                if !self.tracks.contains_key(&id) {
-                    let words = self.p.host().spinner_tracks();
+                let words = self.p.host().spinner_tracks();
+                if self.tracks.get(&id) != Some(&words) {
                     ops.extend([layer::TRACKS, id, words.len() as u32]);
                     ops.extend(&words);
                     self.tracks.insert(id, words);

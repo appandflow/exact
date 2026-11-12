@@ -468,21 +468,27 @@ impl<D: DataSource> Host<D> {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The tracks of an indicator's layer ([`spinner_layer`]) that start
-    /// now, for its reader ([`spinner_words`]); none when the reader plays
-    /// no layers (the agent's held clock, `EXACT_LOWER=0`), which then shows
-    /// the arc still.
-    #[cfg(target_os = "android")]
+    /// The tracks of an indicator's layer ([`spinner_layer`]) for its
+    /// reader ([`spinner_words`]): held still at its longest arc while the
+    /// device removes animations (Android's "Remove animations", which
+    /// reaches the page as `prefers-reduced-motion`), as Compose's indicator
+    /// stands still at a zero animator duration scale. None when the reader
+    /// plays no layers (the agent's held clock, `EXACT_LOWER=0`), which then
+    /// shows the arc still as drawn. The words change only with the setting,
+    /// so a host sends them again exactly when it changes.
+    #[cfg(any(target_os = "android", test))]
     pub(crate) fn spinner_tracks(&self) -> Vec<u32> {
         if !self.lowering {
             return Vec::new();
         }
-        spinner_words(self.engine.now())
+        spinner_words(self.runner.viewport().preferences.reduced_motion)
     }
 }
 
-/// An indicator's tracks from `start` (seconds on the reader's clock), as
-/// [`Host::layer_tracks`] writes a node's.
+/// An indicator's tracks, as [`Host::layer_tracks`] writes a node's: from
+/// the reader clock's zero, so every indicator turns in step and the words
+/// are the same at every paint; or, `still`, each held where the drawing
+/// already is (no turn, the longest arc).
 ///
 /// The arc is the visible stretch of a dash (`paint/control.rs`): a phase
 /// of `1 - sweep / 360` circles. The layer's rotation is where the tail is:
@@ -493,7 +499,7 @@ impl<D: DataSource> Host<D> {
 /// turn 5 × 576° = 2880°, eight whole turns, so the rotation track repeats
 /// every five.
 #[cfg(any(target_os = "android", test))]
-fn spinner_words(start: f64) -> Vec<u32> {
+fn spinner_words(still: bool) -> Vec<u32> {
     let mut out = Vec::new();
     let ease = Easing::CubicBezier {
         x1: 0.4,
@@ -501,17 +507,16 @@ fn spinner_words(start: f64) -> Vec<u32> {
         x2: 0.2,
         y2: 1.0,
     };
-    let header = |out: &mut Vec<u32>, code: u32, cycles: f64| {
-        out.push(code);
-        f(out, start);
-        out.extend([0, 0]);
+    let header = |out: &mut Vec<u32>, code: u32, cycles: f64, rest: f64| {
+        out.extend([code, 0, u32::from(still)]);
+        f(out, if still { rest } else { 0.0 });
         f(out, 0.0);
         f(out, SPINNER_CYCLE * cycles);
         f(out, f64::INFINITY);
         out.extend([0, 3, 0]);
     };
     let shortest = SPINNER_REST;
-    header(&mut out, DASH, 1.0);
+    header(&mut out, DASH, 1.0, SPINNER_CYCLE / 2.0);
     out.push(3);
     for (offset, value) in [(0.0, 1.0), (0.5, shortest), (1.0, 1.0)] {
         f(&mut out, offset);
@@ -526,7 +531,7 @@ fn spinner_words(start: f64) -> Vec<u32> {
         x2: 0.2,
         y2: (0.2 * half + SPINNER_HEAD) / second,
     };
-    header(&mut out, ROTATE, 5.0);
+    header(&mut out, ROTATE, 5.0, 0.0);
     out.push(11);
     for cycle in 0..5 {
         let at = cycle as f64 * (SPINNER_TURN + SPINNER_HEAD);
