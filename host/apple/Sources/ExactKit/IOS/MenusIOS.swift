@@ -1391,7 +1391,8 @@ final class MenuHost {
     /// LLP 1021 §5: the sheet's side of its invoker, from its popover's
     /// `position-area`; `none` keeps UIKit's defaults. UIKit places a popover
     /// by the arrow directions it permits — `.down` puts it above its source,
-    /// `.up` below, `.left` to its right (`right span-bottom`) — centred on
+    /// `.up` below, `.left` to its right (`right span-bottom`), `.right` to
+    /// its left (`left`) — centred on
     /// the source where it fits. `center` (the invoker's own cell) permits
     /// no arrow and may cover it: UIKit centres it across the invoker and
     /// picks its vertical position.
@@ -1401,7 +1402,7 @@ final class MenuHost {
             presentation.permittedArrowDirections = []
             presentation.canOverlapSourceViewRect = true
         } else {
-            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : area.hasPrefix("right") ? .left : .up
+            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : area.hasPrefix("right") ? .left : area.hasPrefix("left") ? .right : .up
             presentation.canOverlapSourceViewRect = false
         }
     }

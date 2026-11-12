@@ -1,6 +1,7 @@
 # iOS opens a confirmation popover below its invoker when `position-area` names the left column
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `MenuHost.place` permits only a right-pointing arrow for a `left…` area, so UIKit opens the sheet to its invoker's left.
 **Systems:** host/apple/Sources/ExactKit/IOS/MenusIOS.swift (MenuHost.place), LLP 1021 §5 "Placement"
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
