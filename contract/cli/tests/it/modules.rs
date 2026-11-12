@@ -996,6 +996,9 @@ fn a_value_passed_whole_as_json_may_be_a_list_and_binds_in_rust_as_json() {
     for expected in [
         "pub records: ::exact_data::modules::serde_json::Value,",
         "pub extra: ::core::option::Option<::std::vec::Vec<::exact_data::modules::serde_json::Value>>,",
+        // The body carries the value as `put` encodes it: a JSON null as null
+        // (exact-data's `a_json_null_is_sent_and_an_absent_option_is_omitted`).
+        "::exact_data::modules::put(&mut o, \"records\", &self.records)?;",
     ] {
         assert!(rust.contains(expected), "{expected}\n---\n{rust}");
     }
