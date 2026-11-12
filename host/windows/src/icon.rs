@@ -17,6 +17,8 @@ pub(crate) fn large() -> Option<Icon> {
 }
 
 fn at(metric: SYSTEM_METRICS_INDEX) -> Option<Icon> {
+    // SAFETY: GetSystemMetrics reads a system value and takes no pointer.
+    #[allow(unsafe_code)]
     let side = unsafe { GetSystemMetrics(metric) }.max(16) as u32;
     Icon::from_resource(1, Some(PhysicalSize::new(side, side))).ok()
 }

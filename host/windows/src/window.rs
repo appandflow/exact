@@ -22,6 +22,9 @@ use winit::{
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
 
+mod frames;
+use frames::{next_frame_deadline, presentation_resumes, FrameSchedule};
+
 struct App<D: DataSource> {
     service_causes: u8,
     proxy: EventLoopProxy<crate::accessibility::Event>,
@@ -103,54 +106,6 @@ fn system_theme<D: DataSource>(p: &mut Presenter<D>, theme: Theme) {
         if let Some(error) = p.set_preferences(preferences) {
             eprintln!("exact-windows: appearance: {error}");
         }
-    }
-}
-
-fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) -> Instant {
-    if started < deadline {
-        // An input-triggered redraw does not move the display's cadence.
-        deadline
-    } else if started < deadline + period {
-        // Keep timer wake-up latency from accumulating on every frame.
-        deadline + period
-    } else {
-        // After a stall or suspension, resume without a burst of catch-up frames.
-        started + period
-    }
-}
-
-struct FrameSchedule {
-    cadence: Option<Instant>,
-    retry: Option<Instant>,
-    present: Option<Instant>,
-}
-
-fn presentation_resumes(event: &WindowEvent) -> bool {
-    matches!(
-        event,
-        WindowEvent::Occluded(false)
-            | WindowEvent::Focused(true)
-            | WindowEvent::Resized(_)
-            | WindowEvent::ScaleFactorChanged { .. }
-    )
-}
-
-impl FrameSchedule {
-    fn admit(&self, now: Instant) -> Instant {
-        self.cadence
-            .into_iter()
-            .chain(self.present)
-            .fold(now, Instant::max)
-    }
-
-    fn defer(&self, now: Instant, pending: &mut bool) -> bool {
-        *pending = self.admit(now) > now;
-        *pending
-    }
-
-    fn redraw(&self, now: Instant, requested: bool) -> Option<Instant> {
-        let requested = if requested { Some(now) } else { self.retry }?;
-        Some(requested.max(self.admit(now)))
     }
 }
 
