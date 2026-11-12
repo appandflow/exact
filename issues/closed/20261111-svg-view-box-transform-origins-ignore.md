@@ -1,6 +1,7 @@
 # SVG view-box transform origins ignore the viewBox’s minimum coordinates
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Not a defect: Chrome, the oracle, places the `view-box` reference box at the user-space origin as the kernel does, so the example rotates about (50,50) there too (see "Chrome" below).
 **Systems:** kernel/src/svg/scene.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
@@ -38,3 +39,12 @@ Carry the viewBox's minimum coordinates alongside its dimensions and use the ful
 ## Related
 
 `issues/20261110-svg-use-and-text-have-no-bounding-box.md` concerns fill/stroke bounding boxes for different element kinds. This case uses a rect and the view-box reference. No matching issue or QUEUE entry was found.
+
+## Chrome
+
+Headless Chrome 156 laid out the example above (the page's body margin is 8)
+and reported the rect's `getBoundingClientRect()` as `x -1902, y 8, 10×10`:
+the rect at user `(-910..-900, 1000..1010)`, which is a rotation about
+`(50,50)`. About `(1050,1050)` it would sit at `x 98, y 8`. CSS Transforms
+1's `transform-box: view-box` ("positioned at the origin of the coordinate
+system established by the `viewBox` attribute") admits Chrome's reading.
