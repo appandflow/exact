@@ -528,6 +528,8 @@ struct Instance {
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
     bound: bool,
+    /// The inputs its last accepted bind gave its surface ([`Module::bind_changed_json`]).
+    inputs: Vec<Value>,
     dirty: bool,
     /// Its first frame has been handed to the compositor (`Module::seen`);
     /// shared with the callback that says so.
@@ -962,6 +964,7 @@ impl Module {
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
                 bound: false,
+                inputs: Vec::new(),
                 dirty: false,
                 seen: Default::default(),
                 children: None,
@@ -1093,6 +1096,7 @@ impl Module {
             Ok(()) => {
                 inst.drain();
                 inst.bound = true;
+                inst.inputs = inputs.to_vec();
                 inst.dirty = true;
                 true
             }
