@@ -1155,9 +1155,14 @@ component App
   and Linux; iOS draws a fixed light material for it, so a surface meant for iPhone says
   `backgroundMaterial`, which wins when both are written.
 - A material's strength is the platform's: UIKit's blurs take no radius or intensity, so there
-  is no "dark at 40%" (expo-blur's `intensity` holds a paused animation part way). A darker
-  card is the material with a `background-color`, which iOS, the web and Linux paint over the
-  blur (the Mac's material covers it): `backgroundMaterial="dark" background-color="rgba(14,16,21,0.5)"`.
+  is no "dark at 40%" (expo-blur's `intensity` holds a paused animation part way). To darken
+  the blurred result, put the content in one child that fills the box and paints the colour,
+  as each host draws a material under the box's children:
+  `column backgroundMaterial="dark" border-radius=16` holding
+  `column flex=1 border-radius=16 padding=12 background-color="rgba(14,16,21,0.5)"`. The
+  box's own `background-color` is no way to do it, as each host differs: iOS paints it under
+  the blur, so it colours what is blurred; the Mac's material covers it; the web and Linux
+  paint it in place of the material's tint.
 - A navigation bar's buttons share one glass capsule on iOS 26; `buttonStyle="glass"` on
   each gives it a capsule of its own (`contract vocab bar-buttons`).
 - `-exact-glass-tint="rgba(10,12,16,0.55)"` tints the glass itself (`UIGlassEffect.tintColor`);
