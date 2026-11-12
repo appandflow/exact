@@ -1277,6 +1277,7 @@ impl<D: DataSource> Host<D> {
             let seek = self.engine.advance(self.engine_time(t.at_ms));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let mut sync = self.runner.kernel().motion_sync(&t.receipt);
+            self.presence.looks.apply(self.runner.kernel(), &mut sync);
             self.spare_exits(&mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");

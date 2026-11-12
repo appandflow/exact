@@ -392,6 +392,7 @@ package final class Runtime {
     }
     /// The pointer over the view (`true`) or gone from it.
     package func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
+    package func lookMotion(_ view: UInt32, states: UInt8, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 64, write(String(states)), now)) } }
     package func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
     package func blur(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 5, 0, now)) } }
     package func focusEvent(_ view: UInt32, entering: Bool, target: String, related: String?, now: Double) -> Batch {

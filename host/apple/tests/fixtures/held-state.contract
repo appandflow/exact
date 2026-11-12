@@ -12,3 +12,6 @@ component App
           background-color = "#0000ff"
         box width=20 height=20 background-color="#00ff00"
       text `n ${n}` testId="count"
+      box testId="hover-scale" width=100 height=100 background-color="#ff0000" transition="scale 150ms linear"
+        :hover
+          scale=1.2

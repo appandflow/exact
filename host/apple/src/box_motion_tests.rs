@@ -1101,3 +1101,93 @@ fn an_unsupported_filter_transition_is_named() {
     assert!(logs.contains("invalid transition value"), "{logs}");
     assert!(logs.contains("filter 200ms"), "{logs}");
 }
+
+#[test]
+fn hover_scale_transitions_without_layout_and_returns_to_the_changed_base() {
+    let source = r#"component App
+  state large = false
+  action grow
+    large = true
+  view
+    box testId="card" press=grow width=100 height=40 scale=(large ? 1.1 : 1) transition="scale 150ms linear"
+      :hover
+        scale=1.2
+      :focus-visible
+        scale=1.3
+      text "Hover"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let view = id(&host, "card");
+    let key = host.runner.kernel().node(view).unwrap().key;
+    let motion = motion_node(key);
+    let frame = host.runner.kernel().node(view).unwrap().frame;
+    let scale = |host: &Host<NoData>| host.engine.value(motion, Property::Scale).unwrap().x;
+    host.look_motion(view, 1, 0.);
+    host.advance(75.);
+    assert!((scale(&host) - 1.1).abs() < 1e-6);
+    assert_eq!(host.runner.kernel().node(view).unwrap().frame, frame);
+    host.dispatch_at(view, Event::Press, 75.);
+    host.advance(150.);
+    assert!(
+        (scale(&host) - 1.2).abs() < 1e-6,
+        "base edits stay under hover"
+    );
+    host.look_motion(view, 3, 150.);
+    host.advance(300.);
+    assert!((scale(&host) - 1.3).abs() < 1e-6, "focus wins over hover");
+    host.look_motion(view, 0, 300.);
+    host.advance(450.);
+    assert!(
+        (scale(&host) - 1.1).abs() < 1e-6,
+        "leave returns to the new base"
+    );
+}
+
+#[test]
+fn hover_scale_clears_on_disable_and_destruction() {
+    let source = r#"component App
+  state blocked = false
+  state shown = true
+  action disable
+    blocked = true
+  action remove
+    shown = false
+  view
+    column
+      button testId="disable" press=disable
+        text "Disable"
+      button testId="remove" press=remove
+        text "Remove"
+      if shown
+        box testId="card" disabled=blocked width=100 height=40 transition="scale 150ms linear"
+          :hover
+            scale=1.1
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let view = id(&host, "card");
+    let motion = motion_node(host.runner.kernel().node(view).unwrap().key);
+    host.look_motion(view, 1, 0.);
+    host.advance(150.);
+    assert!((host.engine.value(motion, Property::Scale).unwrap().x - 1.1).abs() < 1e-6);
+    host.dispatch_at(id(&host, "disable"), Event::Press, 150.);
+    host.advance(300.);
+    assert_eq!(host.engine.value(motion, Property::Scale).unwrap().x, 1.);
+    host.dispatch_at(id(&host, "remove"), Event::Press, 300.);
+    assert_eq!(host.engine.value(motion, Property::Scale), None);
+}

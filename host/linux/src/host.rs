@@ -1372,7 +1372,10 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms.min(self.now_ms) / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let mut sync = self.runner.kernel().motion_sync(&t.receipt);
+            self.looks_shown
+                .motion
+                .apply(self.runner.kernel(), &mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
             self.lower_eligibility(&sync);

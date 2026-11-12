@@ -20,6 +20,8 @@
 //! observes boxes after layout; the hosts only present the resulting values.
 
 mod layout;
+mod looks;
+pub use looks::LookMotion;
 mod paint;
 pub use layout::{layout_presented, LayoutMotion};
 pub use paint::{still, PaintMotion};

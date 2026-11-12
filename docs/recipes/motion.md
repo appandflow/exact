@@ -1,6 +1,6 @@
 # Recipe: motion
 
-Use `transition` for a changing value, `keyframes` and `animation` for entrances or loops,
+Use `transition` for changes, `keyframes` and `animation` for entrances or loops,
 `-exact-exit-animation` for removal, `-exact-layout-transition` for layout.
 
 ```contract
@@ -41,24 +41,23 @@ component App
 ```
 
 - **What animates:** translate, scale, rotate, opacity, colours, `box-shadow`, SVG geometry,
-  a numeric `height`, `font-weight`, `font-stretch`, `font-variation-settings`; other layout
-  properties are refused. A native `button` animates only opacity and transforms.
-- **`-exact-spring(stiffness, damping, mass)`** is a transition's timing, with no duration;
-  an `animation` refuses it.
-- **Keyframes** take literals or the app's own `fn` on constants.
-- **Exit:** plays when an `if` arm or `for` row leaves, and must end. The node leaves layout
-  at once, inert; others move by their layout transition. Not in a screen being popped, nor
-  on Linux.
-- **Layout transition:** a transition without a property. It moves the box and resizes its
-  surface; children jump to their place, unscaled. `sharedElement=` flies between boxes on
-  iOS, macOS and the web, not Linux.
-- **Expand and collapse:** keep the content mounted (`Shown`) in a clipped wrapper whose
-  `height` moves between `"0px"` and `"auto"`. An `if` row takes its whole box at once, and
-  the rows below slide over it.
-- **JS target:** a bound exit or layout value must be one of the binding's literals.
-- **Stagger** with delays (`"a 200ms both, b 300ms 200ms both"`). A state change when a
-  motion ends is a gated task's `after(ms, action)`.
-- **Reduced motion:** transitions and keyframes run unless the app gates them on
-  `exactViewport()`, as above; drive it with `prefer prefers-reduced-motion reduce`.
-- **Check it:** `clock settle` ends the motion; `screenshot .exact/m.png over 600 every 50`
-  films it.
+  numeric `height`, `font-weight`, `font-stretch`, `font-variation-settings`. Other layout
+  properties are refused; use `-exact-layout-transition`. A native `button` animates
+  only opacity and transforms.
+- **Spring:** `-exact-spring(stiffness, damping, mass)` is transition timing with no
+  duration; `animation` refuses it.
+- **Hover/focus scale:** `:hover` and `:focus-visible` accept `scale=1.08`. Set
+  `transition="scale 150ms ease"` on the node. Paint and hits grow; layout stays fixed.
+  Leaving restores the base.
+- **Keyframes:** literals or app `fn` on constants.
+- **Exit:** an `if` arm or `for` row leaves layout at once, inert; siblings use their layout
+  transitions. The exit must end. Unsupported in a screen being popped, and on Linux.
+- **Layout transition:** moves and resizes the surface; children jump, unscaled.
+  `sharedElement=` flies between boxes on iOS, macOS and web, not Linux.
+- **Expand/collapse:** keep content mounted (`Shown`) in a clipped wrapper with `height`
+  changing between `"0px"` and `"auto"`. An `if` row appears at full size; siblings slide over it.
+- **JS target:** bound exit/layout values must be binding literals.
+- **Stagger:** use delays, as above. State changes after motion use a gated `after(ms, action)`.
+- **Reduced motion:** gate on `exactViewport()`; drive `prefer prefers-reduced-motion reduce`.
+  Apple shared-element flights land at once.
+- **Check:** `clock settle` ends motion; `screenshot .exact/m.png over 600 every 50` films it.

@@ -612,6 +612,7 @@ uint32_t exact_share_land(ExactRuntime rt);
  *      true|false for repeat, and optionally newline, true|false for isComposing;
  * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
  *      then `0` (no relatedTarget) or `1<related id>`;
+ * 64 = host look states (UTF-8 bits: 1 hover, 2 focus-visible); presentation only.
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input

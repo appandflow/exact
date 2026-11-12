@@ -387,6 +387,30 @@ final class HeldStateTests: XCTestCase {
         })
         return (session, p, card, child)
     }
+    @MainActor func testHoverScaleUsesTheSessionMotionAndKeepsTheLayoutBox() throws {
+        let (session, p, _, _) = try booted("hover-scale")
+        defer { session.destroy() }
+        let view = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "hover-scale" })
+        session.clock = session.now()
+        session.apply(session.runtime.tick(now: session.now()))
+        let start = session.now(), box = view.layoutBounds
+        view.lookState(hovered: true)
+        waitForMainQueue()
+        session.clock = start + 75
+        session.apply(session.runtime.tick(now: session.now()))
+        XCTAssertEqual(view.scale, 1.1, accuracy: 0.001)
+        XCTAssertEqual(view.layoutBounds, box)
+        session.clock = start + 150
+        session.apply(session.runtime.tick(now: session.now()))
+        XCTAssertEqual(view.scale, 1.2, accuracy: 0.001)
+        view.lookState(hovered: false)
+        waitForMainQueue()
+        session.clock = start + 300
+        session.apply(session.runtime.tick(now: session.now()))
+        XCTAssertEqual(view.scale, 1, accuracy: 0.001)
+        XCTAssertEqual(view.layoutBounds, box)
+    }
+
     private func hold(_ app: ExactApp, _ session: ExactSession, _ id: UInt32, revision: Int, plan: String? = nil) {
         let node = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8))) as? [String: Any] ?? [:]
         var frame: [String: Any] = ["kind": "hold", "revision": revision, "hold": ["site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "state": "active"]]
