@@ -339,6 +339,13 @@ while an edge is stretched the scroller's rows are drawn through a node the size
 The indicator is a `View` over the scroller's box that draws nothing but the scrollbar `View` gives a view that
 scrolls, with the theme's thumb, shown as the scroller moves and faded by `View`.
 
+**Scroll snap** (LLP 1008 §9): with what is under a touch, exact2 tells the reader each scroller's snap areas as the
+offsets they rest at (`presenter/snap.rs`, `reader_snaps`). When the finger lifts, the drag's innermost scroller rests
+where `snapRest` picks from where the platform's fling would have left it, and settles there in ViewPager's time with
+its quintic ease. At its end and flung on past it, the fling goes on to the scrollers outside. A virtualized list
+tells the rows it has not mounted up to 64 either way of its offset. A commit that moves the area a scroller rests on
+does not move the scroller: its offset is the reader's.
+
 **The feed** is no longer one scroller chosen once at the viewport's centre. It is the scroller a finger last moved
 up or down, or the one a driver's `scroll` found under the centre (found again when its node is gone); it is what
 exact2 times its collection passes for and what the reader's row heuristics follow (`Native.feed`).
@@ -350,9 +357,8 @@ Not built of D7:
   a scroller nested in a list's row, and the page itself are drawn inside their surroundings, so they move when
   exact2's paint arrives; the frame waits up to 2 ms for it, as it does for a drag's moves. They have no stretch at
   their ends either. Giving each a node needs the recorder to open a group inside a row's recording.
-- `scroll-snap-type` is not read by this host (a swipe row written as a snapping scroller
-  rests wherever it is let go). `keyboardDismissMode`, pull-to-refresh and a sheet's part in the hand-off are later
-  stages. A hosted `EditText` takes part as a child of a ScrollView does (below).
+- `keyboardDismissMode`, pull-to-refresh and a sheet's part in the hand-off are later stages. A hosted `EditText`
+  takes part as a child of a ScrollView does (below).
 - A mouse's wheel and a trackpad do not scroll (`onGenericMotionEvent`), and nothing scrolls for TalkBack.
 - A pressable under the finger shows its press at the down, not after the platform's tap delay, so a row may flash
   as a scroll starts.

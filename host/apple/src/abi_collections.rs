@@ -3,21 +3,12 @@ use super::*;
 use crate::host::Restyle;
 
 impl<D: DataSource> Bridge<D> {
-    /// A collection's nearest logical row snap position; NaN when absent.
-    pub fn collection_snap(
-        &self,
-        view: u32,
-        proposed: f64,
-        port: f64,
-        maximum: f64,
-        distance: f64,
-    ) -> f64 {
+    /// A collection's nearest logical row snap position; NaN when absent
+    /// (`Runner::collection_snap`).
+    pub fn collection_snap(&self, view: u32, geometry: [f64; 5]) -> f64 {
         self.host
             .as_ref()
-            .and_then(|h| {
-                h.runner()
-                    .collection_snap(view, proposed, port, maximum, distance)
-            })
+            .and_then(|h| h.runner().collection_snap(view, geometry))
             .unwrap_or(f64::NAN)
     }
 

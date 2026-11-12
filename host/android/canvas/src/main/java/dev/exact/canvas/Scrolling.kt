@@ -64,6 +64,13 @@ internal class Scrolling(private val view: ExactView) {
         /** Its edges' effects: top, bottom, left, right. */
         val edges = arrayOfNulls<EdgeEffect>(4)
         var bar: Indicator? = null
+        /** Its snap, as the last touch's answer told it ([Native.under]): whether a rest must be a snap position, and
+         * sideways ([0]) and up and down ([1]) the snapport's length (0: it does not snap that way), each snap area's
+         * least and greatest offsets, and whether a snap may not pass over it (`scroll-snap-stop: always`). */
+        var snapMandatory = false
+        val snapPort = FloatArray(2)
+        val snaps = arrayOf(FloatArray(0), FloatArray(0))
+        val stops = arrayOf(BooleanArray(0), BooleanArray(0))
         val barless get() = flags and 8 != 0
         val node get() = flags and 4 != 0
         fun at(sideways: Boolean) = if (sideways) nowX + pendX else nowY + pendY
@@ -82,7 +89,8 @@ internal class Scrolling(private val view: ExactView) {
     private val minFling = config.scaledMinimumFlingVelocity
     private val maxFling = config.scaledMaximumFlingVelocity
     private val frames = Choreographer.getInstance()
-    private val fling = OverScroller(view.context)
+    /** Its settle onto a snap position ([OverScroller.startScroll]) eases out as ViewPager's does. */
+    private val fling = OverScroller(view.context) { t -> val u = t - 1f; u * u * u * u * u + 1f }
     private var tracker: VelocityTracker? = null
 
     /** The touch that is down: counted, so an answer for one that ended is not taken for the next. */
@@ -186,6 +194,22 @@ internal class Scrolling(private val view: ExactView) {
             s.port.set(f(w[i + 7]), f(w[i + 8]), f(w[i + 7]) + f(w[i + 9]), f(w[i + 8]) + f(w[i + 10]))
             links.add(Link(s, w[i + 1] and 1 != 0, w[i + 1] and 2 != 0))
             i += 11
+        }
+        // After the module's eight words, each scroller's snap.
+        var at = 3 + 11 * w[1] + 8
+        for (link in links) {
+            if (at >= w.size) break
+            val s = link.s
+            s.snapMandatory = w[at] and 4 != 0
+            at++
+            for (axis in 0..1) {
+                if (at + 2 > w.size) break
+                val n = w[at + 1]
+                s.snapPort[axis] = f(w[at])
+                s.snaps[axis] = FloatArray(2 * n) { f(w[at + 2 + 3 * (it / 2) + it % 2]) }
+                s.stops[axis] = BooleanArray(n) { w[at + 4 + 3 * it] != 0 }
+                at += 2 + 3 * n
+            }
         }
         // The indicators of scrollers this touch is not over go: they have faded, or are about to.
         for (s in scrollers.values) if (links.none { it.s === s }) s.bar?.let { (it.parent as? ViewGroup)?.removeView(it); s.bar = null }
@@ -329,6 +353,7 @@ internal class Scrolling(private val view: ExactView) {
         val edged = edged()
         val stretched = edged != null && STRETCH && edged.edges.any { it != null && it.distance != 0f }
         if (edged != null) { for (e in edged.edges) e?.onRelease(); if (stretched) stretching() }
+        if (!stretched && snap(v)) return
         if (stretched || abs(v) < minFling || active.isEmpty()) { mode = IDLE; return }
         mode = FLINGING
         flingAt = 0
@@ -337,6 +362,39 @@ internal class Scrolling(private val view: ExactView) {
         if (sideways) fling.fling(0, 0, v.toInt(), 0, Int.MIN_VALUE, Int.MAX_VALUE, 0, 0)
         else fling.fling(0, 0, 0, v.toInt(), 0, 0, Int.MIN_VALUE, Int.MAX_VALUE)
         frames.postFrameCallback(flinger)
+    }
+
+    /**
+     * The drag's innermost scroller snaps along the drag's axis (LLP 1008 §9): it comes to rest where [snapRest] says,
+     * from where the platform's fling at [v] px/s would have left it, and settles there in ViewPager's time. At its end
+     * and flung on past it, it does not: the fling goes on to the scrollers outside. Whether it took the release.
+     */
+    private fun snap(v: Float): Boolean {
+        val s = active.firstOrNull() ?: return false
+        val axis = if (sideways) 0 else 1
+        if (s.snapPort[axis] <= 0f || s.snaps[axis].isEmpty()) return false
+        val at = s.at(sideways)
+        val end = s.end(sideways)
+        if ((v < 0f && at <= 0f) || (v > 0f && at >= end)) return false
+        val flung = abs(v) >= minFling
+        var projected = at
+        if (flung) {
+            if (sideways) fling.fling(0, 0, v.toInt(), 0, Int.MIN_VALUE, Int.MAX_VALUE, 0, 0)
+            else fling.fling(0, 0, 0, v.toInt(), 0, 0, Int.MIN_VALUE, Int.MAX_VALUE)
+            projected += if (sideways) fling.finalX else fling.finalY
+            fling.forceFinished(true)
+        }
+        val target = snapRest(s.snaps[axis], s.stops[axis], projected, at, s.snapMandatory, s.snapPort[axis]) ?: return false
+        val d = (target.coerceIn(0f, end) - at).roundToInt()
+        if (d == 0) { mode = IDLE; return true }
+        // ViewPager's settle: four times as long as the finger's speed would take to cover it, within its bound; a
+        // release too slow to fling takes the platform's default scroll duration.
+        val ms = if (flung) (4000f * abs(d) / abs(v)).roundToInt().coerceIn(100, SNAP_MAX_MS) else SNAP_MS
+        fling.startScroll(0, 0, if (sideways) d else 0, if (sideways) 0 else d, ms)
+        mode = FLINGING
+        flingAt = 0
+        frames.postFrameCallback(flinger)
+        return true
     }
 
     private val flinger: Choreographer.FrameCallback = Choreographer.FrameCallback {
@@ -520,7 +578,46 @@ internal class Scrolling(private val view: ExactView) {
         const val BOTTOM = 1
         const val LEFT = 2
         const val RIGHT = 3
+        /** `Scroller`'s default duration, and ViewPager's longest settle. */
+        const val SNAP_MS = 250
+        const val SNAP_MAX_MS = 600
         /** An edge's stretch, and the distance it is read by, are Android 12's (`EdgeEffect.getDistance`). */
         val STRETCH = android.os.Build.VERSION.SDK_INT >= 31
     }
+}
+
+/**
+ * Where a scroll released at [release] and projected to rest at [projected] comes to rest among one axis's snap areas
+ * ([snaps]: each one's least and greatest offset, which differ for one longer than the snapport; [stops]:
+ * `scroll-snap-stop: always`), or null to rest where it would. LLP 1008 §9's rule, as
+ * `host/linux/src/presenter/snap.rs`'s `rest`: the position nearest the projection (the smaller of two as near); then
+ * short of the first `always` position past the release in the way it goes (CSS Scroll Snap 1 §6.2); and for
+ * `proximity` ([mandatory] false), only within a third of the snapport ([port]) of the projection.
+ */
+internal fun snapRest(snaps: FloatArray, stops: BooleanArray, projected: Float, release: Float, mandatory: Boolean, port: Float): Float? {
+    val n = stops.size
+    if (n == 0) return null
+    var rest = 0f
+    var best = Float.MAX_VALUE
+    for (k in 0 until n) {
+        val p = projected.coerceIn(snaps[2 * k], snaps[2 * k + 1])
+        val d = abs(p - projected)
+        if (d < best || (d == best && p < rest)) { best = d; rest = p }
+    }
+    // A move under half a pixel is none: positions from layout are fractional.
+    val e = 0.5f
+    if (rest > release + e) {
+        for (k in 0 until n) if (stops[k]) {
+            val from = snaps[2 * k]; val to = snaps[2 * k + 1]
+            val stop = if (from > release + e) from else if (to > release + e) to else continue
+            rest = minOf(rest, stop)
+        }
+    } else if (rest < release - e) {
+        for (k in 0 until n) if (stops[k]) {
+            val from = snaps[2 * k]; val to = snaps[2 * k + 1]
+            val stop = if (to < release - e) to else if (from < release - e) from else continue
+            rest = maxOf(rest, stop)
+        }
+    }
+    return if (mandatory || abs(rest - projected) <= port / 3f) rest else null
 }

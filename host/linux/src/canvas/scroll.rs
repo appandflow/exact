@@ -18,7 +18,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// What is under a point of the view (pixels), for the reader to decide
     /// what a drag from there is: the scrollers, innermost first, and the
     /// axes the presenter's own gestures claim
-    /// ([`crate::presenter::Presenter::reader_under`] has the words).
+    /// ([`crate::presenter::Presenter::reader_under`] has the words); then
+    /// the module under it (eight words), and each of those scrollers'
+    /// snap ([`crate::presenter::Presenter::reader_snaps`]).
     pub fn under(&mut self, x: f32, y: f32) -> Vec<i32> {
         let mut words = self.p.reader_under(x, y, self.scale);
         let module = self.p.hit(x / self.scale, y / self.scale).filter(|id| {
@@ -38,6 +40,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             key.map_or(0, |key| key.generation as i32),
             self.p.long_presses() as i32,
         ]);
+        let ids: Vec<_> = (0..words[1] as usize)
+            .map(|k| words[3 + 11 * k] as exact_kernel::ViewId)
+            .collect();
+        words.extend(self.p.reader_snaps(&ids, self.scale));
         words
     }
 

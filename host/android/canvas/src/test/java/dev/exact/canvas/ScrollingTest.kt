@@ -74,4 +74,39 @@ class ScrollingTest {
             assertEquals(if (newPolicy == 0) 2 else 1, f.parent.childCount)
         }
     }
+
+    @Test fun aTouchsAnswerTellsEachScrollersSnap() {
+        val f = Fixture(1)
+        f.down()
+        val module = IntArray(8)
+        // Sideways, mandatory: a 200 snapport, two areas, the second an `always` one; nothing up and down.
+        val snap = intArrayOf(1 or 4, 200f.toBits(), 2, 0, 0, 0, 300f.toBits(), 300f.toBits(), 1, 0, 0)
+        f.under(f.reply(0) + module + snap)
+        val s = f.scroller()
+        assertTrue(s.snapMandatory)
+        assertEquals(200f, s.snapPort[0], 0f)
+        assertArrayEquals(floatArrayOf(0f, 0f, 300f, 300f), s.snaps[0], 0f)
+        assertArrayEquals(booleanArrayOf(false, true), s.stops[0])
+        assertEquals(0f, s.snapPort[1], 0f)
+        assertEquals(0, s.snaps[1].size)
+    }
+
+    @Test fun aSnapRestsAtTheNearestPositionShortOfAnAlwaysOne() {
+        val snaps = floatArrayOf(0f, 0f, 250f, 250f, 550f, 550f, 800f, 800f)
+        val normal = BooleanArray(4)
+        assertEquals(550f, snapRest(snaps, normal, 600f, 250f, true, 400f)!!, 0f)
+        assertEquals("the smaller of two as near", 250f, snapRest(snaps, normal, 400f, 250f, true, 400f)!!, 0f)
+        val always = booleanArrayOf(true, true, true, true)
+        assertEquals("not past the next `always` position", 550f, snapRest(snaps, always, 780f, 250f, true, 400f)!!, 0f)
+        assertEquals("nor the previous one going back", 250f, snapRest(snaps, always, 10f, 550f, true, 400f)!!, 0f)
+        assertEquals(800f, snapRest(snaps, booleanArrayOf(false, false, false, true), 780f, 250f, true, 400f)!!, 0f)
+        // An area longer than the snapport rests anywhere it covers it, and an `always` one is left at its end.
+        val long = floatArrayOf(0f, 0f, 300f, 900f, 1200f, 1200f)
+        assertEquals(640f, snapRest(long, BooleanArray(3), 640f, 400f, true, 400f)!!, 0f)
+        assertEquals(900f, snapRest(long, booleanArrayOf(false, true, false), 1150f, 400f, true, 400f)!!, 0f)
+        // `proximity`: only within a third of the snapport of where it would rest.
+        assertEquals(250f, snapRest(snaps, normal, 380f, 250f, false, 400f)!!, 0f)
+        assertNull(snapRest(snaps, normal, 400f, 250f, false, 400f))
+        assertNull(snapRest(FloatArray(0), BooleanArray(0), 400f, 250f, true, 400f))
+    }
 }

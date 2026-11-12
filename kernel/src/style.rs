@@ -5,13 +5,12 @@
 use std::borrow::Cow;
 use taffy::prelude::{auto, length, percent};
 
-use crate::arena::NodeArena;
-use crate::error::StyleValueError;
 use crate::generated::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Direction, Display, FlexDirection, FlexWrap,
     GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType, StyleId,
     StyleMask, StyleProps,
 };
+use crate::{arena::NodeArena, error::StyleValueError};
 
 mod backdrop;
 pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
@@ -1446,17 +1445,16 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     s
 }
 
+mod decoration;
 // Whether a row's numbers are finite.
 mod finite;
 #[cfg(test)]
 mod finite_tests;
+pub mod snap;
 #[cfg(test)]
 mod tests;
 pub(crate) mod top_layer;
 // A `touch-action` value's pinch and pan parts.
-mod decoration;
-#[cfg(test)]
-mod decoration_tests;
 mod touch_action;
 #[cfg(test)]
 mod touch_action_tests;

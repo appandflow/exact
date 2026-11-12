@@ -1,12 +1,10 @@
-// CSS scroll snap on UIKit (LLP 1008 §9): UIKit
-// projects where a drag comes to rest; the nearest captured snap position
-// replaces it.
+// CSS scroll snap on UIKit (LLP 1008 §9, "Scroll snap"): UIKit projects
+// where a drag comes to rest and owns the deceleration there; the snap
+// position the rule picks (`ScrollSnap.swift`) replaces the projection.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 extension NodeView {
-    /// CSS's mandatory snap on either axis, with start, center and end alignment. UIKit supplies
-    /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === self.scrollView else { return }
         // `scrolldragend` (Charlie, 2026-11-10): UIKit's velocity, points per
@@ -22,70 +20,90 @@ extension NodeView {
         // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
         defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }
         #endif
-        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView)
+        targetContentOffset.pointee = snappedOffset(targetContentOffset.pointee, in: scrollView, release: scrollView.contentOffset)
     }
 
-    /// The native resting position, optionally constrained to the snap area
-    /// holding a target the agent reveals.
-    func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil) -> CGPoint {
-        snapTarget(proposed, in: scrollView, revealing: target) ?? proposed
+    /// UIKit's deceleration for a scroller: its fast rate where a snap is
+    /// mandatory, as a paging scroller's, else its normal one.
+    var snapDeceleration: UIScrollView.DecelerationRate {
+        ScrollSnap.Kind(style["scroll_snap_type"]?.string)?.mandatory == true ? .fast : .normal
     }
 
-    /// Nil when there is no snap area, including when a mandatory scroller is empty.
-    func snapTarget(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil) -> CGPoint? {
-        let type = style["scroll_snap_type"]?.string
-        guard type == "x mandatory" || type == "y mandatory" else { return nil }
-        let vertical = type == "y mandatory"
+    /// Where a scroll projected to rest at `proposed` rests, on each axis
+    /// `scroll-snap-type` names: optionally only at the snap areas holding a
+    /// target the agent reveals, and, released at `release`, not past an
+    /// `always` area's position.
+    func snappedOffset(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil, release: CGPoint? = nil) -> CGPoint {
+        snapTarget(proposed, in: scrollView, revealing: target, release: release) ?? proposed
+    }
+
+    /// `snappedOffset`'s, or `nil` when no axis snaps: no snap type, no snap
+    /// area, or a `proximity` snap too far from every area.
+    func snapTarget(_ proposed: CGPoint, in scrollView: UIScrollView, revealing target: UIView? = nil, release: CGPoint? = nil, keeping: Bool = false) -> CGPoint? {
+        guard let kind = ScrollSnap.Kind(style["scroll_snap_type"]?.string) else { return nil }
+        var result = proposed, snapped = false
+        if kind.x, let x = rest(false, kind, proposed.x, in: scrollView, revealing: target, release: release?.x ?? proposed.x, keeping: keeping) { result.x = x; snapped = true }
+        if kind.y, let y = rest(true, kind, proposed.y, in: scrollView, revealing: target, release: release?.y ?? proposed.y, keeping: keeping) { result.y = y; snapped = true }
+        return snapped ? result : nil
+    }
+
+    /// CSS Scroll Snap 1 §5.5: a mandatory scroller at rest on a snap area
+    /// follows it when a batch moves it, and when it went, rests on the
+    /// position nearest (`ScrollSnap.resnap`).
+    func resnap() {
+        guard let sv = scrollView, !sv.isTracking, !sv.isDecelerating, ScrollSnap.Kind(style["scroll_snap_type"]?.string)?.mandatory == true,
+              let to = snapTarget(sv.contentOffset, in: sv, keeping: true).map({ PixelGrid.offset($0, in: sv) }),
+              abs(to.x - sv.contentOffset.x) > 0.5 || abs(to.y - sv.contentOffset.y) > 0.5 else { return }
+        sv.contentOffset = to
+    }
+
+    private func rest(_ vertical: Bool, _ kind: ScrollSnap.Kind, _ proposed: CGFloat, in scrollView: UIScrollView, revealing target: UIView?, release: CGFloat, keeping: Bool) -> CGFloat? {
+        // The snapport is the padding box less UIKit's insets and
+        // `scroll-padding` (§4.1); positions are where its start is in the
+        // content, which starts at the border box: an offset plus `shift`.
+        let size = vertical ? scrollView.bounds.height : scrollView.bounds.width
         let inset = scrollView.adjustedContentInset
-        let leading = vertical ? inset.top : inset.left
-        let trailing = vertical ? inset.bottom : inset.right
-        let before = number(vertical ? "border_width_top" : "border_width_left", number("border_width"))
-        let after = number(vertical ? "border_width_bottom" : "border_width_right", number("border_width"))
-        let viewport = (vertical ? scrollView.bounds.height : scrollView.bounds.width) - leading - trailing
-        let port = viewport - before - after
+        let padding = { (side: String) in self.style["scroll_padding_\(side)"]?.length(basis: size) ?? 0 }
+        let border = { (side: String) in self.number("border_width_\(side)", self.number("border_width")) }
+        let (first, last) = vertical ? ("top", "bottom") : ("left", "right")
+        let lead = (vertical ? inset.top : inset.left), trail = (vertical ? inset.bottom : inset.right)
+        let shift = lead + border(first) + padding(first)
+        let port = size - lead - trail - border(first) - border(last) - padding(first) - padding(last)
         guard port > 0 else { return nil }
-        let maximum = max(0, (vertical ? scrollView.contentSize.height : scrollView.contentSize.width) - viewport)
-        let wanted = (vertical ? proposed.y : proposed.x) + leading
-        var positions: [CGFloat] = [], targetPositions: [CGFloat] = []
+        let content = vertical ? scrollView.contentSize.height : scrollView.contentSize.width
+        let range = (-lead + shift)...max(-lead, content + trail - size) + shift
+        var areas: [ScrollSnap.Area] = [], held: [ScrollSnap.Area] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
-                let align = node.style["scroll_snap_align"]?.string
-                if align == "start" || align == "end" || align == "center" {
-                    let rect = node.convert(node.bounds, to: scrollView)
-                    let (lo, hi, size) = vertical ? (rect.minY - before, rect.maxY - before, rect.height) : (rect.minX - before, rect.maxX - before, rect.width)
-                    // Oversized areas stay free while they cover the snapport (CSS Snap §5.2.2).
-                    let wide = size >= port
-                    let at = wide ? lo : align == "end" ? hi - port : align == "center" ? (lo + hi - port) / 2 : lo
-                    let start = min(maximum, max(0, at))
-                    let end = wide ? min(maximum, max(start, hi - port)) : start
-                    let position = min(end, max(start, wanted))
-                    positions.append(position)
-                    if let target, target === node || target.isDescendant(of: node) { targetPositions.append(position) }
+                if let align = ScrollSnap.align(node.style["scroll_snap_align"]?.string, vertical: vertical) {
+                    // The area is the border box grown by `scroll-margin` (§4.3).
+                    let rect = IntoView.inset(node.convert(node.bounds, to: scrollView), style: node.style, family: "scroll_margin", outward: true)
+                    let area = ScrollSnap.area(lo: vertical ? rect.minY : rect.minX, hi: vertical ? rect.maxY : rect.maxX, align: align,
+                                               stop: node.style["scroll_snap_stop"]?.string == "always", port: port, range: range, id: node.id)
+                    areas.append(area)
+                    if let target, target === node || target.isDescendant(of: node) { held.append(area) }
                 }
-                // Hidden owns snap areas even without a UIScrollView; clip does not (CSS Overflow §3.1).
-                let ownsAreas = ["overflow_x", "overflow_y"].contains { ["auto", "scroll", "hidden"].contains(node.style[$0]?.string ?? "visible") }
-                if node.scrollView == nil && !ownsAreas { visit(node.container) }
+                // A nested scroll container captures its own snap areas, `hidden`
+                // included without a UIScrollView; `clip` does not (CSS Overflow 3 §3.1).
+                if node.scrollView == nil && !ScrollSnap.ownsAreas(node.style["overflow_x"]?.string, node.style["overflow_y"]?.string) { visit(node.container) }
             }
         }
         visit(scrollView)
-        func nearer(_ a: CGFloat, _ b: CGFloat) -> Bool {
-            let da = abs(a - wanted), db = abs(b - wanted)
-            return da < db || (da == db && a < b)
+        let wanted = proposed + shift
+        // A virtualized list's rows past its mounted ones (LLP 1008 §9, as amended for #219).
+        let distance = areas.map { abs(min($0.to, max($0.from, wanted)) - wanted) }.min() ?? .infinity
+        if distance > 0, held.isEmpty, let entry = presenter?.collections.entries[id], entry.snapshot.horizontal != vertical,
+           let position = presenter?.session?.runtime.collectionSnap(id, proposed: Double(wanted), port: Double(port),
+                minimum: Double(range.lowerBound), maximum: Double(range.upperBound), distance: Double(distance)) {
+            areas.append(ScrollSnap.Area(from: CGFloat(position), to: CGFloat(position), stop: false))
         }
-        let mounted = positions.min(by: nearer)
-        let distance = mounted.map { abs($0 - wanted) } ?? .infinity
-        // The row query uses border-box coordinates; mounted candidates use the padding edge.
-        if distance > 0, targetPositions.isEmpty,
-           presenter?.collections.entries[id]?.snapshot.horizontal == !vertical,
-           let position = presenter?.session?.runtime.collectionSnap(id, proposed: Double(wanted + before),
-                port: Double(port), maximum: Double(maximum + before), distance: Double(distance)) {
-            positions.append(min(maximum, max(0, CGFloat(position) - before)))
-        }
-        let choices = targetPositions.isEmpty ? positions : targetPositions
-        guard let nearest = choices.min(by: nearer) else { return nil }
-        var result = proposed
-        if vertical { result.y = nearest - leading } else { result.x = nearest - leading }
-        return result
+        let axis = vertical ? 1 : 0, sv = scrollView as? ScrollView
+        let rest = keeping
+            ? ScrollSnap.resnap(areas, rested: sv?.snapRested[axis] ?? .init(), current: wanted, mandatory: kind.mandatory, port: port)
+            : ScrollSnap.rest(held.isEmpty ? areas : held, projected: wanted, release: release + shift, mandatory: kind.mandatory || !held.isEmpty, port: port)
+        guard let rest else { return nil }
+        sv?.snapRested[axis] = ScrollSnap.Rested(rest, in: areas)
+        return rest - shift
     }
 }
 #endif

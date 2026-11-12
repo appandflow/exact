@@ -286,7 +286,7 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    fn scroll_to_completion(
+    pub(super) fn scroll_to_completion(
         &mut self,
         id: ViewId,
         to: (f32, f32),

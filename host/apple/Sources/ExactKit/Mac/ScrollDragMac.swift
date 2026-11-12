@@ -48,7 +48,10 @@ extension ChainingScrollView {
             dragTrack?.moved(at: event.timestamp, by: CGPoint(x: -delta.x, y: -delta.y))
         } else if lift, let track = dragTrack {
             dragTrack = nil
-            if node.handlers.contains("scrolldragend") { node.presenter?.scrollDrag(node.id, (track.velocity(at: event.timestamp), nil)) }
+            let velocity = track.velocity(at: event.timestamp)
+            if node.handlers.contains("scrolldragend") { node.presenter?.scrollDrag(node.id, (velocity, nil)) }
+            // A snapping scroller eases to its rest; the momentum after is dropped (`ScrollSnapMac.swift`).
+            _ = node.snapAtLift(velocity: velocity)
         }
     }
 }

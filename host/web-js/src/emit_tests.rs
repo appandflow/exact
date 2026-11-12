@@ -1340,4 +1340,15 @@ fn scroll_snap_emits_both_axes_and_center() {
         );
         assert!(all.contains("scroll-snap-align:center"), "{all}");
     }
+    // `proximity` as CSSOM serializes it, two alignments and `scroll-snap-stop`.
+    let source = "component App\n  view\n    scroll height=100 width=300 scroll-snap-type=\"both proximity\"\n      view scroll-snap-align=\"start center\" scroll-snap-stop=\"always\"\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    let all = format!("{}{}", out.js, out.css);
+    for declaration in [
+        "scroll-snap-type:both",
+        "scroll-snap-align:start center",
+        "scroll-snap-stop:always",
+    ] {
+        assert!(all.contains(declaration), "{declaration}: {all}");
+    }
 }

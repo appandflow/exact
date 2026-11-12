@@ -826,6 +826,7 @@ package final class Presenter {
             // Restore and author offsets after collection inset compensation,
             // before deferred callbacks can replace the captured positions.
             restoreScrollPositions()
+            if moved { for id in scrollers { views[id]?.resnap() } }
             pool.end()
             PaintOrder.end()
             if outermost {

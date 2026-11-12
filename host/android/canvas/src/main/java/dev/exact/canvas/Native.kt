@@ -60,7 +60,10 @@ object Native {
      * (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them from then on
      * ([scrollers]). After the scrollers: the native module button under the point (0: none), then its painted
      * box x, y, width and height as float bits, in pixels, its allocation slot and generation, and how many long
-     * presses a node has taken so far (wrapping). */
+     * presses a node has taken so far (wrapping). Then each scroller's snap, in the same order (`host/linux/src/presenter/snap.rs`,
+     * `reader_snaps`): flags (bit 0 it snaps sideways, bit 1 up and down, bit 2 `mandatory`), then sideways and then up
+     * and down its snapport's length as float bits, a count, and per snap area the least and greatest offsets it rests
+     * at as float bits and 1 for `scroll-snap-stop: always`, in pixels. */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
     /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
      * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its

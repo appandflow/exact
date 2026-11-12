@@ -667,8 +667,9 @@ void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* Read a local row-root snap without mounting views; NaN when absent.
- * distance is the nearest mounted target's distance, infinity when absent. */
-double exact_collection_snap(ExactRuntime rt, uint32_t view, double proposed, double port, double maximum, double distance);
+ * Positions are the snapport start along the list axis, in its border box;
+ * minimum and maximum bound them. distance is the nearest mounted target's distance, infinity when absent. */
+double exact_collection_snap(ExactRuntime rt, uint32_t view, double proposed, double port, double minimum, double maximum, double distance);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);

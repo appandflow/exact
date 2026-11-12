@@ -2369,18 +2369,43 @@
       "values": [
         "none",
         "x mandatory",
-        "y mandatory"
+        "y mandatory",
+        "both mandatory",
+        "x",
+        "y",
+        "both"
       ],
-      "default": "none"
+      "default": "none",
+      "_comment": "CSS Scroll Snap 1 §5.1 `scroll-snap-type` as CSSOM serializes it: an axis, then `mandatory`, or the axis alone for `proximity` (the strictness CSS assumes when none is said). `block` and `inline` are not admitted (y and x here). Appended values keep earlier discriminants."
     },
     "ScrollSnapAlign": {
       "values": [
         "none",
         "start",
         "end",
-        "center"
+        "center",
+        "none start",
+        "none end",
+        "none center",
+        "start none",
+        "start end",
+        "start center",
+        "end none",
+        "end start",
+        "end center",
+        "center none",
+        "center start",
+        "center end"
       ],
-      "default": "none"
+      "default": "none",
+      "_comment": "CSS Scroll Snap 1 §6.1 `scroll-snap-align`, `[none | start | end | center]{1,2}` as CSSOM serializes it: one value for both axes, or the block axis's (y) then the inline axis's (x)."
+    },
+    "ScrollSnapStop": {
+      "values": [
+        "normal",
+        "always"
+      ],
+      "default": "normal"
     },
     "ScrollbarWidth": {
       "values": [
@@ -3501,7 +3526,7 @@
       "field": "scroll_snap_type",
       "codec": "enum:ScrollSnapType",
       "cold": true,
-      "_comment": "LLP 1008 §9: x or y mandatory snapping to the nearest projected rest; UIKit owns the motion; the web executes CSS."
+      "_comment": "LLP 1008 §9: the web executes CSS; UIKit, AppKit, Android and a Linux or Windows wheel rest where the shared rule picks (`ScrollSnap.swift`, `host/linux/src/presenter/snap.rs`)."
     },
     {
       "bit": 82,
@@ -4746,6 +4771,13 @@
       "rare": true,
       "codec": "view-timeline-inset",
       "_comment": "@ref LLP 1057.003 D5: CSS `view-timeline-inset`, `[auto | <length-percentage>]{1,2}` (one pair; a list is refused): how far the view timeline's scrollport edges move in, start then end (one value is both). `auto` is the scroller's `scroll-padding` on that side; a percentage is of the scrollport's size on the axis. Not inherited."
+    },
+    {
+      "bit": 241,
+      "field": "scroll_snap_stop",
+      "codec": "enum:ScrollSnapStop",
+      "cold": true,
+      "_comment": "CSS Scroll Snap 1 §6.2 `scroll-snap-stop` on a snap area: `always` keeps a snap from passing over the area's snap position, so one fling moves one card or one page."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

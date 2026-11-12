@@ -115,6 +115,7 @@ mod scroll_drag;
 mod scroll_end;
 mod scrollbar;
 mod scrollers;
+pub mod snap;
 pub(crate) mod split;
 mod stage;
 mod wheel;
@@ -178,6 +179,12 @@ pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
+    /// Per snapping scroller, where its wheel would have put it unsnapped and
+    /// where it put it (`snap.rs`).
+    wheel_free: BTreeMap<ViewId, snap::WheelFree>,
+    /// Per scroller and axis (true: y), the snap area it was last found
+    /// resting on and the position (`snap.rs`).
+    snap_rested: BTreeMap<(ViewId, bool), (ViewId, f32)>,
     /// The display's clock while it owns time, given to every host (`clock.rs`)
     live_clock: Option<clock::Wall>,
     native_timers: bool,
@@ -511,6 +518,8 @@ impl<D: DataSource> Presenter<D> {
         }
         let mut p = Presenter {
             last_wheel: None,
+            wheel_free: BTreeMap::new(),
+            snap_rested: BTreeMap::new(),
             host,
             executor,
             parked: BTreeMap::new(),
@@ -837,6 +846,7 @@ impl<D: DataSource> Presenter<D> {
         // wake another turn; waking here makes an idle list redraw forever.
         self.schedule_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
+        self.resnap_scrollers();
         let geometry = self.refresh_transform_geometry();
         self.sync_surface();
         error.or(refined).or(geometry)
