@@ -1593,7 +1593,10 @@ input with `id="attach"`; `change` receives `Picked[]` with copies under
 `app:/tmp/picked/<id>.<ext>`, `<id>` from the launch and a counter, and `name` is the
 original name. Read the bytes at `path` (grant `fs.read app:/tmp/picked`), and show or
 upload them under `name`. A specific `accept` list remains bounded to image/video
-types and the app's `file_handlers`. On Linux the agent can answer a held
+types and the app's `file_handlers`. For audio, declare `audio/mpeg`, `audio/wav`,
+`audio/mp4` or `audio/ogg` in `file_handlers` and name those exact types in `accept`;
+`audio/*` remains outside the admitted wildcard types. XHTML uses
+`application/xhtml+xml` in the same way. On Linux the agent can answer a held
 picker, but the live picker is unavailable (LLP 1069.002, "Any-type input").
 
 The view forms are element, component use, `if`/`else` (and `else if`),

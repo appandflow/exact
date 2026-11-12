@@ -752,8 +752,8 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-types-'));
   try {
     const write = (accept) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, file_handlers: [{ action: '/', accept }] }));
-    write({ 'audio/mpeg': ['.mp3'] });
-    assert.throws(() => readManifest(dir, 'types'), /file_handlers\[0\]\.accept: audio\/mpeg names no type the Apple hosts map \(they map .*text\/csv/);
+    write({ 'audio/flac': ['.flac'] });
+    assert.throws(() => readManifest(dir, 'types'), /audio\/flac names no type the Apple hosts map/);
     write({ 'application/octet-stream': ['.bin', '.dat'] });
     assert.deepEqual(documentTypes(app(readManifest(dir, 'types')))[0].LSItemContentTypes, ['public.data']);
     // An app's own format (studio diary R13): a vendor or `x-` type is
