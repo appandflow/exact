@@ -234,12 +234,15 @@ export function longPollRefusal(op, method, body) {
 // (host/apple/src/executor_longpoll.rs). `URLSearchParams.set` would re-serialise the whole
 // query as a form: `/` as `%2F`, `%20` as `+`, a bare `flag` as `flag=`.
 const unreserved = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-// A pair's name decoded as a form's is (`+` a space); a serialised URL's query is ASCII.
-const pairName = (pair) => new TextDecoder().decode(Uint8Array.from(pair.split('=', 1)[0].matchAll(/%[0-9A-Fa-f]{2}|[^]/g), ([c]) => c.length === 3 ? parseInt(c.slice(1), 16) : c === '+' ? 32 : c.charCodeAt(0)));
+// A pair's name decoded as a form's is (`+` a space, a leading U+FEFF kept); a serialised URL's query is ASCII.
+const formText = new TextDecoder('utf-8', { ignoreBOM: true });
+const pairName = (pair) => formText.decode(Uint8Array.from(pair.split('=', 1)[0].matchAll(/%[0-9A-Fa-f]{2}|[^]/g), ([c]) => c.length === 3 ? parseInt(c.slice(1), 16) : c === '+' ? 32 : c.charCodeAt(0)));
 function setQueryValue(url, name, value) {
   const pair = `${unreserved(name)}=${unreserved(value)}`;
   let found = false;
-  const parts = url.search.slice(1).split('&').filter(Boolean).flatMap((p) => {
+  // An empty field (`&&`, a leading or trailing `&`) is kept too.
+  const query = url.search.slice(1);
+  const parts = (query ? query.split('&') : []).flatMap((p) => {
     if (pairName(p) !== name) return [p];
     if (found) return [];
     found = true;
