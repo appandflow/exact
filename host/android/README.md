@@ -842,13 +842,20 @@ committed about 35 ms after the touch lifts (alert 30 to 41, menu 29 to 37, five
 until the next collection and is then gone (one root again); resident memory after the first use stays about 8 MB
 above what it was before any, which has not been attributed.
 
+**A select's menu** is painted in the page by the shared presenter, for both default appearance and
+`appearance="none"`. Its rows show the selected option, skip disabled options and commit a choice on a tap.
+A tap outside, Back or Escape dismisses it. Keyboard navigation and a mouse wheel can reach a long list,
+but there is no touch scrolling. The menu is clipped to the page's viewport and stays below hosted views
+such as `EditText` and WebView and below the system bars. Its rows are not exposed as a separate accessible
+menu, and it has no popup-window enter or exit transition. D10's anchored native popup remains unbuilt.
+
 Not built of D10:
 
 - **Accessibility.** `uiautomator dump` shows an open alert as a window of its own holding one focused
   `android.view.View` with no text, description or children: TalkBack lands on it and has nothing to read (D13).
 - **A text field inside a dialog.** The shape rule admits text and buttons only, so a dialog with an `input` is no
   alert and is refused; nothing hosts a field in a surface's window.
-- A bottom sheet (a chooser, a `modal` route), a `select`'s menu, submenus as cascades (a row that opens another
+- A bottom sheet (a chooser, a `modal` route), a `select`'s anchored native popup, submenus as cascades (a row that opens another
   menu replaces the first), a menu or a dialog taller than the window (it is not scrolled), a raster image in a
   menu row, right-to-left placement.
 - The ripple, Material's own type scaling above 100% (sizes are sp taken linearly), and the device's own face.

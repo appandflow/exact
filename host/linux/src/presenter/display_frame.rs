@@ -81,6 +81,8 @@ pub(crate) struct State {
     rendering: bool,
     pending: Option<Rc<Identity>>,
     acknowledged: Option<Witness>,
+    /// Menu geometry retained while the acknowledged boxes are out for painting.
+    pub(crate) menu: Option<crate::paint::control::MenuPaint>,
 }
 impl State {
     pub(super) fn blocked(&self) -> bool {
@@ -204,6 +206,7 @@ impl<D: DataSource> Presenter<D> {
         // Keep A's owners alive for replay/failure during B's paint; swapping
         // afterward moves B into its receipt, without deep-copying any payload.
         let old_paint = self.brush.presentation();
+        self.display.menu = self.menu_paint();
         let old_boxes = std::mem::take(&mut self.boxes);
         let old_page = self.boxes_page;
         let old_shown = self.ranges.shown.get();
@@ -211,6 +214,7 @@ impl<D: DataSource> Presenter<D> {
         self.display.active = true;
         self.display.rendering = true;
         let pixels = self.frame();
+        self.display.menu = None;
         self.display.rendering = false;
         let identity = Rc::new(Identity {
             origin: self.display.origin.clone(),
