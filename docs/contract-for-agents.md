@@ -1569,7 +1569,14 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   the same `refresh`-then-`setAuth` source.
 - **Tests** run with no Convex. `server.ts` beside `app.ts` gives
   `@exact/convex/test/server.ts` the app's functions as plain JavaScript over
-  memory, and `test` and `verify` start it (`apps/mosaic/server.ts`). Keep the
+  memory, and `test` and `verify` start it (`apps/mosaic/server.ts`); its
+  `app.json` needs `"server": { "database": false }`, since the stand-in keeps
+  no database. A function's second argument is who asks, `{ identity }`: the
+  `sub` of the JWT the client sent, unchecked, or `null` signed out. Convex's
+  HTTP API answers too (`POST /api/mutation`, `/api/query`, `/api/action`,
+  `Authorization: Bearer <jwt>`), so a test's `request` can write as another
+  client; `http: (request) => Response | undefined` answers the app's other
+  routes (an auth endpoint), with CORS headers added. Keep the
   rules both run in a file with no Convex import (`convex/tiles.ts`). One
   server serves a whole run: a test that counts clears first.
 - **Driving a native host against a real deployment.** The driver seeds a
