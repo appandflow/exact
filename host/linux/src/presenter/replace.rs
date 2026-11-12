@@ -54,6 +54,7 @@ impl<D: DataSource> Presenter<D> {
             focus_start,
             field_select_tasks,
             field_change_tasks,
+            bars,
             // The tree's, made anew by the calls below.
             surfaces: _,
             brush: _,
@@ -100,7 +101,6 @@ impl<D: DataSource> Presenter<D> {
             reader: _,
             colors: _,
             hosted: _,
-            bars: _,
             access: _,
             // The window's, the device's and the session's.
             live_clock: _,
@@ -187,6 +187,7 @@ impl<D: DataSource> Presenter<D> {
         *focus_start = None;
         field_select_tasks.clear();
         field_change_tasks.clear();
+        bars.replaced();
         self.read_ranges();
         self.give_clock();
         self.modules_replaced();

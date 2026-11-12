@@ -1,6 +1,7 @@
 # After a dev reload the Android reader's bars keep the old tree's title and targets when the new kernel's epoch equals the old one's
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Presenter::replaced` makes the bars' tree state anew (`bars::State::replaced`: what they were read from, the scroller the top bar follows, the held and focused targets), and `restore_time` tells the new host the room the bars take, so a reload reads them from the new tree at any epoch.
 **Systems:** host/linux/src/presenter/bars.rs, host/linux/src/presenter.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
