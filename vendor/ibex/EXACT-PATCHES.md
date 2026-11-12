@@ -775,3 +775,14 @@ it reports `head`. Both call the embedder outside the task's lock, since what
 it calls may abort the fetch.
 
 Replay all of it on a refresh.
+
+## Local patch 32, gated WebSocket subprotocols
+
+The host binding passes protocol names through its existing network gate
+(LLP 1016.000). It checks the selected name against the offer, including the
+browser rule that an offer requires a selection. Protocol names are case-sensitive,
+including duplicate detection in the JavaScript constructor. Gated opens, receive-only
+opens and event watches share the selection check; a refused watch reports error
+then close 1006, without open. `stdlib/websocket.rs` tests those entry points.
+`host/apple/src/executor_protocol_tests.rs` exercises
+URLSession and the portable transport against a local handshake server.
