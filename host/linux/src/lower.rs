@@ -317,13 +317,13 @@ impl<D: DataSource> Host<D> {
                 _ => None,
             })
             .unwrap_or(0.0);
-        let point = |d: Dimension| match d {
-            Dimension::Points(v) => v,
+        let point = |d: &Dimension| match d {
+            Dimension::Points(v) => *v,
             _ => 0.0,
         };
         let (cx0, cy0) = node
             .as_ref()
-            .map_or((0.0, 0.0), |n| (point(n.style.cx), point(n.style.cy)));
+            .map_or((0.0, 0.0), |n| (point(&n.style.cx), point(&n.style.cy)));
         // Only for a dash track: the one row, where it is set.
         let dash0 = || {
             node.as_ref().map_or(0.0, |n| {
