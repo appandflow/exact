@@ -263,8 +263,9 @@ not select the app, and `webDist` alone does not select an app. `s.op(request)` 
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
-through `s.carrier` (`reset({keep: true})` reloads the current browser route with
-its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps;
+through `s.carrier` (`reset({keep: true})` reloads the current browser history
+entry with its store and agent launch facts, keeping Back and Forward entries;
+`evaluate`, and on Chrome `call`, drive raw browser steps;
 `evaluate` takes an expression string or a function of no arguments, which runs in the page,
 so it sees none of the script's variables).
 
