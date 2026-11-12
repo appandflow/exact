@@ -1546,6 +1546,13 @@ yet.
 (`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.
 
+A value that follows a scroll is CSS's scroll-driven animation, not a `scroll` action
+that writes state (one round trip behind the scroll). `scroll-timeline` on a scroller
+names its offset; `animation-timeline` names it, or is `scroll()`, and `animation-range`
+takes lengths and percentages. Every host moves the consumer in the scroll's own frame,
+and the web leaves it to the browser
+([agents' guide](contract-for-agents.md#motion-that-follows-a-scroll)).
+
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
 The transform pair must be declared together. The height, transform and reorder

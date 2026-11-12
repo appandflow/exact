@@ -225,6 +225,12 @@ fn parse_codec(s: &str) -> Codec {
             variant: "AnimationRange",
             error: "BadAnimationRange",
         },
+        // @ref LLP 1057.003 D5 — scroll timelines, CSS's own rows.
+        "timeline-name" => Codec::CssValue {
+            path: "crate::timeline::TimelineName",
+            variant: "TimelineName",
+            error: "BadTimelineName",
+        },
         "position-try-fallbacks" => Codec::CssValue {
             path: "crate::position_try::PositionTryFallbacks",
             variant: "PositionTryFallbacks",

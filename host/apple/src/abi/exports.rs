@@ -678,6 +678,12 @@ macro_rules! host {
         pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u32::from(b.has_hold(token)), |_| 0)
         }
+        /// A scroller marked `scrollTimeline` (the page, for `page` 1) now
+        /// stands at `left`, `top` CSS px: the timelines it drives, presented.
+        #[no_mangle]
+        pub extern "C" fn exact_timeline_scrolled(rt: u32, page: u32, view: u32, left: f64, top: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.timeline_scrolled(page != 0, view, left, top), |n| n)
+        }
         /// Change a held property's presentation.
         #[no_mangle]
         pub extern "C" fn exact_hold_update(rt: u32, token: u64, x: f64, y: f64, now_ms: f64) -> u32 {

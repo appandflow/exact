@@ -474,6 +474,7 @@ impl<D: DataSource> Host<D> {
         self.emit_extents(!visited.is_empty(), batch);
         self.snap_layout(batch);
         self.emit_sticky(batch);
+        self.place_timelines(batch);
         self.emit_fragments(batch);
         // A withheld batch held the scenes it placed: sent again
         if self.layout_withheld {

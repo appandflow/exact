@@ -314,6 +314,7 @@ impl<D: DataSource> Presenter<D> {
             self.scroll_end_input(id, s.offset, completion);
             self.collection_scroll_input(id, s.offset);
         }
+        self.scroll_timelines();
         self.dirty = true;
         if let Some(error) = self.refresh_transform_geometry() {
             self.host.log(error);

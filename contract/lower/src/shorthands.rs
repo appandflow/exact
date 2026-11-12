@@ -40,6 +40,8 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "text-box" => &[TextBoxTrim, TextBoxEdge],
         // CSS Inline Layout 3 §4: `alignment-baseline` and `baseline-shift`.
         "vertical-align" => &[VerticalAlign, BaselineShift],
+        // @ref LLP 1057.003 D5 — Scroll-driven Animations 1 §2.2.4, §3.2.4.
+        "scroll-timeline" => &[ScrollTimelineName, ScrollTimelineAxis],
         _ => unreachable!("known shorthand"),
     }
 }
@@ -58,6 +60,9 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             out = if index == 0 { Expr::Str("baseline".into(), *span) } else { Expr::Number(*n, *span) };
         }
         Expr::Str(text, span) if name == "font" => out = font(text, *span)?[index].clone(),
+        Expr::Str(text, span) if name.ends_with("-timeline") => {
+            out = Expr::Str(timeline(name, text, *span)?[index].clone(), *span);
+        }
         Expr::Number(_, span) if name == "font" => return font("", *span).map(|_| out),
         Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
             return err("lower-attr-value", "`column-count` is a positive integer or `auto`", *span);
@@ -106,6 +111,33 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
         _ => return err("lower-css-shorthand", format!("`{name}` takes a literal CSS shorthand or a choice of literals; computed strings cannot be split into longhands"), value.span()),
     }
     Ok(out)
+}
+
+/// `scroll-timeline: <name> <axis>?` (one timeline; a list is refused),
+/// into its longhands; an omitted axis is `block`. The name is the
+/// kernel's to check.
+fn timeline(name: &str, text: &str, span: Span) -> Result<Vec<String>, LowerError> {
+    let refuse = |why: &str| {
+        err(
+            "lower-css-shorthand",
+            format!("`{name}`: {why}; write a name, then an optional axis, e.g. `--cols x`"),
+            span,
+        )
+    };
+    if text.contains(',') {
+        return refuse("one timeline per node, not a list");
+    }
+    let words = words(text);
+    match words[..] {
+        [] => refuse("an empty value"),
+        [first] => Ok(vec![first.to_string(), "block".into()]),
+        [first, axis]
+            if exact_kernel::TimelineAxis::from_name(&axis.to_ascii_lowercase()).is_some() =>
+        {
+            Ok(vec![first.to_string(), axis.to_ascii_lowercase()])
+        }
+        _ => refuse("more than a name and an axis"),
+    }
 }
 
 /// `vertical-align`'s two rows (LLP 1011.002 D3): a keyword and no shift,

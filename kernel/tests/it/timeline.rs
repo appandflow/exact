@@ -5,9 +5,7 @@
 //! back to the clock when its row is cleared, and has no effect once the
 //! source its parent's scope found is destroyed.
 
-use exact_kernel::timeline::{
-    AnimationRange, AnimationTimeline, Axis, DragTimeline, TimelineScope,
-};
+use exact_kernel::timeline::{AnimationTimeline, Axis, DragTimeline, TimelineScope};
 use exact_kernel::{
     motion_node, wire, CommitReceipt, Kernel, NodeType, Op, StyleId, StyleProps, StyleValue,
     StyleValueError,
@@ -99,12 +97,26 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::TimelineScope, "--a,--b", "--a, --b"),
         (StyleId::TimelineScope, "all", "all"),
         (StyleId::TimelineScope, "none", "none"),
+        (
+            StyleId::AnimationTimeline,
+            "scroll(x root)",
+            "scroll(root x)",
+        ),
+        (StyleId::AnimationRange, "0px", "0px normal"),
+        (StyleId::AnimationRange, "0% 100%", "normal"),
+        (
+            StyleId::AnimationRange,
+            "exit -100% exit 0%",
+            "exit -100% exit 0%",
+        ),
+        (StyleId::ScrollTimelineName, "--cols", "--cols"),
     ] {
         s.set_dynamic(id, &StyleValue::Text(css.into())).unwrap();
         let written = match id {
             StyleId::DragTimeline => s.rare.drag_timeline.css(),
             StyleId::AnimationTimeline => s.rare.animation_timeline.css(),
             StyleId::TimelineScope => s.rare.timeline_scope.css(),
+            StyleId::ScrollTimelineName => s.rare.scroll_timeline_name.css(),
             _ => s.animation_range.css(),
         };
         assert_eq!(written, canonical, "{css}");
@@ -114,12 +126,14 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::DragTimeline, "dismiss"),
         (StyleId::DragTimeline, "--dismiss z"),
         (StyleId::DragTimeline, "--dismiss y x"),
-        (StyleId::AnimationTimeline, "scroll()"),
-        (StyleId::AnimationRange, "0px"),
+        (StyleId::AnimationTimeline, "scroll(far)"),
+        (StyleId::AnimationTimeline, "--a, --b"),
         (StyleId::AnimationRange, "10px 10px"),
-        (StyleId::AnimationRange, "0% 100%"),
+        (StyleId::AnimationRange, "exit 0% exit 0%"),
+        (StyleId::AnimationRange, "exit 1em"),
         (StyleId::TimelineScope, "--a --b"),
         (StyleId::TimelineScope, "--a, all"),
+        (StyleId::ScrollTimelineName, "--a, --b"),
     ] {
         let refused = s.set_dynamic(id, &StyleValue::Text(css.into()));
         assert!(
@@ -128,7 +142,8 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
                 Err(StyleValueError::BadDragTimeline { .. }
                     | StyleValueError::BadAnimationTimeline { .. }
                     | StyleValueError::BadAnimationRange { .. }
-                    | StyleValueError::BadTimelineScope { .. })
+                    | StyleValueError::BadTimelineScope { .. }
+                    | StyleValueError::BadTimelineName { .. })
             ),
             "{css}: {refused:?}"
         );
@@ -150,6 +165,8 @@ fn the_rows_round_trip_through_the_wire() {
                 (StyleId::AnimationTimeline, "--dismiss"),
                 (StyleId::AnimationRange, "-40px 260.5px"),
                 (StyleId::TimelineScope, "--pan, --dismiss"),
+                (StyleId::ScrollTimelineName, "--cols"),
+                (StyleId::ScrollTimelineAxis, "x"),
             ]),
         },
         Op::AttachRoot { id: 1 },
@@ -167,7 +184,14 @@ fn the_rows_round_trip_through_the_wire() {
         style.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
-    assert_eq!(style.animation_range, AnimationRange(Some([-40.0, 260.5])));
+    assert_eq!(style.animation_range.lengths(), Some([-40.0, 260.5]));
+    assert_eq!(
+        (
+            style.rare.scroll_timeline_name.css(),
+            style.rare.scroll_timeline_axis,
+        ),
+        ("--cols".into(), exact_kernel::TimelineAxis::X,)
+    );
     assert_eq!(
         style.rare.timeline_scope,
         TimelineScope::Names("--pan, --dismiss".into())

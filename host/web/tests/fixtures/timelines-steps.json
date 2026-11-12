@@ -1,0 +1,4 @@
+[
+  {"scroller":"st","axis":"x","at":[0,60,150,250,300,420,600],"read":["st-normal","st-px","st-pct","st-start","st-named","st-delay","st-fill"]},
+  {"scroller":"sv","axis":"y","at":[0,50,115,200,230],"read":["sv-anon","sv-named","sv-self"]}
+]

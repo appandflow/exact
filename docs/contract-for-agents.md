@@ -3337,6 +3337,33 @@ names read in any ASCII case (`0.3S EASE` is `0.3s ease`), its numbers are CSS's
 (`1.s` and `infs` are no times), and a keyframes name keeps its case: in
 `animation="Spin 1s EASE"` the name is `Spin` and `EASE` is the easing.
 
+### Motion that follows a scroll
+
+A value that follows a scroller is a scroll-driven animation, CSS's own, not a `scroll` action
+that writes state (that runs a round trip behind the scroll):
+
+```contract
+keyframes follow
+  to translate="-1000px 0px"
+
+component App
+  view
+    column timeline-scope="--cols"
+      row overflow="hidden" width="12rem"
+        row flex-shrink=0 animation="follow 1s linear both" animation-timeline="--cols" animation-range="0px 1000px"
+          text "Names"
+      row overflow-x="auto" width="12rem" scroll-timeline="--cols x"
+        text "Columns"
+```
+
+- **Timelines:** `scroll-timeline` (or `-name` and `-axis`) on a scroller is its offset.
+  `animation-timeline` names one, or is `scroll()`; a sibling's name needs `timeline-scope`
+  on a shared ancestor. One timeline per node.
+- **Ranges:** `animation-range` takes lengths and percentages of the timeline.
+- **Paint rows only:** keyframes under a timeline animate opacity, transforms, colours and
+  `box-shadow`. Every host moves them in the scroll's own frame; the web leaves them to the
+  browser, and a browser without scroll-driven animations shows the nodes' own values.
+
 Transform springs retain velocity when interrupted. An SVG path's `d` instead
 plays the spring as an easing curve: retargeting starts from the displayed path
 with no inherited velocity, including when toggling back (LLP 1055.000 D15,

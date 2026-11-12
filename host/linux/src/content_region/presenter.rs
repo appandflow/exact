@@ -124,6 +124,7 @@ impl<D: DataSource> Presenter<D> {
         self.refresh_looks(None); // the focus's ring (LLP 1121 D8)
         self.restore_scroll_anchors();
         self.arm_scroll_anchors();
+        self.scroll_timelines();
         let dirty = self.host.take_row_dirty();
         self.brush.numerals.now = self.host.now();
         self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;

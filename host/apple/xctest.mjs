@@ -43,6 +43,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/live-accent.contract'), '-o', env[`${prefix}_LIVE_ACCENT_PLAN`] = resolve(dir, 'live-accent.plan')]);
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
   contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
+  // ScrollTimelineTests': a scroll timeline's and a view timeline's consumers (LLP 1057.003 D5).
+  contract([resolve(root, 'host/apple/tests/fixtures/scroll-timelines.contract'), '-o', env[`${prefix}_SCROLL_TIMELINES_PLAN`] = resolve(dir, 'scroll-timelines.plan')]);
   // AgentStickyReveal{Mac,IOS}Tests': rows under a sticky header and dock.
   contract([resolve(root, 'host/apple/tests/fixtures/sticky-tap.contract'), '-o', env[`${prefix}_STICKY_TAP_PLAN`] = resolve(dir, 'sticky-tap.plan')]);
   // RestartListIOSTests': a restart over a route whose bar covers a virtualized list.
