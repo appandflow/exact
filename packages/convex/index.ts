@@ -58,7 +58,10 @@ export interface ConvexClient {
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
   /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it in a
    *  mutation's source; in an `async` one it may follow an `await`. From a plain `.then` callback its send throws on the web.
-   *  Until Convex has delivered an answer for the token, none computed for another is given. */
+   *  It sends on the socket, so the same turn may not `fetch`: the runner refuses that mutation and sends nothing. Await
+   *  the fetch first, then call it. Until Convex confirms the token, no answer computed for another is given, and each
+   *  mutation and action is sent behind the token again, so none runs as the person before; a call whose frame never
+   *  left may be made again. Convex says nothing when a token expires on a quiet socket: renew it before it expires. */
   setAuth(token: string | undefined): void;
   /** The queries Convex is asked for and the requests in flight, for a test or a log. */
   inspect(): { queries: { id: number; udfPath: string; sent: boolean; answered: boolean }[]; requests: number };
@@ -91,7 +94,7 @@ export function convex(address: string, functions: ConvexFunctions, options: Con
         if (mine !== epoch) return snapshot();
         if (event.type === 'open') { socket = given; send(sync.opened()); }
         else if (event.type === 'message') {
-          try { if (typeof event.data === 'string') sync.frame(event.data); }
+          try { if (typeof event.data === 'string') send(sync.frame(event.data)); }
           catch (e) {
             // A frame the client cannot follow ends the socket; the snapshot says why, where a throw would keep the last one.
             socket = undefined;
@@ -125,9 +128,7 @@ export function convex(address: string, functions: ConvexFunctions, options: Con
 
   function request<T>(kind: 'Mutation' | 'Action', name: string, args: Record<string, unknown>): Promise<T> {
     if (sync.status !== 'open' && sync.status !== 'ready') return Promise.reject(new ConvexFailure(`Not connected to Convex: the ${kind.toLowerCase()} was not sent.`));
-    const { frames, outcome } = sync.request(kind, name, args);
-    send(frames);
-    return outcome.then(o => settle<T>(o));
+    return sync.request(kind, name, args, send).outcome.then(o => settle<T>(o));
   }
 
   return {

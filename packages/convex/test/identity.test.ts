@@ -91,6 +91,67 @@ test('on one connection, a token change withholds every answer until Convex conf
   expect([whoami(sync), asked.read()]).toEqual([{ ok: true, value: 'bob' }, { ok: true, value: 'same for everyone' }]);
 });
 
+test('a request sent before Convex confirmed a token carries the token again, so it runs as the person or not at all', async () => {
+  const sync = connected();
+  expect(sync.setAuth('alice')).toEqual([{ type: 'Authenticate', tokenType: 'User', value: 'alice', baseVersion: 0 }]);
+  const { frames, outcome } = sync.request('Mutation', 'me:note', { body: 'guarded' });
+  expect(frames).toEqual([
+    { type: 'Authenticate', tokenType: 'User', value: 'alice', baseVersion: 1 },
+    { type: 'Mutation', requestId: 0, udfPath: 'me:note', args: [{ body: 'guarded' }] },
+  ]);
+  sync.frame(transition(version(1, 0, T1), version(1, 1, T1), [updated(0, 'alice')])); // recorded
+  sync.frame(transition(version(1, 1, T1), version(1, 2, T1))); // recorded
+  sync.frame(JSON.stringify({ type: 'MutationResponse', requestId: 0, success: true, result: 'alice', ts: T2, logLines: [] })); // recorded
+  sync.frame(transition(version(1, 2, T1), version(1, 2, T2))); // recorded
+  expect(await outcome).toEqual({ ok: true, value: 'alice' });
+  // Confirmed: the next request goes alone.
+  expect(sync.request('Mutation', 'me:note', {}).frames.map(f => f.type)).toEqual(['Mutation']);
+});
+
+test('a request that could not be sent counts no token ahead of it', () => {
+  const sync = connected();
+  sync.setAuth('alice');
+  expect(() => sync.request('Mutation', 'me:note', {}, () => { throw new Error('this turn may not send'); })).toThrow('this turn may not send');
+  expect(sync.request('Mutation', 'me:note', {}).frames).toEqual([
+    { type: 'Authenticate', tokenType: 'User', value: 'alice', baseVersion: 1 },
+    { type: 'Mutation', requestId: 0, udfPath: 'me:note', args: [{}] },
+  ]);
+});
+
+test('a token whose frame never left leaves no request running as the person before', async () => {
+  // `setAuth(undefined)` in a mutation that then fetched: the runner refused it, and its frame was not sent.
+  const sync = connected('alice');
+  expect(sync.setAuth(undefined)).toEqual([{ type: 'Authenticate', tokenType: 'None', baseVersion: 1 }]);
+  expect(whoami(sync)).toBeUndefined();
+  // Called again, it sends again, since Convex has not confirmed it.
+  expect(sync.setAuth(undefined)).toEqual([{ type: 'Authenticate', tokenType: 'None', baseVersion: 2 }]);
+  // A later request carries the sign-out ahead of it, at the version counting the frames that never left.
+  const { frames, outcome } = sync.request('Mutation', 'me:note', { body: 'must not be alice' });
+  expect(frames[0]).toEqual({ type: 'Authenticate', tokenType: 'None', baseVersion: 3 });
+  // Convex is at version 1, refuses the version and closes the socket before it runs the mutation (recorded:
+  // nothing was written for alice). The next connection opens signed out.
+  sync.closed('the socket closed (1011): InternalServerError');
+  expect(await outcome).toMatchObject({ ok: false });
+  sync.connecting('session-2');
+  expect(sync.opened().map(f => f.type)).toEqual(['Connect', 'ModifyQuerySet']);
+});
+
+test('a token whose frame never left is sent again once Convex has taken a later query set without it', () => {
+  const sync = connected('alice');
+  sync.setAuth(undefined); // never left
+  expect(whoami(sync)).toBeUndefined();
+  // The signed-out screen asks a query of its own; Convex answers that query set at alice's identity.
+  const asked = sync.ask(sync.rev, 'me:public', {});
+  sync.ask(sync.rev, 'me:whoami', {});
+  expect(asked.frames).toEqual([{ type: 'ModifyQuerySet', baseVersion: 1, newVersion: 2, modifications: [{ type: 'Add', queryId: 2, udfPath: 'me:public', args: [{}] }] }]);
+  expect(sync.frame(transition(version(1, 1, T1), version(2, 1, T1), [updated(2, 'hello')]))).toEqual([
+    { type: 'Authenticate', tokenType: 'None', baseVersion: 1 },
+  ]);
+  expect(asked.read()).toBeUndefined();
+  sync.frame(transition(version(2, 1, T1), version(2, 2, T1), [updated(0, null)]));
+  expect([asked.read(), whoami(sync)]).toEqual([{ ok: true, value: 'hello' }, { ok: true, value: null }]);
+});
+
 test('a token changed and changed back before Convex answered gives the answers held for it again', () => {
   const sync = connected();
   sync.setAuth('alice');

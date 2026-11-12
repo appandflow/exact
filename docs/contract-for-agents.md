@@ -1546,11 +1546,24 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   cx.setAuth(provider.idToken(store) ?? undefined); return r; }`. When
   `live.authError` says the token expired, a source that awaits
   `provider.refresh(store)` and calls `setAuth` the same way renews it. The token stays in data code.
+- **One mutation, one socket send, no `fetch` in the same turn.** `setAuth`
+  sends on the socket, and the runner refuses a mutation that both sends and
+  fetches (`a mutation cannot both send on a socket and fetch`): nothing is
+  sent and its `then` does not run. Fetch first in an `async` source, await
+  it, then call `setAuth`: `async () => { await fetch(signOutUrl, …);
+  cx.setAuth(undefined); return … }`. If a call's frame never left anyway,
+  the module still gives no answer for the wrong person and sends each
+  mutation behind the token again, so Convex runs none as the person before;
+  calling `setAuth` again sends it again.
 - **After a token change** no answer computed for another token is given,
   across a reconnect too, until Convex delivers it for the new one. The screen
   keeps what it showed until the new answers land: gate a signed-in screen on
   your own session, as with any backend. A refused token is `live.authError`;
   Convex closes the socket, and the next connection is signed out.
+- **Renew a token before it expires.** Convex refuses an expired token only
+  when a request or a query's rerun meets it, not on a quiet socket. Renew it
+  from a Contract task (every 10 minutes for a token that lives an hour) with
+  the same `refresh`-then-`setAuth` source.
 - **Tests** run with no Convex. `server.ts` beside `app.ts` gives
   `@exact/convex/test/server.ts` the app's functions as plain JavaScript over
   memory, and `test` and `verify` start it (`apps/mosaic/server.ts`). Keep the

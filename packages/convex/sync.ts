@@ -105,8 +105,13 @@ export class Sync {
   /** The token the app asked for last (`undefined`: signed out). */
   private token: string | undefined;
   /** The token of each identity version this connection's frames have asked for, from 0 (signed out): an
-   *  `Authenticate` carries the last index and adds one. */
+   *  `Authenticate` carries the last index and adds one. The module is not told when the runner refuses a
+   *  commit and sends none of its frames, so one that never left is counted here too, until Convex shows
+   *  it never arrived (`transition`). Meanwhile the next `Authenticate` names a version Convex is not at,
+   *  and Convex closes the socket without running what follows it (recorded). */
   private identities: (string | undefined)[] = [undefined];
+  /** For each of `identities`, the query-set version when it was asked for. */
+  private identitiesAt: number[] = [0];
   private queries = new Map<string, Query>();
   private byId = new Map<number, Query>();
   private nextQueryId = 0;
@@ -143,6 +148,7 @@ export class Sync {
     }];
     this.connectionCount += 1;
     this.identities = [undefined];
+    this.identitiesAt = [0];
     this.querySetVersion = 0;
     if (this.token !== undefined) frames.push(this.authenticate());
     const adds = [...this.queries.values()].map(q => (q.sent = true, q.current = false, this.add(q)));
@@ -168,41 +174,40 @@ export class Sync {
     this.requests.clear();
   }
 
-  /** A frame from the server, taken into the state. One this client cannot follow throws a `ProtocolError`:
-   *  the caller ends the socket with its words. */
-  frame(text: string) {
+  /** A frame from the server, taken into the state, and the frames to send in answer. One this client cannot
+   *  follow throws a `ProtocolError`: the caller ends the socket with its words. */
+  frame(text: string): Frame[] {
     const message = JSON.parse(text) as Frame;
     if (this.chunks.length && message.type !== 'TransitionChunk') throw new ProtocolError(`Convex sent ${String(message.type)} inside a chunked Transition`);
     switch (message.type) {
-      case 'Ping': return;
+      case 'Ping': return [];
       case 'TransitionChunk': {
         // A large `Transition` in parts, in order (`web_socket_manager.ts`, `assembleTransition`).
         const { chunk, partNumber, totalParts, transitionId } = message as unknown as { chunk: string; partNumber: number; totalParts: number; transitionId: string };
         if (partNumber !== this.chunks.length || (partNumber > 0 && transitionId !== this.chunkId)) throw new ProtocolError(`Convex sent TransitionChunk ${partNumber} of ${transitionId}, expected ${this.chunks.length}${this.chunks.length ? ` of ${this.chunkId}` : ''}`);
         this.chunkId = transitionId;
         this.chunks.push(chunk);
-        if (this.chunks.length < totalParts) return;
+        if (this.chunks.length < totalParts) return [];
         const whole = this.chunks.join('');
         this.chunks = [];
-        this.transition(JSON.parse(whole));
-        return;
+        return this.transition(JSON.parse(whole));
       }
-      case 'Transition': this.transition(message as never); return;
+      case 'Transition': return this.transition(message as never);
       case 'MutationResponse':
-      case 'ActionResponse': this.response(message as never); return;
+      case 'ActionResponse': this.response(message as never); return [];
       case 'AuthError': {
         // The server closes the socket after it. The token is dropped, so the next connection is not refused
         // for it too; the app gets a fresh one and calls `setAuth`.
         this.authError = String(message.error ?? 'Convex refused the token');
         this.token = undefined;
-        return;
+        return [];
       }
       case 'FatalError': throw new ProtocolError(`Convex: ${String(message.error)}`, true);
       default: throw new ProtocolError(`Convex sent ${String(message.type)}, which protocol ${PROTOCOL} does not have`, true);
     }
   }
 
-  private transition(t: { startVersion: Version; endVersion: Version; modifications: Array<Record<string, unknown>> }) {
+  private transition(t: { startVersion: Version; endVersion: Version; modifications: Array<Record<string, unknown>> }): Frame[] {
     const { startVersion: start, endVersion: end } = t, at = this.version;
     if (start.querySet !== at.querySet || start.identity !== at.identity || start.ts !== at.ts)
       throw new ProtocolError(`Convex sent a Transition from ${start.querySet}:${start.identity}:${start.ts}, expected ${at.querySet}:${at.identity}:${at.ts}`);
@@ -232,6 +237,12 @@ export class Sync {
       request.settle({ ok: true, value: request.done.value });
     }
     this.rev += 1;
+    // Convex has taken a query set asked for after the last `Authenticate`, and is at an identity before it:
+    // the frames past that identity never left. Its token is asked for again, from where Convex is.
+    const last = this.identities.length - 1;
+    if (end.identity === last || end.querySet <= this.identitiesAt[last]) return [];
+    this.identities.length = this.identitiesAt.length = end.identity + 1;
+    return this.unconfirmed() ? [this.authenticate()] : [];
   }
 
   private response(r: { type: string; requestId: number; success: boolean; result: Json; ts?: string; errorData?: Json }) {
@@ -274,10 +285,16 @@ export class Sync {
     for (const q of this.queries.values()) if (q.wait && this.given(q)) this.wake(q);
   }
 
+  /** Whether Convex has not yet confirmed the token the app asked for on this connection. */
+  private unconfirmed(): boolean {
+    return this.version.identity !== this.identities.length - 1 || this.identities[this.identities.length - 1] !== this.token;
+  }
+
   /** `Authenticate` with the token asked for, from the last version this connection asked for. */
   private authenticate(): Frame {
     const baseVersion = this.identities.length - 1;
     this.identities.push(this.token);
+    this.identitiesAt.push(this.querySetVersion);
     return this.token === undefined ? { type: 'Authenticate', tokenType: 'None', baseVersion } : { type: 'Authenticate', tokenType: 'User', value: this.token, baseVersion };
   }
 
@@ -323,20 +340,33 @@ export class Sync {
     return { read, frames, wait: q.wait?.promise ?? Promise.resolve() };
   }
 
-  /** A mutation or an action, while the socket is open: the frame to send and its outcome. A mutation's
-   *  outcome waits for the `Transition` that shows its write. */
-  request(kind: 'Mutation' | 'Action', udfPath: string, args: Record<string, Value>): { frames: Frame[]; outcome: Promise<Outcome> } {
+  /** A mutation or an action, while the socket is open: the frames to send and its outcome. A mutation's
+   *  outcome waits for the `Transition` that shows its write.
+   *
+   *  Until Convex confirms the token asked for, the request goes behind that token's `Authenticate` again:
+   *  the earlier one may not have left (a refused commit sends none of its frames), and if it did not, this
+   *  one names a version Convex is not at, so Convex closes the socket instead of running the request as
+   *  the person before. If it did, this one moves the identity to the same person. */
+  request(kind: 'Mutation' | 'Action', udfPath: string, args: Record<string, Value>, deliver: (frames: Frame[]) => void = () => {}): { frames: Frame[]; outcome: Promise<Outcome> } {
+    const message: Frame = { type: kind, requestId: this.nextRequestId, udfPath: canonicalPath(udfPath), args: [this.codec.convexToJson(args as never)] };
+    const guarded = this.unconfirmed(), frames = guarded ? [this.authenticate(), message] : [message];
+    try { deliver(frames); }
+    catch (e) {
+      // A turn that may not send: nothing is in flight.
+      if (guarded) { this.identities.pop(); this.identitiesAt.pop(); }
+      throw e;
+    }
     const requestId = this.nextRequestId++;
-    const message: Frame = { type: kind, requestId, udfPath: canonicalPath(udfPath), args: [this.codec.convexToJson(args as never)] };
     const outcome = new Promise<Outcome>(settle => this.requests.set(requestId, { kind, settle }));
-    return { frames: [message], outcome };
+    return { frames, outcome };
   }
 
   /** The person's token changed (`undefined`: signed out). The answers held are kept, since Convex's next
    *  `Transition` names only the ones that changed, and each is given again only once it is known to be
-   *  this token's (`given`). `deliver` sends the frame. */
+   *  this token's (`given`). `deliver` sends the frame. A token Convex has not confirmed is sent again
+   *  when asked for again, so a call whose frame never left can be repeated. */
   setAuth(token: string | undefined, deliver: (frames: Frame[]) => void = () => {}): Frame[] {
-    if (token === this.token) return [];
+    if (token === this.token && !(this.connected() && this.unconfirmed())) return [];
     const was = this.token;
     this.token = token;
     let frames: Frame[] = [];
@@ -345,7 +375,7 @@ export class Sync {
       // A turn that may not send throws here, and nothing has changed.
       deliver(frames);
     } catch (e) {
-      if (frames.length) this.identities.pop();
+      if (frames.length) { this.identities.pop(); this.identitiesAt.pop(); }
       this.token = was;
       throw e;
     }

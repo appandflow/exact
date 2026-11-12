@@ -941,6 +941,29 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (`bun exact.mjs docs convex live queries`). A launch outside the driver draws
   the system's entropy. (LLP 1157 §6, 2026-11-10.)
 
+- **A sign-out that also fetches leaves Convex signed in.** `cx.setAuth(undefined)`
+  and then a `fetch` (an auth provider's sign-out) in one synchronous mutation
+  source: the runner refuses it (`a mutation cannot both send on a socket and
+  fetch`), so its `Authenticate` never leaves and the socket stays the
+  person's. Cause: `setAuth` sends on the socket. Fix: an `async` source that
+  awaits the fetch, then calls `setAuth`. The module gives no answer and runs
+  no mutation as the wrong person meanwhile (`bun exact.mjs docs convex live
+  queries`). (expo/exact#54, 2026-11-12.)
+
+- **A helper action does not see what its caller just assigned.** `sel = next`
+  then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
+  is its callee's statements in the caller's one commit, and every statement
+  reads the state the action started with (LLP 1089 D2). The compiler warns of
+  the read (`analyze-read-after-assign`, naming both lines; a warning since LLP
+  1035.005.002 C2, as the same read in the action's own body is). Fix: pass the
+  value the helper should see, `follow(next)`, or a `let` bound before the
+  assignment for the old one. (Spreadsheet F21 and Files F27 diaries, where a
+  copied block was the workaround.) In the action's own body the same read is
+  the same warning: `now = performanceNow()` then `if now >= endsAt`
+  tests the last tick's time (focus-timer's phases changed 250 ms late in two
+  bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
+  `stamp`.
+
 - **A delete or save is lost when the page reloads right after it.** An action that
   `send`s a write and navigates away in the same commit passes every test, but a
   browser reload in the next ~100 ms comes back without the write. Cause: the write
