@@ -3870,7 +3870,14 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactCanvasPerformance`, `exactTime`); the bake refuses a declared field the source does
-not have. `exactViewport().displayMode` is a string: the current CSS display
+not have. `exactDelivery()` includes the string fields `version` and `buildNumber`: the
+installed binary's `EXACT_VERSION` and `EXACT_BUILD_NUMBER` at bake time (defaults
+`0.1.0` and `1` only when unset). Over-the-air updates leave them unchanged; an
+older bake without them answers `""`. The web JS build uses the same variables
+at build time, with `""` for each unset variable. Rust-rendered pages read those
+values from the web build, including when the server has neither variable set.
+`state.delivery` mirrors them.
+`exactViewport().displayMode` is a string: the current CSS display
 mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
 `display_override` asks for) or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`

@@ -824,9 +824,11 @@ const onLog = (level, log) => {
 };
 // The renderer uses vm.Script, which cannot parse import.meta. Inline dynamic imports into its single script.
 const markdownReaders = existsSync(resolve(gen, 'markdown.flag'));
+const version = { version: process.env.EXACT_VERSION ?? '', buildNumber: process.env.EXACT_BUILD_NUMBER ?? '' };
+const versionDefines = { 'globalThis.__exactVersion': JSON.stringify(version.version), 'globalThis.__exactBuildNumber': JSON.stringify(version.buildNumber) };
 if (how !== 'none' || markdownReaders) {
   const b = await rolldown({ input: resolve(gen, 'main-server.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}),
-    transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'true', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } },
+    transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, ...versionDefines, 'globalThis.__exactRender': 'true', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } },
     plugins: scopedPlugins(), logLevel: 'warn', onLog });
   try { await b.write({ file: resolve(gen, 'server.js'), format: 'iife', codeSplitting: false }); }
   finally { await b.close(); }
@@ -837,7 +839,7 @@ if (how !== 'none' || markdownReaders) {
 // bytes a page downloads before its runtime is up.
 const preloadModules = [];
 {
-  const b = await rolldown({ input: resolve(gen, 'main.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'false' } },
+  const b = await rolldown({ input: resolve(gen, 'main.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, ...versionDefines, 'globalThis.__exactRender': 'false' } },
     plugins: scopedPlugins(), logLevel: 'warn', onLog });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
@@ -1030,6 +1032,7 @@ if (files || moduleStorage || extensionFiles || pageModules || /^\s*(?:fs|sqlite
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 cpSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+writeFileSync(resolve(out, 'app.version.json'), JSON.stringify(version) + '\n');
 // A development build's source map for that plan, for the agent driver only
 // (LLP 1012.001.000 D6): never in a production build, never a stale one.
 rmSync(resolve(out, 'app.plan.map.json'), { force: true });
@@ -1086,7 +1089,7 @@ if (pages.length && !opt('--render') && !renderAt) console.log(`${app}: no ${ren
 if (pages.length && how === 'rust') {
   const bin = renderBin, at = renderAt;
   if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
-  const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
+  const plan = resolve(out, 'app.plan');
   // The render entry runs here as a build tool, in the app's own workspace and target (an authored app outside the
   // repository has its own, LLP 1153 D1.4): the development profile, which the Linux host an agent drives shares.
   const renderApp = resolveApp(appDir);

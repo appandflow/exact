@@ -1205,7 +1205,9 @@ artifact's absolute path. An outside app's outputs are
 
 `EXACT_BUILD_NUMBER` sets Android's `versionCode` (1 by default, an integer
 from 1 through 2100000000); `EXACT_VERSION` sets `versionName` (0.1.0 by
-default). Set all four of `EXACT_KEYSTORE` (a file path),
+default). The app reads their baked strings as `buildNumber` and `version`
+through `exactDelivery()`; over-the-air updates keep both values.
+Set all four of `EXACT_KEYSTORE` (a file path),
 `EXACT_KEYSTORE_PASSWORD`, `EXACT_KEY_ALIAS` and `EXACT_KEY_PASSWORD` to sign
 with your upload key. Partial credentials fail before compiling. A bundle
 requires them; an APK without them uses Android's debug key and cannot be
@@ -1290,9 +1292,16 @@ Export compliance is the developer's answer, so a production iOS or tvOS build
 into Info.plist only when `EXACT_NON_EXEMPT_ENCRYPTION` is `true` or `false` in its
 environment (`false` when the app's only encryption is HTTPS and the system's);
 without it App Store Connect asks at each upload. A development build never writes it.
-The same builds write the bundle's version and build number from `EXACT_VERSION`
-and `EXACT_BUILD_NUMBER` (`0.1.0` and `1` when unset). App Store Connect takes a
+Every Apple app bundle, including development and macOS builds, takes its version
+and build number from `EXACT_VERSION` and `EXACT_BUILD_NUMBER` (`0.1.0` and `1`
+when unset; an explicitly empty value stays empty). App Store Connect takes a
 build number once for a version, so each upload needs a higher one.
+Read both at runtime as the string fields `version` and `buildNumber` of
+`exactDelivery()`, also mirrored in `state.delivery`. Native hosts read the
+binary's baked values: an over-the-air update leaves them unchanged, and neither
+enters the compatibility id. An older bake without the fields answers `""`.
+The web JS build uses these variables at build time and answers `""` for each
+unset variable. No `app.json` version key is defined.
 
 ## Open the same development URL on Apple hosts
 

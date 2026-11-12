@@ -306,6 +306,8 @@ pub fn compatibility_id_pinned(
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
         println!("cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST");
+        println!("cargo:rerun-if-env-changed=EXACT_VERSION");
+        println!("cargo:rerun-if-env-changed=EXACT_BUILD_NUMBER");
         println!("cargo:rerun-if-env-changed=EXACT_TYPESCRIPT_PLACEMENT");
         println!("cargo:rerun-if-env-changed=EXACT_RUST_PLACEMENT");
     }
@@ -686,6 +688,11 @@ fn compatibility_with_trust(
         inputs["typescriptRuntime"] = json!(TYPESCRIPT_RUNTIME);
     }
     let id = compatibility_digest(&inputs);
+    let version = |name: &str, default: &str| match std::env::var(name) {
+        Ok(value) => Ok(value),
+        Err(std::env::VarError::NotPresent) => Ok(default.to_string()),
+        Err(_) => Err(format!("{name} is not UTF-8")),
+    };
     Ok(Compat {
         id,
         inputs,
@@ -693,7 +700,9 @@ fn compatibility_with_trust(
         origin,
         activate: manifest.activate(),
         target: target.into(),
-        embedded: json!({ "trust": trust }),
+        embedded: json!({ "trust": trust,
+            "version": version("EXACT_VERSION", "0.1.0")?,
+            "buildNumber": version("EXACT_BUILD_NUMBER", "1")? }),
         reach: serde_json::Value::Null,
         // Android shells also use the Linux bake; the target names the host.
         painter: manifest.painter(if target.contains("android") {

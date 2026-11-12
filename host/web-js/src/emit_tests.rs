@@ -1351,3 +1351,13 @@ fn scroll_snap_emits_both_axes_and_center() {
         assert!(all.contains(declaration), "{declaration}: {all}");
     }
 }
+
+#[test]
+fn delivery_version_fields_are_emitted_for_baked_and_unbaked_plans() {
+    let source = "shape Build\n  version: string\n  buildNumber: string\ncomponent App\n  resource build = exactDelivery() as shape Build\n  view\n    text build.version\n";
+    let plan = contract::compile(source).unwrap();
+    for plan in [plan.clone(), contract::bake(plan, Answers).unwrap()] {
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(js.contains(r#"["version","buildNumber"]"#), "{js}");
+    }
+}
