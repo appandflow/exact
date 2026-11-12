@@ -1,6 +1,7 @@
 # On Android the in-app browser's log line names a URL's user name and password
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** On Android the in-app browser logs `scheme://host[:port]`, and a link no app opens is logged without its user name and password, so neither reaches logcat (the Kotlin was not compiled: this machine has no Android SDK or JDK).
 **Systems:** packages/in-app-browser (Android)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
