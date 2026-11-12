@@ -1267,12 +1267,10 @@ test('exact hatch writes the stubs of an app whose crates are generated', async 
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Fresh', app: { id: 'com.example.fresh', name: 'Fresh' }, host: { web: {}, ios: {}, macos: {}, linux: {}, android: {} } }));
     process.env.EXACT_APP_DIR = dir;
     const made = hatch(['avatar'], () => {});
-    assert.deepEqual(made.platforms, ['ios', 'macos', 'web', 'android']);
-    for (const file of ['modules/apple/Hatches.swift', 'modules/web/index.js', 'modules/android/Hatches.kt']) assert.ok(existsSync(resolve(dir, file)), file);
-    assert.ok(!existsSync(resolve(dir, 'modules/linux')));
-    assert.ok(made.todo.some(line => line.startsWith('Linux:')), made.todo.join('\n'));
-    assert.ok(!made.todo.some(line => line.includes('build.rs')), made.todo.join('\n'));
-    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'macos', 'web', 'android'] });
+    assert.deepEqual(made.platforms, ['ios', 'macos', 'web', 'linux', 'android']);
+    for (const file of ['modules/apple/Hatches.swift', 'modules/web/index.js', 'modules/linux/hatches.rs', 'modules/android/Hatches.kt']) assert.ok(existsSync(resolve(dir, file)), file);
+    assert.deepEqual(made.todo, []);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'macos', 'web', 'linux', 'android'] });
   } finally {
     if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
     rmSync(dir, { recursive: true, force: true });

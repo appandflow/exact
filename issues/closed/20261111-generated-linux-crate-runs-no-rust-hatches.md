@@ -1,6 +1,7 @@
 # The Linux crate `exact new` generates runs no Rust hatches
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Linux and Windows bake writes `hatches.rs` (`exact_hatches()`, from `contract::native::write_desktop_hatches`), the generated crates pass it to `Composed`, and `exact hatch` writes `modules/linux/hatches.rs` for an app whose `app.json` names `linux` or `windows`.
 **Systems:** scripts/app-shells.mjs (the `linux` shell), js/bake (the Linux bake), contract/cli/src/native.rs (`rust_hatch_entry`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from fixing `exact hatch` for apps `exact new` makes

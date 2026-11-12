@@ -1,7 +1,7 @@
 // `exact hatch` (LLP 1075.003.000.001 §5). `bun test ./scripts/exact-hatch.test.mjs`.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -42,7 +42,20 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     assert.ok(app.some(line => line.includes('app.data[.booted]')), app.join('\n'));
     assert.ok(readFileSync(resolve(dir, 'modules/apple/AppHatch.swift'), 'utf8').includes('app.data[.booted]'));
     assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
-    // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
+    // An app that names Linux, whose crate is generated (.exact/shells), gets one hatches file, which that crate's
+    // bake includes: nothing is owed, and its build script is made to run again.
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, host: { ...manifest.host, linux: {} } }));
+    const shell = resolve(dir, '.exact/shells/linux/build.rs');
+    mkdirSync(resolve(shell, '..'), { recursive: true });
+    writeFileSync(shell, 'fn main() {}\n');
+    utimesSync(shell, 0, 0);
+    const generated = hatch(['unread-dot'], () => {});
+    assert.ok(generated.platforms.includes('linux') && generated.wrote.some(file => file.endsWith('/modules/linux/hatches.rs')));
+    assert.deepEqual(generated.todo, []);
+    assert.ok(statSync(shell).mtimeMs > 0);
+    rmSync(resolve(dir, 'modules/linux'), { recursive: true });
+    // An authored Linux crate gets the same file, and is told what its build.rs owes.
     mkdirSync(resolve(dir, 'linux'));
     const linux = hatch(['unread-dot'], () => {});
     assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatch_entry')));
