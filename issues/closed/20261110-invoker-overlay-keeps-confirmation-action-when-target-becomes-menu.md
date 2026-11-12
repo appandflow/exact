@@ -1,6 +1,7 @@
 # On iOS a custom invoker's overlay that has served a confirmation never opens the menu its target becomes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An invoker whose target changes between a confirmation and a menu gets a new overlay of the right kind, so a confirmation's overlay never serves a menu.
 **Systems:** host/apple/Sources/ExactKit/IOS/MenusIOS.swift (MenuHost.sync)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
