@@ -6,7 +6,8 @@
 //! the `contract` blocks after it in its section (LLP 1121 D2). Every
 //! failure is reported in one run. So does every starter
 //! pattern (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
-//! runs each one's tests in an app `exact new` made.
+//! verifies an app `exact new` made, untouched and with each pattern
+//! written into it.
 
 use std::path::{Path, PathBuf};
 
@@ -456,16 +457,19 @@ fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
     );
 }
 
-/// Each pattern, written by `bun exact.mjs pattern <name>` into one app
-/// `exact new` made, passes its own tests on the web: `test web`, which
-/// runs the pattern's server (rest's, site's) for them.
+/// The app `exact new` makes, untouched, and each pattern, written by `bun
+/// exact.mjs pattern <name>` into it, end `verify: clean` on the web, as
+/// `exact new` says an app is done: `verify --strict` fails on a test, on
+/// a finding (the largest text size's too) and on a compiler warning, and
+/// runs the pattern's server (rest's, site's) for its tests. The app's
+/// name is a long word, which a bar's title must fit beside its button.
 #[test]
-#[ignore = "async lane: makes an app with Bun and Cargo and drives every pattern's tests in Chrome; bun scripts/async.mjs runs it"]
-fn every_pattern_passes_its_tests_on_the_web() {
+#[ignore = "async lane: makes an app with Bun and Cargo and verifies it and every pattern in Chrome; bun scripts/async.mjs runs it"]
+fn the_new_app_and_every_pattern_verify_clean_on_the_web() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let parent = std::env::temp_dir().join(format!("exact-patterns-{}", std::process::id()));
     std::fs::create_dir_all(&parent).unwrap();
-    let app = parent.join("patterns-check");
+    let app = parent.join("groceries");
     let run = |cwd: &Path, args: &[&str]| {
         let output =
             std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
@@ -488,6 +492,10 @@ fn every_pattern_passes_its_tests_on_the_web() {
     );
     assert!(made, "exact new: {said}");
     let mut failures = Vec::new();
+    let (clean, said) = run(&app, &["exact.mjs", "verify", "--strict"]);
+    if !clean {
+        failures.push(format!("the new app (verify):\n{said}"));
+    }
     for dir in patterns() {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let (wrote, said) = run(&app, &["exact.mjs", "pattern", &name, "--force"]);
@@ -495,9 +503,9 @@ fn every_pattern_passes_its_tests_on_the_web() {
             failures.push(format!("pattern {name}: {said}"));
             continue;
         }
-        let (passed, said) = run(&app, &["exact.mjs", "test", "web"]);
-        if !passed {
-            failures.push(format!("{name} (test web):\n{said}"));
+        let (clean, said) = run(&app, &["exact.mjs", "verify", "--strict"]);
+        if !clean {
+            failures.push(format!("{name} (verify):\n{said}"));
         }
     }
     let _ = std::fs::remove_dir_all(&parent);

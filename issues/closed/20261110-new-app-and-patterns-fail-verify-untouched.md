@@ -1,6 +1,7 @@
 # `exact new groceries` and four of the six patterns report `verify` problems before any edit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** On the web a route bar's unsaid title is one line ending in an ellipsis, as a sheet's and UIKit's are, the site pattern's Kind row wraps, white on a fill in a system hue is held to the platform's 3:1, and the async lane runs verify --strict on the new app and every pattern.
 **Systems:** game/new.mjs (the template), docs/patterns, scripts/verify.mjs, host/web/neutral.css (a route bar's title), docs/start-here.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

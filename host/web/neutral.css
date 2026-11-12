@@ -411,9 +411,10 @@
     :is(& > header, & > :where([data-exact-list-item]) > header) > :is(h1, h2, h3, h4, h5, h6, [role="heading"]) ~ button:has(> img[data-symbol-source="symbol:close"]):not(:has(> :not(img, [data-exact-text]:empty))) { grid-area: 1 / 1 / 2 / -1; justify-self: end; align-self: start; margin: 12px 12px 0 0; }
     :is(& > header, & > :where([data-exact-list-item]) > header) > :is(h1, h2, h3, h4, h5, h6, [role="heading"]):has(~ button > img[data-symbol-source="symbol:close"]) { padding-inline-end: calc(24px + 2.25em); }
   }
-  /* A sheet's title is one line: it ends in an ellipsis where it does not fit, never spilling over a neighbour.
+  /* A bar's title is one line, a route's as a sheet's: it ends in an ellipsis where it does not fit, never spilling
+     over a neighbour or pushing the bar's buttons off the screen, as UIKit's navigation bar truncates its title.
      Unsaid only: an author's own `white-space`, `overflow` or `text-overflow` wins. */
-  :where(#exact-root :is([navigationPresentation="modal"], [navigationPresentation="modal"] > :where([data-exact-list-item])) > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) :where(h1, h2, h3, h4, h5, h6, [role="heading"]) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :where(#exact-root :is([navigationkey], [navigationPresentation="modal"], :is([navigationkey], [navigationPresentation="modal"]) > :where([data-exact-list-item])) > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) :where(h1, h2, h3, h4, h5, h6, [role="heading"]) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Replace a sheet bar's symbol-only button with its accessible name (LLP 1116.020 D2), as a web dialog's actions
      are words, but for a close symbol after the title, which is a web dialog's close button. Size it to that word,
      preserving the look's padding even when the symbol had an authored width. A word that cannot fit ends in an
