@@ -65,8 +65,9 @@ the web, Android, Linux and Windows report unknown.
 |---|---|---|---|
 | web | yes | `gpu_due` in the `requestAnimationFrame` loop | callback times; thermal unknown |
 | iOS, tvOS, macOS | yes | capped `CADisplayLink` range and `gpu_due` per canvas | callback times, fastest period, thermal state |
-| Android | yes | `gpu_due` per canvas | none |
-| Linux, Windows (readback and window frame) | no: a rendered canvas repaints every display frame | no | none |
+| Android | yes | `gpu_due` per canvas; the cap asked of the platform: `Surface.setFrameRate` as a fixed source for a canvas with a window of its own (Android 11 and later), `View.setRequestedFrameRate` for one in the reader's window (Android 15 and later) | `gpu_period`: Choreographer's vsync spacing (Android 13 and later), else the display's refresh |
+| Linux (display) | no: a rendered canvas repaints every display frame | no | `gpu_period`: the DRM mode's pixel clock over its total pixels |
+| Linux headless, Windows (readback and window frame) | no: a rendered canvas repaints every display frame | no | none |
 
 ## Performance
 

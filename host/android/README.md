@@ -223,6 +223,23 @@ not say `EXACT_AGENT=1` answers no request, and a production bake drops that var
 - *The clock is the driver's.* From the first request the host's turns run at the runner's clock, which only a
   `clock` request moves: no timer fires and no motion advances between requests.
 
+**Frame timing** (LLP 1079.000 §6.2). In a driver's launch the reader measures two sources, which `perf frames`
+reads as `exact.frame-health.metrics/2` (`health`) and `exact.frame-health/2` (`report`):
+
+- `app` (`exact-app-choreographer`), Exact's frames: each Choreographer turn on exact2's thread is a frame at its
+  vsync, whose work runs until the main thread has ingested the stream it published. Its deadline and period are
+  Choreographer's (`FrameData`, Android 13 and later); before 13, the next vsync and the display's refresh.
+- `window` (`android-frame-metrics`), the window's drawn frames from `FrameMetrics`: each from its intended vsync for
+  its total duration, against its `DEADLINE` (Android 12 and later; before it lateness is unknown). A window draws
+  only when something changed, so this source has work and no frame times. The reader's own scrolling and the layers
+  it plays are here.
+
+Neither observes presentation, and a GPU canvas's `SurfaceView` is drawn outside the window. Under the driver's clock
+a frame is virtual and nothing is recorded: `perf frames capture start [ms]` lends the display the clock for the
+lease, refusing a `clock` request meanwhile, and `capture stop` (or the lease's end) gives the driver its clock back
+where the display left it. `perf frames live <ms>` is a lease of its own, which reads both sources from its start to
+its end. A production bake collects nothing.
+
 **The operations**, each tried on a Pixel 10 Pro XL with Shelf:
 
 | Operation | On the reader |
@@ -234,7 +251,7 @@ not say `EXACT_AGENT=1` answers no request, and a production bake drops that var
 | `clock data`, `clock settle`, `clock +<ms>` | as on Linux. What the reader plays itself is outside the clock: a fling, the keyboard's slide, a `Dialog`'s own fade. A drive launches with `lower=0`, so no layer plays on the reader's clock |
 | `screenshot <png>` | the device's own picture (`screencap`), taken 400 ms after the operation before it so the reader has drawn: the whole screen, bars and keyboard included, in device pixels. `window` changes nothing; `over … every …` is refused |
 | `prefer` | the handler's: it changes what the app is told (`prefers-color-scheme light` turned Shelf light on a phone in night mode), not the phone's settings |
-| `perf` | the runner's table by plan site. `perf frames` was not tried; the handler answers it `virtual`, which is not the reader's frames |
+| `perf` | the runner's table by plan site. `perf frames health`, `report`, `capture` and `live` read the reader's own frames in the Apple host's formats (above, "Frame timing"); `perf frames track` answers unavailable |
 | `fail fetch`, `pass fetch`, a test's `reload` | work (Shelf's tests use them) |
 | `check` | refused by `agent.mjs` for every Android carrier ("the web and iOS hosts carry it") |
 | `--plan`, `--world`, a launch URL | refused: the reader boots the plan its APK bakes. `--size` is the phone's. `resize`, a drag and a wheel were not tried |

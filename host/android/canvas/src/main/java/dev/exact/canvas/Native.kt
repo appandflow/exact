@@ -43,6 +43,24 @@ object Native {
     @JvmStatic external fun timerObservation(scrolling: Boolean, sampling: Boolean, applying: Boolean, idle: Boolean): Boolean
     @JvmStatic external fun timerHeld(): Int
     @JvmStatic external fun displayFrame()
+    /** `perf frames` (LLP 1079.000 §6.2), all on exact2's thread and in `System.nanoTime`: a Choreographer turn at
+     * [vsync], its frame's [deadline] and its vsyncs' [period] (0 where Choreographer gave none), when it ran from
+     * [arrival] to [finished], and the publication it made (0: none), whose ingest finishes its work. */
+    @JvmStatic external fun frameTurn(arrival: Long, vsync: Long, deadline: Long, period: Long, finished: Long, publication: Long)
+    /** The main thread ingested every publication through [applied], from [began] to [ended]. */
+    @JvmStatic external fun frameLanded(applied: Long, began: Long, ended: Long)
+    /** No turn is asked for: the run of turns ends. */
+    @JvmStatic external fun frameIdle()
+    /** The display's refresh period: a GPU canvas's frame period (LLP 1009) and a turn's where Choreographer gives
+     * none. */
+    @JvmStatic external fun framePeriod(period: Long)
+    /** [count] window frames ([WindowFrames], five words each) and the reports [lost] before they were read. */
+    @JvmStatic external fun frameWindow(words: LongArray, count: Int, lost: Long)
+    /** The device a `perf frames report` names, as JSON. */
+    @JvmStatic external fun frameIdentity(identity: ByteArray)
+    /** The frame rates GPU canvases ask for (`Surface::max_fps`) that changed since last asked: view and rate (0: the
+     * display's) pairs, or null. */
+    @JvmStatic external fun frameRates(): IntArray?
     @JvmStatic external fun animating(): Boolean
     @JvmStatic external fun owed(): Boolean
     /** The collection pass a scroll left; `limit` >= 0 slices it (rows past what shows per list), the scrolled list

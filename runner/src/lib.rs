@@ -56,6 +56,8 @@ pub mod device;
 pub mod failure;
 pub mod file_pickers;
 mod format;
+/// The native hosts' frame-health reducer (LLP 1079.000 §5.1): Apple's and Android's collectors.
+pub mod frame_health;
 pub mod geometry;
 pub mod grants;
 pub mod hardened;

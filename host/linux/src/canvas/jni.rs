@@ -15,6 +15,8 @@
 mod byte_arrays;
 pub use byte_arrays::{bytes, utf8};
 
+#[path = "jni_frames.rs"]
+mod frames;
 #[path = "jni_extensions.rs"]
 pub mod jni_extensions;
 #[path = "jni_keys.rs"]
@@ -1059,6 +1061,7 @@ macro_rules! canvas_jni {
             }
 
             $crate::canvas_jni_pad!();
+            $crate::canvas_jni_frames!();
 
             /// Pictures announced and not yet fetched, as id, width, height triples:
             /// a reader on its own thread makes them before the stream that draws

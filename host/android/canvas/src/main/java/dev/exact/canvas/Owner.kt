@@ -118,8 +118,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             Native.timerObservation(false, false, true, false)
         }
     }
-    fun timerReport(view: Any, scrolling: Boolean, sampling: Boolean, applied: Long) {
+    /** The reader's report: what it is doing, the last publication it ingested ([applied]) and, when it ingested any
+     * since its last report, when it began and ended ([began], [ended]; 0 otherwise), which finishes the turns that
+     * published them in `perf frames` (LLP 1079.000 §6.2). */
+    fun timerReport(view: Any, scrolling: Boolean, sampling: Boolean, applied: Long, began: Long, ended: Long) {
         handler.post {
+            if (ended != 0L && timing) try { Native.frameLanded(applied, began, ended) } catch (e: UnsatisfiedLinkError) { timing = false }
             if (!timerReports.report(view, scrolling, sampling, applied)) return@post
             if (Native.timerObservation(scrolling, sampling, timerReports.applying, false)) produce() else schedule()
         }
@@ -131,6 +135,35 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     /** The last turn took longer than a display frame: the next one is run at once, not at the next one. */
     private var late = false
     private var choreographer: Choreographer? = null
+    /** Each turn is told to exact2 for `perf frames` (a host library without the calls, an older exact2, is not). */
+    private var timing = true
+    /** The window's frame metrics, drained on this thread, while a driver's launch shows an activity
+     * ([ExactActivity]). */
+    val windowFrames = WindowFrames { handler.post { drainWindow() } }
+    private val windowWords = LongArray(WindowFrames.RING * WindowFrames.WORDS)
+    private val windowLost = LongArray(1)
+    private var displayPeriod: DisplayPeriod? = null
+
+    /** The display's refresh period, told to exact2 now and whenever its mode changes: once for the process. */
+    fun displays(context: android.content.Context) {
+        if (displayPeriod != null) return
+        displayPeriod = DisplayPeriod(context.applicationContext, handler) { period ->
+            if (timing) try { Native.framePeriod(period) } catch (e: UnsatisfiedLinkError) { timing = false }
+        }
+    }
+
+    /** No turn is asked for: the run of turns ends. */
+    private fun idle() { if (timing) try { Native.frameIdle() } catch (e: UnsatisfiedLinkError) { timing = false } }
+
+    private fun drainWindow() {
+        if (!timing) return
+        windowLost[0] = 0
+        val n = windowFrames.drain(windowWords, windowLost)
+        if (n > 0 || windowLost[0] > 0) try { Native.frameWindow(windowWords, n, windowLost[0]) } catch (e: UnsatisfiedLinkError) { timing = false }
+    }
+
+    /** Called on the main thread with the frame rates exact2's GPU canvases ask for, as they change ([Natives]). */
+    @Volatile var rates: (IntArray) -> Unit = {}
     private val prefetch = true
 
     // Scrolls the main thread sent that the exact thread has not taken: summed, so a busy thread catches up at once.
@@ -252,7 +285,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             if (on == running) return@post
             running = on
             if (on) { produce(); return@post }
-            choreographer?.removeFrameCallback(turn); turnPosted = false
+            choreographer?.let { turns.remove(it) }; turnPosted = false
+            idle()
             handler.removeCallbacks(again)
             handler.removeCallbacks(timer); handler.removeCallbacks(refiner); handler.removeCallbacks(settle)
         }
@@ -383,6 +417,11 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
     private val waitPin = intent("waitpin") != "0"
 
+    /** Run [f] on the exact thread, publishing nothing: before the host boots too. */
+    fun tell(f: () -> Unit) {
+        handler.post(f)
+    }
+
     /** Run [f] on the exact thread, then publish what it changed. */
     fun call(f: () -> Unit) {
         handler.post { f(); produce() }
@@ -419,6 +458,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         // This frame does what a queued `again` was for.
         handler.removeCallbacks(again)
         if (!running) { requests(); return }
+        drainWindow()
         android.os.Trace.beginSection("exact native frame")
         val started = System.nanoTime()
         val fresh = Native.frame()
@@ -458,7 +498,10 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         schedule()
     }
 
-    private val turn: Choreographer.FrameCallback = Choreographer.FrameCallback { t ->
+    /** A turn at vsync [t]: the frame's [deadline] and its vsyncs' [period] where Choreographer gives them ([Turns]),
+     * else 0. Told to exact2 with when it ran and the publication it made, if any, whose ingest finishes its work. */
+    private fun turned(t: Long, deadline: Long, period: Long) {
+        val arrival = System.nanoTime()
         // The display's frame: the shortest gap between consecutive vsyncs seen.
         if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
         vsync = t
@@ -466,9 +509,19 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         // The next vsync is asked for while this one is current. Android 10's SurfaceFlinger turns the app's vsync
         // off between requests, and a request made within a few milliseconds of the next vsync waits for the one
         // after: asked for after the frame, a Note 9 frame that ended 2.8 ms before the vsync lost it.
-        if (running && Native.animating()) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        if (running && Native.animating()) { turnPosted = true; choreographer?.let { turns.post(it) } }
+        val before = timerReports.publication
         Native.displayFrame(); produce()
+        if (!timing) return
+        val published = if (timerReports.publication != before) timerReports.publication else 0L
+        try {
+            Native.frameTurn(arrival, t, deadline, period, System.nanoTime(), published)
+            // No turn asked for: the run ends, so the idle time to the next is no frame time.
+            if (!turnPosted) Native.frameIdle()
+            Native.frameRates()?.let { r -> main.post { rates(r) } }
+        } catch (e: UnsatisfiedLinkError) { timing = false }
     }
+    private val turns = Turns(::turned)
     private var vsync = 0L
     private var frameNanos = 1_000_000_000L / 60
     /** A frame that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
@@ -503,8 +556,11 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         if (animating && late) {
             late = false
             if (!turnPosted) { handler.removeCallbacks(again); handler.post(again) }
-        } else if (animating && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
-        else if (!animating && turnPosted) { choreographer?.removeFrameCallback(turn); turnPosted = false }
+        } else if (animating && !turnPosted) { turnPosted = true; choreographer?.let { turns.post(it) } }
+        else if (!animating && turnPosted) {
+            choreographer?.let { turns.remove(it) }; turnPosted = false
+            idle()
+        }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
         if (Native.owed() && (due < 0 || due > 16)) due = 16.0

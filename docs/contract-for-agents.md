@@ -4332,6 +4332,21 @@ audited journey; these clock changes do not certify every agent workload. Plain 
 reads under platform timing use the bounded metrics path. Plan-site `perf <target>`
 can enable its requested counters without starting the old frame sampler.
 
+On Android (`agent.mjs android`), the same operations read the reader's own frames in the
+same formats, from two sources: `app` (`exact-app-choreographer`), each Choreographer turn
+on exact2's thread, whose work runs from its vsync until the main thread has ingested what
+it published, against Choreographer's deadline (Android 13 and later; before it the next
+vsync); and `window` (`android-frame-metrics`), the window's `FrameMetrics`, whose frames
+have work against their `DEADLINE` (Android 12 and later) and no frame times, as the
+screen's source on iOS has none. `health window` and `report window` name the second;
+`scroll` is refused there, since the reader's scrolling is the window's. Neither observes
+presentation, and a GPU canvas's `SurfaceView` is outside the window. A drive owns the
+clock, so a frame is virtual until `perf frames capture start` lends the display the clock
+for its lease: meanwhile a `clock` request is refused (an input's landing is not), and the
+capture's replies carry `clock`, from which the driver goes on once `capture stop` or the
+lease's end returns it. `perf frames live <1–30000 ms>` is such a lease, which reads both
+sources from its start to its end. `perf frames track` answers unavailable. Only a driver's launch collects.
+
 ### A scroller's offset per frame: `perf frames track`
 
 `perf frames track start <node> [1–120000 ms]` leases a scroll track on one node's native scroller (default

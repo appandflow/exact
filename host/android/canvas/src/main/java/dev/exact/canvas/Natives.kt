@@ -750,6 +750,26 @@ class Natives(
         Exact.attachSurface(e.id, surface, w, h) { e.window = it }
     }
 
+    /** The frame rates GPU canvases ask for ([Native.frameRates]: view and rate pairs, 0 for the display's): a
+     * canvas with a window of its own asks the compositor for its rate as a fixed source (Android 11 and later), so
+     * a 60 fps canvas on a 120 Hz panel is shown at an even 60; one drawn in the reader's window votes for its rate
+     * as a view (Android 15 and later). Elsewhere the module's own pacing holds the rate (LLP 1009). */
+    fun frameRates(rates: IntArray) {
+        for (k in 0 until rates.size / 2) {
+            val e = elements[rates[2 * k]] ?: continue
+            val fps = rates[2 * k + 1].toFloat()
+            val surface = e.surface
+            if (e.view is SurfaceView && surface != null && surface.isValid && android.os.Build.VERSION.SDK_INT >= 30) {
+                try {
+                    surface.setFrameRate(fps, if (fps > 0f) android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                        else android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+                } catch (x: IllegalArgumentException) {}
+            } else if (android.os.Build.VERSION.SDK_INT >= 35) {
+                e.view.requestedFrameRate = if (fps > 0f) fps else android.view.View.REQUESTED_FRAME_RATE_CATEGORY_DEFAULT
+            }
+        }
+    }
+
     private fun unwindow(e: Element) {
         // Waited for: after the attach posted before it, and before the surface goes.
         if (e.surface != null) Exact.detachSurface(e.id) { e.window.also { e.window = 0L } }

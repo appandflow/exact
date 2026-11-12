@@ -34,6 +34,7 @@ pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepar
 pub(crate) mod apple;
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
+mod period;
 mod pixels;
 mod placed;
 mod shaders;
@@ -602,6 +603,7 @@ impl Surfaces {
                             self.error = Some("headless recovery did not report no device".into());
                         }
                     }
+                    period::give(&abi);
                     self.abis.insert(artifact, abi);
                 }
                 Err(e) => {

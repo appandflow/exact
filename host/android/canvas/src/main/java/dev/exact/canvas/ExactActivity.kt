@@ -286,6 +286,9 @@ open class ExactActivity : Activity() {
         if (owner != null) {
             owner.chrome = { c -> chrome(c) }
             owner.asked = { r -> requests.perform(r) }
+            owner.rates = { r -> natives?.frameRates(r) }
+            owner.displays(this)
+            frameIdentity(owner)
             owner.configure(device)
             owner.colors(colors)
             owner.window(size.first, size.second, density, edges)
@@ -506,6 +509,22 @@ open class ExactActivity : Activity() {
         configure()
         view.running(true)
         Exact.hidden(false)
+        if (measured) Exact.owner?.windowFrames?.attach(window)
+    }
+
+    /** A driver's launch: the window's frames are measured for `perf frames` while it shows (LLP 1079.000 §6.2). */
+    private val measured by lazy { android.system.Os.getenv("EXACT_AGENT") == "1" }
+
+    /** The device a `perf frames report` names. */
+    private fun frameIdentity(owner: Owner) {
+        if (!measured) return
+        val display = (getSystemService(android.hardware.display.DisplayManager::class.java))?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val identity = org.json.JSONObject().put("host", "android").put("app", packageName.take(160))
+            .put("device", "${Build.MANUFACTURER} ${Build.MODEL}".take(160))
+            .put("os", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            .put("emulator", Build.FINGERPRINT.contains("generic") || Build.HARDWARE.contains("ranchu"))
+            .put("displayMaximumHz", display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 0f)
+        owner.tell { try { Native.frameIdentity(identity.toString().toByteArray()) } catch (e: UnsatisfiedLinkError) {} }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -515,6 +534,7 @@ open class ExactActivity : Activity() {
 
     override fun onStop() {
         stopped = true
+        Exact.owner?.windowFrames?.detach()
         Exact.hidden(true)
         if (reads()) pads.background()
         view.running(false, reads())
