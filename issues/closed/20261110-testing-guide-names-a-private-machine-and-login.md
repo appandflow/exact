@@ -1,6 +1,7 @@
 # The testing guide publishes a private machine's tailnet name and SSH login
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** "Windows: the NucBox" now writes `<host>` and `<user>` where it named the machine's tailnet host and the SSH login (the private LLP 1115.004 names the host; no other tracked file carried either), and git history still holds the old text, which was not rewritten.
 **Systems:** docs/testing.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
