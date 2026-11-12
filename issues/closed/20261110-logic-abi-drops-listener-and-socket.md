@@ -1,6 +1,7 @@
 # A Rust module's local listener crosses the logic seam as an HTTP stream to its `unix:` address instead of being refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `encode_result` refuses any request with a listener, socket mark or none, and a byte stream, by name; a WebSocket's `socket` crosses as tag 11 since 38971bd6, which also refused a `Request::listen` request but not a listener without the mark.
 **Systems:** logic/abi/src/lib.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
