@@ -406,6 +406,8 @@ function send(t, land) {
     const done = (o, more) => {
       if (t.closed) return;
       if (t.waiting && !(more && t.upload)) { t.waiting = false; counted(t, inflight); } // an upload is in flight until its reply
+      // A render's storage refusal starts no work and leaves the source pending for adoption (LLP 1048.000 D9).
+      if (o.refused) { t.refused = o.refused; return; }
       t.elapsed = Math.max(0, Math.round(performance.now() - started));
       if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else { Open.delete(t); longPollEnded(t); }
       say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);

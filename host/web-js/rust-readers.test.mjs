@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { webCompiler } from './module.mjs';
+import { createGrantSet, createRequestExecutor } from './admission.js';
 
 const ROOT = resolve(import.meta.dir, '../..');
 
@@ -22,6 +23,20 @@ function normalized(spec) {
   if (run.status !== 0) throw new Error(run.stderr || 'the grant normalizer failed');
   return JSON.parse(run.stdout);
 }
+
+test('a render refuses a Rust storage request after validating its scope', async () => {
+  const run = createRequestExecutor('test.rust', createGrantSet(normalized('fs.read app:/data')));
+  const storage = JSON.stringify({ version: 1, op: 'fs.readFile', args: { path: 'app:/data/prefs' } });
+  const hadRender = Object.hasOwn(globalThis, '__exactRender'), before = globalThis.__exactRender;
+  globalThis.__exactRender = true;
+  try {
+    expect(await run({ storage, scope: 'fs.write app:/data' })).toEqual({ failed: 2, message: "source scope exceeds the app's admitted grants" });
+    expect(await run({ storage })).toEqual({ refused: 'storage request' });
+    expect(await run({ storage, scope: '' })).toEqual({ refused: 'storage request' });
+  } finally {
+    if (hadRender) globalThis.__exactRender = before; else delete globalThis.__exactRender;
+  }
+});
 
 // The web Rust adapter carries a store read its call made to rt.js (LLP 1146 §2.3): on the answer when the call
 // answers, and through `data.threwRead` when it fails, an answer's or a parse's, so the resource is a store reader

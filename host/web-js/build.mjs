@@ -711,8 +711,8 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(planResources, types[2], sourceTypes),`,
   // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
   '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
-  // Each pending resource whose source the render refused storage, and what that was (ts-data.js `refuseInRender`), for the log.
-  '    refused: Resources.filter(r => r.pending() && (r.ticket?.call ?? r.ticket?.ctl)?.refused).map(r => [r.name, (r.ticket.call ?? r.ticket.ctl).refused]),',
+  // Each pending resource refused storage, by its request (admission.js) or call (ts-data.js), for the log.
+  '    refused: Resources.filter(r => r.pending() && (r.ticket?.refused || (r.ticket?.call ?? r.ticket?.ctl)?.refused)).map(r => [r.name, r.ticket.refused ?? (r.ticket.call ?? r.ticket.ctl).refused]),',
   // `open`: answered resources the client asks again: an open stream, a watch, or a source refused storage in the render;
   // `continuing`: work that outlives the render, whatever it waited for (a page with no status does not wait for an
   // answered source's I/O): the client asks every answer again (render.mjs `revalidate`).
