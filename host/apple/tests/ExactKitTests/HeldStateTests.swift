@@ -507,8 +507,14 @@ final class HeldStateTests: XCTestCase {
     @MainActor func testKeyedChangeReadsAppliedLayoutAndFocusesTheNewControl() throws {
         let (session, p, _, _) = try booted("keyed-change")
         defer { session.destroy() }
+        #if os(macOS)
+        window.orderFrontRegardless()
+        XCTAssertTrue(window.isVisible, "the agent's native click needs a window on screen")
+        #endif
         let agent = Agent(session: session)
-        let from = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
+        let taken = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
+        // The runner's final live sample can exceed the host's takeover time; align them before arming tasks.
+        let from = try XCTUnwrap(agent.clock(["to": taken])["clock"] as? Double)
         let start = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "change-start" })
         func slots() -> [String: Any] {
             let state = (try? JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8))) as? [String: Any]
