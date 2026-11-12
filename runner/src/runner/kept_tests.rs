@@ -686,7 +686,7 @@ fn only_explicitly_kept_surface_facts_retain_a_launch_snapshot() {
                 "{source}, keep={keep}"
             );
             assert_eq!(
-                kept::obsolete(&plan, &snapshot).is_empty(),
+                kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
                 allowed,
                 "{source}, keep={keep}"
             );
@@ -699,7 +699,10 @@ fn only_explicitly_kept_surface_facts_retain_a_launch_snapshot() {
         }
         plan.resources[0].transient = true;
         assert!(!kept::kept_surface(&plan, 0), "{source}");
-        assert!(!kept::obsolete(&plan, &snapshot).is_empty(), "{source}");
+        assert!(
+            !kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
+            "{source}"
+        );
         let decoded = Plan::decode(&plan.encode()).unwrap();
         assert!(!kept::kept_surface(&decoded, 0), "{source}");
         plan.resources[0].transient = false;
@@ -708,7 +711,10 @@ fn only_explicitly_kept_surface_facts_retain_a_launch_snapshot() {
             !kept::kept_surface(&plan, 0),
             "a kept reader needs a declared surface: {source}"
         );
-        assert!(!kept::obsolete(&plan, &snapshot).is_empty(), "{source}");
+        assert!(
+            !kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
+            "{source}"
+        );
     }
 }
 

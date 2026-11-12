@@ -115,6 +115,8 @@ impl<D: DataSource> Presenter<D> {
             window_active: _,
             clipboard: _,
             url_opener: _,
+            window_focuser: _,
+            window_hider: _,
             window_closer: _,
             portal: _,
             held: _,
