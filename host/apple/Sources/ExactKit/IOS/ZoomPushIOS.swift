@@ -42,24 +42,36 @@ extension NavigationHost {
             let source = presenter.views.values.filter {
                 $0.props["id"] == name && $0.window != nil && ($0 === preceding || $0.isDescendant(of: preceding))
             }.min(by: { $0.id < $1.id })
-            if let source { hideZoomShadow(source) }
+            if let source { prepareZoomSource(source, in: preceding) }
             return source
         })
     }
 
     /// UIKit's zoom draws its source view's layer inside the container it morphs, clipped to that container's
     /// rounded shape, so an outer `box-shadow`, which lies outside the source's bounds, shows as a hard band
-    /// under the card and then an outline round it. The source's outer shadow is hidden until the transition
-    /// ends (`restoreZoomShadow`).
-    func hideZoomShadow(_ source: NodeView) {
-        restoreZoomShadow()
+    /// under the card and then an outline round it. A `perspective` on a box holding the source shows the same
+    /// band in black on the swipe back, though the source lies flat in it. Until the transition ends
+    /// (`restoreZoomSource`), the source casts no outer shadow and the boxes up to its route hold it flat; a
+    /// source turned in that space zooms as if it were not.
+    func prepareZoomSource(_ source: NodeView, in route: NodeView) {
+        restoreZoomSource()
         source.shadowCaster?.isHidden = true
-        zoomShadowHidden = source
+        zoomSource = source
+        var next = source.superview
+        while let view = next, view !== route {
+            if let box = view as? NodeView, box.number("perspective") > 0 {
+                box.container.layer.sublayerTransform = CATransform3DIdentity
+                zoomFlattened.append(box)
+            }
+            next = view.superview
+        }
     }
 
-    func restoreZoomShadow() {
-        zoomShadowHidden?.shadowCaster?.isHidden = false
-        zoomShadowHidden = nil
+    func restoreZoomSource() {
+        zoomSource?.shadowCaster?.isHidden = false
+        zoomSource = nil
+        for box in zoomFlattened { box.applyPerspective() }
+        zoomFlattened = []
     }
 
     /// The zoom's swipe back is decided as the finger lifts, and UIKit ends it most of a second later, after
