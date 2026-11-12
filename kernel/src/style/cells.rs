@@ -105,7 +105,11 @@ pub(crate) fn of(
     if !admits_relative(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
-            expected: "no length: `ch` and `lh` are lengths",
+            expected: if super::relative::pixels_only(id) {
+                "px: `ch` and `lh` are not built on this row"
+            } else {
+                "no length: `ch` and `lh` are lengths"
+            },
         });
     }
     Ok(Some(if id.codec() == StyleCodec::LineHeight {

@@ -306,6 +306,7 @@ fn nonnegative(id: StyleId) -> bool {
             | BorderRadiusBottomRight
             | BorderRadiusBottomLeft
             | ShapeMargin
+            | BorderSpacing
             | HitSlopTop
             | HitSlopRight
             | HitSlopBottom
@@ -317,6 +318,16 @@ fn nonnegative(id: StyleId) -> bool {
             | R
             | Rx
             | Ry
+    )
+}
+
+/// A length row that takes `px` and no relative unit yet (QUEUE.md, "`rem`/`em`
+/// where the kernel still takes only `px`").
+pub(crate) fn pixels_only(id: StyleId) -> bool {
+    use StyleId::*;
+    matches!(
+        id,
+        StrokeWidth | StrokeDashoffset | TranslateZ | Perspective | TextStrokeWidth
     )
 }
 
@@ -391,7 +402,11 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
     if !admits_relative(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
-            expected: "no length: `rem` and `em` are lengths",
+            expected: if pixels_only(id) {
+                "px: `rem` and `em` are not built on this row"
+            } else {
+                "no length: `rem` and `em` are lengths"
+            },
         });
     }
     if n < 0.0 && nonnegative(id) {
@@ -830,6 +845,39 @@ mod tests {
             assert!(
                 s.set_dynamic(row, &StyleValue::Text(text.into())).is_err(),
                 "{row:?} {text}"
+            );
+        }
+    }
+
+    /// CSS 2.1 §17.6.1: `border-spacing` is a nonnegative length, in any of
+    /// CSS's spellings; a row that takes only px says to write px.
+    #[test]
+    fn border_spacing_takes_every_length_and_a_px_row_names_px() {
+        let mut s = StyleProps::default();
+        for (text, px) in [("2px", 2.0), ("0.5rem", 8.0), ("1ch", 8.0), ("1lh", 16.0)] {
+            s.set_dynamic(StyleId::BorderSpacing, &StyleValue::Text(text.into()))
+                .unwrap();
+            assert_eq!(s.rare.border_spacing, px, "{text}");
+        }
+        for text in ["-2px", "-1rem", "2%"] {
+            assert!(
+                s.set_dynamic(StyleId::BorderSpacing, &StyleValue::Text(text.into()))
+                    .is_err(),
+                "{text}"
+            );
+        }
+        for (row, text) in [
+            (StyleId::Perspective, "50rem"),
+            (StyleId::StrokeWidth, "1em"),
+            (StyleId::TextStrokeWidth, "1rem"),
+            (StyleId::StrokeWidth, "1ch"),
+        ] {
+            let error = s
+                .set_dynamic(row, &StyleValue::Text(text.into()))
+                .unwrap_err();
+            assert!(
+                matches!(error, StyleValueError::WrongKind { expected, .. } if expected.starts_with("px: ")),
+                "{row:?} {text}: {error:?}"
             );
         }
     }

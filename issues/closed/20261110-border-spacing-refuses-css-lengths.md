@@ -1,6 +1,7 @@
 # `border-spacing="2px"` is refused, `"0.5rem"` is refused as "no length", and a terminal entry can write no spacing but 0
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `border-spacing` takes CSS lengths as `row-gap` does (`px`, `rem`, `em`, `ch`, `lh`, a terminal entry's cells among them) and refuses a negative one, and a row that takes `px` and no relative unit says to write px.
 **Systems:** kernel/src/style/relative.rs, kernel/src/style/cells.rs, kernel/tables/schema.json, contract/cli/src/terminal.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
