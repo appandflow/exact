@@ -3496,14 +3496,15 @@ popovertargetaction="hide"`), `hr` separators and `role="group"` sections of row
 `contextPreview=true` is the preview, whose `press` is what tapping the preview
 does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an
-`NSMenu` without the preview; the web and the agent open the popover anchored to
+`NSMenu` without the preview; the web and the default agent open the popover anchored to
 the node. The menu needs the popover menu-shaped (LLP 1021
 D3): each row its text and at most one `image`, with `aria-checked` for a checkmark;
 a row with anything else beside its label (an icon box) makes macOS open the
 painted popover anchored to the node instead. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. A node inside an open popover opens its menu over
-that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
-(LLP 1021 §5.1).
+that popover, which stays open, as HTML nests them. The default agent opens it with
+`tap <node> contextmenu` (LLP 1021 §5.1). On an iOS simulator under `--touch platform`,
+use a [real long press](recipes/ios-driving.md).
 
 The order of a menu's rows is the platform's unless the menu's trigger says otherwise.
 UIKit's own order puts the first row nearest the finger, so a menu that opens upward

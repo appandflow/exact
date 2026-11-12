@@ -1041,6 +1041,9 @@ final class MenuHost {
     }
     func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
+        #if os(iOS)
+        if context.inTransition { return true }
+        #endif
         if sheets.inTransition || confirmation == nil && !pendingConfirmations.isEmpty || waitingShows > 0 { return true }
         guard let owner = confirmation else { return false }
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed

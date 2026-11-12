@@ -78,6 +78,14 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
     }
     private(set) var open: Open?
+    private var animations = 0
+    var inTransition: Bool { animations > 0 }
+
+    private func track(_ animator: UIContextMenuInteractionAnimating?) {
+        guard let animator else { return }
+        animations += 1
+        animator.addCompletion { [weak self] in self?.animations -= 1 }
+    }
 
     func isOpen(_ pop: NodeView) -> Bool { open?.popover === pop && open?.toggled == true }
     func close(_ pop: NodeView) {
@@ -1240,11 +1248,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// Showing: the focus is set aside, or UIKit's type-to-select brings
     /// the software keyboard up over the menu (MenuFocusIOS.swift).
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        track(animator)
         menus?.focus.setAside()
         if let owner = open, let pop = owner.popover { owner.toggled = true; presenter?.popoverEvents.changed(pop, open: true) }
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        track(animator)
         let focus: () -> Void = { [weak self] in self?.menus?.focus.restore() }
         if let animator { animator.addCompletion(focus) } else { focus() }
         guard let owner = open, owner.configuration === configuration else { return }
@@ -1291,7 +1301,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         return ["kind": "contextmenu", "source": owner.source.map { Int($0.id) as Any } ?? NSNull(),
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(),
                 "preview": owner.preview.map { Int($0.id) as Any } ?? NSNull(),
-                "phase": owner.committed ? "commit" : "open"]
+                "phase": owner.committed ? "commit" : inTransition ? "transition" : "open"]
     }
 }
 #endif
