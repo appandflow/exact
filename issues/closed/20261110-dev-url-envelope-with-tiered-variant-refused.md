@@ -1,6 +1,7 @@
 # The painting host refuses every dev envelope that offers a `tiered` Rust variant
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `fetch_changed` accepts `tiered` beside `native` and `wasm`, takes the variant its `rustMode` names, compares the target for every variant but `wasm`, and still refuses an unknown key.
 **Systems:** host/linux/src/fetch.rs, scripts/rust.mjs, host/apple/Sources/ExactKit/PlanURL.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
