@@ -1191,3 +1191,136 @@ fn hover_scale_clears_on_disable_and_destruction() {
     host.dispatch_at(id(&host, "remove"), Event::Press, 300.);
     assert_eq!(host.engine.value(motion, Property::Scale), None);
 }
+
+#[test]
+fn authored_translate_velocity_reaches_native_springs_from_panrelease() {
+    let source = r#"component App
+  state x = 0
+  state y = 0
+  state vx = 0
+  state vy = 0
+  state dragging = true
+  action release(sx: number, sy: number)
+    vx = sx
+    vy = sy
+    dragging = false
+    x = 100
+    y = 100
+  view
+    box testId="panel" panrelease=release width=100 height=100 translate=`${x}px ${y}px` -exact-translate-velocity=`${vx} ${vy}` transition=(dragging ? "none" : "translate -exact-spring(260, 24, 1)")
+"#;
+    for (target, vx, vy) in [
+        (100, 800., -600.),
+        (100, -800., 600.),
+        (100, 0., 0.),
+        (0, 800., -600.),
+        (0, -800., 600.),
+    ] {
+        let source = source
+            .replace("x = 100", &format!("x = {target}"))
+            .replace("y = 100", &format!("y = {target}"));
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            400.,
+            400.,
+        )
+        .unwrap();
+        let view = id(&host, "panel");
+        let key = motion_node(host.runner.kernel().node(view).unwrap().key);
+        host.dispatch_at(view, Event::PanRelease(vx, vy), 0.);
+        let spring = host
+            .engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap();
+        assert_eq!(spring.velocity, exact_motion::Value::new(vx, vy));
+        host.advance(1.);
+        let shown = host.engine.value(key, Property::Translate).unwrap();
+        if vx > 0. {
+            assert!(shown.x > 0. && shown.y < 0.);
+        }
+        if vx < 0. {
+            assert!(shown.x < 0. && shown.y > 0.);
+        }
+        if vx == 0. {
+            assert!(shown.x > 0. && (shown.x - shown.y).abs() < 1e-8);
+        }
+    }
+}
+
+#[test]
+fn clearing_or_refusing_authored_velocity_restores_interruption_inheritance() {
+    let source = r#"component App
+  state x = 0
+  state supplied = true
+  state speed = "800 -600"
+  action release
+    x = 100
+  action clear
+    supplied = false
+    x = -100
+  action refuse
+    supplied = true
+    speed = "bad"
+    x = -200
+  view
+    column
+      button testId="release" press=release
+        text "Release"
+      button testId="clear" press=clear
+        text "Clear"
+      button testId="refuse" press=refuse
+        text "Refuse"
+      box testId="panel" translate=`${x}px 0px` -exact-translate-velocity=(supplied ? speed : none) transition="translate -exact-spring(260, 24, 1)"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        400.,
+    )
+    .unwrap();
+    let panel = id(&host, "panel");
+    let key = motion_node(host.runner.kernel().node(panel).unwrap().key);
+    host.dispatch_at(id(&host, "release"), Event::Press, 0.);
+    assert_eq!(
+        host.engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap()
+            .velocity,
+        exact_motion::Value::new(800., -600.)
+    );
+    for (action, time) in [("clear", 30.), ("refuse", 60.)] {
+        host.dispatch_at(id(&host, action), Event::Press, time);
+        assert!(
+            !host
+                .runner
+                .kernel()
+                .node(panel)
+                .unwrap()
+                .style
+                .mask
+                .has(exact_kernel::StyleId::TranslateVelocity),
+            "{action} clears the row"
+        );
+        let velocity = host
+            .engine
+            .spring_descriptor(key, Property::Translate)
+            .unwrap()
+            .velocity;
+        assert_ne!(
+            velocity,
+            exact_motion::Value::ZERO,
+            "{action} preserves current velocity"
+        );
+        assert_ne!(
+            velocity,
+            exact_motion::Value::new(800., -600.),
+            "{action} does not repeat old release"
+        );
+    }
+}

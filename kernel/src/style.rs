@@ -581,6 +581,7 @@ impl StyleValue<'_> {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
+            StyleValue::Text(t) if style == StyleId::TranslateVelocity => space::velocity(t),
             // @ref LLP 1077 D8 — the one `translate` text sets its lengths,
             // its percentages (chess diary #4) and its z, each row its part.
             StyleValue::Text(t)

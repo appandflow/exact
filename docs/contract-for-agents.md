@@ -3228,6 +3228,19 @@ with no inherited velocity, including when toggling back (LLP 1055.000 D15,
 LLP 1062 D3). This is the same on the web and native hosts. Use a transform for
 a rigid path move that must keep its momentum.
 
+To seed a translate spring from an authored pan, write
+`-exact-translate-velocity=` followed by a string such as `"800 -600"`: finite x and y
+velocities in logical CSS pixels per second. In `panrelease(vx, vy)`, clamp or adjust
+each axis, then update this row and the translate target in the same action.
+`"0 0"` starts from rest, including on cancellation; omission or Contract `none`
+(without quotes) preserves an interrupted spring's velocity. For example, bind
+``-exact-translate-velocity=(released ? `${vx} ${vy}` : none)``. Changing only velocity
+never restarts motion. Enabling a translate spring after `transition="none"` can
+start from nonzero velocity even when the endpoint equals the current position.
+The row persists: clear it when a new drag begins or before an unrelated target
+change that should inherit velocity. It has no effect on an easing transition or
+with `transition="none"`.
+
 Computed animation longhands cannot accompany a literal list in `animation` or
 another longhand. For a list that changes with state, compute the complete `animation`
 shorthand, including each animation's play state or duration.

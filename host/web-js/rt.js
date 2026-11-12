@@ -1006,7 +1006,7 @@ function motion(f) {
   Motion.then(() => Mo && f(Mo));
 }
 /** A node the motion engine follows (the kernel's motion seam): `f` gives
- * its `translate`, `scale`, `rotate`, `opacity` and `transition` as the
+ * its `translate`, `scale`, `rotate`, `opacity`, `transition` and release velocity as the
  * plan binds them, told the engine at every commit that changes them. */
 export function mo(e, f) {
   const id = viewId(e);

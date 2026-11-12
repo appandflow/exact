@@ -1266,6 +1266,9 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
 /// css.rs names it, its logical side.
 pub fn style_row(id: u16, written: bool) -> Result<(String, String), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
+    if row == StyleId::TranslateVelocity {
+        return Ok(("--exact-translate-velocity".into(), String::new()));
+    }
     // `translate` is one declaration of the author's two lengths (css.rs
     // `lowered`): written as the author wrote them.
     if row == StyleId::Translate {
