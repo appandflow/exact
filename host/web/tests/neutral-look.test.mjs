@@ -820,6 +820,43 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
 
 // A sheet in a narrow window (D4.8) is iOS's: from 12 px below the window's top to its bottom, over the tab bar, its top
 // corners a surface's. One that opens slides up from the window's bottom edge, unless the person asks for less motion.
+test('chromium: authored popovers pad unsaid edges by the root font', async () => {
+  const browser = await launch('chromium');
+  const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
+  try {
+    await page.setContent(`<style>${sheet()}</style><div id="exact-root"></div>`);
+    for (const root of [16, 20]) {
+      for (const [padding, expected] of [
+        ['', [root, root, root, root]],
+        ['padding:0', [0, 0, 0, 0]],
+        ['padding:16px', [16, 16, 16, 16]],
+        ['padding-top:7px;padding-left:0', [7, root, root, 0]],
+        ['direction:rtl;padding-top:7px;padding-left:0', [7, root, root, 0]],
+        ['padding:2px 3px 4px 5px', [2, 3, 4, 5]],
+      ]) {
+        const geometry = await page.evaluate(({ root, padding }) => {
+          document.documentElement.style.fontSize = `${root}px`;
+          document.getElementById('exact-root').innerHTML = `<div id="content" popover="auto" role="dialog" style="display:flex;flex-direction:column;width:160px;font-size:30px;background-color:#eeeeee;${padding}"><button id="save" style="appearance:none;width:160px;height:32px;min-height:0;padding:0;border:none;background-color:#ff0000"></button></div>`;
+          const popover = document.getElementById('content');
+          popover.showPopover();
+          const a = popover.getBoundingClientRect(), b = document.getElementById('save').getBoundingClientRect();
+          return { x: a.x, y: a.y, width: a.width, height: a.height, insets: [b.top - a.top, a.right - b.right, a.bottom - b.bottom, b.left - a.left] };
+        }, { root, padding });
+        expect(geometry.insets).toEqual(expected);
+        if (root !== 16 || padding) continue;
+        expect([geometry.width, geometry.height]).toEqual([192, 64]);
+        const { width, data } = decodePng(await page.screenshot());
+        for (const [dx, dy, ink, target] of [[8, 32, [238, 238, 238], 'content'], [96, 8, [238, 238, 238], 'content'], [24, 24, [255, 0, 0], 'save']]) {
+          const x = geometry.x + dx, y = geometry.y + dy;
+          const at = (Math.floor(y) * width + Math.floor(x)) * 4;
+          expect([...data.slice(at, at + 3)]).toEqual(ink);
+          expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y).id, { x, y })).toBe(target);
+        }
+      }
+    }
+  } finally { await page.close(); }
+});
+
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet in a narrow window rises from the bottom edge`, async () => {
   const browser = await launch(engine);
   try {
