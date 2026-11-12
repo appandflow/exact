@@ -32,7 +32,7 @@ use std::rc::Rc as SurfaceRef;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc as SurfaceRef;
 
-pub use exact_plan::Value;
+pub use exact_plan::{surface_arguments, Value};
 pub use wgpu;
 
 #[cfg(not(target_arch = "wasm32"))]

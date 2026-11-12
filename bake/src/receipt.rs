@@ -120,8 +120,9 @@ pub(crate) fn emit(
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
+        let mut declared = Declared::new();
         let product = std::env::var_os("EXACT_GPU_PRODUCT")
-            .map(|path| gpu_product(Path::new(&path)))
+            .map(|path| gpu_product(Path::new(&path), &mut declared))
             .transpose()?;
         let development = std::env::var("EXACT_GPU_DEVELOPMENT").ok();
         if let Some(card) = gpu_card(&manifest.id, &compat.id, trust, development, product) {
@@ -135,13 +136,14 @@ pub(crate) fn emit(
             let mut cards = serde_json::Map::new();
             for (name, path) in products {
                 let path = path.as_str().ok_or("EXACT_GPU_MODULES: a product path")?;
-                let product = Some(gpu_product(Path::new(path))?);
+                let product = Some(gpu_product(Path::new(path), &mut declared)?);
                 if let Some(card) = gpu_card(&manifest.id, &compat.id, trust, None, product) {
                     cards.insert(name, card);
                 }
             }
             compat.embedded["gpuModules"] = Value::Object(cards);
         }
+        surface_arguments(&plan, &declared)?;
     }
     // A binary without an updater has no stream or rollback floor.
     // Native L=A artifacts still require authenticated sequence provenance.
@@ -839,15 +841,51 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Each surface a GPU product declares the named arguments of, with them and
+/// the product's file name.
+type Declared = std::collections::BTreeMap<String, (Vec<String>, String)>;
+
 /// A signed GPU product's file name and digest, watched by the bake: its code
 /// belongs to this app and cohort, which the loader checks before opening it.
-fn gpu_product(path: &Path) -> Result<(String, String), String> {
+/// The surfaces it declares the arguments of go into `declared`.
+fn gpu_product(path: &Path, declared: &mut Declared) -> Result<(String, String), String> {
     println!("cargo:rerun-if-changed={}", path.display());
     let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
-    let name = path.file_name().and_then(|n| n.to_str());
-    Ok((
-        name.ok_or("GPU product filename is not UTF-8")?.to_string(),
-        code_digest(&bytes),
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("GPU product filename is not UTF-8")?
+        .to_string();
+    let surfaces = exact_plan::surface_arguments::declared(&bytes)
+        .map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+    for (surface, arguments) in surfaces {
+        declared.insert(surface, (arguments, name.clone()));
+    }
+    Ok((name, code_digest(&bytes)))
+}
+
+/// Refuse a plan whose canvas passes a named argument that its surface's GPU
+/// product, bound beside the plan, does not declare (expo/exact#176). The product
+/// compiles before this bake reads the Contract, so the two disagree only
+/// when a source changed in between; at run time the canvas would fail to
+/// bind.
+fn surface_arguments(plan: &exact_plan::Plan, declared: &Declared) -> Result<(), String> {
+    let arguments = declared
+        .iter()
+        .map(|(surface, (names, _))| (surface.clone(), names.clone()))
+        .collect();
+    let missing = exact_plan::surface_arguments::undeclared(plan, &arguments);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let each = missing.iter().map(|(surface, argument)| {
+        let (names, product) = &declared[surface];
+        let has = if names.is_empty() { "none".to_owned() } else { names.join(", ") };
+        format!("canvas surface `{surface}` passes `{argument}`, which the GPU product {product} does not declare (it declares {has})")
+    });
+    Err(format!(
+        "{}: a source changed after the GPU product compiled and before the Contract bake read it (an edit while the build ran); build again",
+        each.collect::<Vec<_>>().join("; ")
     ))
 }
 
