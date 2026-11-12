@@ -698,7 +698,9 @@ test('exact new names the app and its bundle id before any build, and refuses an
     const game = cli(resolve(parent, 'field-game'), '--game', '--bundle-id', 'com.yourcompany.other');
     assert.deepEqual([game.status, /--name and --bundle-id name an app; a game/.test(game.stderr)], [1, true], game.stderr);
     const bare = cli(dir, '--name');
-    assert.deepEqual([bare.status, /--name takes a value, as in --name "Field Log"/.test(bare.stderr)], [1, true], bare.stderr);
+    assert.deepEqual([bare.status, /^new: --name needs a value \(--name <name>\)/.test(bare.stderr)], [2, true], bare.stderr);
+    const empty = cli(dir, '--name', '');
+    assert.deepEqual([empty.status, /--name takes a value, as in --name "Field Log"/.test(empty.stderr)], [1, true], empty.stderr);
     // A repeated --with adds its platforms, before the path or after it; a one-value flag given twice is refused.
     const twice = cli('--with', 'ios', '--with', 'android,mac', resolve(parent, 'two'));
     assert.equal(twice.status, 0, twice.stderr);

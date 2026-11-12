@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
 import { appVerbs } from './app-cli.mjs';
-import { HELP, helpText, indexText, knownFlags } from './help.mjs';
+import { HELP, appleBuildRefusal, guardFlags, helpText, indexText, knownFlags } from './help.mjs';
 import { scriptFlags } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -95,6 +95,30 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
     assert.equal(refused.status, 2, `${args.join(' ')} --bogus: ${refused.stdout}${refused.stderr}`);
     assert.match(refused.stderr, new RegExp(`^${verb}: unknown flag --bogus\\. It takes ${HELP[verb].flags.length ? '--' : 'no flags'}`));
   }
+});
+
+// A script reading `args[i + 1]` took the next flag as the value (`--archive --unsigned` wrote the archive as
+// <cwd>/--unsigned) or, last, nothing and so its default (`--sim` last installed on EXACT_SIM's simulator).
+test('a flag that takes a value is refused by name when the value is missing or another flag', () => {
+  const guarded = (verb, argv) => {
+    const said = [];
+    const code = guardFlags(verb, argv, { fail: (line) => said.push(line), exit: (code) => code });
+    return [code === argv ? 0 : code, said.join('\n')];
+  };
+  for (const [verb, argv, flag] of [
+    ['ios', ['--device', '--archive'], '--archive <out.ipa>'], ['ios', ['--device', '--archive', '--unsigned'], '--archive <out.ipa>'],
+    ['ios', ['--ios', '--sim'], '--sim <udid|name>'], ['ios', ['--device', '--phone', '--run'], '--phone <udid|name>'],
+    ['ios', ['--ios', '--optimize'], '--optimize speed|size'], ['mac', ['hello-apple', '--optimize'], '--optimize speed|size'],
+    ['ios', ['--ios', '--link'], '--link <plan>'], ['web-build', ['--out', '--json'], '--out <dir>'], ['agent', ['web', 'tree', '--url'], '--url <url>'],
+  ]) assert.deepEqual(guarded(verb, argv), [2, `${verb}: ${flag.split(' ')[0]} needs a value (${flag})`], argv.join(' '));
+  // Every failure in one run: a missing value and an unknown flag are both said.
+  assert.match(guarded('ios', ['--sim', '--bogus'])[1], /^ios: --sim needs a value \(--sim <udid\|name>\)\nios: unknown flag --bogus\. /);
+  // A value is taken as before, a negative number among them; a value in brackets is optional.
+  for (const [verb, argv] of [['ios', ['--ios', '--sim', 'iPhone 17', '--optimize', 'size']], ['web', ['--port', '-1']], ['agent', ['macos', '--login']], ['agent', ['macos', '--login', 'hidden', 'tree']]]) {
+    assert.deepEqual(guarded(verb, argv), [0, ''], argv.join(' '));
+  }
+  assert.equal(appleBuildRefusal(['--ios', '--link', 'all']), '--link takes plan, not all');
+  assert.equal(appleBuildRefusal(['--ios', '--link', 'plan']), null);
 });
 
 test('tamber help lists every binding language', () => {

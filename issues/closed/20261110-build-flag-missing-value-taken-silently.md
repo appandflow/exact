@@ -1,6 +1,7 @@
 # A value-taking flag of `build.mjs` given no value takes the next flag, or a default, without a word
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `guardFlags`, which every script an app's verb runs calls first, refuses a flag whose spec names a value when the value is absent or another flag, and `appleBuildRefusal` refuses a `--link` value other than `plan`, both before anything is built.
 **Systems:** host/apple/build.mjs, host/apple/link.mjs, scripts/help.mjs (`guardFlags`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -630,9 +630,11 @@ const documented = (verb) => [...HELP[verb].flags, ...(HELP[verb].more ?? [])];
 /** Every flag a verb's script takes, documented or not, by name: whether it takes a value. */
 export const knownFlags = (verb) => new Map([...documented(verb).flatMap(([row]) => specs(row)), ...(HELP[verb].internal ?? [])].map((spec) => [name(spec), takesValue(spec)]));
 
-/** Why an Apple device build cannot use these signing and packaging options, or null. */
+/** Why an Apple build cannot take these options (signing, packaging, linking), or null. */
 export function appleBuildRefusal(args, env = process.env) {
   const unsigned = args.includes('--unsigned'), archive = args.includes('--archive');
+  // link.mjs `linksByPlan` reads any other word as no flag, and the build links every capability.
+  if (args.includes('--link') && args[args.indexOf('--link') + 1] !== 'plan') return `--link takes plan, not ${args[args.indexOf('--link') + 1] ?? 'nothing'}`;
   if (unsigned && args.includes('--watchos')) return '--unsigned takes no --watchos: a watch build is the simulator companion, which no one re-signs';
   if (unsigned && !args.includes('--device')) return '--unsigned needs --device: it builds an ad-hoc signed device bundle';
   if (unsigned && args.includes('--run')) return '--unsigned takes no --run: an ad-hoc signed device bundle cannot launch on a stock device; use a development profile and identity';
@@ -641,20 +643,29 @@ export function appleBuildRefusal(args, env = process.env) {
 }
 
 /** A dispatched script's first call. `--help`/`-h` prints `verb`'s help and exits 0; a flag the
- * verb's script does not take is refused with the ones it does, exit 2. With `parsed`, `argv` is
- * what the script's own parser left, so every flag still in it is unknown (agent.mjs). */
+ * verb's script does not take is refused with the ones it does, and one that takes a value is refused
+ * when the value is absent or another flag (`missingValue`), exit 2: a script reading `args[i + 1]`
+ * would take the next flag, or nothing and so its default. A value in brackets (`--login [hidden]`)
+ * is optional. With `parsed`, `argv` is what the script's own parser left, so every flag still in it
+ * is unknown (agent.mjs). */
 export function guardFlags(verb, argv, { parsed = false, say = console.log, fail = console.error, exit = process.exit } = {}) {
   if (argv.includes('--help') || argv.includes('-h')) { say(helpText(verb, { all: argv.includes('all') })); return exit(0); }
-  const entry = HELP[verb], known = knownFlags(verb);
-  const unknown = [];
+  const known = knownFlags(verb), valued = new Map([...documented(verb).flatMap(([row]) => specs(row)), ...(HELP[verb].internal ?? [])].filter(takesValue).map((spec) => [name(spec), spec]));
+  const unknown = [], valueless = [];
   for (let i = 0; i < argv.length; i++) {
     if (!/^-[^\d.]/.test(argv[i])) continue; // a positional, or a negative number
-    if (!parsed && known.has(argv[i])) { if (known.get(argv[i])) i++; continue; }
+    if (!parsed && known.has(argv[i])) {
+      if (!known.get(argv[i])) continue;
+      if (!missingValue(argv[i + 1])) i++;
+      else if (!valued.get(argv[i]).includes(' [')) valueless.push(valued.get(argv[i]));
+      continue;
+    }
     unknown.push(argv[i]);
   }
-  if (!unknown.length) return argv;
+  if (!unknown.length && !valueless.length) return argv;
+  if (valueless.length) fail(`${verb}: ${valueless.map((spec) => `${name(spec)} needs a value (${spec})`).join('; ')}`);
   const takes = documented(verb).flatMap(([row]) => specs(row).map(name)).join(', ');
-  fail(`${verb}: unknown flag ${unknown.join(', ')}. ${takes ? `It takes ${takes} (--help says what each takes and does).` : 'It takes no flags.'}`);
+  if (unknown.length) fail(`${verb}: unknown flag ${unknown.join(', ')}. ${takes ? `It takes ${takes} (--help says what each takes and does).` : 'It takes no flags.'}`);
   return exit(2);
 }
 
