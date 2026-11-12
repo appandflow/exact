@@ -574,7 +574,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
-  authored header. (Signal Clone, build 5.)
+  authored header. (Signal Clone, build 5.) At the bottom the route keeps the tab bar's
+  cover, so its in-flow content ends above the bar; on iOS 26 a route's last scroller with
+  nothing under it is drawn on under the bar, inset by it, so a list or a full-bleed image
+  runs behind the glass while its end rests above it. Pad the route or the scroller with
+  `env(safe-area-inset-bottom)` for the home indicator: padding on a box between them keeps
+  the scroller above the bar.
 - **A banner at the root of a tabbed app stays under the status bar on iOS.** A
   root-level `position="absolute" top=0` box padded with `env(safe-area-inset-top)`
   is drawn at y 0, and one at `top="calc(env(safe-area-inset-top) + 8px)"` at y 8.
