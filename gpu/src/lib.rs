@@ -231,6 +231,12 @@ pub trait Surface {
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
     fn bind(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError>;
+    /// The canvas's size in points, given before a bind when the host knows
+    /// it, since a stamped bind may advance the surface's state before its
+    /// first `render`. True when it changed what the canvas shows.
+    fn size(&mut self, _width: f32, _height: f32) -> bool {
+        false
+    }
     /// Drain asset requests and retirements together; hosts cancel old flights first.
     fn assets(&mut self) -> AssetChanges {
         AssetChanges::default()

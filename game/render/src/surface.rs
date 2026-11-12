@@ -325,6 +325,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn timing(&mut self, timing: &exact_gpu::FrameTiming) {
         self.timing = *timing;
     }
+    fn size(&mut self, width: f32, height: f32) -> bool {
+        self.look.points = (width, height);
+        let framed = self
+            .sim
+            .as_mut()
+            .is_some_and(|sim| sim.viewport(width, height));
+        self.dirty |= framed;
+        framed
+    }
     fn retier(&mut self) -> bool {
         self.retier_rung()
     }

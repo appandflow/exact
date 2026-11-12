@@ -162,6 +162,12 @@ extension CanvasesHost {
     func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
         guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
         let now = session?.now() ?? 0
+        // The size first: a stamped bind may tick a new world, which frames
+        // itself for its canvas before its first tick (`Game::first_frame`).
+        let bounds = e.view.bounds.size
+        if bounds.width > 0, bounds.height > 0, let size = m.canvasSize, size(e.id, Float(bounds.width), Float(bounds.height)) != 0 {
+            fputs("exact gpu: \(m.error())\n", stderr)
+        }
         return data.withUnsafeBytes { bytes in
             if let bindAt = m.bindAt { return bindAt(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, now) }
             return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)

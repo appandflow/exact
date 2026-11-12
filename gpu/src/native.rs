@@ -640,6 +640,14 @@ pub fn messages(id: u32) -> Option<String> {
     (!messages.is_empty()).then(|| json::strings(&messages))
 }
 
+/// The canvas's size in points, before a bind. Returns 0 on success.
+pub fn size(id: u32, width: f32, height: f32) -> u32 {
+    match with(|m| m.size(id, width, height)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
 /// Ask the surface; an empty string means no answer.
 pub fn agent(id: u32, request: &str) -> String {
     with(|m| m.agent(id, request)).flatten().unwrap_or_default()
@@ -886,6 +894,12 @@ macro_rules! module {
             let Some(text) = (unsafe { $crate::native::bytes("gpu_bind_at", values, len) }) else { return 1 };
             let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_bind_at: the values are not UTF-8"); return 1 };
             $crate::native::bind_at(id, text, Some(at_ms))
+        }
+
+        /// The canvas's size in points, before a bind: 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_size(id: u32, width: f32, height: f32) -> u32 {
+            $crate::native::size(id, width, height)
         }
 
         /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.

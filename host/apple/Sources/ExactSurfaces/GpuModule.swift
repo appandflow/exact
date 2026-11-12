@@ -107,6 +107,9 @@ final class GpuModule {
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
     typealias BindAtFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, Double) -> UInt32
     var bindAt: BindAtFn?
+    typealias SizeFn = @convention(c) (UInt32, Float, Float) -> UInt32
+    /// The canvas's size in points, given before each bind (`Surface::size`).
+    var canvasSize: SizeFn?
     typealias RenderFn = @convention(c) (UInt32, Float, Float, Float, Double) -> UInt32
     typealias DirtyFn = @convention(c) (UInt32) -> UInt32
     typealias DestroyFn = @convention(c) (UInt32) -> Void
@@ -334,6 +337,7 @@ final class GpuModule {
         module.due = sym("gpu_due", DueFn.self)
         module.maxFps = sym("gpu_max_fps", WantsFn.self)
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)
+        module.canvasSize = sym("gpu_size", SizeFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)

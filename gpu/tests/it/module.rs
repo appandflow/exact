@@ -1187,3 +1187,52 @@ fn child_count_shrink_retires_each_index_exactly_once() {
     assert!(module.children_count(id, 0));
     assert_eq!(module.agent(id, ""), Some("[1, 2, 3, 0]".into()));
 }
+
+#[test]
+fn a_canvas_size_reaches_its_surface_and_a_non_size_is_refused() {
+    use exact_gpu::{wgpu, Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Sized(Vec<(f32, f32)>);
+    impl Surface for Sized {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn size(&mut self, width: f32, height: f32) -> bool {
+            self.0.push((width, height));
+            false
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some(format!("{:?}", self.0))
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("sized", 0, || Box::<Sized>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let id = module.create_headless("sized").unwrap();
+    assert!(module.size(id, 240., 360.));
+    for (width, height) in [
+        (0., 360.),
+        (240., -1.),
+        (f32::NAN, 360.),
+        (240., f32::INFINITY),
+    ] {
+        assert!(!module.size(id, width, height));
+        assert!(module.take_error().contains("not a canvas size"));
+    }
+    assert!(!module.size(id + 1, 240., 360.));
+    assert_eq!(module.take_error(), "no such canvas");
+    assert_eq!(module.agent(id, ""), Some("[(240.0, 360.0)]".into()));
+}

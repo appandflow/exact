@@ -679,6 +679,19 @@ impl Surfaces {
             }
             let c = self.canvases.get_mut(&update.view).unwrap();
             let values = update.arguments_json();
+            // The size first: a stamped bind may tick a new world, which frames
+            // itself for its canvas before its first tick (`Game::first_frame`).
+            if let Some(f) = host.kernel().node(update.view).map(|n| n.frame) {
+                let size = unsafe {
+                    abi.library
+                        .get::<unsafe extern "C" fn(u32, f32, f32) -> u32>(b"gpu_size")
+                };
+                if let (true, Ok(size)) = (f.width > 0. && f.height > 0., size) {
+                    if unsafe { size(c.id, f.width, f.height) } != 0 {
+                        host.log(format!("surface {}: {:?}", update.name, abi.error()));
+                    }
+                }
+            }
             let code = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, f64) -> u32>(
                     b"gpu_bind_at",
