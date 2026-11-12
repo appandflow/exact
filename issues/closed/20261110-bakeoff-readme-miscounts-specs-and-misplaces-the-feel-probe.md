@@ -1,6 +1,7 @@
 # The bake-off README says twelve specs and a `feel/` directory; there are fifteen and no such directory
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The README's table ties the specs to `pairs.json` instead of a count and names the feel probe by its path, `host/apple/feel/`.
 **Systems:** bench/bakeoff/README.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
