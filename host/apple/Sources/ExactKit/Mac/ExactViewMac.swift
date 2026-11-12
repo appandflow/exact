@@ -459,9 +459,11 @@ public final class ExactView: NSView {
 }
 
 extension ExactView: NSMenuItemValidation {
-    /// Start Speaking with text selected, Stop Speaking while it speaks.
+    /// Start Speaking with text selected, Stop Speaking while it speaks,
+    /// Copy with text selected or a root that hears it (`RootEdits`).
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(copy(_:)): rootEdits.hearer(#selector(NodeView.copy(_:))) != nil || !session.presenter.selection.selectedText().isEmpty
         case #selector(toggleFrameHealth(_:)): validateFrameHealthItem(item)
         case #selector(startSpeaking(_:)): !session.presenter.selection.selectedText().isEmpty
         case #selector(stopSpeaking(_:)): Self.speech.isSpeaking

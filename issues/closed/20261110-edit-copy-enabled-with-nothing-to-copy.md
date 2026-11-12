@@ -1,6 +1,7 @@
 # macOS: Edit ▸ Copy is enabled with a node focused, no text selected and no `copy` handler
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `NodeView` and `ExactView` validate Edit ▸ Copy: enabled while text is selected or a `copy` handler hears it (from the focused node up, or at the first root with nothing focused), as iOS's `canPerformAction` and `RootEdits` already answered.
 **Systems:** host/apple/Sources/ExactKit/Clipboard.swift, host/apple/Sources/ExactKit/Mac/ExactViewMac.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
