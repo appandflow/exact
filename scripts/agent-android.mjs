@@ -775,10 +775,15 @@ export function androidReleaseEnvironment(env = process.env, bundle = false) {
     ...(env.EXACT_KEYSTORE ? { EXACT_KEYSTORE: resolve(env.EXACT_KEYSTORE) } : {}) };
 }
 
-/** The GPU libraries an APK carries beside the app's (LLP 1009 D6): the primary module and one per `gpu.modules`
- * entry, each the crate's product (`built`). */
-export function gpuLibraries(app, built) {
-  return [...(app.hasGpu ? [built(app.crate('gpu'))] : []), ...gpuModules(app.manifest).map(({ name }) => built(app.crate(`gpu-${name}`)))];
+/** Whether an APK carries GPU libraries beside the app's (LLP 1009 D6): the primary module or a `gpu.modules` entry. */
+export const carriesGpu = (app) => app.hasGpu || gpuModules(app.manifest).length > 0;
+
+/** The app baked for the phone (`buildBake`), the GPU modules first, and each GPU library the bake built, at the
+ * path Cargo gave it: a crate's `[lib] name` names the file, and the bake records that name for the host to open. */
+export function bakeGpuLibraries(app, options, bake = buildBake) {
+  const libraries = [];
+  bake(app, 'linux', ANDROID_TARGET, { ...options, kind: 'android', prepareGpu: (product) => { libraries.push(product); return product; } });
+  return libraries;
 }
 
 /** Each GPU library copied into `jniLibs` under the name its bake recorded, where the host opens it, and the Gradle
@@ -807,10 +812,9 @@ export function buildApk(app, env, profile, writeLocks = false, bundle = false) 
   try { icons = androidIcons(app.manifest, app.dir, resolve(dirs.app, 'icons/res')); }
   catch (error) { for (const line of error.message.split('\n')) console.error(`${app.name}: ${line}`); return null; }
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
-  const gpu = gpuLibraries(app, built);
-  let out = null;
-  if (gpu.length) {
-    try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
+  let gpu = [], out = null;
+  if (carriesGpu(app)) {
+    try { gpu = bakeGpuLibraries(app, { profile, env }); }
     catch (error) { console.error(error.message); return null; }
     out = bakedOut(resolve(app.target, ANDROID_TARGET, profile, 'build'), crate);
   } else {
