@@ -307,7 +307,8 @@ action-param  = IDENT [ ":" type ] ;
 task          = "task" IDENT ( "mount" | gate ) block(schedule) ;
 gate          = "when" expr [ "key" "=" expr ] | "key" "=" expr ;
 schedule      = "every" "(" "frame" "," IDENT ")" NL
-              | ( "every" | "after" ) "(" expr "," IDENT { "," timer-option } ")" NL ;
+              | ( "every" | "after" ) "(" expr "," IDENT { "," timer-option } ")" NL
+              | "change" "(" IDENT ")" NL ;
 timer-option  = "wait" "=" ( "frame" | "update" | "scrollend" | "idle" )
               | ( "max" | "tolerance" ) "=" NUMBER ;  (* max needs wait=scrollend or idle; tolerance excludes wait *)
 sequence      = "sequence" IDENT ( "mount" | gate ) block(play) ;
@@ -356,8 +357,13 @@ re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
-a millisecond interval is a literal whole number of at least 1 (`after(1, …)` is the web's
-`setTimeout(f, 0)`: 0 would be due in the commit that armed it).
+a millisecond interval is a literal whole number of at least 1.
+A `change(action)` schedule requires `key=` and accepts no timer options. It queues
+one action after the first active commit, a changed key or a reopened gate. Pending
+changes coalesce, a closed gate cancels them, and a refused action waits for another
+key change or activation. The host applies each preceding commit before the action
+runs; the virtual clock need not move. Cycles through change actions and their
+trigger inputs are refused (`analyze-change-cycle`).
 
 A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
 runner plays it: the gate is a task's, and its body is exactly one

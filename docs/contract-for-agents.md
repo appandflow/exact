@@ -295,7 +295,7 @@ compile complete examples, parse authored tests, and check local links.
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
 | `mutation name as shape T [queue \| parallel]` | Root component | Optional reply slot for explicit sends |
 | `action name(args)` | Component | Event transaction; effects inferred |
-| `task name mount` / `task name when cond [key=expr]` | Root component | One timer/frame schedule, always or while `cond` holds |
+| `task name mount` / `task name when cond [key=expr]` | Root component | One timer/frame schedule or keyed change action, always or while `cond` holds |
 | `view` | Component | UI tree |
 
 Top-level declarations begin in column 1. Indent with spaces. Comments use `//`.
@@ -920,7 +920,7 @@ Choose the mechanism from its lifetime:
 | Writes a person may repeat before the first answers: a rename, a save | `mutation … parallel`: every send asked at once, each reply lands |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
-| Act when a sheet or route opens (scroll the chosen item into view, load its draft) | In the root, even when the sheet is a child component's view: `task reveal when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)` |
+| Act when a sheet or route opens (scroll the chosen item into view, load its draft) | In the root, even when the sheet is a child component's view: `task reveal when top(nav).name == "icons" key=top(nav).id` with `change(reveal)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | "Loading" for a new question, not for a refresh | `not current(resourceName)`: false while it shows its placeholder, an answer to other call arguments, or a value kept across `when`'s idleness; a refresh of the same arguments leaves it true |
 | Resource request failed without an answer | `failed(resourceOrMutationName)` |
@@ -3123,8 +3123,8 @@ JSON-LD. A page's own title and metas stay its `head` element's.
 
 ## Time, motion, graphics, and platform facts
 
-A root task has one `every(ms, action)`, `after(ms, action)`, or
-`every(frame, action)` entry, on the line under it:
+A root task has one `every(ms, action)`, `after(ms, action)`,
+`every(frame, action)`, or keyed `change(action)` entry, on the line under it:
 
 ```text
   task ticker mount
@@ -3137,6 +3137,27 @@ The clock moves in advances, and one advance commits at most 4,096 timer actions
 and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest is
 refused, what committed is kept, and the clock stays at the last one's time. A
 fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
+
+Use `change(action)` for work that must follow an input change, such as reading
+layout or issuing a host command:
+
+```text
+  task reveal when visible key=selectedId
+    change(reveal)
+```
+
+`key=` is required. The action runs once after the first committed state with an
+open gate, then once after each changed key or reopened gate. It runs in a separate
+commit after the host has applied the preceding commit, with no elapsed-time wait.
+Pending key changes coalesce: the action reads the latest committed state. Closing
+the gate cancels pending work. A refused action is spent until its key changes or
+its gate reopens; a refused input commit queues nothing. On the agent's clock,
+`clock settle` runs this work without advancing time. A reload starts fresh.
+The compiler rejects an action that can write or refresh its own trigger's inputs,
+including through derives, resource arguments, called actions, mutations or other
+change tasks (`analyze-change-cycle`). Keep pure computed values in `derive`.
+`change` takes no timer options; existing `after` and `every` schedules keep their
+elapsed-time behavior.
 
 A task with `when` (a gated task), such as
 `task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
@@ -3155,7 +3176,7 @@ gate is a bool and the key a string, number or bool; neither may read `performan
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`), a flight's frames
 (`when flying` with `every(frame, step)`) and a sheet's opening
-(`when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)`) are each
+(`when top(nav).name == "icons" key=top(nav).id` with `change(reveal)`) are each
 one gated task, and each is the root's: a child component declares none
 (`type-child-resource`), so a sheet a component draws has its task in the root.
 

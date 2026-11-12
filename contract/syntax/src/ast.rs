@@ -786,17 +786,17 @@ impl Stmt {
 }
 
 /// `task name mount` (or `when cond [key=expr]`, or `key=expr`) with
-/// `every(ms, action)`, `every(frame, action)` or `after(ms, action)`.
+/// `every(ms, action)`, `every(frame, action)`, `after(ms, action)` or keyed `change(action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
-    /// Whether the timer repeats or fires once.
+    /// The timer or keyed change schedule.
     pub kind: TaskKind,
     /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
     /// `None` for `mount` and for `key=` alone (`when true`).
     pub gate: Option<Expr>,
-    /// `key=expr`: a new key restarts the timer, as a new `for` key makes
+    /// `key=expr`: a new key restarts the timer or queues a change action, as a `for` key makes
     /// a new row (LLP 1092 D7).
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
@@ -817,6 +817,8 @@ pub enum TaskKind {
     /// `every(frame, action)`: fires once per presented frame (LLP 1073);
     /// the timer's expression is a placeholder `0`.
     Frame,
+    /// `change(action)`: once after activation or a changed key, without a delay.
+    Change,
 }
 
 /// A view node.

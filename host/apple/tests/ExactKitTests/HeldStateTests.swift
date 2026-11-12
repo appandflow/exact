@@ -504,6 +504,26 @@ final class HeldStateTests: XCTestCase {
     }
     #endif
 
+    @MainActor func testKeyedChangeReadsAppliedLayoutAndFocusesTheNewControl() throws {
+        let (session, p, _, _) = try booted("keyed-change")
+        defer { session.destroy() }
+        let agent = Agent(session: session)
+        let from = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
+        let start = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "change-start" })
+        func slots() -> [String: Any] {
+            let state = (try? JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8))) as? [String: Any]
+            return state?["slots"] as? [String: Any] ?? [:]
+        }
+        XCTAssertNil(agent.tap(["id": Int(start.id)])["error"])
+        XCTAssertNil(agent.clock(["land": true])["error"])
+        XCTAssertEqual(slots()["changeSeen"] as? Double, 80)
+        XCTAssertEqual(slots()["changeAt"] as? Double, from)
+        waitFor("the change's focus command reaches the newly applied input") { slots()["changeFocused"] as? Bool == true }
+        XCTAssertNil(agent.clock(["to": from + 10])["error"])
+        XCTAssertEqual(slots()["changeSeen"] as? Double, 160, "the timer's size receipt must be applied before the change reads it")
+        XCTAssertEqual(slots()["changeAt"] as? Double, from + 5)
+    }
+
     private func hold(_ app: ExactApp, _ session: ExactSession, _ id: UInt32, revision: Int, plan: String? = nil) {
         let node = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8))) as? [String: Any] ?? [:]
         var frame: [String: Any] = ["kind": "hold", "revision": revision, "hold": ["site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "state": "active"]]

@@ -214,7 +214,7 @@ impl<D: DataSource> Host<D> {
             self.runner.canvas_frame();
             // A commit that sent stops the jump: the next send would drop
             // its reply (LLP 1016 D5).
-            let stopped = a.error.is_some() || a.stopped_on_request || step >= to;
+            let stopped = a.error.is_some() || a.stopped_on_request || a.needs_apply || step >= to;
             let failed = error.or(a.error.map(|e| format!("{e:?}")));
             (batch, error) = self.commit_tree(&a.receipts, failed, batch);
             if let Some(e) = self.arrange_after_commit(&mut batch) {

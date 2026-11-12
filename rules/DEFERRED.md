@@ -1621,9 +1621,16 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   gate changes. Consumers: ledger2's undo toast, chat's and chat2's bots and
   toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
   no work at rest while nothing is showing. Take: none offered. Still out:
-  a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
+  an implicit reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
   component-scoped and action-started timers, computed intervals, a gate
   that reads `performanceNow()`, and cancelling a queued send.
+  **Expanded (Charlie, 2026-11-12, request to implement Hirbod's open issues;
+  #177):** a root `task NAME [when COND] key=EXPR` may use `change(action)`
+  to queue one action after the host applies the current commit, without a timer
+  delay. It runs on first activation, coalesces pending key changes and refuses
+  cycles through its trigger inputs. This unblocks layout reads and host commands
+  following state or resource changes in the dice game. Take waived by the request;
+  implicit dependency tracking, component reactions and another value graph stay out.
   **Expanded (user request, 2026-10-27/28; LLP 1147):** root timers accept `wait=frame|update|scrollend|idle` and bounded scroll or idle waits, or `tolerance=` for wake coalescing. The request explicitly includes all host platforms and deterministic coverage; the follow-up admits wake tolerance. Computed intervals, combined waits and per-node timer callbacks remain deferred.
   **Qualification deferred (user request, 2026-10-28; LLP 1147):** actual energy-savings measurements, including iPhone battery and full-app Mac power measurements, and timer qualification with GPU rendering. Timer correctness, cancellation, admission instrumentation and `wait=update` performance remain in scope; Windows JavaScript qualification is not deferred.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
