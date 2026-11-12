@@ -788,15 +788,15 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.givenHeaders[50], ["Your presets"])
         // The pull-down's heading, as `rows(of:)` records it.
         p.menus.givenHeaders[50]?.insert("Presets")
-        func menu(_ labels: [String], scrolls: Bool = false) -> UIScrollView {
-            let list = UIScrollView(frame: CGRect(x: 20, y: 100, width: 200, height: CGFloat(labels.count) * 40))
+        func menu(_ labels: [String], scrolls: Bool = false, rowHeight h: CGFloat = 40) -> UIScrollView {
+            let list = UIScrollView(frame: CGRect(x: 20, y: 100, width: 200, height: CGFloat(labels.count) * h))
             for (i, label) in labels.enumerated() {
-                let cell = UIView(frame: CGRect(x: 0, y: CGFloat(i) * 40, width: 200, height: 40))
+                let cell = UIView(frame: CGRect(x: 0, y: CGFloat(i) * h, width: 200, height: h))
                 cell.isAccessibilityElement = true
                 cell.accessibilityLabel = label
                 list.addSubview(cell)
             }
-            list.contentSize = CGSize(width: 200, height: CGFloat(labels.count + (scrolls ? 4 : 0)) * 40)
+            list.contentSize = CGSize(width: 200, height: CGFloat(labels.count + (scrolls ? 4 : 0)) * h)
             window.addSubview(list)
             return list
         }
@@ -822,6 +822,26 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual(try agent.shownRow(node(53), of: node(50), in: window).get().minY, 140)
         XCTAssertTrue(why(agent.shownRow(node(54), of: node(50), in: window)).contains("scrolled out"))
         slice.removeFromSuperview()
+        // Thirty rows and a title that all read "A", then B: such a menu
+        // reads in exponentially many ways, and is matched without listing
+        // them. B is the one place every reading agrees on; an A is not.
+        var many = Array(repeating: GivenRow(node(51), title: "A", subtitle: nil), count: 30) + [GivenRow(node(53), title: "B", subtitle: nil)]
+        many[20] = GivenRow(node(54), title: "A", subtitle: nil)
+        p.menus.given[50] = many
+        p.menus.givenHeaders[50] = ["A"]
+        let started = Date()
+        let scrolled = menu(Array(repeating: "A", count: 25) + ["B"], scrolls: true, rowHeight: 20)
+        XCTAssertTrue(agent.menuShown(in: window))
+        XCTAssertEqual(try agent.shownRow(node(53), of: node(50), in: window).get().minY, 600, "B, the last row of the slice")
+        XCTAssertTrue(why(agent.shownRow(node(54), of: node(50), in: window)).contains("places"), "the 21st A, at any of several")
+        XCTAssertTrue(why(agent.shownRow(node(51), of: node(50), in: window)).contains("scrolled out"), "the first A: 25 shown hold no 30 rows before B")
+        scrolled.removeFromSuperview()
+        let whole = menu(Array(repeating: "A", count: 31) + ["B"], rowHeight: 20)
+        XCTAssertTrue(agent.menuShown(in: window))
+        XCTAssertEqual(try agent.shownRow(node(53), of: node(50), in: window).get().minY, 720, "B, past the title")
+        XCTAssertTrue(why(agent.shownRow(node(51), of: node(50), in: window)).contains("places"), "the first A, or the title before it")
+        whole.removeFromSuperview()
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "matched in polynomial time")
     }
 }
 #endif
