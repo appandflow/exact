@@ -13,6 +13,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **A search field pushes a header button off a phone.** Under `--chrome agent`,
+  the authored header lays out in the page. A search field with no width constraint
+  can keep its intrinsic width even when the heading has `flex=1`. Give the field
+  `flex=1 min-width=0` so it takes the space left by the heading and buttons.
+  (Agents, 402-point iOS simulator, 2026-11-12.)
+
 - **A layout-region inset is not a page gutter.** The web can report zero
   for `env(-exact-readable-content-corners-inset-left)` and its right-edge equivalent. Give reading
   content ordinary padding inside the safe region, and bound a full-width
