@@ -3135,10 +3135,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts; on iOS every
   viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
-  sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
-  that scrolls is measured by its scroll extent, so give its rows
-  `flex-shrink: 0`. The route does
-  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  sheet's, so `min-height: 100vh` opens the sheet at its maximum. A scrolling
+  route is measured the same way; its rows can keep the default `flex-shrink: 1`.
+  The route does not pad `env(safe-area-inset-bottom)`: UIKit adds that band
+  below the detent.
   iOS sizes a sheet, and so does the web on a window narrower than 900 px: it opens
   at the same height, its foot on the window's, and stays there (no grabber, no
   drag between heights), with the bottom safe area below, and a route pushed inside

@@ -667,7 +667,7 @@ impl<D: DataSource> Host<D> {
             }
             if self.layout_withheld || old.is_none_or(|m| m.content != node.mirror.content) {
                 if let Some((w, h)) = node.mirror.content {
-                    staged.content(node.header.id, w, h);
+                    staged.content(node.header.id, w, h, None);
                 }
             }
         }

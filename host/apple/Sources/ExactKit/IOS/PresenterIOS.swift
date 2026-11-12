@@ -1224,6 +1224,7 @@ package final class Presenter {
             applyFrame(v, CGRect(x: op.x, y: op.y, width: op.w, height: op.h))
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
+            v.fitContentHeight = op.fitHeight.map { CGFloat($0) }
             v.fitScroll()
             if v.props["navigationDetent"] != nil { modals.contentChanged(v) }
         case .fieldContent: applyContentGeometry(v, op)

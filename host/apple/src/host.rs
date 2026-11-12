@@ -162,6 +162,7 @@ pub(crate) struct Mirror {
     children: Box<[ViewId]>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
+    fit_height: Option<f32>,
     flow: Box<[exact_kernel::FlowShape]>,
     /// Boxed: only a text field has one, and inline it was a quarter of the mirror.
     field_content: Option<Box<crate::batch::ContentBox>>,

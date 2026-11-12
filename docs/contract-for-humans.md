@@ -1420,9 +1420,9 @@ nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and thei
 `s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
 smaller and larger side), as CSS's `vh` is the viewport's and never a
 dialog's, so `height: 50vh` is half the screen at any sheet height
-and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
-laid out in the sheet, so give its rows `flex-shrink: 0`. On a window narrower
-than 900 pixels the web's sheet opens at the height iOS opens it at, its foot on
+and `min-height: 100vh` opens the sheet at its tallest. A scrolling route is
+measured the same way; its rows can keep the default `flex-shrink: 1`. On a window
+narrower than 900 pixels the web's sheet opens at the height iOS opens it at, its foot on
 the window's, and stays there: it has no grabber and is not dragged between
 heights. A route pushed inside it stays in it at that height, as in UIKit's
 sheet. It is the tallest sheet in a window under 480 pixels tall (UIKit's compact
