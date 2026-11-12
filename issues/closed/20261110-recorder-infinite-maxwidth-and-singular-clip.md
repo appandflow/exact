@@ -1,6 +1,7 @@
 # The recorder draws `fillText` with an infinite `maxWidth` and applies `clip()` under a singular matrix; Chrome does neither
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both recorders draw no text when `maxWidth` is not finite and record no `clip`, with or without a path, under a matrix that cannot be inverted, as Chrome does.
 **Systems:** canvas/src/context/text.rs, canvas/src/context.rs, canvas/src/path2d.rs, canvas/recorder.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
