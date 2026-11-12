@@ -561,11 +561,11 @@ function typedFields(before, after, touched, states) {
 export const draftFields = (before, after, touched, states) => typedFields(before, after, touched, states).drafts;
 
 /** The root states the app says `persist` on (LLP 1116 D5), by name, read from app.contract: only the root's may, and the root is
- * its first component. A trailing comment is not read. */
+ * its first component. A state may name its type (`state saved: string[] = [] persist`). A trailing comment is not read. */
 export function persistedStates(dir) {
   const names = [];
   for (const line of (readIn(dir, 'app.contract') ?? '').split('\n')) {
-    const m = line.replace(/\s\/\/.*$/, '').match(/^\s*state\s+([A-Za-z_][\w-]*)\s*=.*\spersist\s*$/);
+    const m = line.replace(/\s\/\/.*$/, '').match(/^\s*state\s+([A-Za-z_][\w-]*)\s*(?::[^=]*)?=.*\spersist\s*$/);
     if (m) names.push(m[1]);
   }
   return names;

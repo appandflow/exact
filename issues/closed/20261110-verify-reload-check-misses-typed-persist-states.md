@@ -1,6 +1,7 @@
 # verify's reload check does not see a `persist` state declared with its type
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `persistedStates` reads a `persist` state declared with its type (`state note: string = "" persist`) as it reads one without, so verify's reload check compares it.
 **Systems:** scripts/verify.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
