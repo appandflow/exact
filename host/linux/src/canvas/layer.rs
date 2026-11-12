@@ -84,6 +84,18 @@ impl Layers {
         self.rows.insert(id, std::mem::take(&mut self.row));
     }
 
+    /// Row `id` is drawn this frame: its layers are alive while the reader
+    /// draws it, which it does until the next stream even when the row is
+    /// freed in this one (a row the painter could not keep: one with a
+    /// hosted field or a caret is recorded again at every paint and freed
+    /// at its end). Counted by the row's freeing alone, such a row's layers
+    /// were freed in the stream that set them, and got no tracks.
+    pub(super) fn row_drawn(&mut self, id: u32) {
+        if let Some(layers) = self.rows.get(&id) {
+            self.frame.extend(layers);
+        }
+    }
+
     /// Kept row `id` is gone.
     pub(super) fn row_free(&mut self, id: u32) {
         self.rows.remove(&id);
@@ -220,5 +232,65 @@ impl Recorder {
             .map(|(id, (key, base))| (*id, *key, *base))
             .collect();
         ALIVE.with(|a| *a.borrow_mut() = list);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{stream::end, Recorder, Shape, FINISHED};
+    use super::*;
+    use crate::paint::Backend;
+
+    /// One frame: a row drawing a layer (kept, or freed at the frame's end
+    /// as a row with a hosted field is); the stream's layer ops and the
+    /// layers alive after it.
+    fn frame(r: &mut Recorder, keep: bool) -> (Vec<u32>, Vec<u32>) {
+        r.begin(400.0, 400.0, 1.0);
+        r.row_begin(7, (0.0, 0.0), None);
+        assert!(r.layer_begin(
+            42,
+            Transform::identity(),
+            (10.0, 10.0),
+            [0., 0., 1., 0., 1., 0., 0.]
+        ));
+        r.fill(
+            &Shape::rect((0.0, 0.0, 20.0, 20.0)),
+            [255, 0, 0, 255],
+            Transform::identity(),
+        );
+        r.layer_end();
+        let row = r.row_end((0.0, 0.0, 20.0, 20.0));
+        r.row_draw(row, (0.0, 0.0), (0.0, 0.0, 20.0, 20.0));
+        if !keep {
+            r.row_free(row);
+        }
+        let _ = r.finish();
+        let ops = FINISHED.with(|f| f.borrow_mut().take()).unwrap();
+        let mut layers = Vec::new();
+        let mut at = 0;
+        while at < ops.len() {
+            if matches!(ops[at], LAYER_SET | LAYER_FREE) {
+                layers.push(ops[at]);
+            }
+            at = end(&ops, at).unwrap();
+        }
+        let alive = ALIVE.with(|a| a.borrow().iter().map(|l| l.0).collect());
+        (layers, alive)
+    }
+
+    /// A layer in a row the painter cannot keep stays alive while the
+    /// reader draws that row: it gets its tracks, and it is not freed in the
+    /// stream that sets it (issue #83's spinner beside hosted fields).
+    #[test]
+    fn a_layer_in_a_row_freed_after_its_frame_lives_while_the_row_is_drawn() {
+        for keep in [true, false] {
+            let mut r = Recorder::new();
+            let (ops, alive) = frame(&mut r, keep);
+            assert_eq!(ops, [LAYER_SET], "kept: {keep}");
+            assert_eq!(alive.len(), 1, "kept: {keep}");
+            // Recorded again the next frame: the same layer, not set again.
+            let (ops, again) = frame(&mut r, keep);
+            assert_eq!((ops, again), (vec![], alive), "kept: {keep}");
+        }
     }
 }

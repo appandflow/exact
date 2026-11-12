@@ -21,7 +21,7 @@ use crate::paint::Presented;
 use exact_kernel::motion::MotionSync;
 use exact_kernel::svg::Paint;
 use exact_kernel::{Dimension, NodeKey, NodeType};
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 use exact_motion::{Easing, StepPosition};
 use exact_motion::{PlayedCurve, PlayedTransition, Property, Value};
 use exact_runner::DataSource;
@@ -29,6 +29,37 @@ use exact_runner::DataSource;
 #[cfg(test)]
 #[path = "lower_tests.rs"]
 mod tests;
+
+/// Set in a layer key ([`spinner_layer`]): Material's indeterminate
+/// indicator a `progress` draws, apart from the node's own layer.
+const SPINNER: u64 = 1 << 63;
+
+/// The layer key of `key`'s indeterminate indicator (`paint/control.rs`).
+pub(crate) fn spinner_layer(key: NodeKey) -> u64 {
+    node_u64(key) | SPINNER
+}
+
+/// Whether a layer key is an indicator's ([`spinner_layer`]).
+#[cfg(target_os = "android")]
+pub(crate) fn is_spinner(layer: u64) -> bool {
+    layer & SPINNER != 0
+}
+
+/// Material's indeterminate indicator, as Compose's `CircularProgressIndicator`
+/// moves it, in cycles of 1332 ms: the head runs 290° ahead of the tail in
+/// the first half, the tail catches up in the second, each along
+/// `cubic-bezier(0.4, 0, 0.2, 1)`, and under both the arc turns 286°.
+/// Compose steps it on 216° at each cycle's start, which is where the cycle
+/// before ended (286° + 290° = 576° is 216° and a whole turn), so the
+/// reader's rotation runs on without a jump.
+#[cfg(any(target_os = "android", test))]
+const SPINNER_CYCLE: f64 = 1.332;
+const SPINNER_HEAD: f64 = 290.0;
+#[cfg(any(target_os = "android", test))]
+const SPINNER_TURN: f64 = 286.0;
+/// The dash phase, as a fraction of the circle, of the arc at its longest:
+/// what a still frame draws.
+pub(crate) const SPINNER_REST: f64 = 1.0 - SPINNER_HEAD / 360.0;
 
 /// The properties a reader plays.
 pub(crate) const LOWERED: [Property; 8] = [
@@ -66,11 +97,11 @@ const TX: u32 = 1;
 const TY: u32 = 2;
 #[cfg(target_os = "android")]
 const SCALE: u32 = 3;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 const ROTATE: u32 = 4;
 #[cfg(target_os = "android")]
 const R: u32 = 5;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 const DASH: u32 = 6;
 #[cfg(target_os = "android")]
 const CX: u32 = 7;
@@ -436,6 +467,83 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+impl<D: DataSource> Host<D> {
+    /// The tracks of an indicator's layer ([`spinner_layer`]) that start
+    /// now, for its reader ([`spinner_words`]); none when the reader plays
+    /// no layers (the agent's held clock, `EXACT_LOWER=0`), which then shows
+    /// the arc still.
+    #[cfg(target_os = "android")]
+    pub(crate) fn spinner_tracks(&self) -> Vec<u32> {
+        if !self.lowering {
+            return Vec::new();
+        }
+        spinner_words(self.engine.now())
+    }
+}
+
+/// An indicator's tracks from `start` (seconds on the reader's clock), as
+/// [`Host::layer_tracks`] writes a node's.
+///
+/// The arc is the visible stretch of a dash (`paint/control.rs`): a phase
+/// of `1 - sweep / 360` circles. The layer's rotation is where the tail is:
+/// the turns so far plus the tail's own run. In a cycle's first half that
+/// is the turn alone, linear; in the second it adds the tail's eased run,
+/// and a linear and an eased curve over the same span sum to one cubic
+/// Bézier whose output control points are theirs, weighted. Five cycles
+/// turn 5 × 576° = 2880°, eight whole turns, so the rotation track repeats
+/// every five.
+#[cfg(any(target_os = "android", test))]
+fn spinner_words(start: f64) -> Vec<u32> {
+    let mut out = Vec::new();
+    let ease = Easing::CubicBezier {
+        x1: 0.4,
+        y1: 0.0,
+        x2: 0.2,
+        y2: 1.0,
+    };
+    let header = |out: &mut Vec<u32>, code: u32, cycles: f64| {
+        out.push(code);
+        f(out, start);
+        out.extend([0, 0]);
+        f(out, 0.0);
+        f(out, SPINNER_CYCLE * cycles);
+        f(out, f64::INFINITY);
+        out.extend([0, 3, 0]);
+    };
+    let shortest = SPINNER_REST;
+    header(&mut out, DASH, 1.0);
+    out.push(3);
+    for (offset, value) in [(0.0, 1.0), (0.5, shortest), (1.0, 1.0)] {
+        f(&mut out, offset);
+        f(&mut out, value);
+        easing(&mut out, Some(&ease));
+    }
+    let half = SPINNER_TURN / 2.0;
+    let second = half + SPINNER_HEAD;
+    let catch = Easing::CubicBezier {
+        x1: 0.4,
+        y1: 0.4 * half / second,
+        x2: 0.2,
+        y2: (0.2 * half + SPINNER_HEAD) / second,
+    };
+    header(&mut out, ROTATE, 5.0);
+    out.push(11);
+    for cycle in 0..5 {
+        let at = cycle as f64 * (SPINNER_TURN + SPINNER_HEAD);
+        let offset = cycle as f64 / 5.0;
+        f(&mut out, offset);
+        f(&mut out, at);
+        easing(&mut out, Some(&Easing::Linear));
+        f(&mut out, offset + 0.1);
+        f(&mut out, at + half);
+        easing(&mut out, Some(&catch));
+    }
+    f(&mut out, 1.0);
+    f(&mut out, 5.0 * (SPINNER_TURN + SPINNER_HEAD));
+    out.push(0);
+    out
+}
+
 /// A played transition's length, seconds.
 fn played_seconds(t: &PlayedTransition) -> f64 {
     match &t.curve {
@@ -516,12 +624,12 @@ fn node_u64(key: NodeKey) -> u64 {
     (key.generation as u64) << 32 | key.index as u64
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn f(out: &mut Vec<u32>, v: f64) {
     out.push((v as f32).to_bits());
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn easing(out: &mut Vec<u32>, e: Option<&Easing>) {
     let cubic = |out: &mut Vec<u32>, c: [f64; 4]| {
         out.push(1);
