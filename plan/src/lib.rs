@@ -1017,6 +1017,7 @@ impl Plan {
         interface: (&str, &str),
         displayed: bool,
         binds: &[&str],
+        agent: &str,
     ) {
         let row = ViewsRow {
             tag: self.intern(tag),
@@ -1024,6 +1025,7 @@ impl Plan {
             package: self.intern(interface.1),
             displayed,
             binds: self.intern(&binds.join(" ")),
+            agent: self.intern(agent),
         };
         self.views.push(row);
     }
