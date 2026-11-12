@@ -76,6 +76,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         search.node === node && headers.contains { $0.search === node } && usable(node) && search.focus()
     }
     private var order: [NSToolbarItem.Identifier] = []
+    /// What a customizable bar has offered since it was made: an item not
+    /// among these joins the bar; one among these the person may have taken out.
+    private var offered: Set<NSToolbarItem.Identifier> = []
     private let authoredInk = ToolbarInkMac()
     /// Back (BackMac.swift): the way back from the pushed route, pressing
     /// what iOS's Back button presses. A standard item, so its size, glass
@@ -681,7 +684,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if let old = items[node.id], (old is NSMenuToolbarItem) != menu { items.removeValue(forKey: node.id); symbols.removeValue(forKey: node.id) }
             // In a customizable toolbar an item's identity is its button's `id`, which lasts across launches.
             let identity = customizing != nil ? "exact.item.\(node.props["id"] ?? "")" : "exact.\(menu ? "menu" : "command").\(node.id)"
-            let item = items[node.id] ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init(identity)) : NSToolbarItem(itemIdentifier: .init(identity)))
+            // A button mounted again under the same `id` takes the item the
+            // customized bar still holds: that item is the person's, by identity.
+            let kept = customizing == nil ? nil : toolbar.items.first { $0.itemIdentifier.rawValue == identity && ($0 is NSMenuToolbarItem) == menu }
+            let item = items[node.id] ?? kept ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init(identity)) : NSToolbarItem(itemIdentifier: .init(identity)))
             items[node.id] = item
             item.tag = Int(node.id)
             if let item = item as? NSMenuToolbarItem {
@@ -755,11 +761,24 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             + nextOrder + appItems.map(\.itemIdentifier)
         if customizing != nil {
             // The arrangement is the person's, which AppKit makes from the
-            // default order or their saved one as the bar is attached: only
-            // an item the app no longer has leaves it.
+            // default order or their saved one as the bar is attached: an
+            // item the app no longer has leaves it, and one the app comes to
+            // have (Back after a first push, an app's own item) joins it after
+            // its nearest predecessor in the default order. One the person
+            // took out stays out while the app keeps offering it.
             let allowed = Set(toolbarAllowedItemIdentifiers(toolbar))
             for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) where !allowed.contains(toolbar.items[index].itemIdentifier) {
                 toolbar.removeItem(at: index)
+            }
+            if installing {
+                offered = Set(order)
+            } else {
+                offered.formIntersection(allowed)
+                for (index, identifier) in order.enumerated() where !offered.contains(identifier) {
+                    let after = order[..<index].reversed().lazy.compactMap { id in toolbar.items.lastIndex { $0.itemIdentifier == id } }.first
+                    toolbar.insertItem(withItemIdentifier: identifier, at: after.map { $0 + 1 } ?? 0)
+                    offered.insert(identifier)
+                }
             }
         } else {
             // Keep both toolbar and command objects stable through route changes.

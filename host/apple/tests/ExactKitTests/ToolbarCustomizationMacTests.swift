@@ -73,6 +73,29 @@ final class ToolbarCustomizationMacTests: XCTestCase {
         XCTAssertEqual(identifiers(other), identifiers(window))
     }
 
+    func testAButtonMountedAgainKeepsItsItemAndANewOneJoinsTheBar() throws {
+        let (p, window) = fixture(ids: ["compose", "share", "delete"])
+        let toolbar = try XCTUnwrap(window.toolbar)
+        let shared = try XCTUnwrap(toolbar.items.first { $0.itemIdentifier.rawValue == "exact.item.share" })
+        // Share's button is made again under its id: the bar's item is bound to the new node and still answers.
+        p.apply(wireBatch([["op": "destroy", "id": 12]] + button(21, "Share", "square.and.arrow.up", ["id": "share"])
+            + [["op": "children", "id": 2, "ids": [11, 21, 13]]]))
+        let item = try XCTUnwrap(toolbar.items.first { $0.itemIdentifier.rawValue == "exact.item.share" })
+        XCTAssertTrue(item === shared, "the person's item, by identity")
+        XCTAssertEqual(item.tag, 21)
+        XCTAssertTrue(p.toolbar.validateToolbarItem(item))
+        XCTAssertEqual(identifiers(window), ["exact.item.compose", "exact.item.share", "exact.item.delete"])
+        // The person takes Delete out; then the app adds Flag after it: Flag joins after Share, Delete stays out.
+        toolbar.removeItem(at: 2)
+        p.apply(wireBatch(button(15, "Flag", "flag", ["id": "flag"]) + [["op": "children", "id": 2, "ids": [11, 21, 13, 15]]]))
+        XCTAssertEqual(identifiers(window), ["exact.item.compose", "exact.item.share", "exact.item.flag"])
+        // Flag goes and comes again: it joins again, as an item the app newly offers.
+        p.apply(wireBatch([["op": "children", "id": 2, "ids": [11, 21, 13]]]))
+        XCTAssertEqual(identifiers(window), ["exact.item.compose", "exact.item.share"])
+        p.apply(wireBatch([["op": "children", "id": 2, "ids": [11, 21, 13, 15]]]))
+        XCTAssertEqual(identifiers(window), ["exact.item.compose", "exact.item.share", "exact.item.flag"])
+    }
+
     func testAHiddenButtonKeepsItsPlaceHidden() throws {
         let (p, window) = fixture(ids: ["compose", "share", "delete"])
         p.apply(wireBatch([["op": "style", "id": 12, "style": ["display": "none"]], ["op": "props", "id": 12, "set": ["hidden": "true"]]]))
