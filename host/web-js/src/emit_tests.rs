@@ -87,6 +87,28 @@ fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     assert!(!js.contains("about:blank"), "{js}");
 }
 
+/// LLP 1055 D4: the SVG namespace follows the node type, so a module's custom
+/// element named `felt-…` is HTML and the glue attaches its factory.
+#[test]
+fn only_an_svg_node_is_created_in_the_svg_namespace() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      felt-haptics enabled=true\n      svg viewBox=\"0 0 10 10\"\n        defs\n          filter id=\"soft\"\n            feGaussianBlur stdDeviation=2\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let maker = |tag: &str| {
+        let at = js
+            .find(&format!(",\"{tag}\","))
+            .unwrap_or_else(|| panic!("no {tag}: {js}"));
+        let open = js[..at].rfind('=').unwrap();
+        js[open + 1..at].split('(').next().unwrap().to_string()
+    };
+    assert_eq!(maker("felt-haptics"), "h", "{js}");
+    for tag in ["svg", "filter", "feGaussianBlur"] {
+        assert_eq!(maker(tag), "hs", "{tag}: {js}");
+    }
+}
+
 struct Answers;
 impl DataSource for Answers {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {

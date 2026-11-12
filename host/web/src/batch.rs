@@ -264,44 +264,21 @@ impl Batch {
     }
 
     /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`,
-    /// plus `"ns":"http://www.w3.org/2000/svg"` for an SVG element (LLP 1055 D4).
+    /// plus `"ns":"http://www.w3.org/2000/svg"` when `svg`, an SVG node by its
+    /// type (LLP 1055 D4). The tag cannot say: a module's custom element may
+    /// be named `felt-haptics` (LLP 1024 D1).
     pub fn create(
         &mut self,
         id: u32,
         tag: &str,
+        svg: bool,
         props: &[(&str, String)],
         css: &str,
         handlers: &[&str],
     ) {
         let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
         quote(tag, &mut s);
-        if matches!(
-            tag,
-            "svg"
-                | "g"
-                | "path"
-                | "polyline"
-                | "polygon"
-                | "circle"
-                | "ellipse"
-                | "line"
-                | "rect"
-                | "defs"
-                | "linearGradient"
-                | "radialGradient"
-                | "stop"
-                | "use"
-                | "symbol"
-                | "clipPath"
-                | "marker"
-                | "mask"
-                | "pattern"
-                | "foreignObject"
-                | "filter"
-                | "text"
-                | "tspan"
-        ) || tag.starts_with("fe")
-        {
+        if svg {
             s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
         }
         s.push_str(",\"props\":");

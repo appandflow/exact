@@ -1335,7 +1335,8 @@ impl<D: DataSource> Host<D> {
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-        batch.create(id, tag, &pairs, &css, &handlers);
+        let svg = node.node_type == NodeType::Svg || node.node_type.is_svg_element();
+        batch.create(id, tag, svg, &pairs, &css, &handlers);
         self.mirror.insert(
             id,
             Mirror {

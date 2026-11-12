@@ -123,6 +123,7 @@ fn cases() -> Vec<(&'static str, String)> {
                 b.create(
                     7,
                     "a",
+                    false,
                     &[
                         ("href", "/x".into()),
                         ("data-exact-on", "click input".into()),
@@ -134,7 +135,11 @@ fn cases() -> Vec<(&'static str, String)> {
         ),
         (
             "create-bare",
-            one(|b| b.create(4_294_967_295, "div", &[], "", &[])),
+            one(|b| b.create(4_294_967_295, "div", false, &[], "", &[])),
+        ),
+        (
+            "create-svg",
+            one(|b| b.create(5, "feGaussianBlur", true, &[], "", &[])),
         ),
         ("head", one(|b| b.head(&head))),
         ("head-bare", one(|b| b.head(&bare))),
@@ -351,6 +356,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "create-bare",
         r#"{"ops":[{"op":"create","id":4294967295,"tag":"div","props":{},"css":"","handlers":[]}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "create-svg",
+        r#"{"ops":[{"op":"create","id":5,"tag":"feGaussianBlur","ns":"http://www.w3.org/2000/svg","props":{},"css":"","handlers":[]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "head",
