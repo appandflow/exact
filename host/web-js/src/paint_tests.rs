@@ -780,3 +780,152 @@ fn a_symbols_own_tint_is_its_colour_here_too_a_states_as_well() {
         );
     }
 }
+
+/// #49: a bound `animation` stacks on the web where the kernel's does. Which
+/// word is the name is the shorthand's grammar's: `1s EASE` plays no
+/// keyframes `EASE`, in any case, and a value the grammar refuses plays none.
+#[test]
+fn bound_animation_stacking_matches_kernel() {
+    let plan = contract::compile(
+        "keyframes EASE\n  from opacity=0\n  to opacity=1\nkeyframes linear\n  to opacity=0\nkeyframes spin\n  to rotate=360\nkeyframes Fade\n  to color=\"red\"\nkeyframes infs\n  to scale=2\ncomponent App\n  state a = \"spin 1s\"\n  view\n    view animation=a\n",
+    )
+    .unwrap();
+    let mut values: Vec<String> = [
+        "1s EASE",
+        "EASE 1s",
+        "ease EASE 1s",
+        "1s ease EASE",
+        "1s Ease-In EASE",
+        "'EASE' 1s",
+        "\"EASE\" 1s",
+        "spin 1s",
+        "SPIN 1s",
+        "Fade 1s",
+        "Fade 1s, spin 2s",
+        "Fade 1s, ease 1s",
+        "linear 1s",
+        "LINEAR 1s",
+        "ease linear 1s",
+        "ease LINEAR 1s",
+        "none",
+        "NONE",
+        "none spin 1s",
+        "forwards NONE 1s",
+        "spin 1s 2s 3s",
+        "spin 1.s",
+        "spin 1s infs",
+        "infs 1s",
+        "1s INFS",
+        "spin -1s",
+        "spin 1s -1",
+        "spin 1e999s",
+        "spin 1s 1e999s",
+        "spin 1s 1e999",
+        "spin 1s steps(0)",
+        "spin 1s STEPS(2, Jump-None)",
+        "spin 1s steps(1, jump-none)",
+        "spin 1s cubic-bezier(2, 0, 1, 1)",
+        "spin 1s Cubic-Bezier(0, 0, 1, 1)",
+        "spin 1s linear(0, 1)",
+        "spin 1s -exact-spring()",
+        "spin 1s spring(1)",
+        "spin 1s INFINITE ALTERNATE BOTH PAUSED",
+        "spin 1s infinite infinite",
+        "spin 1s 2 3",
+        "spin 1s reverse normal",
+        "spin,",
+        ", spin 1s",
+        "inherit 1s",
+        "INHERIT spin 1s",
+        "spin\t1s",
+        "spin  1s",
+        " spin 1s ",
+        "1s",
+        "",
+        "--spin 1s",
+        "-2s spin",
+        "_spin 1s",
+        "spin 1s ease 2s infinite alternate both running extra",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for count in [8, 9] {
+        values.push(vec!["spin 1s"; count].join(", "));
+    }
+    values.push(["Fade 1s"; 9].join(", "));
+    let (_, expression) = crate::paint::binding(
+        &plan,
+        NodeType::View,
+        &BindingsRow {
+            kind: BindingKind::Style,
+            id: StyleId::Animation as u16,
+            expr: Default::default(),
+            written: true,
+        },
+    )
+    .unwrap();
+    let script = format!(
+        "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==0)));",
+        serde_json::to_string(&values).unwrap()
+    );
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = bun_command()
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    let rules: BTreeMap<&str, exact_motion::Keyframes> = plan
+        .keyframes
+        .iter()
+        .map(|k| {
+            (
+                plan.str(k.name),
+                exact_motion::Keyframes::parse(plan.str(k.css)).unwrap(),
+            )
+        })
+        .collect();
+    let mut disagreements = Vec::new();
+    for (value, actual) in values.into_iter().zip(actual) {
+        // The native path: the row's grammar, then the plan's keyframes by name.
+        let mut style = exact_kernel::StyleProps::default();
+        if let Ok(mut list) = exact_motion::Animations::parse(&value) {
+            list.resolve(|name| rules.get(name));
+            style.animation = list;
+            style.mask.set(StyleId::Animation);
+        }
+        let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
+            style: &style,
+            props: &Default::default(),
+            kind: NodeType::View,
+            root: false,
+            parent_display: None,
+            beside_exclusion: false,
+            holds_layout_transition: false,
+        });
+        if actual != own.policy {
+            disagreements.push(format!("{value:?}: JS {actual}, kernel {}", own.policy));
+        }
+    }
+    assert!(
+        disagreements.is_empty(),
+        "{} disagreements:\n{}",
+        disagreements.len(),
+        disagreements.join("\n")
+    );
+}

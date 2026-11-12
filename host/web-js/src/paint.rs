@@ -221,6 +221,7 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 })
                 .collect();
             let predicate = include_str!("../transition-paint.js")
+                .replace("WORDS", include_str!("../motion-words.js"))
                 .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap())
                 .replace("MAX_TRANSITIONS", &exact_motion::MAX_TRANSITIONS.to_string())
                 .replace("MAX_LINEAR_STOPS", &exact_motion::easing::MAX_LINEAR_STOPS.to_string());
@@ -248,13 +249,14 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 })
                 .map(|k| plan.str(k.name))
                 .collect();
-            return flag(
-                POLICY,
-                &format!(
-                    "v!=null&&String(v).split(/[\\s,]+/).some(n=>{}.includes(n))",
-                    serde_json::to_string(&names).unwrap()
-                ),
-            );
+            // Which word is the name is the shorthand's grammar's to say:
+            // `1s EASE` plays no keyframes `EASE` (LLP 1055 D5).
+            let predicate = include_str!("../animation-paint.js")
+                .replace("WORDS", include_str!("../motion-words.js"))
+                .replace("NAMES", &serde_json::to_string(&names).unwrap())
+                .replace("MAX_ANIMATIONS", &exact_motion::MAX_ANIMATIONS.to_string())
+                .replace("MAX_LINEAR_STOPS", &exact_motion::easing::MAX_LINEAR_STOPS.to_string());
+            return flag(POLICY, &format!("({predicate})(v)"));
         }
         // A number token's name (LLP 1121 D7) stands for its value: one that
         // varies may be below 1; a name no token has is unset, 1.
