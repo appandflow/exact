@@ -1,6 +1,7 @@
 # An SVG gradient that repeats more than 256 times across its shape is drawn as one stretched period on Apple
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Past 256 periods, a repeating or reflecting linear or concentric radial gradient is evaluated at each pixel of its raster from one period drawn into a strip, so every period draws.
 **Systems:** host/apple/Sources/ExactKit/SvgPaint.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
