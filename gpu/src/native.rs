@@ -349,6 +349,13 @@ pub fn buffer(id: u32, out: &mut [u32; 3]) -> *mut c_void {
     }
 }
 
+/// Whether canvas `id` has a complete frame [`buffer`] has not published
+/// yet: a presenter keeps calling it until it has.
+#[cfg(target_os = "android")]
+pub fn unpublished(id: u32) -> bool {
+    with(|m| m.unpublished(id)).unwrap_or(false)
+}
+
 /// Drop canvas `id`'s window target; its state stays.
 pub fn detach(id: u32) {
     with(|m| m.detach(id));
@@ -817,6 +824,11 @@ macro_rules! module {
         #[cfg(target_os = "android")]
         #[no_mangle]
         pub unsafe extern "C" fn gpu_buffer(id: u32, out: *mut u32) -> *mut ::std::ffi::c_void { $crate::native::buffer(id, &mut *out.cast::<[u32; 3]>()) }
+
+        /// Whether the canvas has a complete frame `gpu_buffer` has not published yet.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub extern "C" fn gpu_unpublished(id: u32) -> u32 { u32::from($crate::native::unpublished(id)) }
 
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]
