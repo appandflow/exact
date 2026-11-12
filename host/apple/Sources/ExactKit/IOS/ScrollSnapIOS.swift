@@ -64,14 +64,19 @@ extension NodeView {
     /// and off once it no longer does where it was on. A scroller with no
     /// snap is left as a hatch may have set it.
     func pageIfPager(_ scrollView: UIScrollView) {
+        #if !os(tvOS) // tvOS's scroll views have no paging: focus moves them
         guard let sv = scrollView as? ScrollView, sv === self.scrollView else { return }
         let pages = pagesByViewport(sv)
         if pages || sv.snapPages { sv.isPagingEnabled = pages; sv.snapPages = pages }
+        #endif
     }
 
     /// A paging drag ended: UIKit sends no `scrollViewWillEndDragging` then,
     /// so its `scrolldragend` is sent here, with the page the rule picks.
     func pagedDragEnded(_ scrollView: UIScrollView) {
+        #if os(tvOS)
+        return
+        #else
         guard scrollView === self.scrollView, scrollView.isPagingEnabled else { return }
         let pan = scrollView.panGestureRecognizer.velocity(in: scrollView)
         let velocity = CGPoint(x: -pan.x / 1000, y: -pan.y / 1000), reach = 0.99 / (1 - 0.99), at = scrollView.contentOffset
@@ -80,6 +85,7 @@ extension NodeView {
         // The rule's rest is recorded either way, for a re-snap after layout (`resnap`).
         guard handlers.contains("scrolldragend") else { return }
         presenter?.scrollDrag(id, (velocity, CGPoint(x: rest.x, y: rest.y + scrollTopInset(scrollView))))
+        #endif
     }
 
     /// UIKit's deceleration for a scroller: its fast rate where a snap is
