@@ -28,6 +28,612 @@ const GEOMETRY: &str = "bw: number, bh: number, pw: number, ph: number";
 const RELEASE: &str = "x: number, y: number, scale: number, vx: number, vy: number, vs: number";
 
 #[test]
+fn an_ineligible_transform_target_is_named_with_its_repair() {
+    let src = source("transformgeometry", GEOMETRY, "receive", "\"photo\"")
+        .replace(" box-sizing=\"border-box\"", "");
+    let (plan, warnings) = contract::compile_warned(&src);
+    let runner = Runner::boot(
+        plan.unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let handle = runner.kernel().find_by_test_id("handle")[0];
+    assert_eq!(runner.kernel().transform_drag_binding(handle), None);
+    let warning = warnings
+        .iter()
+        .find(|w| w.id == "lower-transform-drag-ineligible")
+        .unwrap_or_else(|| panic!("missing transform eligibility warning: {warnings:?}"));
+    assert!(warning.is_warning());
+    assert_eq!(warning.span.line, 9);
+    assert!(warning.message.contains("target `photo`"), "{warning}");
+    assert!(
+        warning.message.contains("box-sizing=\"border-box\""),
+        "{warning}"
+    );
+}
+
+fn eligibility_source(clip: &str, target: &str) -> String {
+    source("transformgeometry", GEOMETRY, "receive", "\"photo\"")
+        .replace(
+            "column overflow=\"hidden\"",
+            &format!("column id=\"viewport\" {clip}"),
+        )
+        .replace(
+            "width=\"100%\" height=\"100%\" box-sizing=\"border-box\"",
+            target,
+        )
+}
+
+fn under(src: &str, parent: &str) -> String {
+    let (component, view) = src.split_once("  view\n").unwrap();
+    let indented: String = view.lines().map(|line| format!("  {line}\n")).collect();
+    format!("{component}  view\n    {parent}\n{indented}")
+}
+
+const FULL: &str = "width=\"100%\" height=\"100%\" box-sizing=\"border-box\"";
+const CLIP: &str = "overflow=\"hidden\"";
+const ELIGIBILITY: &str = "lower-transform-drag-ineligible";
+
+/// Compare the warning with the kernel's source proof, without needing a host gesture.
+fn eligibility(src: &str, binds: bool) -> Vec<contract::CompileError> {
+    let (plan, warnings) = contract::compile_warned(src);
+    let runner = Runner::boot(
+        plan.unwrap_or_else(|e| panic!("{e}\n{src}")),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let handle = runner.kernel().find_by_test_id("handle")[0];
+    assert_eq!(
+        runner.kernel().transform_drag_binding(handle).is_some(),
+        binds,
+        "{src}"
+    );
+    warnings
+        .into_iter()
+        .filter(|w| w.id == ELIGIBILITY)
+        .collect()
+}
+
+#[test]
+fn static_transform_geometry_failures_name_the_target_or_clip_and_repair() {
+    for (clip, target, label, repair) in [
+        (
+            CLIP.into(),
+            FULL.replace("width=\"100%\"", "width=200"),
+            "target `photo`",
+            "width=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("height=\"100%\"", "height=\"90%\""),
+            "target `photo`",
+            "height=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("width=\"100%\"", "width=\"calc(100% - 1px)\""),
+            "target `photo`",
+            "width=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("height=\"100%\"", "height=\"100vh\""),
+            "target `photo`",
+            "height=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("width=\"100%\" ", ""),
+            "target `photo`",
+            "width=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("height=\"100%\" ", ""),
+            "target `photo`",
+            "height=\"100%\"",
+        ),
+        (
+            CLIP.into(),
+            FULL.replace("border-box", "content-box"),
+            "target `photo`",
+            "box-sizing=\"border-box\"",
+        ),
+        (
+            "".into(),
+            FULL.into(),
+            "clip `viewport`",
+            "overflow-x=\"hidden\"",
+        ),
+        (
+            "overflow-x=\"hidden\"".into(),
+            FULL.into(),
+            "clip `viewport`",
+            "overflow-y=\"hidden\"",
+        ),
+        (
+            "overflow=\"auto\"".into(),
+            FULL.into(),
+            "clip `viewport`",
+            "overflow-x=\"hidden\"",
+        ),
+        (
+            "overflow=\"hidden visible\"".into(),
+            FULL.into(),
+            "clip `viewport`",
+            "overflow-y=\"hidden\"",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} padding-left=1"),
+            "target `photo`",
+            "padding=0",
+        ),
+        (
+            format!("{CLIP} padding=\"0 1%\""),
+            FULL.into(),
+            "clip `viewport`",
+            "padding=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} border=\"1px solid\""),
+            "target `photo`",
+            "border-width=0",
+        ),
+        (
+            format!("{CLIP} border-top=\"1px solid\""),
+            FULL.into(),
+            "clip `viewport`",
+            "border-width=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} margin=\"0 -1px\""),
+            "target `photo`",
+            "margin=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} margin=\"auto\""),
+            "target `photo`",
+            "margin=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} inset=1"),
+            "target `photo`",
+            "inset=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} left=\"env(safe-area-inset-left)\""),
+            "target `photo`",
+            "inset=0",
+        ),
+        (
+            format!("{CLIP} padding=\"calc(10% - 10px)\""),
+            FULL.into(),
+            "clip `viewport`",
+            "padding=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} transform-origin=\"0% 50%\""),
+            "target `photo`",
+            "transform-origin=\"50% 50%\"",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} scale=0"),
+            "target `photo`",
+            "scale=1",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} rotate=10"),
+            "target `photo`",
+            "rotate=0",
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} translate=\"10% 0px\""),
+            "target `photo`",
+            "pixel translation",
+        ),
+        (
+            format!("{CLIP} scale=2"),
+            FULL.into(),
+            "clip `viewport`",
+            "scale=1",
+        ),
+        (
+            format!("{CLIP} translate=\"1px\""),
+            FULL.into(),
+            "clip `viewport`",
+            "identity transform",
+        ),
+    ] {
+        let src = eligibility_source(&clip, &target);
+        let warnings = eligibility(&src, false);
+        assert!(
+            warnings.iter().any(|w| w.message.contains(label)
+                && w.message.contains(repair)
+                && w.span.line == if label.starts_with("clip") { 8 } else { 9 }),
+            "expected {label}: {repair}; {warnings:?}\n{src}"
+        );
+        assert!(warnings.iter().all(|w| w.is_warning()));
+    }
+}
+
+#[test]
+fn eligible_transform_styles_follow_shorthand_overrides_and_effective_insets() {
+    for (clip, target) in [
+        (CLIP.into(), FULL.into()),
+        (
+            CLIP.into(),
+            format!("{FULL} scale=2 translate=\"-12px 3px\""),
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} padding=\"0 0 0 1px\" padding-left=0"),
+        ),
+        (CLIP.into(), format!("{FULL} margin=\"0%\" inset=\"auto\"")),
+        (
+            CLIP.into(),
+            format!("{FULL} border-width=3 border-style=\"hidden\""),
+        ),
+        (
+            format!("{CLIP} border-width=3 border-style=\"none\""),
+            FULL.into(),
+        ),
+        (
+            CLIP.into(),
+            format!("{FULL} border=\"1px solid\" border-width=0"),
+        ),
+        (
+            "overflow=\"auto\" overflow-x=\"hidden\" overflow-y=\"hidden\"".into(),
+            FULL.into(),
+        ),
+        ("overflow=\"hidden hidden\"".into(), FULL.into()),
+        (
+            format!("{CLIP} padding=0 margin=2"),
+            format!("{FULL} padding=0"),
+        ),
+    ] {
+        let src = eligibility_source(&clip, &target);
+        assert!(eligibility(&src, true).is_empty(), "{src}");
+    }
+    for (own, binds) in [("", false), ("box-sizing=\"border-box\"", true)] {
+        let src = format!(
+            "style Photo\n  box-sizing=\"content-box\"\n{}",
+            eligibility_source(
+                CLIP,
+                &format!("width=\"100%\" height=\"100%\" class=Photo {own}")
+            )
+        );
+        let warnings = eligibility(&src, binds);
+        assert_eq!(warnings.is_empty(), binds, "{warnings:?}");
+    }
+}
+
+#[test]
+fn transform_geometry_is_checked_independently_of_scroll_ancestors() {
+    for (clip, target, repair, binds) in [
+        (CLIP, FULL.to_string(), "", true),
+        (
+            CLIP,
+            FULL.replace(" box-sizing=\"border-box\"", ""),
+            "border box",
+            false,
+        ),
+        (
+            CLIP,
+            FULL.replace("width=\"100%\"", "width=200"),
+            "width=\"100%\"",
+            false,
+        ),
+        ("", FULL.to_string(), "clip `viewport`", false),
+        (CLIP, format!("{FULL} inset=1"), "inset=0", false),
+        (
+            "overflow=\"hidden\" padding=1",
+            FULL.to_string(),
+            "padding=0",
+            false,
+        ),
+    ] {
+        let src = eligibility_source(clip, &target);
+        for src in [
+            under(&src, "scroll height=300"),
+            src.replace(
+                "        column testId",
+                "        scroll height=300\n          column testId",
+            ),
+        ] {
+            let warnings = eligibility(&src, binds);
+            if binds {
+                assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+            } else {
+                assert!(
+                    warnings.iter().any(|w| w.message.contains(repair)),
+                    "{warnings:?}\n{src}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_diagnostics_preserve_view_defaults_in_dialogs() {
+    for (target, binds) in [
+        (FULL.to_string(), true),
+        (FULL.replace(" box-sizing=\"border-box\"", ""), false),
+    ] {
+        let src = eligibility_source(CLIP, &target);
+        for src in [
+            under(&src, "dialog"),
+            src.replace("column id=\"viewport\"", "dialog id=\"viewport\""),
+        ] {
+            let warnings = eligibility(&src, binds);
+            if binds {
+                assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+            } else {
+                assert!(
+                    warnings.iter().any(|w| w.message.contains("target `photo`")
+                        && w.message.contains("box-sizing=\"border-box\"")),
+                    "{warnings:?}\n{src}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_diagnostics_check_dialog_and_control_path_rows() {
+    for parent in ["dialog", "button appearance=\"none\"", "list height=300"] {
+        for (row, repair, warns) in [
+            ("display=\"none\"", "show it", true),
+            ("rotate=10", "rotate=0", true),
+            ("inert=true", "inert=false", true),
+            ("disabled=true", "disabled=false", true),
+            ("inert=(value == 0)", "", false),
+            ("rotate=(value == 0 ? 10 : 0)", "", false),
+        ] {
+            let src = under(
+                &eligibility_source(CLIP, FULL),
+                &format!("{parent} id=\"outer\" {row}"),
+            );
+            let warnings = eligibility(&src, false);
+            if warns {
+                assert!(
+                    warnings
+                        .iter()
+                        .any(|w| w.message.contains("path element `outer`")
+                            && w.message.contains(repair)
+                            && w.span.line == 8),
+                    "{warnings:?}\n{src}"
+                );
+            } else {
+                assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_targets_and_clips_must_be_views() {
+    for tag in ["scroll", "button appearance=\"none\""] {
+        for (element, label) in [("viewport", "clip `viewport`"), ("photo", "target `photo`")] {
+            let src = eligibility_source("overflow=\"hidden\" height=300", FULL).replace(
+                &format!("column id=\"{element}\""),
+                &format!("{tag} id=\"{element}\""),
+            );
+            let warnings = eligibility(&src, false);
+            assert!(
+                warnings.iter().any(|w| w.message.contains(label)
+                    && w.message.contains("plain View")
+                    && w.message.contains("`column` or `box`")
+                    && w.span.line == if element == "viewport" { 8 } else { 9 }),
+                "{warnings:?}\n{src}"
+            );
+            if element == "viewport" {
+                assert!(
+                    warnings
+                        .iter()
+                        .any(|w| w.message.contains("overflow=\"hidden\"")
+                            && w.message.contains("padding=0")
+                            && w.message.contains("border-width=0")),
+                    "{warnings:?}\n{src}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_root_transform_target_needs_a_clipping_parent() {
+    let src = eligibility_source(CLIP, FULL);
+    let (component, view) = src.split_once("  view\n").unwrap();
+    let view: String = view
+        .lines()
+        .skip(1)
+        .map(|line| format!("{}\n", line.strip_prefix("  ").unwrap()))
+        .collect();
+    let src = format!("{component}  view\n{view}");
+    let warnings = eligibility(&src, false);
+    assert!(
+        warnings.iter().any(|w| w.message.contains("target `photo`")
+            && w.message.contains("clipping parent")
+            && w.message.contains("`column` or `box`")
+            && w.message.contains("overflow=\"hidden\"")
+            && w.span.line == 8),
+        "{warnings:?}\n{src}"
+    );
+}
+
+#[test]
+fn transform_diagnostics_apply_class_overrides_before_rewriting_transforms() {
+    for (class, own, binds, warns) in [
+        ("rotate(10deg)", "\"none\"", true, false),
+        ("none", "\"rotate(10deg)\"", false, true),
+        (
+            "rotate(10deg)",
+            "(value == 0 ? \"none\" : \"rotate(10deg)\")",
+            true,
+            false,
+        ),
+        (
+            "none",
+            "(value == 0 ? \"rotate(10deg)\" : \"none\")",
+            false,
+            false,
+        ),
+    ] {
+        for (element, label) in [
+            ("id=\"photo\"", "target `photo`"),
+            ("id=\"viewport\"", "clip `viewport`"),
+            ("testId=\"handle\"", "`column` on the handle's path"),
+        ] {
+            let src = format!(
+                "style Photo\n  transform=\"{class}\"\n{}",
+                eligibility_source(CLIP, FULL)
+                    .replace(element, &format!("{element} class=Photo transform={own}"))
+            );
+            let warnings = eligibility(&src, binds);
+            if warns {
+                assert!(
+                    warnings
+                        .iter()
+                        .any(|w| w.message.contains(label) && w.message.contains("rotation")),
+                    "{warnings:?}\n{src}"
+                );
+            } else {
+                assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_diagnostics_name_statically_inert_or_disabled_path_elements() {
+    for prop in ["inert", "disabled"] {
+        for (element, label) in [
+            ("id=\"photo\"", "target `photo`"),
+            ("id=\"viewport\"", "clip `viewport`"),
+            ("testId=\"handle\"", "`column` on the handle's path"),
+        ] {
+            for (value, binds, warns) in [
+                ("true", false, true),
+                ("false", true, false),
+                ("blocked", false, false),
+            ] {
+                let src = eligibility_source(CLIP, FULL)
+                    .replace(
+                        "  state value = 0\n",
+                        "  state value = 0\n  state blocked = true\n",
+                    )
+                    .replace(element, &format!("{element} {prop}={value}"));
+                let warnings = eligibility(&src, binds);
+                if warns {
+                    assert!(
+                        warnings.iter().any(|w| w.message.contains(label)
+                            && w.message.contains(&format!("{prop}=false"))),
+                        "{warnings:?}\n{src}"
+                    );
+                } else {
+                    assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_diagnostics_check_authored_rows_below_controls_and_collections() {
+    for parent in [
+        "button appearance=\"none\"",
+        "button",
+        "link",
+        "list height=300",
+    ] {
+        for (target, binds, repair) in [
+            (FULL.to_string(), true, None),
+            (
+                FULL.replace("width=\"100%\"", "width=200"),
+                false,
+                Some("width=\"100%\""),
+            ),
+            (
+                FULL.replace(" box-sizing=\"border-box\"", ""),
+                false,
+                Some("box-sizing=\"border-box\""),
+            ),
+        ] {
+            let src = under(&eligibility_source(CLIP, &target), parent);
+            let warnings = eligibility(&src, binds);
+            if let Some(repair) = repair {
+                assert!(
+                    warnings
+                        .iter()
+                        .any(|w| w.message.contains("target `photo`") && w.message.contains(repair)),
+                    "{warnings:?}\n{src}"
+                );
+            } else {
+                assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+            }
+        }
+    }
+}
+
+#[test]
+fn transform_diagnostics_assume_no_defaults_below_a_grouped_list() {
+    // The grouped sheet writes rows under the author's, so an unwritten row
+    // there is not the CSS default.
+    for target in [
+        FULL.to_string(),
+        FULL.replace(" box-sizing=\"border-box\"", ""),
+    ] {
+        let src = eligibility_source(CLIP, &target);
+        let src = under(&under(&src, "section"), "list appearance=\"auto\"");
+        let warnings = eligibility(&src, false);
+        assert!(warnings.is_empty(), "{warnings:?}\n{src}");
+    }
+}
+
+#[test]
+fn dynamic_transform_values_are_not_rejected_from_their_initial_values() {
+    let src = eligibility_source(
+        "overflow=clipping padding=pad border-width=pad border-style=line",
+        "width=size height=size box-sizing=sizing padding=pad border-width=pad border-style=line margin=offset inset=offset scale=factor translate=shift transform-origin=origin",
+    ).replace("  state value = 0\n", "  state value = 0\n  state clipping = \"hidden\"\n  state size = \"100%\"\n  state sizing = \"border-box\"\n  state pad = 0\n  state line = \"none\"\n  state offset = 0\n  state factor = 1\n  state shift = \"0px\"\n  state origin = \"50% 50%\"\n");
+    assert!(eligibility(&src, true).is_empty());
+    let invalid = src.replace(
+        "state sizing = \"border-box\"",
+        "state sizing = \"content-box\"",
+    );
+    assert!(eligibility(&invalid, false).is_empty());
+    // A length relative to a font size is resolved only when the app runs.
+    let relative = eligibility_source(CLIP, &format!("{FULL} padding=\"1rem\""));
+    let (result, warnings) = contract::compile_warned(&relative);
+    result.unwrap();
+    assert!(warnings.iter().all(|w| w.id != ELIGIBILITY), "{warnings:?}");
+    let choice = format!(
+        "style Good\n  box-sizing=\"border-box\"\nstyle Bad\n  box-sizing=\"content-box\"\n{}",
+        eligibility_source(
+            CLIP,
+            "width=\"100%\" height=\"100%\" class=(value == 0 ? Good : Bad)"
+        )
+    );
+    assert!(eligibility(&choice, true).is_empty());
+}
+
+#[test]
 fn transform_handlers_compile_bake_roundtrip_and_export_old_and_new_ordinals() {
     for (event, params, ordinal) in [
         ("transformgeometry", GEOMETRY, 15),
@@ -230,13 +836,13 @@ fn transform_choice(condition: &str) -> String {
     format!("if {condition}\n  column transformDragFor=\"outer\" transformgeometry=geometry transformrelease=release\nelse\n  column transformDragFor=\"inner\" transformgeometry=geometry transformrelease=release")
 }
 
+/// The lines of the ownership warnings `src` earns; a target that cannot bind
+/// earns its own warning, which these cases do not count.
 fn owner_warnings(src: &str) -> Vec<u32> {
     super::warnings::warned(src)
         .into_iter()
-        .map(|(id, line)| {
-            assert_eq!(id, OWNERS, "{src}");
-            line
-        })
+        .filter(|(id, _)| id == OWNERS)
+        .map(|(_, line)| line)
         .collect()
 }
 

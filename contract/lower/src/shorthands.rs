@@ -759,7 +759,7 @@ pub(crate) fn longhands(name: &str) -> Vec<String> {
 pub fn style_values(name: &str, value: &Expr) -> Result<Vec<(StyleId, Expr)>, LowerError> {
     match tags::attr_valued(name, value) {
         Some(tags::AttrTarget::Styles(rows)) => {
-            let split = if rows.len() > 1 {
+            let split = if crate::values::four_sided(rows) {
                 sides(name, value)?
             } else {
                 None

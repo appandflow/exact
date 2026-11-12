@@ -1082,17 +1082,19 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   longer exists (declared in LLP 1005). Fix: keep the pressed node across the state
   change (change its contents, not which branch renders it).
   **Candidate diagnostic:** the runtime could log a dropped up in development.
-- **A `transformDragFor` handle does nothing.** No pinch or drag follows and
-  nothing is logged. Cause: the binding resolves only for a strict shape and
-  otherwise returns none silently (`kernel/src/transform.rs`; only the agent's
-  transform-drag command reports "no photo binding"). The target, the handle's one
-  ancestor with that `id`, needs
+- **A `transformDragFor` handle does nothing.** The binding resolves only for a
+  strict shape (`kernel/src/transform.rs`). The compiler warns with
+  `lower-transform-drag-ineligible` when it can prove a target, clip or path
+  violates that shape, naming the element and repair. Dynamic values and host
+  geometry remain runtime checks; the agent's transform-drag command reports
+  "no photo binding" when those fail. The target, the handle's one
+  ancestor with that `id`, must be a plain view (`column` or `box`) with
   `width="100%" height="100%" box-sizing="border-box"`, no padding, border,
-  margin or offsets, and its direct parent needs `overflow="hidden"` on both axes
-  and no padding or border; every other ancestor must be untransformed. (Signal
-  Clone, build 11: the photo viewer lacked `overflow="hidden"` and
-  `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
-  could name the failed condition.
+  margin or offsets. Its direct parent must also be a plain view, with
+  `overflow="hidden"` on both axes and no padding or border. The handle and every
+  ancestor must be displayed, enabled and non-inert; all except the target must
+  be untransformed. (Signal Clone, build 11: the photo viewer lacked
+  `overflow="hidden"` and `box-sizing`.)
 
 - **A field normalized while the person types fights the typing.** A `task … when
   people != "${count}"` (or a timer, or an `input` action) that rewrites an
