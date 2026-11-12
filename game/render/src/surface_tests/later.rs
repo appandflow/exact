@@ -215,13 +215,28 @@ fn switched(gpu: &Gpu) -> (Switched, f64) {
     (s, now)
 }
 
+/// Holds `s`'s upload worker until dropped, on an unwind too: the surface's
+/// drop joins the worker, which would wait forever on a hold left set.
+struct Held(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Held {
+    fn new(s: &Switched) -> Self {
+        let hold = s.uploads.as_ref().unwrap().hold.clone();
+        hold.store(true, std::sync::atomic::Ordering::Release);
+        Self(hold)
+    }
+}
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 #[test]
 fn after_the_first_frame_a_look_still_uploading_keeps_the_world_ticking() {
     let Some(gpu) = gpu() else { return };
     let (mut s, mut now) = switched(&gpu);
     // Green's upload is held on the worker.
-    let hold = s.uploads.as_ref().unwrap().hold.clone();
-    hold.store(true, std::sync::atomic::Ordering::Release);
+    let hold = Held::new(&s);
     s.bind(&[Value::Number(1u32.into())], None).unwrap();
     let tick = s.sim().unwrap().world().tick();
     for _ in 0..5 {
@@ -235,7 +250,7 @@ fn after_the_first_frame_a_look_still_uploading_keeps_the_world_ticking() {
         "the world ticks during the upload"
     );
     assert!(!prepared(&s).contains(&"green.tex"));
-    hold.store(false, std::sync::atomic::Ordering::Release);
+    drop(hold);
     let mut hues = Vec::new();
     while hues.last() != Some(&1) {
         assert!(hues.len() < 500, "{hues:?}");
@@ -257,4 +272,40 @@ fn a_replacement_texture_delivered_live_replaces_the_one_drawn() {
         hues.push(hue(&fixture::render(&gpu, &mut s, &live(now)).unwrap().0));
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+}
+
+#[test]
+fn an_older_upload_that_fails_after_its_replacement_arrives_is_dropped() {
+    let Some(gpu) = gpu() else { return };
+    let (mut s, mut now) = switched(&gpu);
+    let written = s.uploads.as_ref().unwrap().written.clone();
+    let before = written.load(std::sync::atomic::Ordering::Acquire);
+    // A: a BC7 texture, which this device (no BC feature) refuses to write.
+    let refused = exact_game::bin::to_vec(&exact_game::asset::TextureData {
+        width: 4,
+        height: 4,
+        format: exact_game::asset::TextureFormat::Bc7,
+        mips: vec![vec![0; 16], vec![0; 16], vec![0; 16]],
+        srgb: true,
+        ..Default::default()
+    });
+    let held = Held::new(&s);
+    s.asset("red.tex", Ok(&refused));
+    now += 20.;
+    fixture::render(&gpu, &mut s, &live(now)).unwrap();
+    drop(held);
+    // A's failure is back from the worker before B, its replacement, arrives.
+    while written.load(std::sync::atomic::Ordering::Acquire) == before {
+        std::thread::yield_now();
+    }
+    s.asset("red.tex", Ok(&solid([0, 0, 255])));
+    let mut hues = Vec::new();
+    while hues.last() != Some(&2) {
+        assert!(s.error().is_none(), "{:?}", s.error());
+        assert!(hues.len() < 500, "the replacement never drew: {hues:?}");
+        now += 20.;
+        hues.push(hue(&fixture::render(&gpu, &mut s, &live(now)).unwrap().0));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(s.sim().unwrap().asset_failures().next().is_none());
 }

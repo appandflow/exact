@@ -195,9 +195,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             sim.asset_prepared(&name, result);
         }
         // Uploads that finished install first: under the agent's clock every one
-        // sent, so an inline upload of a newer delivery below replaces them.
+        // sent, so an inline upload of a newer delivery below replaces them. A
+        // name delivered again since its upload was sent (now in `textures` or
+        // waiting) has that upload superseded first: its result, a failure
+        // included, never reaches the world.
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(uploads) = &mut self.uploads {
+            for name in textures.keys().chain(self.waiting.keys()) {
+                uploads.supersede(name);
+            }
             for (name, result) in uploads.finished(!later.live) {
                 // A name retired since it was sent has nothing to install; a
                 // replacement of one already prepared does (`Uploads` keeps

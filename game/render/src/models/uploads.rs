@@ -28,6 +28,9 @@ pub(crate) struct Uploads {
     /// While set, the worker takes no job: a test's upload still in flight.
     #[cfg(test)]
     pub(crate) hold: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Uploads the worker has finished and sent back.
+    #[cfg(test)]
+    pub(crate) written: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Uploads {
@@ -41,6 +44,10 @@ impl Uploads {
         let hold = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         #[cfg(test)]
         let held = hold.clone();
+        #[cfg(test)]
+        let written = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        #[cfg(test)]
+        let done_count = written.clone();
         let worker = std::thread::Builder::new()
             .name("exact texture uploads".into())
             .spawn(move || {
@@ -55,6 +62,8 @@ impl Uploads {
                     if finished.send((job.name, job.serial, written)).is_err() {
                         break;
                     }
+                    #[cfg(test)]
+                    done_count.fetch_add(1, std::sync::atomic::Ordering::Release);
                 }
             })
             .ok()?;
@@ -67,6 +76,8 @@ impl Uploads {
             in_flight: 0,
             #[cfg(test)]
             hold,
+            #[cfg(test)]
+            written,
         })
     }
     /// Queue `data` for `name`. A worker that has stopped hands the texture
@@ -90,6 +101,10 @@ impl Uploads {
         self.latest.insert(name, serial);
         self.in_flight += 1;
         Ok(())
+    }
+    /// `name` was delivered again: its upload in flight installs nothing.
+    pub(crate) fn supersede(&mut self, name: &str) {
+        self.latest.remove(name);
     }
     /// The uploads finished since the last call, in the order sent, each
     /// name's latest delivery only; with `wait`, every upload sent, waiting
