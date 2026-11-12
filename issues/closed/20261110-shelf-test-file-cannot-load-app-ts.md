@@ -1,6 +1,7 @@
 # `bun test apps/shelf` fails four of its six tests: `app.ts` imports `@exact/nfc`, whose package entry is its manifest
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already fixed by b54817eb, which mocks `@exact/nfc` before `app.test.ts` imports the data module; `bun test apps/shelf/app.test.ts` at c2e61991 passes all 7 tests.
 **Systems:** apps/shelf/app.test.ts, apps/shelf/app.ts, packages/nfc/package.json
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
