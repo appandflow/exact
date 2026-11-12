@@ -1,0 +1,171 @@
+#if os(iOS)
+import UIKit
+import XCTest
+@testable import ExactKit
+
+/// LLP 1035.001 D11 (#109): a `dialog` whose author painted its surface is
+/// the author's box in HTML's top layer, not the platform's sheet or alert:
+/// presented full screen over whatever is presented, a sheet included, with
+/// no transition of UIKit's, laid out as written and centred in the window,
+/// over UIKit's dimming; `closedby="any"` closes it on a tap outside its
+/// box; a removal with an exit keeps it shown until the exit ends.
+/// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
+final class DialogTopLayerIOSTests: XCTestCase {
+    /// A touch at a point of a view.
+    private final class At: UITouch {
+        let at: CGPoint, on: UIView
+        init(_ at: CGPoint, on: UIView) { self.at = at; self.on = on; super.init() }
+        override var view: UIView? { on }
+        override func location(in view: UIView?) -> CGPoint { on.convert(at, to: view) }
+    }
+    private var window: UIWindow?
+    private var kept: Presenter?
+
+    override func tearDown() {
+        if let p = kept, let controller = window?.rootViewController {
+            spin { !p.menus.inTransition }
+            p.menus.reset()
+            spin { controller.presentedViewController == nil && !p.menus.inTransition }
+        }
+        window?.isHidden = true
+        window = nil
+        kept = nil
+        super.tearDown()
+    }
+
+    private func spin(_ seconds: TimeInterval = 3, until done: () -> Bool) {
+        let end = Date().addingTimeInterval(seconds)
+        while !done(), Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+    }
+
+    private func native(_ id: Int, _ props: [String: String], press: Bool, y: Double) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control", "handlers": press ? ["press"] : [],
+          "props": ["type": "button", "accessibilityRole": "button"].merging(props) { $1 }, "style": ["appearance": "auto"]],
+         ["op": "frame", "id": id, "x": 20.0, "y": y, "w": 80.0, "h": 40.0]]
+    }
+    private static let painted: [String: Any] = ["background_color": [20, 23, 29, 255], "border_radius": 30.0, "written": ["background_color", "border_radius"]]
+
+    /// A page (1) holding `form` (2), a bare dialog with a field, which is a
+    /// sheet; `ask` (30), a painted dialog 300 by 180 of a text, Clear (32)
+    /// and Cancel (33), the alert's shape; and `card` (40), painted, not of
+    /// the alert's shape.
+    /// The scene a presentation completes in, only in its window.
+    private var scene: UIWindowScene? { UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first }
+    private func page(_ scene: UIWindowScene, ask: [String: String] = [:]) -> (Presenter, UIViewController) {
+        let p = Presenter(), controller = UIViewController()
+        kept = p
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [32: "Clear", 33: "Cancel", 42: "Done"][id]; return f }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        p.viewport.frame = controller.view.bounds
+        controller.view.addSubview(p.viewport)
+        self.window = window
+        let closes = ["commandfor": "ask", "command": "close"]
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "page"], "handlers": []],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "create", "id": 2, "kind": "view", "handlers": [], "props": ["id": "form", "semanticTag": "dialog"]],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 300.0, "w": 300.0, "h": 180.0],
+            ["op": "create", "id": 3, "kind": "input", "props": ["id": "name"], "handlers": ["input"]],
+            ["op": "frame", "id": 3, "x": 20.0, "y": 20.0, "w": 260.0, "h": 40.0],
+            ["op": "create", "id": 30, "kind": "view", "handlers": [], "style": Self.painted,
+             "props": ["id": "ask", "semanticTag": "dialog", "accessibilityRole": "alertdialog", "accessibilityLabel": "Clear history?"].merging(ask) { $1 }],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 500.0, "w": 300.0, "h": 180.0],
+            ["op": "create", "id": 31, "kind": "text", "props": ["text": "Clear history?"], "handlers": []],
+            ["op": "frame", "id": 31, "x": 20.0, "y": 20.0, "w": 260.0, "h": 20.0],
+            ["op": "create", "id": 40, "kind": "view", "handlers": [], "style": Self.painted, "props": ["id": "card", "semanticTag": "dialog"]],
+            ["op": "frame", "id": 40, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "create", "id": 41, "kind": "input", "props": ["id": "note"], "handlers": ["input"]],
+            ["op": "frame", "id": 41, "x": 20.0, "y": 20.0, "w": 260.0, "h": 40.0],
+        ]
+        ops += native(32, closes, press: true, y: 60) + native(33, closes, press: false, y: 110)
+        ops += native(42, ["commandfor": "card", "command": "close"], press: false, y: 80)
+        ops += [["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 30, "ids": [31, 32, 33]], ["op": "children", "id": 40, "ids": [41, 42]],
+                ["op": "children", "id": 1, "ids": [2, 30, 40]], ["op": "roots", "ids": [1]]]
+        p.apply(wireBatch(ops))
+        return (p, controller)
+    }
+
+    func testAPaintedDialogIsTheTopLayerOverAPresentedSheet() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let (p, controller) = page(scene)
+        p.dialogCommand("showModal", "form")
+        spin { !p.menus.inTransition }
+        let form = try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "a bare dialog is a sheet")
+        XCTAssertFalse(form.topLayer)
+        XCTAssertEqual(form.modalPresentationStyle, .pageSheet)
+
+        p.dialogCommand("showModal", "ask")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(form.presentedViewController as? DialogSheetController, "presented over the sheet, not as an alert")
+        XCTAssertTrue(top.topLayer)
+        XCTAssertEqual(top.modalPresentationStyle, .overFullScreen)
+        let ask = try XCTUnwrap(p.views[30])
+        XCTAssertTrue(ask.superview === top.scroller, "its own subtree, laid out as written")
+        XCTAssertEqual(ask.bounds.size, CGSize(width: 300, height: 180))
+        top.view.layoutIfNeeded()
+        XCTAssertEqual(ask.center.x, top.scroller.bounds.midX, accuracy: 0.5, "centred across the window")
+        XCTAssertEqual(ask.center.y, top.scroller.bounds.midY, accuracy: 0.5, "and down it")
+        XCTAssertEqual(top.view.backgroundColor, DialogSheetController.dimming, "over UIKit's dimming")
+        XCTAssertTrue(ask.accessibilityViewIsModal)
+        XCTAssertEqual(p.menus.sheets.observation?["presentation"] as? String, "top-layer")
+        let block = try XCTUnwrap(p.menus.sheets.containingBlocks.first { $0.0 == 30 }?.1)
+        XCTAssertEqual(block, HostBlock(width: .size(top.scroller.bounds.width), height: .fit(top.view.bounds.height)), "its block is the window")
+
+        p.dialogCommand("close", "ask")
+        spin { form.presentedViewController == nil }
+        XCTAssertNil(form.presentedViewController, "closed at once")
+        XCTAssertTrue(controller.presentedViewController === form, "the sheet stays")
+    }
+
+    /// `closedby="any"` closes it on a tap outside its box, never inside it;
+    /// without it a tap outside does nothing.
+    func testATapOutsideItsBoxIsItsCloseRequestUnderClosedbyAny() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        for closedby in ["any", "closerequest"] {
+            let (p, controller) = page(scene, ask: ["closedby": closedby])
+            p.dialogCommand("showModal", "ask")
+            spin { !p.menus.inTransition }
+            let top = try XCTUnwrap(controller.presentedViewController as? DialogSheetController)
+            top.view.layoutIfNeeded()
+            let ask = try XCTUnwrap(p.views[30])
+            let tap = UITapGestureRecognizer()
+            XCTAssertEqual(top.gestureRecognizer(tap, shouldReceive: At(CGPoint(x: 5, y: 5), on: top.view)), closedby == "any", closedby)
+            XCTAssertFalse(top.gestureRecognizer(tap, shouldReceive: At(ask.center, on: top.scroller)), "\(closedby): inside its box")
+            tearDown()
+        }
+    }
+
+    /// A painted dialog of any shape is the top layer, a field in it included.
+    func testAPaintedFormIsTheTopLayerToo() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let (p, controller) = page(scene)
+        p.dialogCommand("showModal", "card")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(controller.presentedViewController as? DialogSheetController)
+        XCTAssertTrue(top.topLayer)
+        XCTAssertTrue(p.views[40]?.superview === top.scroller)
+    }
+
+    /// Removed with an exit, it stays in the top layer until the exit ends,
+    /// so its `-exact-exit-animation` is seen; then the presentation goes.
+    func testAnExitPlaysInTheTopLayer() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let (p, controller) = page(scene)
+        p.dialogCommand("showModal", "ask")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(controller.presentedViewController as? DialogSheetController)
+        let ask = try XCTUnwrap(p.views[30])
+        p.apply(wireBatch([["op": "exit", "id": 30], ["op": "children", "id": 1, "ids": [2, 40]]]))
+        XCTAssertTrue(p.isLeaving(ask))
+        XCTAssertTrue(ask.superview === top.scroller, "it plays its exit where it is shown")
+        XCTAssertTrue(controller.presentedViewController === top)
+        p.apply(wireBatch([["op": "destroy", "id": 30]]))
+        spin { controller.presentedViewController == nil }
+        XCTAssertNil(controller.presentedViewController, "the exit ended: the top layer goes")
+        XCTAssertNil(ask.superview)
+    }
+}
+#endif
