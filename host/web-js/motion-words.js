@@ -65,26 +65,45 @@
         && ["jump-start", "start", "jump-end", "end", "jump-none", "jump-both"].includes(position));
     }
     if (name === "linear") {
+      // As motion/src/parse.rs's linear_stops: a position may be infinite
+      // until CSS Easing 2's fixup has run, and only then is it validated.
       const stops = [];
       for (const arg of args) {
         const fields = trim(arg).split(/\p{White_Space}+/u);
-        if (fields.length > 3 || !Number.isFinite(number(fields[0]))) return 0;
-        if (fields.length === 1) stops.push(null);
+        const output = number(fields[0]);
+        if (fields.length > 3 || Number.isNaN(output)) return 0;
+        if (fields.length === 1) stops.push([null, output]);
         for (const field of fields.slice(1)) {
           const input = field.endsWith("%") ? number(field.slice(0, -1)) / 100 : NaN;
-          if (!Number.isFinite(input)) return 0;
-          stops.push(input);
+          if (Number.isNaN(input)) return 0;
+          stops.push([input, output]);
         }
       }
-      if (stops.length < 2 || stops.length > maxStops) return 0;
-      stops[0] ??= 0; stops[stops.length - 1] ??= 1;
+      if (!stops.length) return 0;
+      // The fixup: default the endpoints, clamp each position to the greatest
+      // before it, then spread each run of omitted positions evenly.
+      stops[0][0] ??= 0; stops[stops.length - 1][0] ??= 1;
       let greatest = -Infinity;
-      for (const input of stops) {
-        if (input === null) continue;
-        greatest = Math.max(greatest, input);
-        if (greatest < 0 || greatest > 1) return 0;
+      for (const stop of stops) {
+        if (stop[0] === null) continue;
+        if (stop[0] < greatest) stop[0] = greatest;
+        greatest = stop[0];
       }
-      // Omitted positions interpolate between these finite, ordered endpoints.
+      for (let start = 0; start + 1 < stops.length;) {
+        if (stops[start + 1][0] !== null) { start++; continue; }
+        let end = start + 2;
+        while (stops[end][0] === null) end++;
+        const from = stops[start][0], to = stops[end][0], width = end - start;
+        for (let i = start + 1; i < end; i++) stops[i][0] = from + (to - from) * (i - start) / width;
+        start = end;
+      }
+      // Easing::validate.
+      if (stops.length < 2 || stops.length > maxStops) return 0;
+      let last = 0;
+      for (const [input, output] of stops) {
+        if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || input > 1 || input < last) return 0;
+        last = input;
+      }
       return 1;
     }
     const n = args.map(number);

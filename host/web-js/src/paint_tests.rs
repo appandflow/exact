@@ -598,6 +598,11 @@ fn bound_transition_stacking_matches_kernel() {
         "linear(0 -1%, 1)",
         "linear(0, 1 101%)",
         "linear(0, NaN)",
+        "linear(0, 1 -1e999%)",
+        "linear(0, .5 30% -1e999%, 1)",
+        "linear(0 -1e999%, 1)",
+        "linear(0, 1 1e999%)",
+        "linear(0, 1e999)",
         "-exact-spring()",
         "-exact-spring(300, 30, 1)",
         "-exact-spring(0, 30, 1)",
@@ -784,10 +789,12 @@ fn a_symbols_own_tint_is_its_colour_here_too_a_states_as_well() {
 /// #49: a bound `animation` stacks on the web where the kernel's does. Which
 /// word is the name is the shorthand's grammar's: `1s EASE` plays no
 /// keyframes `EASE`, in any case, and a value the grammar refuses plays none.
+/// A keyframes named as one of the predicate's placeholders keeps its name,
+/// and a `linear()` easing is validated after CSS Easing 2's fixup.
 #[test]
 fn bound_animation_stacking_matches_kernel() {
     let plan = contract::compile(
-        "keyframes EASE\n  from opacity=0\n  to opacity=1\nkeyframes linear\n  to opacity=0\nkeyframes spin\n  to rotate=360\nkeyframes Fade\n  to color=\"red\"\nkeyframes infs\n  to scale=2\ncomponent App\n  state a = \"spin 1s\"\n  view\n    view animation=a\n",
+        "keyframes EASE\n  from opacity=0\n  to opacity=1\nkeyframes linear\n  to opacity=0\nkeyframes spin\n  to rotate=360\nkeyframes Fade\n  to color=\"red\"\nkeyframes infs\n  to scale=2\nkeyframes MAX_ANIMATIONS\n  to opacity=0\nkeyframes MAX_LINEAR_STOPS\n  to opacity=0\nkeyframes WORDS\n  to opacity=0\nkeyframes NAMES\n  to opacity=0\ncomponent App\n  state a = \"spin 1s\"\n  view\n    view animation=a\n",
     )
     .unwrap();
     let mut values: Vec<String> = [
@@ -828,6 +835,28 @@ fn bound_animation_stacking_matches_kernel() {
         "spin 1s Cubic-Bezier(0, 0, 1, 1)",
         "spin 1s linear(0, 1)",
         "spin 1s -exact-spring()",
+        "MAX_ANIMATIONS 1s",
+        "1s MAX_LINEAR_STOPS",
+        "WORDS 1s",
+        "NAMES 1s",
+        "spin 1s linear(0, 1 -1e999%)",
+        "spin 1s LINEAR(0, 1 -1E999%)",
+        "spin 1s linear(0, 0.5 -20%, 1)",
+        "spin 1s linear(0 50%, 1 20%)",
+        "spin 1s linear(0 20% 10%, 1)",
+        "spin 1s linear(0, 0.5 30% -1e999%, 1)",
+        "spin 1s linear(0, 1 50%, 0.5, 1 -5%)",
+        "spin 1s linear(0, 0.25, 0.5, 1)",
+        "spin 1s linear(0 1e999%, 1)",
+        "spin 1s linear(0 -1e999%, 1)",
+        "spin 1s linear(0, 1 1e999%)",
+        "spin 1s linear(0, 1 150%)",
+        "spin 1s linear(0 -10%, 1)",
+        "spin 1s linear(0, 1e999)",
+        "spin 1s linear(0, 1e999 50%, 1)",
+        "spin 1s linear(0)",
+        "spin 1s linear(0 0%, 1 100% 1)",
+        "spin 1s linear(0, , 1)",
         "spin 1s spring(1)",
         "spin 1s INFINITE ALTERNATE BOTH PAUSED",
         "spin 1s infinite infinite",
@@ -851,6 +880,10 @@ fn bound_animation_stacking_matches_kernel() {
     .to_vec();
     for count in [8, 9] {
         values.push(vec!["spin 1s"; count].join(", "));
+    }
+    let most = exact_motion::easing::MAX_LINEAR_STOPS;
+    for count in [most, most + 1] {
+        values.push(format!("spin 1s linear({})", vec!["0.5"; count].join(", ")));
     }
     values.push(["Fade 1s"; 9].join(", "));
     let (_, expression) = crate::paint::binding(
