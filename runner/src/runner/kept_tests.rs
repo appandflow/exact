@@ -733,6 +733,39 @@ fn a_cold_boot_forgets_kept_answers_no_declared_reader_seeds() {
     assert_eq!(answer_writes(&r), 0);
 }
 
+/// What a host leaves out of its snapshot (past `Store::KEPT_TOTAL_BYTES`)
+/// it names after the boot, and what the boot would have forgotten is.
+#[test]
+fn a_cold_boot_forgets_the_kept_entries_the_host_did_not_read() {
+    let removed = |r: &Runner<Source>| -> Vec<String> {
+        (r.store.writes().iter())
+            .filter(|w| w.value.is_none())
+            .map(|w| w.name.clone())
+            .collect()
+    };
+    let (answer, gone) = (kept::kept_name("answer"), kept::kept_name("gone"));
+    let mut r = seeded();
+    r.forget_unread_kept(&[answer.clone(), gone.clone()]);
+    shows(&r, "kept");
+    assert_eq!(removed(&r), [gone], "a read entry stays");
+    let mut transient = plan(2, false);
+    transient.resources[0].transient = true;
+    let mut r = boot(transient, Source::default(), Vec::new());
+    r.forget_unread_kept(std::slice::from_ref(&answer));
+    assert_eq!(
+        removed(&r),
+        std::slice::from_ref(&answer),
+        "a transient reader's"
+    );
+    let source = Source {
+        private: Some("health-read"),
+        ..Source::default()
+    };
+    let mut r = boot(plan(2, false), source, Vec::new());
+    r.forget_unread_kept(std::slice::from_ref(&answer));
+    assert_eq!(removed(&r), [answer], "an app that keeps no answers");
+}
+
 #[test]
 fn an_app_granting_a_private_store_neither_seeds_nor_keeps_answers() {
     // A reader's answer kept before the grant (or by an older build) is

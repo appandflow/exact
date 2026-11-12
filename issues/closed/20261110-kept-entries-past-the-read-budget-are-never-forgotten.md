@@ -1,6 +1,7 @@
 # A kept answer the host leaves out of its snapshot is never forgotten
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Linux and Apple hosts name the kept answers they left out of the boot snapshot to the runner (`Runner::forget_unread_kept`), which forgets those a read entry would have been forgotten for: every one in an app that keeps no answers, else one no declared reader seeds, a `transient` reader's included.
 **Systems:** runner/src/runner/kept.rs (`obsolete`), runner/src/runner.rs (boot), host/apple/src/store.rs, host/linux/src/system_support.rs
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's review of LLP 1156.005 r3 (2026-11-10)
