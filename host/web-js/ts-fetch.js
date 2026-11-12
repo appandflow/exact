@@ -171,7 +171,7 @@ function stream(input, init, redirect, protocols) {
   if (call.stream) return Promise.reject(new Error('an answer streams one request'));
   // Checked and opened by ts-stream.js, which only a streaming module loads.
   call.stream = { input, init, redirect, protocols };
-  if (later) call.late();
+  if (later) try { call.late(); } catch (e) { call.stream = null; return Promise.reject(e); }
   return new Promise(() => {});
 }
 

@@ -646,11 +646,14 @@ export function install(data, mixed = false, modules = null) {
       const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       call.abandon = settle;
       // A stream opened in a later turn (ts-fetch.js `stream`) is the answer, as one opened by its source is: its ticket
-      // opens it (request-send.js `late`), and what the async function goes on to return is not the answer.
+      // opens it (request-send.js `late`), and what the async function goes on to return is not the answer. An upload's
+      // identity is read first: what it refuses (a `ReadableStream` body) rejects the `fetch` and leaves the answer as it
+      // was. An upload is marked as asked before it opens (uploads.js `ends`).
       call.late = () => {
+        const upload = requestKey(call.stream), t = call.ticket;
         settle();
-        const t = call.ticket;
-        t.stream = opener(call.stream, v => conv(shaped(v), result, target_), target_); t.upload = requestKey(call.stream);
+        t.stream = opener(call.stream, v => conv(shaped(v), result, target_), target_);
+        if (upload) { t.upload = upload; t.uploading?.(); }
         t.late?.();
       };
       // In flight: its later turns may send (ts-stream.js `later`), behind what this source sent, once the commit

@@ -107,3 +107,70 @@ export async function answer(name: string, args: any): Promise<any> {
     await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 120000);
+
+// An upload (`exactUploadProgress`, LLP 1016.000 D10) opened after an `await` is an upload as one its source opens:
+// marked, so a refresh after it finished sends nothing again, and one the stream's opening would refuse (a
+// `ReadableStream` body) rejects its `fetch`, failing the answer rather than leaving it pending.
+test('an upload opened after an await is marked as asked, and one refused fails its answer', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/late-upload-test-'));
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': '*' };
+  const posts = { upload: 0 };
+  const peer = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    const path = new URL(req.url).pathname;
+    if (path === '/token') return new Response('t1', { headers: cors });
+    posts.upload++;
+    return new Response(String((await req.arrayBuffer()).byteLength), { status: 201, headers: cors });
+  } });
+  const http = `http://127.0.0.1:${peer.port}`;
+  let server, browser;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Late Upload', app: { id: 'test.lateupload', name: 'Late Upload' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `component LateUpload
+  resource sent = upload() as shape string else empty()
+  resource refused = refused() as shape string else empty()
+  action retry
+    refresh sent
+  view
+    column
+      text sent testId="sent"
+      text refused testId="refused"
+      button press=retry testId="retry"
+        text "Retry"
+`);
+    writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.lateupload';
+export const grants = ${JSON.stringify(`net.fetch ${http}`)};
+export async function answer(name: string): Promise<any> {
+  const token = await (await fetch(${JSON.stringify(http)} + '/token')).text();
+  const body = name === 'upload' ? new Uint8Array(4096).fill(7) : new ReadableStream({ start(c) { c.enqueue(new Uint8Array(1)); c.close(); } });
+  return fetch(${JSON.stringify(http)} + '/upload?' + token, { method: 'POST', body, exactUploadProgress: true,
+    exactStream: (e: any) => e.type === 'load' ? 'load ' + e.status + ' ' + e.data : e.type } as RequestInit);
+}
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'late-upload', '--out', resolve(dir, 'dist'), '--render', 'none'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      const path = new URL(req.url).pathname;
+      const file = Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1)));
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
+    } });
+    browser = await open({ host: 'web', url: server.url.href, webDist: resolve(dir, 'dist') });
+    expect((await browser.clock('settle')).settled).not.toBe(false);
+    const done = await browser.state();
+    expect(done.resources.sent).toBe('load 201 4096');
+    expect(done.failed?.refused).toContain('ReadableStream request bodies are unavailable');
+    expect(done.pending.map(p => p.name)).toEqual([]);
+    expect(posts.upload).toBe(1);
+    // Asked once for its arguments: a refresh after it finished sends nothing again.
+    await browser.tap('retry');
+    expect((await browser.clock('settle')).settled).not.toBe(false);
+    expect(posts.upload).toBe(1);
+    expect((await browser.state()).resources.sent).toBe('load 201 4096');
+  } finally {
+    await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);
