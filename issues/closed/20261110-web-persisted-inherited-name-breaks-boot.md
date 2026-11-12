@@ -1,6 +1,7 @@
 # On the web, a persisted number state whose stored text is "constructor" stops the app from booting
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `persist.js` revives only an own key of `NONFINITE` (`Object.hasOwn`), so a stored `"constructor"` leaves the initial value standing; the web JS target's other lookups of outside names in plain objects do the same.
 **Systems:** host/web-js/persist.js
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's and Grok 4.7's whole-project reviews (2026-11-10)
