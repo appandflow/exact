@@ -1588,7 +1588,10 @@ raw source and has no `iframe` or `video`.
 A hyphenated tag can address the app's native module: the bake checks the tag
 against `app.json`'s `modules` list, and its unknown attributes pass to the
 module unchecked; a known attribute styles or labels the module's box, and one
-the box has no use for is refused. Merely inventing a tag does not create a widget. Native
+the box has no use for is refused. A package view is declared in a dependency's
+`exact.json` `views` and accepts only its declared props and events beyond standard
+box attributes and common module events (`lower-native-attr` for an undeclared
+attribute). Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.

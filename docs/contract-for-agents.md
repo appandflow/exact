@@ -2620,8 +2620,10 @@ makes it in each session, the same instance that answers its names: Swift
 web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view declared
 `"displayed": true` is told `displayed(id, shown, origin)` when it shows or hides, and a
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
-`tool` or `wake`, that of the commit that did it. A declared prop may take a known
-non-layout attribute's name where it means what CSS means by it (`exact-camera`'s
+`tool` or `wake`, that of the commit that did it. Props and events must be declared;
+an undeclared attribute is `lower-native-attr`. Standard box attributes and the nine
+common module events remain available without a declaration. A declared prop may take
+a known non-layout attribute's name where it means what CSS means by it (`exact-camera`'s
 `object-fit`): written on the tag it goes to the view. A declaration that names a
 layout attribute (`width`, `padding`, `flex`) is refused with `bake-view-prop-layout`,
 naming the package, view and prop; give the view prop another name. A class's rows
@@ -3659,15 +3661,17 @@ The compiler warns at a `use` whose unambiguous, unconditional literal target co
 one (`lower-svg-use-foreign-object`). Native hosts refuse `foreignObject` at run
 time; for content on every host, position an ordinary box over the `svg`. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
-hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
-others) and implemented by the module; its unknown attributes pass through
-unchecked as the module's props. A known attribute binds to the module's box, which
-takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA, `disabled`
-and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
-so give the module prop another name. A package's view is the exception: a prop its
-package declares for the view (`exact-camera`'s `object-fit`) goes to the view when
-written on the tag, even where the name is a known non-layout attribute. Declaring a
-layout attribute as a view prop is `bake-view-prop-layout`. A class's rows style only
+hyphenated native tag must be declared by a dependency's `exact.json` `views` or
+listed in `app.json`'s `modules` (the bake refuses others). An app module's unknown
+attributes pass through unchecked as its props. A package view refuses an attribute
+declared as neither a prop nor an event with `lower-native-attr`, apart from standard
+box attributes and common module events. A known attribute binds to the module's
+box, which takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA,
+`disabled` and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
+so give the module prop another name. A package view's declared non-layout prop
+(`exact-camera`'s `object-fit`) goes to the view when written on the tag, even where
+the name is a known attribute. Declaring a layout attribute as a view prop is
+`bake-view-prop-layout`. A class's rows style only
 the box and set no view props; write `object-fit` on the camera tag to configure its
 viewfinder. A renamed spelling (`fontSize`) is refused whatever is declared. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
