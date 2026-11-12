@@ -7,6 +7,10 @@ import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations, glueCase } from './glue-fixture.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
+import { readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
@@ -1221,6 +1225,68 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar u
       }
     }
     expect(errors).toEqual([]);
+  } finally { await browser.close(); }
+}, 90000);
+
+test('chromium: painted route titles match the web at several root sizes', async () => {
+  // Build outside the test: cargo test -p exact-linux --test route_titles --no-run.
+  const deps = resolve(process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../../target', import.meta.url)), 'debug/deps');
+  const binary = readdirSync(deps).filter(name => /^route_titles-[0-9a-f]+(?:\.exe)?$/.test(name))
+    .map(name => resolve(deps, name)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  if (!binary) throw new Error('build the headless fixture: cargo test -p exact-linux --test route_titles --no-run');
+  const linux = spawnSync(binary, ['--exact', 'route_titles_keep_the_large_title_line', '--nocapture'], { encoding: 'utf8', timeout: 60000 });
+  expect([linux.status, linux.stderr]).toEqual([0, '']);
+  const layouts = JSON.parse(linux.stdout.match(/^ROUTE_TITLE_LAYOUT (.+)$/m)[1]);
+  const browser = await launch('chromium');
+  try {
+    const page = await browser.newPage({ viewport: { width: 480, height: 2400 } });
+    const font = (name) => readFileSync(new URL(`../../../scripts/fixtures/fonts/assets/DejaVuSans${name}.ttf`, import.meta.url)).toString('base64');
+    const fonts = `@font-face { font-family: RouteTitle; src: url(data:font/ttf;base64,${font('')}); }
+      @font-face { font-family: RouteTitle; font-weight: 700; src: url(data:font/ttf;base64,${font('-Bold')}); }
+      #exact-root { font-family: RouteTitle; }`;
+    const cases = [
+      ['page'], ['normal', 'line-height:normal'], ['empty', '', ''], ['space', '', ' '], ['small', 'font-size:17px'], ['tight', 'line-height:1'],
+      ['button'], ['boxed'], ['own', 'margin:0'], ['one-margin', 'margin-top:0'], ['sized', 'height:60px'],
+      ['short', 'height:20px;overflow:hidden'], ['clamp', 'width:100px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden', 'Inbox of everything'],
+      ['plain'], ['later'], ['modal'], ['dialog'], ['popover'],
+    ];
+    const html = cases.map(([name, style = '', words = 'Inbox']) => {
+      let title = `<h1 role="heading" aria-level="1" style="font-size:1.6875rem;font-weight:700;line-height:1.2;${style}">${words}</h1>`;
+      if (name === 'boxed') title = `<div style="display:flex;flex-direction:column">${title}</div>`;
+      const surface = name === 'dialog' || name === 'popover';
+      const button = name === 'button' || surface ? '<button style="appearance:none;width:60px;height:24px;padding:0;border:0">Edit</button>' : '';
+      const header = name === 'button' || surface ? 'style="display:flex;align-items:center;gap:8px"'
+        : name === 'plain' ? 'data-exact-said="appearance" style="appearance:none;padding:0;min-height:0;border:0"' : '';
+      const route = `<div navigationkey="${name}" id="${name}"${name === 'modal' ? ' navigationPresentation="modal"' : ''}>
+        ${name === 'later' ? '<div style="height:0"></div>' : ''}<header ${header}>${title}${button}</header></div>`;
+      return name === 'dialog' ? `<dialog style="padding:0;border:0;width:480px">${route}</dialog>`
+        : name === 'popover' ? `<div popover="manual" style="padding:0;border:0;width:480px">${route}</div>` : route;
+    }).join('');
+    await page.setContent(`<!doctype html><style>${sheet()}${fonts}</style><div id="exact-root">${html}</div>`);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => {
+      document.querySelector('dialog').showModal();
+      document.querySelector('[popover]').showPopover();
+    });
+    for (const { root, boxes } of layouts) {
+      const web = await page.evaluate(root => {
+        document.documentElement.style.fontSize = `${root}px`;
+        return Object.fromEntries([...document.querySelectorAll('[navigationkey]')].map(route => {
+          const bar = route.querySelector('header').getBoundingClientRect(), title = route.querySelector('h1').getBoundingClientRect();
+          return [route.id, [bar.height, title.top - bar.top, title.height]];
+        }));
+      }, root);
+      for (const [name, expected] of Object.entries(boxes)) for (let i = 0; i < expected.length; i++) {
+        // Chrome quantizes flow geometry to 1/64px; the kernel retains floats.
+        // Normal font metrics differ by a pixel between the text engines;
+        // the bar and the title's centre must still agree.
+        if (name === 'normal' && i > 0) {
+          if (i === 1) expect(web[name][1] + web[name][2] / 2).toBeCloseTo(expected[1] + expected[2] / 2, 1);
+          continue;
+        }
+        expect(web[name][i], `${root}px ${name} dimension ${i}`).toBeCloseTo(expected[i], 1);
+      }
+    }
   } finally { await browser.close(); }
 }, 90000);
 
