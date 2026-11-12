@@ -712,6 +712,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
+        // UIKit's pinch zoom of a scroller's one child (iOS).
+        "minimumZoomScale" | "maximumZoomScale" | "zoomScale" => AttrTarget::Prop(p(name)),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
         "swipeLeading" => AttrTarget::Prop(p("swipeLeading")),
         "swipeTrailing" => AttrTarget::Prop(p("swipeTrailing")),

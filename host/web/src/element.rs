@@ -972,6 +972,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // Read by rt.js's image fade.
             PropId::FadeDuration => "data-exact-fade",
             PropId::Loading => "loading",
+            // UIKit's pinch zoom; a page's is the browser's.
+            PropId::MinimumZoomScale | PropId::MaximumZoomScale | PropId::ZoomScale => continue,
             // Read by wakelock-glue.js.
             PropId::Wakelock => "data-exact-wakelock",
             // Read by orientationlock-glue.js.

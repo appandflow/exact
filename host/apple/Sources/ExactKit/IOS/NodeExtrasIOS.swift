@@ -92,6 +92,13 @@ final class NodeExtras {
     var layoutOffset: CGPoint = .zero
     /// How far its scroller's scroll moves a sticky box (`Sticky.swift`).
     var stickyOffset: CGPoint = .zero
+    /// The scale its zooming scroller draws it at, and how far that centres it (`ScrollZoomIOS.swift`).
+    var zoomFactor: CGFloat = 1
+    var zoomShift: CGPoint = .zero
+    /// A zooming scroller's: the view UIKit zooms, the child drawn from it, and a `zoomScale` not yet applied.
+    var zoomProxy: UIView?
+    weak var zoomed: NodeView?
+    var pendingZoomScale: Double?
     var keyboardLift: CGFloat = 0
     /// How far its surface's size stands from the laid-out size.
     var layoutResize: CGSize = .zero
@@ -292,6 +299,8 @@ extension NodeView {
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
+    var zoomFactor: CGFloat { get { extras?.zoomFactor ?? 1 } set { if newValue != 1 || extras != nil { more.zoomFactor = newValue } } }
+    var zoomShift: CGPoint { get { extras?.zoomShift ?? .zero } set { if newValue != .zero || extras != nil { more.zoomShift = newValue } } }
     var authoredAccentTint: UIColor? { get { extras?.authoredAccentTint } set { if newValue != nil || extras != nil { more.authoredAccentTint = newValue } } }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }

@@ -1101,6 +1101,9 @@ package final class Presenter {
                 // Settle that layout before restoring or authoring an offset.
                 if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
                 if !collections.owns(node.id) { node.restoreScrollPosition() }
+                #if os(iOS)
+                node.settleZoom()
+                #endif
                 if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
                 node.applyPendingScroll()
                 if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }

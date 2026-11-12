@@ -1123,6 +1123,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
+        if let raw = set["zoomScale"], let scale = Double(raw), scale.isFinite, scale > 0 { more.pendingZoomScale = scale }
         // One assignment: `props` tells the presenter of each.
         var next = props
         for k in clear { next.removeValue(forKey: k) }
@@ -1363,6 +1364,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // Ending where its last edge is drawn, from this box's place on the
         // pixel grid, so the furthest offset is a whole pixel and reaches it (`PixelGridIOS.swift`).
         let s = presenter?.gridScale ?? 1, o = grid?.origin ?? .zero
+        #if os(iOS)
+        let content = zoomedContent
+        #endif
         let size = CGSize(width: sv.scrollsX ? max(PixelGrid.length(content.width, from: o, vertical: false, scale: s), sv.bounds.width) : sv.bounds.width,
                           height: sv.scrollsY ? max(PixelGrid.length(content.height, from: o, vertical: true, scale: s), scrollFloor(sv)) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }

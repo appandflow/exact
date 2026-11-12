@@ -1235,6 +1235,14 @@ impl Em<'_> {
             {
                 continue;
             }
+            // Nor has UIKit's pinch zoom.
+            if b.kind == BindingKind::Prop
+                && (b.id == PropId::MinimumZoomScale as u16
+                    || b.id == PropId::MaximumZoomScale as u16
+                    || b.id == PropId::ZoomScale as u16)
+            {
+                continue;
+            }
             if let Some(v) = style::literal(plan, plan.code(b.expr)) {
                 if markdown && b.kind == BindingKind::Prop && b.id == PropId::Text as u16 {
                     let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
