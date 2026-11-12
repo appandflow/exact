@@ -199,3 +199,383 @@ fn pixel_translate_literals_and_dynamic_template_reach_kernel_rows() {
         assert!(contract::compile(&src).is_err(), "{bad}");
     }
 }
+
+const OWNERS: &str = "lower-transform-drag-owners";
+
+fn ownership_source(view: &str) -> String {
+    let view: String = view.lines().map(|line| format!("      {line}\n")).collect();
+    format!(
+        "component App\n  state n = 0\n  state on = true\n  state choice = some(1)\n  state rows = [1, 2]\n  action geometry({GEOMETRY})\n    n = 1\n  action release({RELEASE})\n    n = 2\n  view\n    column\n{view}"
+    )
+}
+
+fn photo(name: &str) -> String {
+    format!(
+        "column overflow=\"hidden\"\n  column id={name} width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n    column transformDragFor={name} transformgeometry=geometry transformrelease=release"
+    )
+}
+
+fn indented(body: &str) -> String {
+    body.lines().map(|line| format!("  {line}\n")).collect()
+}
+
+fn nested_transform_targets(body: &str) -> String {
+    ownership_source(&format!(
+        "column overflow=\"hidden\"\n  column id=\"outer\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\" overflow=\"hidden\"\n    column id=\"inner\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n{}",
+        indented(&indented(&indented(body)))
+    ))
+}
+
+fn transform_choice(condition: &str) -> String {
+    format!("if {condition}\n  column transformDragFor=\"outer\" transformgeometry=geometry transformrelease=release\nelse\n  column transformDragFor=\"inner\" transformgeometry=geometry transformrelease=release")
+}
+
+fn owner_warnings(src: &str) -> Vec<u32> {
+    super::warnings::warned(src)
+        .into_iter()
+        .map(|(id, line)| {
+            assert_eq!(id, OWNERS, "{src}");
+            line
+        })
+        .collect()
+}
+
+#[test]
+fn simultaneous_transform_targets_name_both_binding_sites() {
+    // The id is scoped to strict ancestors: equal spellings can name different targets.
+    for other in ["\"other\"", "\"photo\""] {
+        let src = ownership_source(&format!("{}\n{}", photo("\"photo\""), photo(other)));
+        assert_eq!(owner_warnings(&src), [14, 17]);
+        let (_, warnings) = contract::compile_warned(&src);
+        for w in warnings {
+            assert!(w.message.contains("first valid target"), "{w}");
+            assert!(w.message.contains("never stolen"), "{w}");
+            assert!(
+                w.message
+                    .contains("Mount handles only for the active target"),
+                "{w}"
+            );
+        }
+    }
+}
+
+#[test]
+fn constant_templates_and_strings_resolve_to_the_same_transform_target() {
+    for (id, binding) in [
+        ("\"first\"", "`first`"),
+        ("`first`", "\"first\""),
+        ("\"first\"", "`fir${\"st\"}`"),
+    ] {
+        let first = photo(id).replace(
+            &format!("transformDragFor={id}"),
+            &format!("transformDragFor={binding}"),
+        );
+        let src = ownership_source(&format!("{first}\n{}", photo("\"second\"")));
+        assert_eq!(owner_warnings(&src), [14, 17], "{src}");
+        assert!(owner_warnings(&ownership_source(&first)).is_empty());
+    }
+}
+
+#[test]
+fn a_transform_target_repeated_by_a_row_template_is_warned_once() {
+    for name in ["\"photo\"", "`photo-${row}`"] {
+        for list in ["rows", "[1, 2]"] {
+            let src = ownership_source(&format!(
+                "list id=\"photos\"\n  for row in {list} key=row\n{}",
+                indented(&indented(&photo(name)))
+            ));
+            assert_eq!(owner_warnings(&src), [16]);
+            let (_, warnings) = contract::compile_warned(&src);
+            assert!(warnings[0].message.contains("`for` template"));
+        }
+    }
+}
+
+#[test]
+fn one_transform_target_can_have_several_handles_even_in_a_loop() {
+    for handles in [
+        "column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release",
+        "column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release\ncolumn transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release",
+        "for row in rows key=row\n  column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release",
+    ] {
+        let src = ownership_source(&format!(
+            "column overflow=\"hidden\"\n  column id=\"photo\" width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n{}",
+            indented(&indented(handles))
+        ));
+        assert!(owner_warnings(&src).is_empty(), "{src}");
+    }
+    let src = ownership_source(&format!(
+        "for row in [1] key=row\n{}",
+        indented(&photo("\"photo\""))
+    ));
+    assert!(owner_warnings(&src).is_empty(), "{src}");
+}
+
+#[test]
+fn mutually_exclusive_transform_targets_do_not_compete() {
+    let first = indented(&photo("\"first\""));
+    let second = indented(&photo("\"second\""));
+    for view in [
+        format!("if on\n{first}else\n{second}"),
+        format!(
+            "match choice\n  case some(value)\n{}  case none\n{}",
+            indented(&first),
+            indented(&second)
+        ),
+    ] {
+        assert!(
+            owner_warnings(&ownership_source(&view)).is_empty(),
+            "{view}"
+        );
+        // A sibling outside the choice can compete with either arm.
+        let src = ownership_source(&format!("{view}{}", photo("\"third\"")));
+        assert_eq!(owner_warnings(&src).len(), 3);
+    }
+}
+
+#[test]
+fn hidden_or_unresolved_transform_bindings_are_not_competitors() {
+    for other in [
+        photo("\"other\"").replacen("column ", "column display=\"none\" ", 1),
+        photo("\"other\"").replacen("column ", "column inert=true ", 1),
+        photo("\"other\"").replace("transformDragFor=\"other\"", "transformDragFor=\"missing\""),
+        photo("\"other\"").replacen("column ", "column id=\"other\" ", 1),
+        photo("\"other\"").replace("transformDragFor=\"other\"", "transformDragFor=\"\""),
+    ] {
+        let src = ownership_source(&format!("{}\n{other}", photo("\"photo\"")));
+        assert!(owner_warnings(&src).is_empty(), "{src}");
+    }
+}
+
+#[test]
+fn static_class_visibility_respects_inline_overrides_for_transform_targets() {
+    for (attrs, count) in [
+        ("class=Hidden", 0),
+        ("class=Hidden display=\"block\"", 2),
+        ("class=Visible display=\"none\"", 0),
+        ("class=Hidden display=(on ? \"block\" : \"none\")", 2),
+    ] {
+        for suffix in ["overflow", "id"] {
+            let other = photo("\"other\"").replacen(
+                &format!("column {suffix}"),
+                &format!("column {attrs} {suffix}"),
+                1,
+            );
+            let src = format!(
+                "{}style Hidden\n  display=\"none\"\nstyle Visible\n  display=\"block\"\n",
+                ownership_source(&format!("{}\n{other}", photo("\"photo\"")))
+            );
+            assert_eq!(owner_warnings(&src).len(), count, "{src}");
+        }
+    }
+}
+
+#[test]
+fn shared_conditions_keep_transform_handles_exclusive_across_rows() {
+    let handle = |name| {
+        format!("column transformDragFor=\"{name}\" transformgeometry=geometry transformrelease=release")
+    };
+    for choice in [
+        transform_choice("on"),
+        transform_choice("selected"),
+        transform_choice("not on or n > 0"),
+        format!(
+            "match choice\n  case some(value)\n{}  case none\n{}",
+            indented(&indented(&handle("outer"))),
+            indented(&indented(&handle("inner")))
+        ),
+    ] {
+        let src =
+            nested_transform_targets(&format!("for row in rows key=row\n{}", indented(&choice)))
+                .replace("  view\n", "  derive selected = on\n  view\n");
+        assert!(owner_warnings(&src).is_empty(), "{src}");
+    }
+    let src = nested_transform_targets(&format!(
+        "for row in rows key=row\n  for item, position in [row] key=item\n{}",
+        indented(&indented(&transform_choice("position == 0")))
+    ));
+    assert!(owner_warnings(&src).is_empty(), "{src}");
+}
+
+#[test]
+fn opposite_arms_in_different_rows_can_bind_different_transform_targets() {
+    for condition in ["row == 1", "position == 0"] {
+        let src = nested_transform_targets(&format!(
+            "for row, position in rows key=row\n{}",
+            indented(&transform_choice(condition))
+        ));
+        assert_eq!(owner_warnings(&src), [17, 19]);
+    }
+}
+
+#[test]
+fn child_transform_choices_can_vary_with_row_state_and_props() {
+    for (declaration, count) in [
+        ("state active = true", 2),
+        ("derive active = row == 1", 2),
+        ("derive active = shared", 0),
+    ] {
+        let src = format!(
+            "{}component Handle\n  props\n    row: number\n    shared: bool\n    geometry: action\n    release: action\n  {declaration}\n  view\n{}",
+            nested_transform_targets("for row in rows key=row\n  Handle(row=row, shared=on, geometry=geometry, release=release)"),
+            indented(&indented(&transform_choice("active")))
+        );
+        assert_eq!(owner_warnings(&src).len(), count, "{src}");
+    }
+}
+
+#[test]
+fn a_guard_can_limit_a_transform_target_to_one_literal_row() {
+    for (list, condition) in [
+        ("[1, 2]", "position == 0"),
+        ("[1, 2]", "row == 1"),
+        ("rows", "position == 0"),
+    ] {
+        for guard_handle in [false, true] {
+            let photo = photo("\"photo\"");
+            let body = if guard_handle {
+                photo.replace(
+                    "    column transformDragFor",
+                    &format!("    if {condition}\n      column transformDragFor"),
+                )
+            } else {
+                format!("if {condition}\n{}", indented(&photo))
+            };
+            let src = ownership_source(&format!(
+                "for row, position in {list} key=row\n{}",
+                indented(&body)
+            ));
+            assert!(owner_warnings(&src).is_empty(), "{src}");
+        }
+    }
+    let src = ownership_source(&format!(
+        "for row, position in [1, 2, 3] key=row\n  if position < 2\n{}",
+        indented(&indented(&photo("\"photo\"")))
+    ));
+    assert_eq!(owner_warnings(&src).len(), 1, "{src}");
+}
+
+#[test]
+fn separate_handles_in_different_rows_can_own_distinct_transform_targets() {
+    let src = ownership_source(&format!(
+        "for row, position in [1, 2] key=row\n{}",
+        indented(&photo("\"photo\"").replace(
+            "    column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release",
+            "    if position == 0\n      column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release\n    else\n      column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release"
+        ))
+    ));
+    assert_eq!(owner_warnings(&src).len(), 2, "{src}");
+}
+
+#[test]
+fn shadowed_row_names_do_not_resolve_to_an_outer_transform_target() {
+    let src = ownership_source(
+        "for row in [\"a\", \"b\"] key=row\n  column overflow=\"hidden\"\n    column id=row width=\"100%\" height=\"100%\" box-sizing=\"border-box\"\n      for row in [\"c\"] key=row\n        column transformDragFor=row transformgeometry=geometry transformrelease=release",
+    );
+    assert!(owner_warnings(&src).is_empty(), "{src}");
+}
+
+#[test]
+fn literal_number_and_boolean_template_parts_resolve_transform_targets() {
+    for (id, binding) in [
+        ("`photo-${1}`", "`photo-${1}`"),
+        ("`photo-${1}`", "\"photo-1\""),
+        ("\"photo-true\"", "`photo-${true}`"),
+        ("`photo-${false}`", "\"photo-false\""),
+        ("`photo-${-0}`", "\"photo-0\""),
+        ("\"photo-1e+21\"", "`photo-${1e21}`"),
+    ] {
+        let first = photo(id).replace(
+            &format!("transformDragFor={id}"),
+            &format!("transformDragFor={binding}"),
+        );
+        let src = ownership_source(&format!("{first}\n{}", photo("\"second\"")));
+        assert_eq!(owner_warnings(&src), [14, 17], "{src}");
+    }
+}
+
+#[test]
+fn statically_unreachable_match_arms_cannot_own_a_transform_drag() {
+    for (subject, reachable, unreachable) in [
+        ("some(1)", "\"outer\"", "\"inner\""),
+        ("none", "\"inner\"", "\"outer\""),
+    ] {
+        let body = format!(
+            "match {subject}\n  case some(value)\n{}  case none\n{}",
+            indented(&indented(&photo("\"outer\""))),
+            indented(&indented(&photo("\"inner\"")))
+        );
+        let src = ownership_source(&format!("{body}{}", photo("\"side\"")));
+        let (_, warnings) = contract::compile_warned(&src);
+        let lines = owner_warnings(&src);
+        assert_eq!(lines.len(), 2, "{src}: {warnings:?}");
+        let handle = |id| format!("transformDragFor={id}");
+        assert!(lines.iter().any(|line| src
+            .lines()
+            .nth(*line as usize - 1)
+            .unwrap()
+            .contains(&handle(reachable))));
+        assert!(lines.iter().all(|line| !src
+            .lines()
+            .nth(*line as usize - 1)
+            .unwrap()
+            .contains(&handle(unreachable))));
+    }
+}
+
+#[test]
+fn a_template_target_cannot_equal_a_shorter_literal_ancestor_id() {
+    let src = ownership_source(&format!(
+        "column id=\"photo\" overflow=\"hidden\"\n  for row in [1, 2] key=row\n{}",
+        indented(&indented(&photo("`photo-${row}`")))
+    ));
+    assert_eq!(owner_warnings(&src), [16]);
+}
+
+#[test]
+fn complementary_sibling_guards_keep_transform_targets_exclusive() {
+    let first = indented(&photo("\"first\""));
+    let second = indented(&photo("\"second\""));
+    for (a, b) in [("on", "not on"), ("not on", "on"), ("n == 1", "n != 1")] {
+        let src = ownership_source(&format!("if {a}\n{first}if {b}\n{second}"));
+        assert!(owner_warnings(&src).is_empty(), "{src}");
+    }
+    let src = ownership_source(&format!("if on\n{first}if n > 0\n{second}"));
+    assert_eq!(owner_warnings(&src).len(), 2, "{src}");
+    // A row-dependent guard can take both arms in different rows.
+    let handle = |name| {
+        format!("column transformDragFor=\"{name}\" transformgeometry=geometry transformrelease=release")
+    };
+    let src = nested_transform_targets(&format!(
+        "for row in rows key=row\n  if row == 1\n{}  if row != 1\n{}",
+        indented(&indented(&handle("outer"))),
+        indented(&indented(&handle("inner")))
+    ));
+    assert_eq!(owner_warnings(&src).len(), 2, "{src}");
+}
+
+#[test]
+fn a_match_arm_limits_a_transform_target_to_the_rows_that_take_it() {
+    let arms = |subject: &str| {
+        format!(
+            "  match {subject}\n    case some(value)\n{}    case none\n      text \"x\"\n",
+            indented(&indented(&indented(&photo("\"photo\""))))
+        )
+    };
+    for (list, subject, count) in [
+        ("[some(1), none]", "row", 0),
+        ("[1, 2]", "(position == 0 ? some(1) : none)", 0),
+        ("[some(1), some(2)]", "row", 1),
+    ] {
+        let src = ownership_source(&format!(
+            "for row, position in {list} key=position\n{}",
+            arms(subject)
+        ));
+        // A position key draws its own advice.
+        let owners = super::warnings::warned(&src)
+            .into_iter()
+            .filter(|(id, _)| *id == OWNERS)
+            .count();
+        assert_eq!(owners, count, "{src}");
+    }
+}

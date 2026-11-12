@@ -4,9 +4,8 @@
 //! them: a warning fails no build and no test, and names its repair as a
 //! refusal does.
 //!
-//! Each is read from the checked file's expanded root, as lowering reads it, and gives what
-//! it cannot see the benefit of the doubt, as `routes.rs`'s `check_scroll` does: an `if`,
-//! `for` or `match`, a use or a slot, a computed role or type.
+//! Each check names what it can establish from the expanded root, as lowering reads it.
+//! Unexpanded uses and slots, and computed roles and types, stay unknown.
 
 use crate::tags::AttrTarget;
 use crate::LowerError;
@@ -39,6 +38,7 @@ mod states;
 mod svg;
 mod tabs;
 mod title;
+mod transform;
 mod width;
 pub(crate) use width::horizontal_flex;
 
@@ -165,6 +165,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     performance_now(root, &checked.file.fns, &mut out);
     sounds::undeclared(checked, &mut out);
     geometry::unnamed(checked, &mut out);
+    transform::owners(checked, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);

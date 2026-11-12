@@ -2196,9 +2196,18 @@ leave a binding on every page or list row. The JS target resolves `transformDrag
 `heightDragFor` and `reorderFor` after each commit against current ancestor IDs.
 Each binding must name exactly one strict ancestor; self, siblings and duplicate
 matching ancestors do not qualify. Changing the binding or ancestor ID cancels a
-drag whose target is no longer valid. The runtime journal names
-each passed-over target view and the owner once, then reports it again only after
-its valid bindings disappear and return. Read it with
+drag whose target is no longer valid. The compiler's `lower-transform-drag-owners`
+warning marks competing binding sites, including targets repeated by a `for`
+template. Guards over literal row values or indices that admit at most one
+iteration do not count as repetition; an index equality can also select one row
+of a dynamic list.
+Several handles for one target and mutually exclusive branches do not compete,
+including branches inside rows when their condition is shared across rows.
+Statically unreachable `if` and `match` arms are excluded, as are targets hidden
+by a static class or inline `display="none"`. Inline attributes override the
+class. Computed names it cannot resolve stay
+unknown. The runtime journal names each passed-over target view and the owner
+once, then reports it again only after its valid bindings disappear and return. Read it with
 `bun scripts/agent.mjs web logs` (or the native host).
 
 - The root file's first component is the app root. A fixture component placed
