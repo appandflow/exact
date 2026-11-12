@@ -1,6 +1,7 @@
 # NOTICE says the gallery photographs are by a named person; their provenance files and content credentials say they were generated
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** NOTICE no longer credits the gallery pictures to Daehyeon Mun and says, as their provenance files and C2PA manifests do, that they were generated, naming all four directories that hold them; `apps/duo-lab/art/` stays in the credited list, since nothing in the repository says who made its icon.
 **Systems:** NOTICE, apps/exact-live/assets, apps/interaction-gallery/assets, apps/duo-lab/assets, apps/shared-elements/assets
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
