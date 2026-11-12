@@ -1,6 +1,7 @@
 # The `ci` workflow stops at the first failing check, so one failure hides the rest
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each of the Linux job's checks has the condition `!cancelled() && steps.deps.outcome == 'success'`, so all of them run once setup succeeded, whatever an earlier check did, and the job fails if any failed.
 **Systems:** .github/workflows/ci.yml
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
