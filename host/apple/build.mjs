@@ -38,7 +38,7 @@
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
-import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
+import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, placeCoreFramework, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
 import { assembleMac, assembleIOS, buildIntents, shortcutKeys } from './bundle.mjs';
 import { spawn, spawnSync } from './toolchain.mjs';
 import { metalToolchainInstructions } from './metal.mjs';
@@ -692,6 +692,9 @@ async function main(args, lockHeld = false) {
   // capture directory name the Swift host's environment before the bake ends.
   const expected = appleArtifacts(app, { destination, trust: cargoEnv.EXACT_UPDATE_TRUST, optimize: production ? optimize : 'speed' });
   const swiftBuildRoot = widgets ? resolve(expected.swift, 'widgets') : expected.swift;
+  // Native packages and modules compile the same with or without widgets (nothing of theirs imports ExactKit): their
+  // module cache and kept modules are the destination's, shared by both scratches and by every app built for it.
+  const packagesRoot = expected.swift;
   // A development build compiles the Swift host as it compiles its Rust
   // (`host-dev`): optimized, but file by file and incrementally, so an edited
   // Swift file is a 3-second build and not the whole module's 45 (an M4; LLP
@@ -764,7 +767,7 @@ async function main(args, lockHeld = false) {
   // link's claim from here; with another app linking, or anything else, the build is as it was. It links the
   // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
-  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: moduleTripleFor(app, ios, device, tv), device, platform: ios ? 'ios' : 'macos' }) : null;
+  const widgetCore = widgets ? prepareWidgetCore({ directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: moduleTripleFor(app, ios, device, tv), device, platform: ios ? 'ios' : 'macos' }) : null;
   const coreFrameworkBuilt = widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist'));
   // A widget build links ExactCore as a framework (`sharedWidgetCore`), which an app's first build of a set
   // of ExactCore sources does not have yet. ExactKit is compiled against that framework only: an ExactCore
@@ -955,10 +958,15 @@ async function main(args, lockHeld = false) {
   const linkRoot = paths.scratch;
   mkdirSync(linkRoot, { recursive: true });
   const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
-  const shared = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple, linkedPlan, library }) : null;
-  if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-')); cleanup.push(binDir);
+  // Every app of this scratch shares one ExactCore framework, whose binary holds the last app's archive: the claim on
+  // the scratch is taken before it is linked and kept until the products link, and the app takes its own copy.
+  const waitForSwift = () => awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  const widgetClaim = widgets ? waitForSwift() : null;
+  const core = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple, linkedPlan, library }) : null;
+  const shared = core && { ...core, framework: placeCoreFramework(core.framework, resolve(binDir, 'ExactCore.framework'), app, ios ? 'ios' : 'macos') };
+  if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   // A Clip's executable name may also be its parent's or a sample host's.
   const clipBin = simulatorClip ? resolve(mkdtempSync(resolve(binDir, '.clip-')), simulatorClip.executable) : null;
   const intents = tv ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
@@ -1097,21 +1105,22 @@ async function main(args, lockHeld = false) {
   const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const simulatorArch = iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64', iosArch = device ? 'arm64' : simulatorArch;
-  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch, packagesIn = packageDir) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...(packages.length ? ['-I', packagesIn, ...packageObjects(packagesIn)] : []), ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
+  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch, packagesIn = packageDir) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(packagesRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...(packages.length ? ['-I', packagesIn, ...packageObjects(packagesIn)] : []), ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', moduleTripleFor(app, false)];
   // Each package's Swift module for this target, before the app's module links it: once, and only when an arm
   // linking it is compiled anew (its copied sources and `packageStamp` are that arm's key; its objects' paths this
   // build's own). A failed package stays unplaced, so the next arm that needs it compiles it again and says why.
-  const swiftModuleArgs = (name, sources, dir = packageDir) => ['--sdk', packageTargets.get(dir)[0], 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', name, '-emit-module', '-emit-module-path', resolve(dir, `${name}.swiftmodule`), '-I', dir, '-c', ...sources, '-o', resolve(dir, `${name}.o`), ...packageTargets.get(dir)[1]];
+  const swiftModuleArgs = (name, sources, dir = packageDir) => ['--sdk', packageTargets.get(dir)[0], 'swiftc', '-module-cache-path', resolve(packagesRoot, 'modules-module-cache'), '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', name, '-emit-module', '-emit-module-path', resolve(dir, `${name}.swiftmodule`), '-I', dir, '-c', ...sources, '-o', resolve(dir, `${name}.o`), ...packageTargets.get(dir)[1]];
   const packageArgs = (p, i, dir) => [...swiftModuleArgs(p.module, packageCopies[i], dir), ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])]; // a package's development-only paths (an injected device, LLP 1133.037 D19 item 3), as the web arm's
   // What an arm linking the packages adds to its key: each package, its sources by name, and how it compiles.
   const packageStamp = JSON.stringify(packages.map((p, i) => [p.module, p.sources, packageArgs(p, i).map(a => a.replaceAll(packageDir, '<packages>'))]));
-  // Each package's compiled module kept in the app's own build by what it is made of: its sources, the modules it imports
-  // (`ExactPackage`'s key), how it compiles and the compiler. A module edit links the packages it did not change, as
+  // Each package's compiled module kept in the destination's shared Swift scratch (every app's build reads it) by what
+  // it is made of, which names no app: its sources, the modules it imports (`ExactPackage`'s key), how it compiles and
+  // the compiler. A module edit links the packages it did not change, as
   // compiled before, instead of compiling every one again (LLP 1156.003 D2). Written under this process's name and renamed.
   const placed = new Set(), keptPackage = (name, args, sources, imports, dir, compile) => {
     const key = createHash('sha256').update(JSON.stringify([name, args.map(a => a.replaceAll(dir, '<dir>')), sources.map(f => readFileSync(f, 'utf8')), imports, swiftc])).digest('hex').slice(0, 20);
-    const entry = resolve(linkRoot, 'packages-kept', `${name}-${key}`), outputs = (d) => readdirSync(d).filter(f => f.startsWith(`${name}.`));
+    const entry = resolve(packagesRoot, 'packages-kept', `${name}-${key}`), outputs = (d) => readdirSync(d).filter(f => f.startsWith(`${name}.`));
     if (existsSync(entry)) { for (const f of outputs(entry)) copyFileSync(resolve(entry, f), resolve(dir, f)); return key; }
     compile();
     const making = `${entry}.${process.pid}.tmp`; rmSync(making, { recursive: true, force: true }); mkdirSync(making, { recursive: true });
@@ -1158,15 +1167,14 @@ async function main(args, lockHeld = false) {
     return arm(moduleArgs(on, [...target, probeMain], built, true, variant, variant === true ? simulatorArch : macArch, packagesIn).filter(a => a !== '-emit-library'), [...moduleSources, ...packageSources, probeMain], built, frameworkStamp(true, variant, variant === true ? simulatorArch : macArch) + packageStamp, true, true);
   };
   const firstRoute = routes.find(r => !r.lacking); if (firstRoute && !firstRoute.placed) try { firstRoute.placed = compileProbe(firstRoute); } catch (e) { firstRoute.placed = () => { throw e; }; }
-  const serviceDylibs = launchServices(launchModules(app.dir, app.manifest), webBuildDir); for (const svc of serviceDylibs) arms.push(arm(['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), ...serviceArgs(svc), ...(ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget)], svc.sources, svc.built, '', true));
+  const serviceDylibs = launchServices(launchModules(app.dir, app.manifest), webBuildDir); for (const svc of serviceDylibs) arms.push(arm(['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(packagesRoot, 'modules-module-cache'), ...serviceArgs(svc), ...(ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget)], svc.sources, svc.built, '', true));
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
   let stripped = null;
   mkdirSync(dirname(paths.swiftLock), { recursive: true });
   if (early && expected.swiftLock !== paths.swiftLock) early.claim();
-  const releaseSwift = early && expected.swiftLock === paths.swiftLock ? early.claim
-    : awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  const releaseSwift = widgetClaim ?? (early && expected.swiftLock === paths.swiftLock ? early.claim : waitForSwift());
   try {
     // SwiftPM owns its output layout. Swift Build and the native build system
     // use different directories; ask with the same destination arguments —
