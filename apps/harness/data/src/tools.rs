@@ -84,20 +84,15 @@ pub fn title(name: &str, input: &Json) -> String {
     }
 }
 
-/// A `file://` link to the file or directory a call names, for a title a
-/// terminal can open (Cmd-click), or empty for a call that names none.
+/// A `file://` link to the file or directory a call names, resolved as the
+/// tool resolves it, for a title a terminal can open (Cmd-click), or empty
+/// for a call that names none.
 pub fn file_link(name: &str, input: &Json) -> String {
     if !matches!(name, "read_file" | "list_dir" | "write_file" | "edit_file") {
         return String::new();
     }
-    let path = std::path::Path::new(arg(input, "path"));
-    let full = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    };
     let mut url = String::from("file://");
-    for c in full.to_string_lossy().chars() {
+    for c in resolve(arg(input, "path")).to_string_lossy().chars() {
         match c {
             ' ' => url.push_str("%20"),
             '%' => url.push_str("%25"),
@@ -1422,6 +1417,22 @@ mod tests {
         assert_eq!(
             title("read_file", &json!({"path":"Cargo.toml"})),
             "Read(Cargo.toml)"
+        );
+    }
+
+    #[test]
+    fn a_title_links_the_file_its_call_reads() {
+        let home = std::env::var("HOME").unwrap();
+        for name in ["read_file", "list_dir", "write_file", "edit_file"] {
+            assert_eq!(
+                file_link(name, &json!({"path":"~/notes.txt"})),
+                format!("file://{home}/notes.txt").replace(' ', "%20"),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            file_link("read_file", &json!({"path":"/a b/c%d"})),
+            "file:///a%20b/c%25d"
         );
     }
 }

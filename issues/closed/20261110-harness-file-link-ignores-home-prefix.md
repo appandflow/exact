@@ -1,6 +1,7 @@
 # A harness tool entry for `~/…` links a file under the working directory, not the one the tool reads
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `file_link` resolves the call's path with `resolve`, the tools' own function, so a title's link names the file the tool reads, `~/` included.
 **Systems:** apps/harness/data (tools.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
