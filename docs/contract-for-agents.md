@@ -1914,7 +1914,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `select` of `option`s | a pop-up button with its menu |
 | `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
-| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu; one naming any other popover opens it from the menu's own invoker, exact2's menu rule) | `UIMenu`, nested (LLP 1021) |
+| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu; one naming any other popover opens it from the menu's own invoker, exact2's menu rule; a `role="group"` box of rows with an `aria-label`: a titled section) | `UIMenu`, nested; a section an inline `UIMenu(title:)` (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel; or a `text` and one closing button alone | `UIAlertController(.alert)`: the label its title, the text its message; the one-button alert when it has no action (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | any other `dialog` (a field, Save, Cancel), opened by `showModal(id)` or a button's `command="show-modal"` | a sheet as tall as its content, up to the large detent, its content laid out as written and centred across it (`width="100%" box-sizing="border-box"` fills it); `close(id)`, its `command="close"` button or a swipe down closes it. `closedby="none"` refuses the swipe, `"any"` also takes a tap on the page behind, and a dismissal the person made fires `cancel` (LLP 1115.000 D11.5). A form with a title bar is still a sheet route |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
@@ -3293,7 +3293,8 @@ pressed then. See [Keys](contract-grammar.md#keys).
 
 A long-press or right-click menu is a `popover` the node names with
 `contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
-popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
+popovertargetaction="hide"`), `hr` separators and `role="group"` sections of rows
+(`contract vocab menu`) are the menu, and one row with
 `contextPreview=true` is the preview, whose `press` is what tapping the preview
 does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an

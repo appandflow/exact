@@ -905,7 +905,7 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 hatch on separate rows does not establish one pattern across the list.
 
 ## menu: a pull-down menu of actions, and a long-press one
-names: menus, popover, dropdown, pulldown, pull-down, popupmenu, menu at the click, popup at point, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark, menuOrder, preferredMenuElementOrder, menu order, reversed menu
+names: menus, popover, dropdown, pulldown, pull-down, popupmenu, menu at the click, popup at point, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark, menuOrder, preferredMenuElementOrder, menu order, reversed menu, menu section, section title, displayInline, sectionHeader
 
 A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
 `popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
@@ -945,6 +945,12 @@ component App
 - A row's second `text`, under the first (a block `button`, or `flex-direction="column"`), is
   its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
 - An `hr` between rows starts a section; `destructive=true` paints a row red.
+- A titled section is a `column role="group" aria-label="Your presets"` holding its rows, as
+  WAI-ARIA groups a menu's items: iOS shows the title over the section
+  (`UIMenu(title:options: .displayInline)`), the Mac a section header, Android, Linux and
+  Windows a title row. The web draws the group as written, so to show the title there too,
+  write it inside as `text "Your presets" id="mine"` and name it with `aria-labelledby="mine"`
+  in place of `aria-label`: the native menus take that text as the title, not as a row.
 - iOS puts the first row nearest the finger, so a menu opening upward from near the bottom
   of the screen shows its rows last first. `menuOrder="fixed"` on the trigger keeps them as
   written; `"priority"` always puts the first row nearest the finger.

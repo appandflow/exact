@@ -411,11 +411,15 @@ final class MenuHost {
     /// about 10 pt lower. A bar item's pull-down is a hand-built bar item's
     /// `UIMenu(title:)`, taller header and all (LLP 1021, amended 2026-10-16).
     func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
-        let rows = rows(of: v, inBar: inBar)
+        let headed = !heading.isEmpty && !inBar
+        let rows = rows(of: v, inBar: inBar, headed: headed)
         if heading.isEmpty { return UIMenu(children: [rows]) }
         return inBar ? UIMenu(title: heading, children: [rows]) : UIMenu(children: [UIMenu(title: heading, options: .displayInline, children: [rows])])
     }
-    private func rows(of v: NodeView, inBar: Bool) -> UIDeferredMenuElement {
+    /// `headed`: the rows go under the heading's inline section, whose
+    /// title UIKit draws only over rows of its own: the first untitled
+    /// section's rows are its rows, and the other sections follow it.
+    private func rows(of v: NodeView, inBar: Bool, headed: Bool = false) -> UIDeferredMenuElement {
         UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
             func current() -> NodeView? {
                 guard let v, v.incarnation == token, self?.presenter?.views[v.id] === v, self?.eligible(v, inBar: inBar) == true else { return nil }
@@ -433,7 +437,9 @@ final class MenuHost {
                 }
                 return
             }
-            completion(self.items(of: invocation.target, opener: invoker))
+            let items = self.items(of: invocation.target, opener: invoker)
+            guard headed, let first = items.first as? UIMenu, first.options.contains(.displayInline), first.title.isEmpty else { return completion(items) }
+            completion(first.children + items.dropFirst())
         }
     }
     func eligible(_ node: NodeView, contextMenu: Bool = false, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
@@ -974,7 +980,15 @@ final class MenuHost {
         guard let pop = holding.first(where: { inner in !holding.contains { $0 !== inner && $0.isDescendant(of: inner) } }) else { return nil }
         var at: UIView = node
         while let up = at.superview, up !== pop.container { at = up }
-        guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
+        guard var row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
+        if row.isMenuSection {
+            // A row of a section (D3): the section's own child.
+            let section = row
+            at = node
+            while let up = at.superview, up !== section.container { at = up }
+            guard let inner = at as? NodeView, inner.superview === section.container else { return nil }
+            row = inner
+        }
         return (pop, row)
     }
     /// For `node`, a row (an action or the cancel) of the confirmation UIKit
