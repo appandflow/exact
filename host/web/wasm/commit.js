@@ -63,6 +63,9 @@ function apply(batch) {
         case "theme":
           (document.getElementById("exact-theme") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-theme" }))).textContent = op.css;
           break;
+        case "large-title":
+          root.style.setProperty("--exact-large-title-size", `${op.size}px`);
+          break;
         // LLP 1055 D7: the page's @keyframes; LLP 1121 D8: a view's state looks (src/host/looks.rs); LLP 1095 D4: the theme's :root rule
         case "language":
           if (op.lang) {

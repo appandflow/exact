@@ -355,6 +355,14 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// The large-title size at the runner's root, for the bar's reserved line.
+    pub fn large_title(&mut self, size: f32) {
+        self.ops.push(text!(
+            "{{\"op\":\"large-title\",\"size\":{}}}",
+            Shortest(f64::from(size))
+        ));
+    }
+
     /// `{"op":"looks","id":…,"css":…}`: a view's state-look rules for the
     /// page's looks sheet (LLP 1121 D8), `""` to drop them.
     pub fn looks(&mut self, id: u32, css: &str) {

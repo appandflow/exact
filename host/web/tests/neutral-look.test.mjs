@@ -5,7 +5,7 @@ import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
-import { glueDeclarations } from './glue-fixture.mjs';
+import { glueDeclarations, glueCase } from './glue-fixture.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -152,7 +152,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   for (const [name, spelled] of Object.entries(RATIO)) expect([name, [spelled].flat().every((s) => neutral.includes(s))]).toEqual([name, true]);
   // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's
   // level-1 title takes at the large title's size.
-  expect(neutral.includes(`margin-block: max(0px, (${largeTitle / 16}rem * 1.2 - 1lh) / 2);`)).toBe(true);
+  expect(neutral.includes(`margin-block: max(0px, (var(--exact-large-title-size, ${largeTitle / 16}rem) * 1.2 - 1lh) / 2);`)).toBe(true);
   expect(shell.includes(`line-height: var(--exact-control-line-height); --exact-control-line-height: ${value.get('select-line-height')};`)).toBe(true);
   // A control's line is one height and its title one weight, wherever the sheets write them: a select's own line
   // aside, and a menu's rows, which are regular.
@@ -1166,6 +1166,61 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar's
     await page.setContent(`<!doctype html><style>${sheet()} html { font-size: 20px; }</style><div id="exact-root"><main navigationKey="page">
       ${route('page', title('h1', 1, 'font-size:1.6875rem'))}</main></div>`);
     expect([engine, await page.evaluate(() => Math.round(document.querySelector('#page > header').getBoundingClientRect().height * 10) / 10)]).toEqual([engine, Math.round((2.0625 * 20 * 1.2 + 13) * 10) / 10]);
+  } finally { await browser.close(); }
+}, 90000);
+
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar uses each runtime's large-title line at the current root`, async () => {
+  const browser = await launch(engine);
+  try {
+    const page = await browser.newPage({ viewport: { width: 600, height: 2400 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    const title = (style, text) => `<h1 role="heading" aria-level="1" style="font-size:var(--title-size);line-height:1.2;${style}">${text}</h1>`;
+    const route = (id, content) => `<div navigationKey="${id}" id="${id}"><header>${content}</header></div>`;
+    // The wasm host reads the nonlinear ramp; the JS target keeps proportional rem sizes. Each root is both an
+    // initial size and a change on an already mounted page. Explicit typography keeps its own line and box.
+    const applyTitle = glueCase(read('../glue.js'), 'large-title');
+    const script = `<script>(() => {
+      const root = document.getElementById("exact-root");
+      globalThis.applyTitle = op => { switch (op.op) { ${applyTitle} } };
+    })();</script>`;
+    const sizes = [[14, 31, 25], [16, 33, 27], [20, 37, 31], [53, 60, 58]];
+    for (const runtime of ['wasm', 'js']) for (const initial of sizes) {
+      const cases = [
+        ['plain', '', 'Inbox'], ['empty', '', ''], ['small', 'font-size:17px;line-height:1', 'Inbox'],
+        ['tight', 'line-height:1', 'Inbox'], ['large', 'font-size:80px;line-height:1.2', 'Inbox'],
+        ['margin', 'font-size:17px;line-height:1;margin:0', 'Inbox'],
+      ];
+      await page.setContent(`<!doctype html><style>${sheet()} html { font-size:${initial[0]}px; }</style><div id="exact-root">
+        ${cases.map(([id, style, text]) => route(id, title(style, text))).join('')}</div>${script}`);
+      for (const [root, wasmLarge, wasmTitle] of [initial, ...sizes.slice().reverse()]) {
+        await page.evaluate(({ root, runtime, wasmLarge, wasmTitle }) => {
+          document.documentElement.style.fontSize = `${root}px`;
+          const app = document.getElementById('exact-root');
+          app.style.setProperty('--title-size', runtime === 'wasm' ? `${wasmTitle}px` : '1.6875rem');
+          if (runtime === 'wasm') globalThis.applyTitle({ op: 'large-title', size: wasmLarge });
+        }, { root, runtime, wasmLarge, wasmTitle });
+        const geometry = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('header')].map(bar => {
+          const heading = bar.firstElementChild, css = getComputedStyle(heading);
+          const b = bar.getBoundingClientRect(), h = heading.getBoundingClientRect();
+          return [bar.parentElement.id, {
+            height: b.height, heading: h.height,
+            centre: (h.top + h.bottom) / 2 - (b.top + (b.height - 1) / 2),
+            margin: parseFloat(css.marginTop), size: parseFloat(css.fontSize),
+          }];
+        })));
+        const largeLine = (runtime === 'wasm' ? wasmLarge : 2.0625 * root) * 1.2;
+        for (const id of ['plain', 'empty', 'small', 'tight', 'large']) {
+          const got = geometry[id], wanted = Math.max(largeLine, got.heading);
+          expect([engine, runtime, root, id, Math.abs(got.height - (wanted + 13)) < .05, Math.abs(got.centre) < .05])
+            .toEqual([engine, runtime, root, id, true, true]);
+        }
+        expect(geometry.small.size).toBe(17);
+        expect(geometry.large.size).toBe(80);
+        expect(geometry.margin.margin).toBe(0);
+      }
+    }
+    expect(errors).toEqual([]);
   } finally { await browser.close(); }
 }, 90000);
 

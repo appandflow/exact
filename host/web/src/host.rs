@@ -323,6 +323,7 @@ pub struct Host<D: DataSource> {
     /// The head the page was last told, and whether a commit may move it.
     head: exact_runner::Head,
     language: Option<String>,
+    large_title_size: Option<f32>,
     head_dirty: bool,
     /// While the first batch is made: what a page's projection computed for
     /// each view (LLP 1048.000 D6), taken instead of computing it again.
@@ -493,6 +494,7 @@ impl<D: DataSource> Host<D> {
             heads: Default::default(),
             head: Default::default(),
             language: None,
+            large_title_size: None,
             head_dirty: false,
             computed,
             keyframes: Default::default(),
