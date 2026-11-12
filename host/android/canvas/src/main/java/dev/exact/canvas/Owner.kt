@@ -155,7 +155,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     /** No turn is asked for: the run of turns ends. */
     private fun idle() { if (timing) try { Native.frameIdle() } catch (e: UnsatisfiedLinkError) { timing = false } }
 
-    private fun drainWindow() {
+    /** The window's frames drained now: before a driver's request reads or changes what they are counted in. */
+    fun drainWindow() {
         if (!timing) return
         windowLost[0] = 0
         val n = windowFrames.drain(windowWords, windowLost)
@@ -164,6 +165,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** Called on the main thread with the frame rates exact2's GPU canvases ask for, as they change ([Natives]). */
     @Volatile var rates: (IntArray) -> Unit = {}
+    /** Those rates as last told: the main thread's. */
+    val frameRates = FrameRates()
     private val prefetch = true
 
     // Scrolls the main thread sent that the exact thread has not taken: summed, so a busy thread catches up at once.
@@ -518,7 +521,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             Native.frameTurn(arrival, t, deadline, period, System.nanoTime(), published)
             // No turn asked for: the run ends, so the idle time to the next is no frame time.
             if (!turnPosted) Native.frameIdle()
-            Native.frameRates()?.let { r -> main.post { rates(r) } }
+            Native.frameRates()?.let { r -> main.post { frameRates.told(r); rates(r) } }
         } catch (e: UnsatisfiedLinkError) { timing = false }
     }
     private val turns = Turns(::turned)
@@ -630,7 +633,7 @@ internal object Exact {
      * thread of its own (not with owner=0, the benchmark's compare switch). */
     fun agent(line: String): String {
         val o = owner ?: return "{\"error\":\"the reader carries a driver only with exact2 on its own thread (owner=0 is set)\"}"
-        return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
+        return o.sync { o.drainWindow(); String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
     }
 
     /** What an [ExactTamber] asks ([Native.tamber], LLP 1121 D12): on exact2's thread, waited for, publishing

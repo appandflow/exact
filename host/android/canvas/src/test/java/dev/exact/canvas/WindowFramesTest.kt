@@ -37,4 +37,42 @@ class WindowFramesTest {
         assertEquals("the oldest kept is the eleventh", 11L, words[0])
         assertEquals((WindowFrames.RING + 10).toLong(), words[(n - 1) * WindowFrames.WORDS])
     }
+
+    @Test fun aFrameWrittenOverWhileItIsCopiedIsLostNeverTorn() {
+        // The listener's thread writes frames whose five words are all its number while this one drains: every frame
+        // read is whole and in order, and every frame is either read or counted lost.
+        val frames = WindowFrames {}
+        val total = 200_000L
+        val writer = Thread { for (k in 1..total) frames.record(k, k, k, k, k, 0) }
+        val lost = LongArray(1)
+        var read = 0L
+        var last = 0L
+        writer.start()
+        while (writer.isAlive || read + lost[0] < total) {
+            val n = frames.drain(words, lost)
+            for (f in 0 until n) {
+                val k = words[f * WindowFrames.WORDS]
+                for (w in 1 until WindowFrames.WORDS) assertEquals("frame $k is whole", k, words[f * WindowFrames.WORDS + w])
+                assertTrue("in order", k > last)
+                last = k
+            }
+            read += n
+            if (!writer.isAlive && n == 0 && read + lost[0] < total) break
+        }
+        writer.join()
+        assertEquals(total, read + lost[0])
+    }
+}
+
+class FrameRatesTest {
+    @Test fun aRateToldBeforeItsViewIsKeptUntilItIsTheDisplaysAgain() {
+        val rates = FrameRates()
+        assertEquals(0, rates.of(7))
+        rates.told(intArrayOf(7, 60, 9, 30))
+        assertEquals(60, rates.of(7))
+        assertEquals(30, rates.of(9))
+        rates.told(intArrayOf(7, 0))
+        assertEquals("the display's again", 0, rates.of(7))
+        assertEquals(30, rates.of(9))
+    }
 }

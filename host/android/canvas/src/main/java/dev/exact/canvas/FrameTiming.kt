@@ -11,6 +11,7 @@ import android.view.FrameMetrics
 import android.view.Window
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
 
 /**
  * Choreographer's turns for [Owner] (LLP 1079.000 §6.2). On Android 13 and later a vsync callback, whose frame data
@@ -66,12 +67,16 @@ internal class DisplayPeriod(context: Context, private val handler: Handler, pri
 /**
  * The window's [FrameMetrics] for `perf frames` (LLP 1079.000 §6.2, §5.1): each drawn frame's intended vsync, vsync,
  * total duration, deadline and GPU duration (the last two from Android 12; 0 before), copied on the listener's thread
- * into a fixed ring, since the platform reuses its object, and drained on the exact thread ([drain]). The listener
+ * into a fixed ring, since the platform reuses its object, and drained on the exact thread ([drain]). Each slot has a
+ * version, odd while it is written, so a frame the listener wrote over while it was copied is counted lost, never read
+ * torn; every word is an atomic one, so the copy is ordered between the two reads of its version. The listener
  * runs only while a driver's launch shows the activity ([attach]); a production bake collects nothing.
  */
 internal class WindowFrames(private val wake: () -> Unit) {
     private val thread by lazy { HandlerThread("exact frame metrics").apply { start() } }
-    private val ring = LongArray(RING * WORDS)
+    private val ring = AtomicLongArray(RING * WORDS)
+    /** Each slot's version: odd while the listener writes frame k there, then 2 × (k + 1). */
+    private val versions = AtomicLongArray(RING)
     /** Frames written (the listener's thread), published after each one's words. */
     private val written = AtomicLong(0)
     /** Reports the platform dropped before the listener ran. */
@@ -95,8 +100,11 @@ internal class WindowFrames(private val wake: () -> Unit) {
     /** One frame's words, on the listener's thread, and the reports the platform dropped before it. */
     internal fun record(intended: Long, vsync: Long, total: Long, deadline: Long, gpu: Long, drop: Int) {
         val w = written.get()
-        val at = ((w % RING) * WORDS).toInt()
-        ring[at] = intended; ring[at + 1] = vsync; ring[at + 2] = total; ring[at + 3] = deadline; ring[at + 4] = gpu
+        val slot = (w % RING).toInt()
+        val at = slot * WORDS
+        versions.set(slot, 2 * w + 1)
+        ring.set(at, intended); ring.set(at + 1, vsync); ring.set(at + 2, total); ring.set(at + 3, deadline); ring.set(at + 4, gpu)
+        versions.set(slot, 2 * (w + 1))
         if (drop > 0) dropped.addAndGet(drop.toLong())
         written.set(w + 1)
         // Half the ring waits: the exact thread drains it before it laps, even with no turn of its own.
@@ -123,22 +131,41 @@ internal class WindowFrames(private val wake: () -> Unit) {
         val w = written.get()
         var from = read
         if (w - from > RING) { lost[0] += w - from - RING; from = w - RING }
-        val n = (w - from).toInt()
-        for (k in 0 until n) System.arraycopy(ring, (((from + k) % RING) * WORDS).toInt(), into, k * WORDS, WORDS)
-        // Frames the listener wrote over while they were copied are torn: dropped, and counted.
-        val torn = (written.get() - RING - from).coerceIn(0L, n.toLong()).toInt()
-        if (torn > 0) {
-            System.arraycopy(into, torn * WORDS, into, 0, (n - torn) * WORDS)
-            lost[0] += torn.toLong()
+        var n = 0
+        for (k in from until w) {
+            val slot = (k % RING).toInt()
+            val version = versions.get(slot)
+            for (word in 0 until WORDS) into[n * WORDS + word] = ring.get(slot * WORDS + word)
+            // Written over before or while it was copied: lost, not read torn.
+            if (version != 2 * (k + 1) || versions.get(slot) != version) lost[0]++ else n++
         }
         read = w
         readSeen.set(w)
         lost[0] += dropped.getAndSet(0)
-        return n - torn
+        return n
     }
 
     companion object {
         const val RING = 64
         const val WORDS = 5
     }
+}
+
+/**
+ * The frame rates exact2's GPU canvases ask for (`Surface::max_fps`), by view, as last told ([Native.frameRates], on the
+ * main thread): kept for the process, as exact2 tells a rate only when it changes, so a canvas whose view or surface is
+ * made after its rate was told (a reader made again, a canvas given a window) is asked at its rate then ([Natives]).
+ */
+internal class FrameRates {
+    private val rates = HashMap<Int, Int>()
+
+    /** View and rate pairs; a rate of 0 is the display's. */
+    fun told(pairs: IntArray) {
+        for (k in 0 until pairs.size / 2) {
+            if (pairs[2 * k + 1] > 0) rates[pairs[2 * k]] = pairs[2 * k + 1] else rates.remove(pairs[2 * k])
+        }
+    }
+
+    /** The rate [view] asks for; 0 for the display's. */
+    fun of(view: Int): Int = rates[view] ?: 0
 }

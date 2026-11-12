@@ -228,7 +228,8 @@ reads as `exact.frame-health.metrics/2` (`health`) and `exact.frame-health/2` (`
 
 - `app` (`exact-app-choreographer`), Exact's frames: each Choreographer turn on exact2's thread is a frame at its
   vsync, whose work runs until the main thread has ingested the stream it published. Its deadline and period are
-  Choreographer's (`FrameData`, Android 13 and later); before 13, the next vsync and the display's refresh.
+  Choreographer's (`FrameData`, Android 13 and later); before 13, the next vsync and the display's refresh. A turn whose
+  stream waits behind eight others has its work lost and counted (`work.lost`).
 - `window` (`android-frame-metrics`), the window's drawn frames from `FrameMetrics`: each from its intended vsync for
   its total duration, against its `DEADLINE` (Android 12 and later; before it lateness is unknown). A window draws
   only when something changed, so this source has work and no frame times. The reader's own scrolling and the layers

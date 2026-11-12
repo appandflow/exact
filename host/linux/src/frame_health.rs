@@ -19,8 +19,12 @@ const POLICY: &str = "exact-frame-health-policy/2";
 pub(crate) const BYTES: usize = 4000;
 const MAXIMUM_AGE_NS: u64 = 120_000_000_000;
 const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
-/// The cursor's cumulative values, laid out as Apple's `FrameHealthMetrics.Sample.values`.
-const VALUES: usize = 17;
+/// The cursor's cumulative values, laid out as Apple's `FrameHealthMetrics.Sample.values`,
+/// then the frames whose work was lost.
+const VALUES: usize = 18;
+/// Frames whose work waits on a publication's ingest, at most: past it the oldest is lost,
+/// and counted, while the main thread stalls behind more streams than this.
+const PENDING: usize = 8;
 const COLUMNS: [&str; 23] = [
     "sequence",
     "capture",
@@ -77,7 +81,9 @@ pub(crate) struct Health {
     unavailable: Option<&'static str>,
     /// Why lateness is unknown, where the source's deadlines carry no information.
     lateness_unknown: Option<&'static str>,
-    pending: [Option<Pending>; 3],
+    pending: [Option<Pending>; PENDING],
+    /// Frames whose work was lost because more waited than [`PENDING`].
+    lost: u64,
     capture: u64,
     /// When the agent's capture lease ends, monotonic nanoseconds; 0 for none.
     lease_until: u64,
@@ -103,7 +109,8 @@ impl Health {
             handle,
             unavailable,
             lateness_unknown: None,
-            pending: [None; 3],
+            pending: [None; PENDING],
+            lost: 0,
             capture: 0,
             lease_until: 0,
             virtual_clock: false,
@@ -176,16 +183,16 @@ impl Health {
                 deadline,
                 publication,
             };
-            // A free slot remains unless a landing was lost; then the oldest frame gives way
-            let slot = self
-                .pending
-                .iter()
-                .position(Option::is_none)
-                .unwrap_or_else(|| {
-                    (0..3)
+            // With every slot waiting, the oldest frame gives way: its work is lost, and counted
+            let slot = match self.pending.iter().position(Option::is_none) {
+                Some(free) => free,
+                None => {
+                    self.lost = self.lost.saturating_add(1);
+                    (0..PENDING)
                         .min_by_key(|i| self.pending[*i].map_or(0, |p| p.publication))
                         .unwrap_or(0)
-                });
+                }
+            };
             self.pending[slot] = Some(frame);
         }
     }
@@ -255,7 +262,8 @@ impl Health {
             return;
         }
         core::reset(self.handle);
-        self.pending = [None; 3];
+        self.pending = [None; PENDING];
+        self.lost = 0;
         self.running = false;
         self.dropped = 0;
         self.capture = 0;
@@ -372,7 +380,7 @@ impl Health {
         self.expire(now);
         let s = self.snapshot();
         let current = [self.bins(0), self.bins(1)];
-        let values = values(&s);
+        let values = values(&s, self.lost);
         let mut baseline = [0u64; VALUES];
         let mut prior = [[0u32; 64]; 2];
         let mut previous_read = 0;
@@ -418,7 +426,7 @@ impl Health {
         let (pending, overdue) = self.pending_frames(now);
         let work_reply = json!({"records": delta[6].to_string(),
             "late": if known { json!(delta[7].to_string()) } else { Value::Null },
-            "latenessUnknown": self.lateness_unknown, "pending": pending,
+            "latenessUnknown": self.lateness_unknown, "pending": pending, "lost": delta[17].to_string(),
             "overdue": if known { json!(overdue) } else { Value::Null },
             "medianBoundsNs": q(work, 0.5), "p99BoundsNs": q(work, 0.99), "maximumBoundsNs": q(work, 1.0)});
         let stale =
@@ -503,6 +511,9 @@ impl Health {
             idle(w.running)
         } else if w.stale {
             ("insufficient-evidence", "stale")
+        } else if d[17] > 0 {
+            // Frames whose work was lost could have been late: missing data cannot pass
+            ("insufficient-evidence", "work-lost")
         } else if out_of_order > 0 {
             ("insufficient-evidence", "out-of-order")
         } else if intervals == 0 {
@@ -546,7 +557,7 @@ impl Health {
         json!({"policy": POLICY,
             "cadence": {"result": cadence.0, "reason": cadence.1, "evidence": self.kind.cadence_evidence, "scope": "frames",
                 "predicates": {"frameIntervals": intervals.to_string(), "skippedRefreshes": skipped.to_string(),
-                    "lateFrames": counted(late), "overdueFrames": counted(w.overdue), "unclassifiedIntervals": unclassified.to_string()}},
+                    "lateFrames": counted(late), "overdueFrames": counted(w.overdue), "unclassifiedIntervals": unclassified.to_string(), "lostWork": d[17].to_string()}},
             "target": {"result": target.0, "reason": target.1, "evidence": "callback-proxy", "scope": "requested-rate",
                 "predicates": {"requestedSlots": slots.to_string(), "missedFrames": missed.to_string(),
                     "restrictedIntervals": restricted.to_string()}, "context": Vec::<String>::new()},
@@ -647,6 +658,7 @@ impl Health {
                 "maximumFrameIntervalNs": s.max_interval_ns.to_string(), "scheduledPeriodNs": s.period_ns,
                 "missedFrames": s.missed_frames.to_string(),
                 "lateFrames": if known { json!(s.late.to_string()) } else { Value::Null },
+                "lostWorkRecords": self.lost.to_string(),
                 "frameTimeBoundsNs": bounds(&self.bins(0), s.intervals), "workBoundsNs": bounds(&self.bins(1), s.worked),
                 "detailMayHaveBeenOff": true},
             "unobserved": self.kind.unobserved, "columns": COLUMNS,
@@ -666,7 +678,7 @@ struct Window<'a> {
 }
 
 /// The cumulative values a cursor carries, in Apple's order; 8 and 9 are watermarks.
-fn values(s: &core::Snapshot) -> [u64; VALUES] {
+fn values(s: &core::Snapshot, lost: u64) -> [u64; VALUES] {
     [
         s.callbacks,
         s.held,
@@ -685,6 +697,7 @@ fn values(s: &core::Snapshot) -> [u64; VALUES] {
         s.skipped_refreshes,
         s.unclassified_intervals,
         s.out_of_order,
+        lost,
     ]
 }
 

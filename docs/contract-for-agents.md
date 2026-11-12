@@ -4336,7 +4336,8 @@ On Android (`agent.mjs android`), the same operations read the reader's own fram
 same formats, from two sources: `app` (`exact-app-choreographer`), each Choreographer turn
 on exact2's thread, whose work runs from its vsync until the main thread has ingested what
 it published, against Choreographer's deadline (Android 13 and later; before it the next
-vsync); and `window` (`android-frame-metrics`), the window's `FrameMetrics`, whose frames
+vsync), where a turn whose stream waits behind eight others has its work lost and counted
+(`work.lost`, which keeps cadence from passing); and `window` (`android-frame-metrics`), the window's `FrameMetrics`, whose frames
 have work against their `DEADLINE` (Android 12 and later) and no frame times, as the
 screen's source on iOS has none. `health window` and `report window` name the second;
 `scroll` is refused there, since the reader's scrolling is the window's. Neither observes

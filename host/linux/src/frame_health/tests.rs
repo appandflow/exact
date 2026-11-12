@@ -116,6 +116,7 @@ fn the_agents_clock_records_nothing_and_a_lease_lends_the_wall() {
     );
     assert_eq!(lend, Lend::Wall, "{reply}");
     r.clock(false, T0);
+    assert!(r.app.capturing(), "capture starts once the clock is lent");
     turn(&mut r, 2, 3_000_000);
     turn(&mut r, 3, 3_000_000);
     assert_eq!(health(&mut r, T0 + 4 * P)["frames"]["intervals"], "1");
@@ -256,4 +257,59 @@ fn a_period_told_before_the_host_runs_is_given_at_the_first_turn_without_collect
         health(&mut r, T0 + 2 * P)["unavailableReason"],
         "collection-disabled"
     );
+}
+
+#[test]
+fn work_past_eight_unlanded_streams_is_lost_counted_and_never_passes() {
+    let mut r = Reader::new(true);
+    turn(&mut r, 0, 3_000_000);
+    let h = health(&mut r, T0 + P);
+    // The main thread stalls behind ten streams, then ingests them all at once
+    for n in 1..11 {
+        let vsync = T0 + n * P;
+        r.turned(
+            vsync + 100_000,
+            vsync,
+            vsync + P,
+            P,
+            vsync + 2_000_000,
+            n + 1,
+        );
+    }
+    let end = T0 + 11 * P;
+    r.landed(11, end - 500_000, end);
+    let after = ask(
+        &mut r,
+        json!({"op": "perf", "frames": true, "health": true, "cursor": h["cursor"]}),
+        end,
+    );
+    assert_eq!(after["work"]["records"], "8", "{after}");
+    assert_eq!(after["work"]["lost"], "2");
+    assert_eq!(
+        after["assessments"]["cadence"]["predicates"]["lostWork"],
+        "2"
+    );
+    // Every surviving frame landed past its deadline: an observed failure stands
+    assert_eq!(after["assessments"]["cadence"]["reason"], "late-work");
+    // A window in which nothing late was observed but work was lost does not pass
+    let mut quiet = Reader::new(true);
+    for n in 0..10 {
+        let vsync = T0 + n * P;
+        quiet.turned(
+            vsync + 100_000,
+            vsync,
+            vsync + 20 * P,
+            P,
+            vsync + 2_000_000,
+            n + 1,
+        );
+    }
+    quiet.landed(10, T0 + 10 * P, T0 + 10 * P + 100_000);
+    let h = health(&mut quiet, T0 + 11 * P);
+    assert_eq!(h["work"]["lost"], "2");
+    assert_eq!(
+        h["assessments"]["cadence"]["result"],
+        "insufficient-evidence"
+    );
+    assert_eq!(h["assessments"]["cadence"]["reason"], "work-lost");
 }
