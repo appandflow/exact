@@ -1,6 +1,7 @@
 # Apple Canvas 2D drops `wordSpacing` when `letterSpacing` is also set
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `CanvasText.line` gives each space a tracking of `letterSpacing + wordSpacing` instead of a kern, which Core Text ignored beside the run's tracking.
 **Systems:** host/apple/Sources/ExactSurfaces/Canvas2DText.swift (`CanvasText.line`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
