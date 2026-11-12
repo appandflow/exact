@@ -4,6 +4,7 @@
 
 mod active_route;
 mod app_module;
+mod arguments;
 mod canvas2d;
 mod children;
 mod each;

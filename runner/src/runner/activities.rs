@@ -260,8 +260,10 @@ component App
             ]))
         );
         for action in ["start", "update", "end"] {
+            let requests = r.mutation_requests();
             let error = r.act(action, vec![]).unwrap_err();
             assert!(format!("{error:?}").contains("is not linked into this artifact"));
+            assert_eq!(r.mutation_requests(), requests + 1);
             assert!(r.take_requests().is_empty());
         }
     }

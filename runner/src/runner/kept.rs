@@ -794,19 +794,25 @@ impl<D: DataSource> Runner<D> {
             .mutation()
             .expect("a send's target names its mutation");
         let name = self.plan.str(self.plan.mutations[m].name).to_string();
-        self.mutation_requests += 1;
-        let answer = if Self::activity_send(&source) {
-            self.activity_request(&source, &args)
-        } else {
-            self.store.set_clock_ms(self.now_ms);
-            let answer = self
-                .data
-                .answer_for(target, &mut self.store, &source, &args);
-            self.refuse_locked(answer)
-        };
-        // What its turn sent as an answer (LLP 1016.000 D7, the amendment
-        // of 2026-10-18).
-        self.stage_answer(target);
+        let answer = self
+            .check_send_arguments(m, &args)
+            .map_err(|e| format!("{e:?}"))
+            .and_then(|()| {
+                self.mutation_requests += 1;
+                let answer = if Self::activity_send(&source) {
+                    self.activity_request(&source, &args)
+                } else {
+                    self.store.set_clock_ms(self.now_ms);
+                    let answer = self
+                        .data
+                        .answer_for(target, &mut self.store, &source, &args);
+                    self.refuse_locked(answer)
+                };
+                // What its turn sent as an answer (LLP 1016.000 D7, the amendment
+                // of 2026-10-18).
+                self.stage_answer(target);
+                answer.map_err(|e| format!("{e:?}"))
+            });
         let refused = match answer {
             Ok(super::Answer::Now(value)) if self.conforms(&value, self.plan.mutations[m].ty) => {
                 match self.mutation_slot(m) {
@@ -835,7 +841,7 @@ impl<D: DataSource> Runner<D> {
                 later.push((target, source, args, request));
                 None
             }
-            Err(error) => Some(format!("{error:?}")),
+            Err(error) => Some(error),
         };
         if let Some(why) = refused {
             self.log(super::lines::unsent_refused(&name, &why));
@@ -880,6 +886,56 @@ mod tests {
         }
         assert!(decode(&encode(&args, &deep)).is_some());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
+    }
+
+    #[test]
+    fn activation_refuses_a_waiting_non_finite_send_without_asking_its_source() {
+        use crate::{DataError, Target};
+        use exact_kernel::{Kernel, NodeType};
+        use exact_plan::{builder::PlanBuilder, TypeKind};
+
+        struct Calls(usize);
+        impl DataSource for Calls {
+            fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+                self.0 += 1;
+                Ok(Value::str("answer"))
+            }
+        }
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let optional = b.option(string);
+        let none = b.constant(&Value::NONE);
+        for name in ["invalid", "valid"] {
+            let slot = b.slot(name, optional, none);
+            b.mutation(name, slot, string);
+        }
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut r = Runner::boot(
+            b.finish().unwrap(),
+            Calls(0),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        // Exercise activation's boundary independently of the action's check.
+        for (m, n) in [f64::INFINITY, 1.0].into_iter().enumerate() {
+            r.unsent.push((
+                Target::Mutation(m),
+                "save".into(),
+                vec![Value::Number(n)],
+                r.sent_by(),
+            ));
+        }
+        r.data_ready().unwrap();
+        assert_eq!(r.data.0, 1);
+        assert_eq!(r.mutation_requests(), 1);
+        assert_eq!(r.slot("invalid"), Some(&Value::NONE));
+        assert_eq!(r.slot("valid"), Some(&Value::some(Value::str("answer"))));
+        assert!(!r.has_pending());
+        assert!(r.pending_mut.iter().all(|pending| !pending));
+        assert!(r.journal().any(|line| line.contains("invalid")
+            && line.contains("argument 1 contains a non-finite number")));
     }
 
     #[test]

@@ -433,6 +433,7 @@ impl<D: DataSource> Runner<D> {
             .expect("a send's target names its mutation");
         let ty = self.plan.mutations[m].ty;
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
+        self.check_send_arguments(m, args)?;
         self.snapshot_sockets();
         self.store.set_clock_ms(self.now_ms);
         self.mutation_requests += 1;

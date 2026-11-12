@@ -425,6 +425,10 @@ impl<D: DataSource> Runner<D> {
             let write = self.accept_write(target, source, sargs);
             let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
             if early && !queue {
+                if let Err(e) = self.check_send_arguments(m, sargs) {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
                 // It replaces a send still in flight (newest wins).
                 if mode == MutationMode::Newest {
                     unsent.retain(|u| u.0.mutation() != Some(m));

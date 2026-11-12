@@ -720,15 +720,23 @@ impl<D: DataSource> Runner<D> {
                     let forced = force.contains(&i);
                     let refreshed = forced || refreshing.contains(&i);
                     self.forget_refused(i, &args);
+                    // Invalid arguments take the query's refusal path, which fails
+                    // reconciliation without undoing the write's end.
+                    let valid_args =
+                        super::query::check_arguments(self.plan.str(row.name), &args).is_ok();
                     // A stand-in a refused activation failed holds for a kept
-                    // seed's identifying arguments, whatever its context
+                    // seed's identifying arguments, whatever its context.
+                    // NaN must keep its validation failure across unrelated commits.
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
                     let stale = self.resources[i].stale;
-                    let failed_for = |f: &Vec<Value>| *f == args || (stale && f == identity);
+                    let failed_for = |f: &Vec<Value>| {
+                        crate::compare::unchanged_arguments(f, &args)
+                            || (stale && crate::compare::unchanged_arguments(f, identity))
+                    };
                     // @ref LLP 1016.000 D10 — an upload is asked once for its
                     // arguments: in flight, ended or failed, nothing asks it
                     // again at them, not a store write it read nor a refresh.
-                    let mark = self.upload_at(i, &args).cloned();
+                    let mark = self.upload_at(i, &args).filter(|_| valid_args).cloned();
                     // An upload's failure stands through a refresh.
                     let upload_failed = matches!(mark, Some(super::UploadEnd::Failed(_)))
                         && self.resources[i]
@@ -779,7 +787,8 @@ impl<D: DataSource> Runner<D> {
                     let unknown = states[i].as_ref().is_some_and(|s| s.kept_seed)
                         && !self.data.ready()
                         && self.identity_unknown(i, &states);
-                    let kept_seed = !unknown
+                    let kept_seed = valid_args
+                        && !unknown
                         && states[i].as_ref().is_some_and(|s| {
                             s.kept_seed
                                 && !self.data.ready()
@@ -806,6 +815,7 @@ impl<D: DataSource> Runner<D> {
                     let upload = mark.is_some() || self.uploading(i);
                     let reuse = states[i]
                         .as_ref()
+                        .filter(|_| valid_args || failed)
                         .filter(|_| !unknown)
                         .filter(|s| {
                             kept_seed
@@ -835,7 +845,7 @@ impl<D: DataSource> Runner<D> {
                     let reuse = match reuse {
                         Some(v) => Some(v),
                         None => (states[i].as_ref())
-                            .filter(|_| self.data.ready())
+                            .filter(|_| valid_args && self.data.ready())
                             .map(|state| state.value.clone())
                             .filter(|_| self.keeps_resource(i, &args, forced))
                             .inspect(|_| force.retain(|f| *f != i)),
@@ -873,7 +883,8 @@ impl<D: DataSource> Runner<D> {
                     let compiled = std::mem::replace(&mut adopted[i], false);
                     let value = match reuse {
                         Some(v) => v,
-                        None if (boot || !self.data.ready())
+                        None if valid_args
+                            && (boot || !self.data.ready())
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && row.initial.len > 0
                             && !self.secrets_unseen(i, &row, &resources)
@@ -925,7 +936,8 @@ impl<D: DataSource> Runner<D> {
                         // or what is was passed over (`secrets_unseen`, LLP
                         // 1027 D4): the placeholder shows, pending;
                         // `data_ready` asks.
-                        None if !self.data.ready()
+                        None if valid_args
+                            && !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && self.placeholder(i, &row, &resources).is_some() =>
                         {
