@@ -303,7 +303,7 @@ public final class ExactApp {
 
 }
 
-private struct WeakSession {
+struct WeakSession {
     weak var session: ExactSession?
     init(_ s: ExactSession) { session = s }
 }

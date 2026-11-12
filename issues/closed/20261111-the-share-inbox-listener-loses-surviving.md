@@ -1,6 +1,7 @@
 # The share inbox listener loses surviving sessions when its last session ends
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `ShareInboxPing` keeps a weak reference to every session that listens and hands each ping to the newest one not destroyed, so a session ending leaves the ping with the one before it.
 **Systems:** host/apple/Sources/ExactKit/ShareReceive.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
