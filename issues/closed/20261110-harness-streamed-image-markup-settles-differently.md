@@ -1,6 +1,7 @@
 # A streamed harness reply with `<img>` markup settles into different blocks than the same reply parsed whole
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The harness parses replies with `Html::LITERAL`, so every raw HTML line is one literal block whether a reply is parsed whole or settled block by block.
 **Systems:** apps/harness/data (settle.rs, markdown.rs), apps/markdown/parse
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
