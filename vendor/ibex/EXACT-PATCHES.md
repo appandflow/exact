@@ -283,10 +283,12 @@ remains available.
 
 ## Remaining consumer integration seams
 
-`ibex2`, `ibex2-sqlite` and `hermes-lean-sys` declare empty workspaces. This stops
-Cargo from discovering an enclosing checkout when `cargo fmt --all` visits these
-excluded path dependencies in a nested worktree. Preserve these boundaries when
-refreshing the vendored crates.
+`ibex2`, `ibex2-sqlite`, `hermes-lean-sys` and `hermes-lean-sys-installer`
+declare empty workspaces. This stops Cargo from discovering an enclosing checkout
+when formatting excluded path dependencies or running the printed installer command
+in a nested worktree. Preserve these boundaries when refreshing the vendored crates.
+`scripts/app-workspace.test.mjs` checks the installer's workspace with locked,
+offline Cargo metadata in ordinary and nested checkout layouts.
 
 `ibex2/build.rs` emits empty binding bytecode and hardening metadata with
 `EXACT_JS_ENGINE=stub` or for watchOS. `hermes-lean-sys/build.rs` selects the

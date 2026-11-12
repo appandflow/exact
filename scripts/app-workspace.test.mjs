@@ -80,6 +80,32 @@ test('shell fixture includes Apple build info', () => fixture(({root}) => {
   assert.ok(existsSync(resolve(root, 'host/apple/buildinfo.mjs')));
 }), 60_000);
 
+test('the Hermes installer owns its workspace in ordinary and nested checkouts', () => {
+  const root = resolve(import.meta.dir, '..'), scratch = resolve(root, 'target');
+  mkdirSync(scratch, {recursive:true});
+  const outer = realpathSync(mkdtempSync(resolve(scratch, 'hermes-workspace-')));
+  const installer = 'vendor/ibex/crates/hermes-lean-sys-installer';
+  try {
+    const nested = resolve(outer, '.claude/worktrees/lane');
+    mkdirSync(resolve(nested, installer, 'src'), {recursive:true});
+    writeFileSync(resolve(outer, 'Cargo.toml'), '[workspace]\nmembers=[]\n');
+    writeFileSync(resolve(nested, 'Cargo.toml'), '[workspace]\nmembers=[]\nexclude=["vendor"]\n');
+    for (const file of ['Cargo.toml', 'Cargo.lock', 'src/main.rs']) {
+      writeFileSync(resolve(nested, installer, file), readFileSync(resolve(root, installer, file)));
+    }
+    for (const checkout of [root, nested]) {
+      const manifest = resolve(checkout, installer, 'Cargo.toml');
+      const result = spawnSync('cargo', ['metadata', '--offline', '--locked', '--no-deps',
+        '--format-version', '1', '--manifest-path', manifest], {cwd:checkout, encoding:'utf8', timeout:60000});
+      assert.equal(result.status, 0, result.stderr);
+      const metadata = JSON.parse(result.stdout);
+      assert.equal(metadata.workspace_root, dirname(manifest));
+      assert.deepEqual(metadata.packages.map(p => p.manifest_path), [manifest]);
+      assert.deepEqual(metadata.workspace_members, [metadata.packages[0].id]);
+    }
+  } finally { rmSync(outer, {recursive:true, force:true}); }
+}, 60_000);
+
 test('shell repair replaces half-written members before metadata', () => fixture(({app}) => {
   const before = app(), path = before.cargoPackage('gpu').manifest_path;
   rmSync(resolve(dirname(path),'src'),{recursive:true});
