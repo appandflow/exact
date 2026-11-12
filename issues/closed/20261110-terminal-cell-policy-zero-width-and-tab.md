@@ -1,6 +1,7 @@
 # The terminal's cell policy gives a zero-width format character a column and a preserved tab only one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A cluster of width 0 under UAX #11 takes no column and is not drawn, in text and in a field, and a preserved tab takes the columns to the next stop of eight in measurement, wrapping and the preserved painter.
 **Systems:** host/terminal (measure.rs, paint.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

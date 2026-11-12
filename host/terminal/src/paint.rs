@@ -875,6 +875,9 @@ fn field(
             }
             continue;
         }
+        if *cols == 0 {
+            continue;
+        }
         if multiline && col + cols > width {
             row += 1;
             col = 0;
@@ -920,7 +923,8 @@ fn clusters(s: &str) -> Vec<(String, usize)> {
             } else if g.chars().any(char::is_control) {
                 ("\u{fffd}".to_string(), 1)
             } else {
-                (g.to_string(), g.width().max(1))
+                // A zero-width cluster takes no column, as text's does.
+                (g.to_string(), g.width())
             }
         })
         .collect()
