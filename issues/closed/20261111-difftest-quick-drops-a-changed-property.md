@@ -1,6 +1,7 @@
 # Difftest quick drops a changed property sidecar
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Quick selects a changed corpus `.test.contract` sidecar's sibling program, which reads the sidecar's properties, instead of the sidecar the collector drops.
 **Systems:** semantics/difftest/src/quick.rs, semantics/difftest/src/lib.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
