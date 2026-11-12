@@ -1,5 +1,5 @@
-//! Animation timelines: a scroller's offset or a drag (LLP 1057.003 D1, D4,
-//! D5).
+//! Animation timelines: a scroller's offset, a node's progress through its
+//! scroller, or a drag (LLP 1057.003 D1, D4, D5).
 //!
 //! CSS scroll-driven animations (CSS Animations 2; Scroll-driven
 //! Animations 1) bind a node's `animation`s to a timeline
@@ -9,7 +9,10 @@
 //! - `scroll-timeline-name` and `-axis` on a scroll container: a scroll
 //!   progress timeline, its scroll offset on the axis from the start of its
 //!   scroll range to the end.
-//! - `animation-timeline: auto | <dashed-ident> | scroll()` on a
+//! - `view-timeline-name`, `-axis` and `-inset` on any node: a view progress
+//!   timeline, the node's border box crossing the scrollport of its nearest
+//!   ancestor scroll container.
+//! - `animation-timeline: auto | <dashed-ident> | scroll() | view()` on a
 //!   consumer: a named timeline, or an anonymous one the consumer's own
 //!   place gives ([`Anonymous`]). Its fifth value, `-exact-clock(<ident>)`,
 //!   keeps the animations on the clock and only syncs their starts (LLP
@@ -30,7 +33,7 @@
 //! The engine evaluates a consumer in the frame its source moves (D2); no
 //! app code runs per frame. Names resolve as CSS resolves them, in the
 //! kernel ([`lookup`], D4), so the engine hears a node, never a name. A
-//! scroll timeline's stretch of scroll offsets comes from layout:
+//! scroll or view timeline's stretch of scroll offsets comes from layout:
 //! after each layout a host places them ([`place`]) and gives the engine
 //! each scroller's offset as it presents it, so a consumer moves in the
 //! frame its scroller does.
@@ -51,7 +54,7 @@ pub use lookup::Found;
 pub(crate) use lookup::{refresh, rows, Registry};
 pub use place::{TimelineBinding, TimelineScroller};
 pub use range::{AnimationRange, Offset, RangeEdge, RangeName};
-pub use scroll::{reads_x, Anonymous, Scroller, TimelineName};
+pub use scroll::{reads_x, Anonymous, Scroller, TimelineName, ViewTimelineInset};
 
 /// The rows' grammar, the name lookup and the placement, once linked
 /// ([`link`]).
@@ -63,6 +66,7 @@ struct Grammar {
     range: fn(&str) -> Option<AnimationRange>,
     scope: fn(&str) -> Option<TimelineScope>,
     name: fn(&str) -> Option<TimelineName>,
+    inset: fn(&str) -> Option<ViewTimelineInset>,
     resolve: lookup::Resolve,
     place: place::Place,
 }
@@ -76,6 +80,7 @@ pub fn link() {
         range: AnimationRange::parse_text,
         scope: TimelineScope::parse_text,
         name: TimelineName::parse_text,
+        inset: ViewTimelineInset::parse_text,
         resolve: lookup::resolve,
         place: place::place,
     });
@@ -194,7 +199,7 @@ impl AnimationTimeline {
         self.0.as_deref().filter(|t| t.starts_with("--"))
     }
 
-    /// The anonymous timeline, `scroll()`.
+    /// The anonymous timeline, `scroll()` or `view()`.
     pub fn anonymous(&self) -> Option<Anonymous> {
         self.0
             .as_deref()
@@ -326,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_rows_read_css_and_write_it_back() {
+    fn scroll_and_view_rows_read_css_and_write_it_back() {
         use crate::generated::TimelineAxis;
         link();
         assert_eq!(TimelineName::parse("--cols").unwrap().css(), "--cols");
@@ -334,12 +339,27 @@ mod tests {
         for bad in ["cols", "--a, --b", "--a --b", ""] {
             assert_eq!(TimelineName::parse(bad), None, "{bad:?}");
         }
+        for (text, css) in [
+            ("auto", "auto"),
+            ("10px", "10px"),
+            ("10 20%", "10px 20%"),
+            ("auto 4px", "auto 4px"),
+            ("5% 5%", "5%"),
+        ] {
+            assert_eq!(ViewTimelineInset::parse(text).unwrap().css(), css, "{text}");
+        }
+        for bad in ["", "1px 2px 3px", "1em", "auto, auto"] {
+            assert_eq!(ViewTimelineInset::parse(bad), None, "{bad:?}");
+        }
         // Anonymous timelines, either argument order, defaults left out.
         for (text, css) in [
             ("scroll()", "scroll()"),
             ("SCROLL(x root)", "scroll(root x)"),
             ("scroll(nearest block)", "scroll()"),
             ("scroll(self inline)", "scroll(self inline)"),
+            ("view()", "view()"),
+            ("view(10px x)", "view(x 10px)"),
+            ("view(y auto 20%)", "view(y auto 20%)"),
         ] {
             let t = AnimationTimeline::parse(text).unwrap();
             assert_eq!(t.css(), css, "{text}");
@@ -358,7 +378,9 @@ mod tests {
             "scroll(root root)",
             "scroll(x y)",
             "scroll(far)",
-            "view()",
+            "view(10px x 20px)",
+            "view(1px 2px 3px)",
+            "view(x y)",
             "scroll(",
         ] {
             assert_eq!(AnimationTimeline::parse(bad), None, "{bad:?}");
@@ -413,5 +435,24 @@ mod tests {
         assert_eq!(place("exit -100% exit 0%"), [200.0, 250.0]);
         // A name the timeline lacks stands for the whole.
         assert_eq!(place("contain 50%"), [200.0, 300.0]);
+    }
+
+    #[test]
+    fn the_named_ranges_are_csss() {
+        // A 100-long subject 400 into its scroller's content, a 300-long
+        // scrollport, insets 10 at the start and 20 at the end.
+        let at = |n: RangeName| n.offsets(400.0, 100.0, 300.0, [10.0, 20.0]);
+        assert_eq!(at(RangeName::Cover), [120.0, 490.0]);
+        assert_eq!(at(RangeName::Contain), [220.0, 390.0]);
+        assert_eq!(at(RangeName::Entry), [120.0, 220.0]);
+        assert_eq!(at(RangeName::Exit), [390.0, 490.0]);
+        assert_eq!(at(RangeName::EntryCrossing), [120.0, 220.0]);
+        assert_eq!(at(RangeName::ExitCrossing), [390.0, 490.0]);
+        // Larger than the scrollport: `contain` is while it covers it.
+        let big = |n: RangeName| n.offsets(400.0, 500.0, 300.0, [0.0, 0.0]);
+        assert_eq!(big(RangeName::Contain), [400.0, 600.0]);
+        assert_eq!(big(RangeName::Entry), [100.0, 400.0]);
+        assert_eq!(big(RangeName::EntryCrossing), [100.0, 600.0]);
+        assert_eq!(big(RangeName::Exit), [600.0, 900.0]);
     }
 }

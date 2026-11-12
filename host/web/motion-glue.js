@@ -193,12 +193,12 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // declaring element whose nearest scope of the name, itself included, is
   // that scope; none or several are an inactive timeline (null), but `all`
   // declares only the names below it. No timeline in scope is undefined.
-  // @ref LLP 1057.003 D5 — a scroll timeline (css.rs's
-  // `--exact-scroll-timeline`, before a drag's on one element) is the
-  // browser's own, as is `scroll()`: 'css'.
+  // @ref LLP 1057.003 D5 — a scroll or view timeline (css.rs's
+  // `--exact-scroll-timeline`, `--exact-view-timeline`, before a drag's on
+  // one element) is the browser's own, as is `scroll()` or `view()`: 'css'.
   const scopes=(el,name)=>{const s=el.style.getPropertyValue('--exact-timeline-scope').trim();return s==='all'?2:s.split(/\s*,\s*/).includes(name)?1:0;};
-  const declarations=`${timelineSources},[style*="--exact-scroll-timeline"]`;
-  const declared=(el,name)=>el.style.getPropertyValue('--exact-scroll-timeline').trim()===name?'css':timelineName(el)[0]===name?el:undefined;
+  const declarations=`${timelineSources},[style*="--exact-scroll-timeline"],[style*="--exact-view-timeline"]`;
+  const declared=(el,name)=>['--exact-scroll-timeline','--exact-view-timeline'].some(p=>el.style.getPropertyValue(p).trim()===name)?'css':timelineName(el)[0]===name?el:undefined;
   const timelineSource=(consumer,name)=>{
     if(!name.startsWith('--'))return 'css';
     for(let el=consumer;el?.style;el=el.parentElement) {
@@ -211,7 +211,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(found.length||scope===1)return null;
     }
   };
-  // Whether the browser runs scroll timelines itself.
+  // Whether the browser runs scroll and view timelines itself.
   const cssTimelines=typeof CSS!=='undefined'&&typeof CSS.supports==='function'&&CSS.supports('animation-timeline','scroll()');
   const inactive=new WeakMap();
   let timelineFrame=0;
@@ -260,8 +260,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       const source=timelineSource(el,name);
       if(source===undefined)continue;
       const parked=inactive.get(el)??[],live=el.getAnimations().filter(a=>a.animationName!==undefined);
-      // A scroll timeline the browser runs: a name is handed to it as CSS's
-      // own row (css.rs writes `scroll()` so), its
+      // A scroll or view timeline the browser runs: a name is handed to it
+      // as CSS's own row (css.rs writes `scroll()` and `view()` so), its
       // animations played again if this glue held them or an inactive
       // timeline parked them. A browser without one would play it on the
       // clock: it is out of effect there, as an inactive timeline's, so the

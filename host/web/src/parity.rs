@@ -28,7 +28,7 @@
 //! --geometry` holds them to [`GEOMETRY_EXPECTED`], which fixed boxes make
 //! exact.
 //!
-//! Scroll timelines have the browser as their oracle too, on a
+//! Scroll and view timelines have the browser as their oracle too, on a
 //! laid-out app rather than one value: [`timelines`].
 
 #[cfg(not(target_arch = "wasm32"))]

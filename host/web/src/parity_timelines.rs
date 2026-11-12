@@ -1,6 +1,6 @@
-//! Scroll timelines against the browser's own (LLP 1057.003 D5;
+//! Scroll and view timelines against the browser's own (LLP 1057.003 D5;
 //! Scroll-driven Animations 1). [`SOURCE`] declares them on fixed boxes in
-//! two scrollers; `parity.mjs --timelines` builds it for the web, where the
+//! five scrollers; `parity.mjs --timelines` builds it for the web, where the
 //! browser runs every timeline itself, scrolls each scroller through
 //! [`STEPS`]' offsets and records each consumer's computed opacity
 //! (`tests/fixtures/browser-timelines.json`). [`check`] lays the same app
@@ -107,9 +107,9 @@ pub fn check(fixture: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     /// The engine, placed by the kernel's layout, against Chrome's own
-    /// scroll timelines on the same app.
+    /// scroll and view timelines on the same app.
     #[test]
-    fn scroll_timelines_match_the_browsers() {
+    fn scroll_and_view_timelines_match_the_browsers() {
         let fixture = include_str!("../tests/fixtures/browser-timelines.json");
         let wrong = super::check(fixture);
         assert!(wrong.is_empty(), "{wrong:#?}");

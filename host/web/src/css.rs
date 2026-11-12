@@ -162,13 +162,13 @@ fn css_text_in(
             // @ref LLP 1055.002 — a clock is no CSS timeline either: the
             // animations play on the page's, and the glue sets their start
             // (navigation.js `animationClocks`).
-            // @ref LLP 1057.003 D5 — `scroll()` is CSS's own
+            // @ref LLP 1057.003 D5 — `scroll()` and `view()` are CSS's own
             // row: the browser runs them, off the main thread. A browser
             // without `animation-timeline` would play them on the clock, so
             // they are paused there (`--exact-timeline-play`, index.html) and
             // the glue puts them out of effect. A name is paused for the drag
             // code, which finds what it names: a drag timeline it seeks, a
-            // scroll timeline it hands to the browser, as CSS's own
+            // scroll or view timeline it hands to the browser, as CSS's own
             // row (motion-glue.js `followTimelines`). Written here, a name that
             // finds no CSS timeline makes the browser's animation progress-based,
             // which a drag cannot seek in time.
@@ -203,13 +203,23 @@ fn css_text_in(
                 }
             }
             // @ref LLP 1057.003 D5 — CSS's own rows, and the names, which
-            // the drag code's lookup reads: a scroll timeline
+            // the drag code's lookup reads: a scroll or view timeline
             // shadows a drag timeline of its name, as on the native hosts.
             (StyleId::ScrollTimelineName, RowValue::TimelineName(n)) => {
                 if let Some(name) = &n.0 {
                     push_text!(
                         &mut out,
                         "scroll-timeline-name:{};--exact-scroll-timeline:{};",
+                        name,
+                        name
+                    );
+                }
+            }
+            (StyleId::ViewTimelineName, RowValue::TimelineName(n)) => {
+                if let Some(name) = &n.0 {
+                    push_text!(
+                        &mut out,
+                        "view-timeline-name:{};--exact-view-timeline:{};",
                         name,
                         name
                     );
@@ -836,6 +846,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
         RowValue::TimelineScope(s) => out.push_str(&s.css()),
         RowValue::TimelineName(n) => out.push_str(&n.css()),
+        RowValue::ViewTimelineInset(i) => out.push_str(&i.css()),
         RowValue::Paint(p) => out.push_str(&p.css()),
         RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::Transform(t) => out.push_str(&t.css()),

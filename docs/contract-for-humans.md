@@ -1548,9 +1548,11 @@ declared extensions with bounded behavior, not arbitrary layout animation.
 
 A value that follows a scroll is CSS's scroll-driven animation, not a `scroll` action
 that writes state (one round trip behind the scroll). `scroll-timeline` on a scroller
-names its offset; `animation-timeline` names it, or is `scroll()`, and `animation-range`
-takes lengths and percentages. Every host moves the consumer in the scroll's own frame,
-and the web leaves it to the browser
+names its offset; `view-timeline` on any node names that node crossing its nearest
+scroller; `animation-timeline` names either, or is `scroll()` or `view()`, and
+`animation-range` takes lengths, percentages and the view ranges (`cover`, `contain`,
+`entry`, `exit`, `entry-crossing`, `exit-crossing`). Every host moves the consumer in the
+scroll's own frame, and the web leaves it to the browser
 ([agents' guide](contract-for-agents.md#motion-that-follows-a-scroll)).
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,

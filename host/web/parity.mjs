@@ -15,7 +15,7 @@
 // --paint compares nested sibling z-index, SVG blend backdrops, and colours
 // and a fade the hosts once disagreed on, on web and macOS, sampling flat
 // fills rather than font or antialiasing pixels.
-// --timelines records Chrome's own scroll timelines on the
+// --timelines records Chrome's own scroll and view timelines on the
 // timelines fixture (LLP 1057.003 D5) over the interaction gallery's web
 // artifact, which links timelines (build its web dist first), and holds the
 // kernel's placement and the engine to the recording; `--wasm <dist>` also
@@ -160,7 +160,7 @@ async function geometryParity() {
   process.exitCode = failures.length ? 1 : 0;
 }
 
-// LLP 1057.003 D5: the browser runs every scroll timeline of the
+// LLP 1057.003 D5: the browser runs every scroll and view timeline of the
 // timelines fixture itself (the web build writes CSS's own rows). Each
 // scroller is scrolled to each of its offsets and every consumer's computed
 // opacity is read after two frames, since a scroll timeline moves on

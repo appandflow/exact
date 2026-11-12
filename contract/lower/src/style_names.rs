@@ -216,9 +216,12 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("-exact-animation-trigger", "exact LLP 1055", AttrTarget::Styles(&[StyleId::AnimationTrigger])),
     // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
     ("timeline-scope", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::TimelineScope])),
-    // @ref LLP 1057.003 D5 — scroll progress timelines.
+    // @ref LLP 1057.003 D5 — scroll and view progress timelines.
     ("scroll-timeline-name", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ScrollTimelineName])),
     ("scroll-timeline-axis", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ScrollTimelineAxis])),
+    ("view-timeline-name", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineName])),
+    ("view-timeline-axis", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineAxis])),
+    ("view-timeline-inset", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineInset])),
     ("display", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Display])),
     ("grid-auto-flow", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridAutoFlow])),
     ("grid-template-columns", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridTemplateColumns])),
@@ -344,6 +347,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("vertical-align", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("scroll-timeline", "css CSS Scroll Animations 1", AttrTarget::Shorthand),
+    ("view-timeline", "css CSS Scroll Animations 1", AttrTarget::Shorthand),
 ];
 
 /// Why a literal `n` written as `name` is no value of the press family's
@@ -421,6 +425,7 @@ fn applies(i: usize, rows: &[StyleId]) -> bool {
             StyleId::TimelineScope,
             StyleId::DragTimeline,
             StyleId::ScrollTimelineName,
+            StyleId::ViewTimelineName,
         ]),
         _ => any(&[StyleId::Transition, StyleId::LayoutTransition]),
     }

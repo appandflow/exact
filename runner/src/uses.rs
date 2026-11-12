@@ -51,7 +51,7 @@ pub enum Capability {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
-    /// Timelines (LLP 1057.003): `-exact-drag-timeline`, the scroll
+    /// Timelines (LLP 1057.003): `-exact-drag-timeline`, the scroll and view
     /// timeline rows, `animation-timeline`, `animation-range` and
     /// `timeline-scope`, their grammar, lowering, name lookup and placement.
     /// A timeline follows a held value or a scroll, so it uses motion too.
@@ -350,6 +350,9 @@ pub fn uses(plan: &Plan) -> Uses {
                             | StyleId::TimelineScope
                             | StyleId::ScrollTimelineName
                             | StyleId::ScrollTimelineAxis
+                            | StyleId::ViewTimelineName
+                            | StyleId::ViewTimelineAxis
+                            | StyleId::ViewTimelineInset
                     )
                 ) {
                     uses = uses.with(Capability::Timelines).with(Capability::Motion);

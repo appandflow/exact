@@ -1192,6 +1192,10 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
             with("scroll-timeline-name", NONE),
             with("--exact-scroll-timeline", NONE),
         ],
+        StyleId::ViewTimelineName => vec![
+            with("view-timeline-name", NONE),
+            with("--exact-view-timeline", NONE),
+        ],
         StyleId::TimelineScope => vec![
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),

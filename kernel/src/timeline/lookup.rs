@@ -13,7 +13,7 @@
 //! (sources, consumers, scopes), kept from each commit's receipt, and after
 //! a commit re-resolves every consumer; the receipt names those whose
 //! answer changed, and `motion_sync` sends them (`MotionSync::timelines`).
-//! A name that finds a scroll timeline is bound once layout has
+//! A name that finds a scroll or view timeline is bound once layout has
 //! placed it (`place.rs`); until then its consumer keeps the last placement.
 
 use super::place::{Binding, TimelineScroller};
@@ -33,7 +33,9 @@ pub enum Found {
     Drag(u64),
     /// The scroll progress timeline this node declares.
     Scroll(NodeKey),
-    /// `scroll()`: the consumer's own, which layout places.
+    /// The view progress timeline whose subject is this node.
+    View(NodeKey),
+    /// `scroll()` or `view()`: the consumer's own, which layout places.
     Anonymous,
     /// An inactive timeline: a scope with no declaration below it, or several.
     Inactive,
@@ -47,7 +49,7 @@ pub(super) type Resolve = fn(&mut NodeArena, &CommitReceipt) -> Vec<NodeKey>;
 /// The timeline-bearing nodes: each slot whose style declares a timeline,
 /// scopes a name or follows one, and what each follower's timeline
 /// resolved to at the last commit; and, from the last layout, each scroll
-/// timeline's binding and the scrollers they read. A page has a
+/// or view timeline's binding and the scrollers they read. A page has a
 /// handful.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Registry {
@@ -83,7 +85,7 @@ impl crate::kernel::Kernel {
 
     /// The timeline `consumer`'s animations follow, as the engine binds
     /// them: a drag's source, a scroller's offset once layout has placed a
-    /// scroll timeline (inactive before), or an inactive or
+    /// scroll or view timeline (inactive before), or an inactive or
     /// missing one; `None` as for [`Self::timeline_found`].
     pub fn timeline_of(&self, consumer: NodeKey) -> Option<NamedTimeline> {
         let timelines = &self.arena().timelines;
@@ -91,7 +93,7 @@ impl crate::kernel::Kernel {
             Found::Drag(n) => NamedTimeline::Source(n),
             Found::Inactive => NamedTimeline::Inactive,
             Found::Missing => NamedTimeline::Missing,
-            Found::Scroll(_) | Found::Anonymous => timelines
+            Found::Scroll(_) | Found::View(_) | Found::Anonymous => timelines
                 .placed(consumer)
                 .map_or(NamedTimeline::Inactive, |(t, _)| t),
         })
@@ -118,6 +120,7 @@ pub(crate) fn refresh(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
 fn bears(s: &StyleProps) -> bool {
     s.rare.drag_timeline.name.is_some()
         || s.rare.scroll_timeline_name.0.is_some()
+        || s.rare.view_timeline_name.0.is_some()
         || follows(s)
         || s.rare.timeline_scope != TimelineScope::None
 }
@@ -219,14 +222,17 @@ fn lookup(arena: &NodeArena, consumer: u32, name: &str) -> Found {
     Found::Missing
 }
 
-/// The timeline `slot` declares as `name`. On one node a scroll timeline,
-/// CSS's, comes before a drag timeline, Exact's.
+/// The timeline `slot` declares as `name`. On one node a scroll timeline
+/// comes before a view timeline, as CSS orders them (Scroll-driven
+/// Animations 1 §4.2), and a drag timeline, Exact's, after both.
 fn declared(arena: &NodeArena, slot: u32, name: &str) -> Option<Found> {
     let rare = &arena.style(slot).rare;
     let named = |n: &Option<String>| n.as_deref() == Some(name);
     let key = arena.key(slot);
     if named(&rare.scroll_timeline_name.0) {
         Some(Found::Scroll(key))
+    } else if named(&rare.view_timeline_name.0) {
+        Some(Found::View(key))
     } else if named(&rare.drag_timeline.name) {
         Some(Found::Drag(motion_node(key)))
     } else {
@@ -249,7 +255,7 @@ fn scope_of(arena: &NodeArena, slot: u32, name: &str) -> Option<u32> {
 /// One node's timeline rows as the engine takes them: whether the timeline
 /// it drives reads `x`, and what its animations follow over their range.
 /// A drag's consumer takes two lengths, or stays on the clock; a scroll or
-/// scroll timeline's takes the binding layout last placed for it, inactive
+/// view timeline's takes the binding layout last placed for it, inactive
 /// until the first.
 pub(crate) fn rows(arena: &NodeArena, slot: u32) -> TimelineRows {
     let key = arena.key(slot);
@@ -268,7 +274,7 @@ pub(crate) fn rows(arena: &NodeArena, slot: u32) -> TimelineRows {
         Some(Found::Drag(source)) => lengths().map(|r| (NamedTimeline::Source(source), r)),
         Some(Found::Inactive) => Some((NamedTimeline::Inactive, lengths().unwrap_or(whole))),
         Some(Found::Missing) | None => Some((NamedTimeline::Missing, lengths().unwrap_or(whole))),
-        Some(Found::Scroll(_) | Found::Anonymous) => Some(
+        Some(Found::Scroll(_) | Found::View(_) | Found::Anonymous) => Some(
             arena
                 .timelines
                 .placed(key)

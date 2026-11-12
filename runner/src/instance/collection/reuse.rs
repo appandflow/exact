@@ -63,6 +63,9 @@ const REFUSED_STYLES: &[StyleId] = &[
     StyleId::TimelineScope,
     StyleId::ScrollTimelineName,
     StyleId::ScrollTimelineAxis,
+    StyleId::ViewTimelineName,
+    StyleId::ViewTimelineAxis,
+    StyleId::ViewTimelineInset,
 ];
 
 /// Whether a rebind could carry state of this site's into another item's row.

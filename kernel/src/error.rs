@@ -76,8 +76,10 @@ pub enum DecodeError {
     BadAnimationRange,
     /// Invalid `timeline-scope` (LLP 1057.003 D4).
     BadTimelineScope,
-    /// Invalid `scroll-timeline-name` (LLP 1057.003 D5).
+    /// Invalid `scroll-timeline-name` or `view-timeline-name` (LLP 1057.003 D5).
     BadTimelineName,
+    /// Invalid `view-timeline-inset` (LLP 1057.003 D5).
+    BadViewTimelineInset,
     /// Invalid invoker-popover flip fallback list.
     BadPositionTryFallbacks,
     /// Invalid SVG paint (LLP 1055 D2).
@@ -568,6 +570,10 @@ pub enum StyleValueError {
     },
     /// Not `none` or one `<dashed-ident>`.
     BadTimelineName {
+        style: StyleId,
+    },
+    /// Not one or two of `auto` and a length or percentage.
+    BadViewTimelineInset {
         style: StyleId,
     },
     /// Not none or a list of flip-block/flip-inline/flip-start combinations.

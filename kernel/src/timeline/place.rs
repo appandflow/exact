@@ -1,20 +1,23 @@
-//! Placing scroll timelines from layout (LLP 1057.003 D5; Scroll-driven
-//! Animations 1 §2).
+//! Placing scroll and view timelines from layout (LLP 1057.003 D5;
+//! Scroll-driven Animations 1 §2, §3).
 //!
-//! A consumer of a scroll timeline is bound in the engine to its scroller's
-//! offset on one axis, over the stretch of offsets its `animation-range`
-//! covers. That stretch comes from layout: the scroller's scroll range.
-//! After each layout a
+//! A consumer of a scroll or view timeline is bound in the engine to its
+//! scroller's offset on one axis, over the stretch of offsets its
+//! `animation-range` covers. That stretch comes from layout: a scroll
+//! timeline's runs over the scroller's scroll range, a view timeline's over
+//! the offsets where its subject crosses the scrollport. After each layout a
 //! host calls [`crate::Kernel::place_timelines`], applies the bindings that
 //! changed and watches the scrollers they read
 //! ([`crate::Kernel::timeline_scrollers`]), giving the engine each one's
 //! offset as it presents it (`Engine::set_scroll_offset`).
 //!
-//! A node with no ancestor scroll container scrolls with the page: its root,
-//! whose scrollport is the viewport and whose offset is the page's.
+//! Boxes are where layout put them, untransformed and at scroll offset zero,
+//! as CSS measures a view timeline's subject. A node with no ancestor scroll
+//! container scrolls with the page: its root, whose scrollport is the
+//! viewport and whose offset is the page's.
 
 use super::lookup::Found;
-use super::{reads_x, AnimationRange, Anonymous, Scroller, LINKED};
+use super::{reads_x, AnimationRange, Anonymous, RangeName, Scroller, ViewTimelineInset, LINKED};
 use crate::arena::NodeArena;
 use crate::generated::{Overflow, TimelineAxis};
 use crate::id::{NodeFlags, NodeKey, ViewId};
@@ -42,7 +45,7 @@ pub struct TimelineScroller {
 }
 
 impl crate::kernel::Kernel {
-    /// After a layout, place every consumer of a scroll timeline;
+    /// After a layout, place every consumer of a scroll or view timeline;
     /// the engine bindings that changed since the last placement, to apply
     /// with `Engine::set_animation_timeline`. Nothing while unlinked.
     pub fn place_timelines(&mut self) -> Vec<(u64, Option<TimelineBinding>)> {
@@ -73,6 +76,11 @@ pub(super) fn place(arena: &mut NodeArena) -> Vec<(u64, Option<Binding>)> {
                 scroller: s,
                 axis: at.style(s).rare.scroll_timeline_axis,
             }),
+            Found::View(key) => at.resolve(key).map(|s| Timeline::View {
+                subject: s,
+                axis: at.style(s).rare.view_timeline_axis,
+                inset: at.style(s).rare.view_timeline_inset,
+            }),
             Found::Anonymous => match style.rare.animation_timeline.anonymous() {
                 Some(Anonymous::Scroll { scroller, axis }) => {
                     let s = match scroller {
@@ -82,6 +90,11 @@ pub(super) fn place(arena: &mut NodeArena) -> Vec<(u64, Option<Binding>)> {
                     };
                     Some(Timeline::Scroll { scroller: s, axis })
                 }
+                Some(Anonymous::View { axis, inset }) => Some(Timeline::View {
+                    subject: slot,
+                    axis,
+                    inset,
+                }),
                 None => None,
             },
             Found::Drag(_) | Found::Inactive | Found::Missing => continue,
@@ -112,16 +125,24 @@ pub(super) fn place(arena: &mut NodeArena) -> Vec<(u64, Option<Binding>)> {
     changed
 }
 
-/// A scroll timeline, before layout places it.
+/// A scroll or view timeline, before layout places it.
 enum Timeline {
-    Scroll { scroller: u32, axis: TimelineAxis },
+    Scroll {
+        scroller: u32,
+        axis: TimelineAxis,
+    },
+    View {
+        subject: u32,
+        axis: TimelineAxis,
+        inset: ViewTimelineInset,
+    },
 }
 
 impl Timeline {
     /// The scroller it reads, whether on `x`, and the offsets where an
     /// animation over `range` is at 0% and 100%; `None` for an inactive
-    /// timeline: on a node that is no scroll container, has no scroll range
-    /// on the axis or is not laid out.
+    /// timeline: a scroll timeline on a node that is no scroll container or
+    /// has no scroll range on the axis, or a node not laid out.
     fn place(&self, arena: &NodeArena, range: &AnimationRange) -> Option<(u32, bool, [f64; 2])> {
         match *self {
             Self::Scroll { scroller, axis } => {
@@ -134,6 +155,29 @@ impl Timeline {
                 let max = scroll_max(arena, scroller, x);
                 // 0% and 100% coincide: inactive (§2.1).
                 (max > 0.0).then(|| (scroller, x, range.place([0.0, max], |_| None)))
+            }
+            Self::View {
+                subject,
+                axis,
+                inset,
+            } => {
+                let x = reads_x(axis);
+                shown(arena, subject)?;
+                let scroller = nearest_scroller(arena, subject);
+                let (port_start, port) = scrollport(arena, scroller, x);
+                let frame = arena.frame(subject);
+                let (start, size) = if x {
+                    (frame.x as f64 - port_start, frame.width as f64)
+                } else {
+                    (frame.y as f64 - port_start, frame.height as f64)
+                };
+                let inset = insets(arena, scroller, x, port, inset);
+                let named = |n: RangeName| n.offsets(start, size, port, inset);
+                Some((
+                    scroller,
+                    x,
+                    range.place(named(RangeName::Cover), |n| Some(named(n))),
+                ))
             }
         }
     }
@@ -204,6 +248,32 @@ fn scrollport(arena: &NodeArena, scroller: u32, x: bool) -> (f64, f64) {
         (origin + start) as f64,
         (length - start - end).max(0.0) as f64,
     )
+}
+
+/// A view timeline's insets in points: an `auto` side is the scroller's
+/// `scroll-padding` there, a percentage is of the scrollport.
+fn insets(
+    arena: &NodeArena,
+    scroller: u32,
+    x: bool,
+    port: f64,
+    inset: ViewTimelineInset,
+) -> [f64; 2] {
+    let s = &arena.style(scroller).rare;
+    let padding = if x {
+        [&s.scroll_padding_left, &s.scroll_padding_right]
+    } else {
+        [&s.scroll_padding_top, &s.scroll_padding_bottom]
+    };
+    let env = arena.env();
+    let [start, end] = inset.0;
+    [(start, padding[0]), (end, padding[1])].map(|(side, padding)| match side {
+        Some(offset) => offset.along(0.0, port),
+        None => match padding.resolve(env) {
+            crate::style::Dimension::Auto => 0.0,
+            d => d.at_basis(env, port as f32) as f64,
+        },
+    })
 }
 
 /// How far `scroller` scrolls on the axis: its scrollable overflow less its

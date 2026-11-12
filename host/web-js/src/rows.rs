@@ -849,6 +849,7 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-animation-range:",
             "--exact-timeline-scope:",
             "--exact-scroll-timeline:",
+            "--exact-view-timeline:",
             // The press feedback's factor (LLP 1061) and haptic (LLP 1077
             // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",

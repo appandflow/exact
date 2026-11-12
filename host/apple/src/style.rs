@@ -367,7 +367,11 @@ pub(crate) fn style_json_rows(
                 }
             },
             // The timelines' axes are the host's to place (timeline_scroll.rs).
-            RowValue::Enum(_) if id == StyleId::ScrollTimelineAxis => false,
+            RowValue::Enum(_)
+                if matches!(id, StyleId::ScrollTimelineAxis | StyleId::ViewTimelineAxis) =>
+            {
+                false
+            }
             RowValue::Enum(e) => {
                 out.push('"');
                 out.push_str(e);
@@ -406,7 +410,8 @@ pub(crate) fn style_json_rows(
             | RowValue::AnimationTimeline(_)
             | RowValue::AnimationRange(_)
             | RowValue::TimelineScope(_)
-            | RowValue::TimelineName(_) => false,
+            | RowValue::TimelineName(_)
+            | RowValue::ViewTimelineInset(_) => false,
             // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
             RowValue::Paint(_)
             | RowValue::DashArray(_)

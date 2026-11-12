@@ -3345,6 +3345,9 @@ that writes state (that runs a round trip behind the scroll):
 ```contract
 keyframes follow
   to translate="-1000px 0px"
+keyframes fade
+  from opacity=0
+  to opacity=1
 
 component App
   view
@@ -3354,12 +3357,18 @@ component App
           text "Names"
       row overflow-x="auto" width="12rem" scroll-timeline="--cols x"
         text "Columns"
+      column overflow-y="auto" height=300
+        for i in range(20) key=i
+          view height=60 flex-shrink=0 animation="fade 1s linear both" animation-timeline="view()" animation-range="entry"
 ```
 
-- **Timelines:** `scroll-timeline` (or `-name` and `-axis`) on a scroller is its offset.
-  `animation-timeline` names one, or is `scroll()`; a sibling's name needs `timeline-scope`
-  on a shared ancestor. One timeline per node.
-- **Ranges:** `animation-range` takes lengths and percentages of the timeline.
+- **Timelines:** `scroll-timeline` (or `-name` and `-axis`) on a scroller is its offset;
+  `view-timeline` (`-name`, `-axis`, `-inset`) on any node is that node crossing its nearest
+  scroller. `animation-timeline` names one, or is `scroll()` or `view()`; a sibling's name
+  needs `timeline-scope` on a shared ancestor. One timeline per node and kind.
+- **Ranges:** `animation-range` takes lengths and percentages of the timeline, and on a view
+  timeline `cover`, `contain`, `entry`, `exit`, `entry-crossing` and `exit-crossing`, each
+  with an optional length or percentage.
 - **Paint rows only:** keyframes under a timeline animate opacity, transforms, colours and
   `box-shadow`. Every host moves them in the scroll's own frame; the web leaves them to the
   browser, and a browser without scroll-driven animations shows the nodes' own values.

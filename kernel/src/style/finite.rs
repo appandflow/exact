@@ -19,6 +19,7 @@ impl RowValue<'_> {
             RowValue::Transform(v) => v.is_finite(),
             RowValue::TransformOrigin(v) => v.is_finite(),
             RowValue::AnimationRange(v) => v.is_finite(),
+            RowValue::ViewTimelineInset(v) => v.is_finite(),
             RowValue::Paint(_)
             | RowValue::PaintOrder(_)
             | RowValue::Marker(_)

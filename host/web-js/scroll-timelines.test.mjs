@@ -1,9 +1,9 @@
 // LLP 1057.003 D5 on the JS target: the timelines fixture (host/web/tests/fixtures/timelines.contract) built by this
-// target runs every scroll timeline as the browser's own, and each consumer shows what the browser recorded
+// target runs every scroll and view timeline as the browser's own, and each consumer shows what the browser recorded
 // for the wasm target's build of the same app (browser-timelines.json, `parity.mjs --timelines`), which the engine is
 // held to as well. Without the fixture's drag timeline the plan has none, so every name is CSS's own row and no motion
 // piece is needed; the recording itself is of the fixture whole, where the motion piece hands each name that finds a
-// scroll timeline to the browser (motion-glue.js `followTimelines`). Build exact-web-js once before running
+// scroll or view timeline to the browser (motion-glue.js `followTimelines`). Build exact-web-js once before running
 // this test (docs/testing.md).
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 import { withLook } from '../web/look.mjs';
 
-test('scroll timelines in a plan with no drag timeline show what the browser recorded', async () => {
+test('scroll and view timelines in a plan with no drag timeline show what the browser recorded', async () => {
   const root = resolve(import.meta.dir, '../..'), fixtures = resolve(root, 'host/web/tests/fixtures');
   const target = resolve(root, 'target');
   mkdirSync(target, { recursive: true });
@@ -39,7 +39,7 @@ test('scroll timelines in a plan with no drag timeline show what the browser rec
     browser = await suiteBrowser();
     const page = await (await browser.newContext({ viewport: { width: 420, height: 900 } })).newPage();
     await page.goto(server.url.href);
-    await page.waitForFunction(() => document.querySelector('[data-testid="sv"]'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="vsub"]'));
     const wrong = [];
     for (const step of steps) {
       for (const at of step.at) {

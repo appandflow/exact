@@ -889,8 +889,10 @@ pub enum RowValue<'a> {
     AnimationRange(&'a crate::timeline::AnimationRange),
     /// CSS `timeline-scope` (LLP 1057.003 D4).
     TimelineScope(&'a crate::timeline::TimelineScope),
-    /// CSS `scroll-timeline-name` (LLP 1057.003 D5).
+    /// CSS `scroll-timeline-name` or `view-timeline-name` (LLP 1057.003 D5).
     TimelineName(&'a crate::timeline::TimelineName),
+    /// CSS `view-timeline-inset` (LLP 1057.003 D5).
+    ViewTimelineInset(&'a crate::timeline::ViewTimelineInset),
     /// SVG paint (LLP 1055 D2).
     Paint(&'a crate::svg::Paint),
     /// SVG `stroke-dasharray` (LLP 1055 D2).

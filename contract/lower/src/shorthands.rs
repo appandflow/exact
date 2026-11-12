@@ -42,6 +42,7 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "vertical-align" => &[VerticalAlign, BaselineShift],
         // @ref LLP 1057.003 D5 — Scroll-driven Animations 1 §2.2.4, §3.2.4.
         "scroll-timeline" => &[ScrollTimelineName, ScrollTimelineAxis],
+        "view-timeline" => &[ViewTimelineName, ViewTimelineAxis, ViewTimelineInset],
         _ => unreachable!("known shorthand"),
     }
 }
@@ -113,14 +114,20 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
     Ok(out)
 }
 
-/// `scroll-timeline: <name> <axis>?` (one timeline; a list is refused),
-/// into its longhands; an omitted axis is `block`. The name is the
-/// kernel's to check.
+/// `scroll-timeline: <name> <axis>?` and `view-timeline: <name> [<axis> ||
+/// <inset>]?` (one timeline; a list is refused), into their longhands; an
+/// omitted axis is `block` and an omitted inset `auto`. The name and inset
+/// are the kernel's to check.
 fn timeline(name: &str, text: &str, span: Span) -> Result<Vec<String>, LowerError> {
     let refuse = |why: &str| {
+        let example = if name == "view-timeline" {
+            "--card x 10px"
+        } else {
+            "--cols x"
+        };
         err(
             "lower-css-shorthand",
-            format!("`{name}`: {why}; write a name, then an optional axis, e.g. `--cols x`"),
+            format!("`{name}`: {why}; write a name, then an optional axis, e.g. `{example}`"),
             span,
         )
     };
@@ -128,16 +135,30 @@ fn timeline(name: &str, text: &str, span: Span) -> Result<Vec<String>, LowerErro
         return refuse("one timeline per node, not a list");
     }
     let words = words(text);
-    match words[..] {
-        [] => refuse("an empty value"),
-        [first] => Ok(vec![first.to_string(), "block".into()]),
-        [first, axis]
-            if exact_kernel::TimelineAxis::from_name(&axis.to_ascii_lowercase()).is_some() =>
-        {
-            Ok(vec![first.to_string(), axis.to_ascii_lowercase()])
-        }
-        _ => refuse("more than a name and an axis"),
+    let Some((first, rest)) = words.split_first() else {
+        return refuse("an empty value");
+    };
+    let is_axis =
+        |w: &str| exact_kernel::TimelineAxis::from_name(&w.to_ascii_lowercase()).is_some();
+    let axes: Vec<usize> = (0..rest.len()).filter(|&i| is_axis(rest[i])).collect();
+    let axis = match axes[..] {
+        [] => "block".to_string(),
+        // `<axis> || <inset>`: the axis before or after the inset.
+        [i] if i == 0 || i == rest.len() - 1 => rest[i].to_ascii_lowercase(),
+        _ => return refuse("one axis, before or after the inset"),
+    };
+    let others: Vec<&str> = (0..rest.len())
+        .filter(|i| !axes.contains(i))
+        .map(|i| rest[i])
+        .collect();
+    let mut out = vec![first.to_string(), axis];
+    match (name, others.len()) {
+        ("view-timeline", 0) => out.push("auto".into()),
+        ("view-timeline", 1 | 2) => out.push(others.join(" ")),
+        (_, 0) => {}
+        _ => return refuse("more than a name and an axis"),
     }
+    Ok(out)
 }
 
 /// `vertical-align`'s two rows (LLP 1011.002 D3): a keyword and no shift,

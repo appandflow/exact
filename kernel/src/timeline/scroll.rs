@@ -1,13 +1,16 @@
-//! Scroll progress timelines' own grammar (Scroll-driven Animations 1 §2):
-//! the name a scroller declares, and the anonymous `scroll()` an
+//! Scroll and view progress timelines' own grammar (Scroll-driven
+//! Animations 1 §2, §3): the names a scroller or a subject declares, a view
+//! timeline's insets, and the anonymous `scroll()` and `view()` an
 //! `animation-timeline` may name instead.
 //!
 //! Exact takes one timeline per node and kind: a comma-separated list of
 //! names or insets is refused, not read in part.
 
+use super::range::Offset;
 use crate::generated::TimelineAxis;
 
-/// `scroll-timeline-name`: `none`, or one `<dashed-ident>`.
+/// `scroll-timeline-name` or `view-timeline-name`: `none`, or one
+/// `<dashed-ident>`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TimelineName(pub Option<String>);
 
@@ -31,6 +34,63 @@ impl TimelineName {
     }
 }
 
+/// `view-timeline-inset`: how far the scrollport's start and end edges move
+/// in for a view timeline; `None` is `auto`, the scroller's
+/// `scroll-padding` on that side.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ViewTimelineInset(pub [Option<Offset>; 2]);
+
+impl ViewTimelineInset {
+    /// One or two of `auto` and a length or percentage; `None` also while
+    /// unlinked.
+    pub fn parse(css: &str) -> Option<Self> {
+        (super::LINKED.get()?.inset)(css)
+    }
+
+    pub(super) fn parse_text(css: &str) -> Option<Self> {
+        let sides: Vec<Option<Offset>> = (css.split_ascii_whitespace())
+            .map(inset_side)
+            .collect::<Option<_>>()?;
+        match sides[..] {
+            [both] => Some(Self([both, both])),
+            [start, end] => Some(Self([start, end])),
+            _ => None,
+        }
+    }
+
+    /// The declaration's value: one value when both sides are the same.
+    pub fn css(&self) -> String {
+        let side = |s: Option<Offset>| match s {
+            None => "auto".to_string(),
+            Some(offset) => {
+                let mut out = String::new();
+                offset.write(&mut out);
+                out
+            }
+        };
+        let [start, end] = self.0;
+        if start == end {
+            side(start)
+        } else {
+            format!("{} {}", side(start), side(end))
+        }
+    }
+
+    /// Whether every number in it is finite.
+    pub fn is_finite(&self) -> bool {
+        self.0.iter().flatten().all(|o| o.is_finite())
+    }
+}
+
+/// `auto`, or a `<length-percentage>`; the outer `None` is neither.
+fn inset_side(token: &str) -> Option<Option<Offset>> {
+    if token.eq_ignore_ascii_case("auto") {
+        Some(None)
+    } else {
+        Offset::parse(token).map(Some)
+    }
+}
+
 /// The scroller `scroll()` names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Scroller {
@@ -43,7 +103,7 @@ pub enum Scroller {
     Itself,
 }
 
-/// An anonymous timeline: `scroll()` in `animation-timeline`.
+/// An anonymous timeline: `scroll()` or `view()` in `animation-timeline`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Anonymous {
     /// `scroll(<scroller> || <axis>)`: a scroll progress timeline of the
@@ -54,10 +114,18 @@ pub enum Anonymous {
         /// The axis it reads.
         axis: TimelineAxis,
     },
+    /// `view(<axis> || <inset>)`: a view progress timeline whose subject is
+    /// the consumer.
+    View {
+        /// The axis it reads.
+        axis: TimelineAxis,
+        /// Its insets.
+        inset: ViewTimelineInset,
+    },
 }
 
 impl Anonymous {
-    /// `scroll(…)`, either argument order, case-insensitive.
+    /// `scroll(…)` or `view(…)`, either argument order, case-insensitive.
     pub(super) fn parse(css: &str) -> Option<Self> {
         let t = css.trim();
         let open = t.find('(')?;
@@ -85,7 +153,28 @@ impl Anonymous {
                 axis: axis.unwrap_or_default(),
             });
         }
-        None
+        if !function.eq_ignore_ascii_case("view") {
+            return None;
+        }
+        // `<axis> || <inset>`: the axis on either side of one or two insets.
+        let (mut axis, mut sides) = (None, Vec::new());
+        for (i, w) in words.iter().enumerate() {
+            match axis_of(w) {
+                Some(a) if axis.is_none() && (i == 0 || i == words.len() - 1) => axis = Some(a),
+                Some(_) => return None,
+                None => sides.push(inset_side(w)?),
+            }
+        }
+        let inset = match sides[..] {
+            [] => ViewTimelineInset::default(),
+            [both] => ViewTimelineInset([both, both]),
+            [start, end] => ViewTimelineInset([start, end]),
+            _ => return None,
+        };
+        Some(Self::View {
+            axis: axis.unwrap_or_default(),
+            inset,
+        })
     }
 
     /// The function as CSS serializes it: its arguments in order, the
@@ -103,6 +192,15 @@ impl Anonymous {
                     words.push(axis.name().into());
                 }
                 format!("scroll({})", words.join(" "))
+            }
+            Self::View { axis, inset } => {
+                if *axis != TimelineAxis::Block {
+                    words.push(axis.name().into());
+                }
+                if *inset != ViewTimelineInset::default() {
+                    words.push(inset.css());
+                }
+                format!("view({})", words.join(" "))
             }
         }
     }
