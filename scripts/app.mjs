@@ -37,7 +37,7 @@ import { bakeOutside, linkable, linkedInputs, recordRustBake } from './linked-pl
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
-import { NO_WORKSPACE, androidCargo, appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
+import { NO_WORKSPACE, androidCargo, appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir, targetRustflags } from './cargo-check.mjs';
 import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -274,8 +274,8 @@ export function wasmRemapFlags(app, toolchain = null) {
   // Target rustflags replace [build].rustflags: retain the game's determinism promise.
   const flags = [...pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`),
     ...(app?.manifest?.game ? ['-C', 'llvm-args=-fp-contract=off'] : []),
-    ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])].map(f => JSON.stringify(f));
-  return ['--config', `target.wasm32-unknown-unknown.rustflags=[${flags.join(',')}]`];
+    ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])];
+  return targetRustflags('wasm32-unknown-unknown', flags, { cwd });
 }
 
 /** The web artifacts' toolchain (LLP 1047 §6, §10): a pinned nightly builds
