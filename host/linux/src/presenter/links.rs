@@ -112,6 +112,22 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// The paragraph whose paint box the inline node `id` shares.
+    pub(super) fn inline_block(&self, id: ViewId) -> Option<ViewId> {
+        let kernel = self.host.kernel();
+        let mut parent = kernel.node(id)?.parent?;
+        loop {
+            let node = kernel.node(parent)?;
+            if node.node_type != NodeType::Text {
+                return None;
+            }
+            if self.boxes.iter().any(|b| b.id == parent) {
+                return Some(parent);
+            }
+            parent = node.parent?;
+        }
+    }
+
     /// Inline nodes keep the paragraph's captured ownership and placement,
     /// including wrapping, fragmentation and its scroll mapping.
     pub(super) fn inline_box(&self, id: ViewId) -> Option<PaintedBox> {
@@ -120,17 +136,8 @@ impl<D: DataSource> Presenter<D> {
         if node.node_type != NodeType::Text || !crate::paint::paints(kernel, id, None) {
             return None;
         }
-        let mut parent = node.parent?;
-        let mut painted = loop {
-            let node = kernel.node(parent)?;
-            if node.node_type != NodeType::Text {
-                return None;
-            }
-            if let Some(b) = self.boxes.iter().find(|b| b.id == parent) {
-                break *b;
-            }
-            parent = node.parent?;
-        };
+        let parent = self.inline_block(id)?;
+        let mut painted = *self.boxes.iter().find(|b| b.id == parent)?;
         let paragraph = self.brush.inline_text.get(&parent)?;
         painted.id = id;
         painted.with_scroll_rect(paragraph.local_frame(id)?)
