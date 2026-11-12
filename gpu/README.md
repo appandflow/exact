@@ -165,6 +165,13 @@ Immediately before a GPU module makes a surface on iOS or tvOS, the owner
 sets an unclaimed session to `.ambient`, without activating it. Output opened
 before its request is handled therefore mixes with other apps' audio and
 obeys the ring/silent switch until the request takes the app's configuration.
+Under `"playback-mix"` the owner sets the app's own configuration instead
+(`.playback` with `.mixWithOthers`), so output may start before the request
+and the request only activates: a category change while output plays
+interrupts other apps' audio, even toward a mixing category. Under
+`"playback"` an early `.playback` would stop other apps' audio before the
+request, so that app is prepared in `.ambient`; its category rises when the
+request is handled, which is what `"playback"` does anyway.
 A held or claimed session stays as it is. This preparation does not run for
 Canvas 2D, an app with no GPU canvas, or the driver's frozen clock, which
 makes surfaces seekable and opens no output. Under `EXACT_AGENT_TIMING=platform`

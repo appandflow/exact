@@ -2616,9 +2616,10 @@ only while something has sound: the sound arm and a canvas's audio once they
 start, a `video` or `audio` while it has a source and is not muted, and a
 media-session claimant (`metadata=`, which Now Playing needs). With no capture
 or speech claim and no call owning the session, muting or removing the last of
-those returns the session to ambient, which mixes with other apps' audio, as
-Bluesky's player does on
-re-mute; it is given up, so a paused podcast resumes, once no player is left.
+those returns a `"playback"` session to ambient, which mixes with other apps'
+audio, as Bluesky's player does on re-mute; a `"playback-mix"` session already
+mixes and keeps its category. Either is given up, so a paused podcast resumes,
+once no player is left.
 A call keeps its category, mode and options when a sound or player ends, and
 leaves activation to the system until its last claim ends and the system
 deactivates it. Either playback value can continue in the background with
@@ -2626,7 +2627,9 @@ deactivates it. Either playback value can continue in the background with
 Before a GPU module makes a surface, the host sets a session that nothing
 holds to ambient, without activating it: a module's output that opens before
 its `exact:audio` request is handled mixes and obeys the switch until the
-request takes the app's category (`gpu/README.md`). The driver's frozen clock
+request takes the app's category (`gpu/README.md`). Under `"playback-mix"` it
+sets the app's own configuration instead, so the category never changes while
+that output plays (a change then interrupts other apps' audio). The driver's frozen clock
 skips preparation and opens no surface output. With `EXACT_AGENT_TIMING=platform`,
 preparation runs, but the driver drops `exact:audio` requests, so they do not
 raise the prepared ambient session.
