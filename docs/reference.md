@@ -1061,6 +1061,13 @@ runner's boot admission mark, consumed at activation. The JS target reports
 `keptSeedSupported: false`: its rendered-document checkpoint is separate from a
 persisted boot answer. `failures` counts refused answers since observation began, with
 `first` and `last` on that clock. A success clears `failed`, preserving the count.
+On the web JS target, list members use `name[id]` in `resourceStatus`, `failed`
+and `failures`. The opaque member id stays the same through reordering and is
+retired on removal; it is local to the page. Singleton keys stay their resource
+names. Each status's `resource` still identifies the declaration. The driver's
+source location names the declaration for every member. In `perf.resources`,
+each list member carries the same key as `member`, while `name` remains the
+declaration name. `expect perf query <resource>` sums its members' asks.
 
 ### What a data module can use
 

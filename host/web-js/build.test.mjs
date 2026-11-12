@@ -188,7 +188,9 @@ export const answer = ${ids === null ? "() => 'Hello'" : "(source: string, [id]:
     const state = await browser.state();
     expect(state.resources).toEqual({ title: 'Hello', ...(ids === null ? {} : { each: ids.map(id => ({ text: itemText(id) })) }) });
     expect(state.resourceStatus.title.resource).toBe(titleFirst ? 0 : 1);
-    if (ids?.length) expect(state.resourceStatus.each.resource).toBe(titleFirst ? 1 : 0);
+    const members = Object.entries(state.resourceStatus).filter(([name]) => name.startsWith('each['));
+    expect(members).toHaveLength(ids?.length ?? 0);
+    for (const [, status] of members) expect(status.resource).toBe(titleFirst ? 1 : 0);
     expect(await browser.carrier.evaluate('document.querySelector("[data-testid=title]").textContent')).toBe('Hello');
     for (const id of ids ?? []) expect(await browser.carrier.evaluate('document.getElementById("exact-root").textContent')).toContain(itemText(id));
   } finally {
