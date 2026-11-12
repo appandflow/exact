@@ -1,6 +1,7 @@
 # A flight's scroll into view on iOS is not `nearest` for a destination larger than its scroller
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The flight brings its slot into view with `IntoView.aligned("nearest", …)`, as `scrollIntoView` does, so a slot taller than its port moves as Chrome moves it: not at all while it covers the port, and to its edge nearer the port otherwise.
 **Systems:** host/apple/Sources/ExactKit/IOS/FlightsIOS.swift (Presenter.scrollIntoView), host/apple/Sources/ExactKit/IntoView.swift, LLP 1013.000 D5
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
