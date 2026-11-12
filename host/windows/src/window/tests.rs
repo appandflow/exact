@@ -405,3 +405,47 @@ fn newly_drawable_windows_discard_occlusion_deadlines_but_keep_cadence() {
     assert!(!presentation_resumes(&WindowEvent::Focused(false)));
     assert!(!presentation_resumes(&WindowEvent::Occluded(true)));
 }
+
+/// A login item's hidden launch (LLP 1133.025 D6): the window's composition
+/// takes no present while the window is not visible, so a drawn frame never
+/// succeeds, and the frame painted to pixels is its first pixel instead.
+#[test]
+#[ignore = "native Windows desktop, EXACT_INK_DEVICE=d3d11"]
+#[allow(deprecated)]
+fn a_hidden_window_reaches_first_pixel_without_a_present() {
+    let events = EventLoop::<crate::accessibility::Event>::with_user_event()
+        .with_any_thread(true)
+        .build()
+        .unwrap();
+    let window = Rc::new(
+        events
+            .create_window(
+                Window::default_attributes()
+                    .with_title("Hidden launch regression")
+                    .with_visible(false)
+                    .with_no_redirection_bitmap(true)
+                    .with_inner_size(LogicalSize::new(160., 80.)),
+            )
+            .unwrap(),
+    );
+    let owned = exact_ink::device::d3d11::Window::from_owner(window.clone()).unwrap();
+    let plan = contract::compile("component App\n  view\n    text \"Hidden\"\n")
+        .unwrap()
+        .encode();
+    let (mut p, warning) = Presenter::boot_with(
+        &plan,
+        (),
+        (160., 80.),
+        1.,
+        Default::default(),
+        exact_linux::presenter::PainterChoice::Ink,
+    )
+    .unwrap();
+    assert!(warning.is_none());
+    assert!(p.attach_painter_window(owned.clone(), [160, 80]).unwrap());
+    let _ = p.window_frame(owned).unwrap();
+    p.first_pixel();
+    assert!(!p.first_pixel_told(), "a hidden window took a present");
+    p.first_pixel_unshown();
+    assert!(p.first_pixel_told());
+}

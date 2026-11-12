@@ -4,9 +4,9 @@
 //! Close window), with nothing asked, since nothing unloads; the page is
 //! put away, as the back/forward cache keeps one, until the window shows
 //! again. The app's own `close()` still closes it. A login item registered
-//! `hidden` shows no window at its launch (D6): the first frame is drawn
-//! into the window nobody sees, which is the launch's first pixel, and
-//! nothing more is drawn until it shows. A later launch of the app
+//! `hidden` shows no window at its launch (D6): a frame painted to pixels
+//! that nothing presents is the launch's first pixel, and nothing is drawn
+//! into the window until it shows. A later launch of the app
 //! (`crate::instance`) or a bare `focus()` shows it.
 use super::*;
 use crate::instance::{Claim, Handed, Instance};
@@ -154,18 +154,14 @@ impl<D: DataSource + Default + 'static> App<D> {
         self.frame_limit.is_none() && crate::desktop::login_launch(&args) == Some(true)
     }
 
-    /// While the window has never shown: the first frame, drawn into it
-    /// unseen, which is the launch's first pixel. Nothing more is drawn
-    /// until the window shows (`draw`).
-    pub(super) fn unshown_first_pixel(&mut self, events: &ActiveEventLoop) {
-        let owed = self
-            .presenter
-            .as_ref()
-            .is_some_and(|p| !p.first_pixel_told());
-        if self.hidden && owed {
-            if let Err(error) = self.draw(events) {
-                self.fail(events, error);
-            }
+    /// While the window is hidden: a frame painted to pixels that nothing
+    /// presents is the launch's first pixel (LLP 1133.025 D6), since the
+    /// window's composition takes no present while it is not visible; the
+    /// data module, its global shortcuts and timers start from it. The
+    /// window's own picture is drawn when it shows (`draw`).
+    pub(super) fn unshown_first_pixel(&mut self) {
+        if let Some(p) = self.presenter.as_mut().filter(|_| self.hidden) {
+            p.first_pixel_unshown();
         }
     }
 

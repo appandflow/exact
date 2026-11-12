@@ -432,11 +432,8 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.frames == 0 {
             boot_phase("first-draw-entered");
         }
-        let shown = self
-            .presenter
-            .as_ref()
-            .is_some_and(|p| p.first_pixel_told());
-        if self.minimized || self.occluded || (self.hidden && shown) {
+        // A hidden window takes no present (`lifecycle::unshown_first_pixel`).
+        if self.unseen() {
             return Ok(());
         }
         // A frame task can wake the loop from its own commit. Those wakes
@@ -1310,7 +1307,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
         self.handed_launches();
-        self.unshown_first_pixel(events);
+        self.unshown_first_pixel();
         self.wait(events, |p| {
             (p.painter_retry_deadline(), p.painter_present_deadline())
         });
