@@ -7,7 +7,7 @@ use exact_js::Module;
 use exact_plan::Plan;
 use exact_runner::{Answer, DataSource, Store};
 
-const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/nul.hbc"));
+const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/nul-byte.hbc"));
 const GRANTS: &str = "secret.keep k2\n";
 
 #[test]
