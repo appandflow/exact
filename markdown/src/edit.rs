@@ -620,7 +620,8 @@ fn newline(source: &str, mut sel: B) -> Draft {
             && sel.start <= b.range.end
     });
     let p = prefix(source, &line);
-    let split = !coded && (p.kind.is_some() || p.quoted) && sel.start >= p.content;
+    // A selection from inside the block prefix still splits what it ends in.
+    let split = !coded && (p.kind.is_some() || p.quoted);
     if split {
         // At an inline edge, keep the whole construct on its side of the break.
         for edge in [&mut sel.start, &mut sel.end] {

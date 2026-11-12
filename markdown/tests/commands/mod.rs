@@ -117,6 +117,12 @@ fn return_replaces_a_selection_through_an_inline_edge() {
         ("- **bo|ld|**", "- **bo**\n- |"),
         ("- [**bo|ld|**](u)", "- [**bo**](u)\n- |"),
         ("- [do|cs](u) and [wo|rd](v)", "- [do](u)\n- [|rd](v)"),
+        // A selection from the list marker removes it and still splits the link.
+        (
+            "|- [do|cs](https://example.com)",
+            "\n[|cs](https://example.com)",
+        ),
+        ("|- **bo|ld**", "\n**|ld**"),
     ] {
         assert_eq!(run(before, Command::Newline), after, "{before}");
     }
