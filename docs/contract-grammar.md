@@ -2175,12 +2175,23 @@ Clipboard API's `write([new ClipboardItem({"image/png": path, "text/plain":
 text})])`, with an `app:/` path to a PNG (or at most 2 MiB of PNG bytes)
 and `writeText(text)`. The host writes a new PNG of the image's pixels, frame
 0 of an animation; convert another format first with
-`storage.fs.compressImage(…, {type: "image/png"})`. Web, macOS and iOS. The
-app's Contract names the package with a `use` (`use ClipboardItem from
+`storage.fs.compressImage(…, {type: "image/png"})`. Web, macOS and iOS;
+Windows accepts the `app:/` path form and `writeText`, but refuses in-memory
+image bytes with `NotSupportedError`. A path's file is at most 64 MiB and
+its image at most 64,000,000 pixels. Windows offers registered `PNG` first,
+then `CF_DIBV5` with alpha for sRGB or untagged input, and `CF_UNICODETEXT`
+when text is supplied. Other colour information (gamma, primaries or an ICC
+profile) stays in the PNG; those images have no bitmap fallback, so the paste
+recipient must accept PNG. Full-range sRGB cICP `(1, 13, 0, 1)` without
+mDCV or cLLI is normalized to sRGB, replacing lower-priority colour tags,
+and gets a bitmap. Other cICP values, mDCV and cLLI are refused. Without
+cICP, iCCP takes precedence over sRGB and the sRGB tag is removed. See the
+[Windows paste limitations](reference.md#clipboard-images).
+The app's Contract names the package with a `use` (`use ClipboardItem from
 "@exact/clipboard"`), which links it. Under the agent neither this nor
 `copyText` touches the person's clipboard: the write lands on the session's
-own pasteboard (in memory on the web), and `state.extensions.clipboard.implementation`
-shows the last one (`EXACT_DEVICE=real` writes the real one on Apple).
+own pasteboard (in memory on the web and Windows), and `state.extensions.clipboard.implementation`
+shows the last one (`EXACT_DEVICE=real` writes the real one on Apple and Windows).
 
 ### Text selection
 

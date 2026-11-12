@@ -10,6 +10,8 @@ publish = false
 exact-linux = { path = "../linux" }
 exact-runner = { path = "../../runner" }
 serde_json = "1.0"
+png = "=0.18.1"
+sha2 = "0.10"
 
 [dev-dependencies]
 contract = { path = "../../contract/cli" }

@@ -1457,7 +1457,17 @@ reading. Nothing that isn't HTML is added by it.
   moves to Later. Still out, each until a consumer asks: `read` and
   `readText` outside a paste, `text/html` and RTF, custom formats, file
   promises, several items in one write, a Contract `write`, a
-  clipboard-change event, and the Linux, Windows and Android cells.
+  clipboard-change event, and the Linux and Android cells.
+  **Built (maintainers' agent, 2026-11-12, #196;
+  LLP 1133.006 D7):** Windows
+  writes a PNG by `app:/` path, sanitized within the same 64 MiB file and
+  64-million-pixel bounds, as registered `PNG` and, for sRGB or untagged
+  input, alpha-bearing `CF_DIBV5`, with Unicode text beside it when supplied.
+  Other colour information stays in PNG without a bitmap fallback.
+  This provides Windows PNG-file writes. The screenshot consumer in #196
+  still has no raw-pixel input: its Rust source must encode a PNG into an
+  `app:/` file before calling the package. In-memory image input and the
+  Linux clipboard carrier remain out.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS

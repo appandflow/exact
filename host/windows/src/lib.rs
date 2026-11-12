@@ -11,8 +11,7 @@ mod appearance;
 mod caret;
 #[cfg(windows)]
 mod clicks;
-#[cfg(windows)]
-mod clipboard;
+pub mod clipboard;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod desktop;
 #[cfg(windows)]
@@ -162,6 +161,18 @@ pub fn run_with_hatches<
 fn refuse() -> i32 {
     eprintln!("exact-windows requires a Windows target");
     1
+}
+
+#[cfg(test)]
+extern crate self as exact_windows;
+
+#[cfg(test)]
+mod clipboard_package {
+    include!("../../../packages/clipboard/windows/lib.rs");
+
+    mod tests {
+        include!("../../../packages/clipboard/test/windows.rs");
+    }
 }
 
 #[cfg(test)]

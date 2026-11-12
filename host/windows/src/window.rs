@@ -216,7 +216,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         return 1;
     }
     if !config.windowed() {
-        return app::run_config::<D>(&mut config, started);
+        return crate::clipboard::run_headless::<D>(&mut config, started);
     }
     boot_phase("config-ready");
     if std::env::var_os("EXACT_SIZE").is_none() {
@@ -947,7 +947,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(handle) = handle.as_raw() {
-                        p.set_clipboard(Box::new(crate::clipboard::Clipboard(handle.hwnd.get())));
+                        p.set_clipboard(Box::new(crate::clipboard::Clipboard::new(
+                            handle.hwnd.get(),
+                        )));
                         let hwnd = handle.hwnd.get();
                         p.set_url_opener(move |url| crate::url::open(hwnd, url));
                         let proxy = self.proxy.clone();

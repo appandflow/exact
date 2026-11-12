@@ -3010,6 +3010,28 @@ The driver: `tap <target> drop <path…>` (files and folders), `tap <target>
 dragenter <path…>` and `tap <target> dragleave`, `type <target> paste --file
 <path…>` and `type <target> paste --image <png>`.
 
+### Clipboard images
+
+Data code writes images with [`@exact/clipboard`](contract-grammar.md#clipboard).
+Windows accepts an `app:/` PNG file, up to 64 MiB and 64,000,000 pixels;
+in-memory PNG bytes and raw pixels are not accepted. It offers sanitized
+PNG, a bitmap for untagged or explicitly sRGB images without an ICC profile,
+and optional Unicode text together.
+
+Full-range sRGB cICP `(1, 13, 0, 1)` without mDCV or cLLI is normalized
+to an sRGB chunk and gets a bitmap. cICP takes precedence over other colour
+chunks; normalization removes those lower-priority tags. Other cICP values,
+mDCV and cLLI are refused.
+
+Images carrying gAMA or cHRM without sRGB, and images carrying iCCP, are
+PNG-only when no cICP overrides them. iCCP takes precedence over sRGB, as
+[PNG third edition specifies](https://www.w3.org/TR/png-3/#color-chunk-precendence).
+No colour conversion is performed. On Windows 11, Paint 11.2609.401.0
+pastes a gAMA image without its gamma interpretation, and Edge 157.0.4341.46's
+ordinary paste editor receives no image from these PNG-only items. Preserving
+the PNG's colour information therefore does not guarantee a correct paste.
+Use untagged or sRGB PNG input when a bitmap fallback is needed.
+
 ### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
