@@ -1431,7 +1431,7 @@ fn deep_expressions_are_refused_by_name_on_a_small_stack() {
         (app(chain(200_000)), Some("more than 100 operations deep")),
         (app(nested(100_000)), Some("nest more than 64")),
         (
-            app(format!("{}n", "-".repeat(100_000))),
+            app(format!("{}n", "- ".repeat(100_000))),
             Some("nest more than 64"),
         ),
         (

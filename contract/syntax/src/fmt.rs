@@ -605,7 +605,7 @@ impl<'a> Layout<'a> {
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")
-                || self.prefixes.contains(&previous.span)
+                || (self.prefixes.contains(&previous.span) && !(a == "-" && b == "-"))
                 || a == "."
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("

@@ -251,7 +251,10 @@ component Groceries
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
-  finite (a `NaN` refuses the commit). A presentation order by one key is
+  finite (a `NaN` refuses the commit). Write `n = n - 1` in an action, not `--n`;
+  double negation is `-(-n)` or `- -n`. Numeric literals are decimal without leading
+  zeroes (`0.5` is valid); write `8`, not `010` or `0o10`.
+  A presentation order by one key is
   `sortBy(xs, x => x.name)`, stable (`"desc"` third; a second key is an earlier `sortBy`), not
   `sort`; grouping, joining and a stored or locale order are the data module's, and the view
   names the order it relies on where it reads it (`resource tasks = loadTasksByDueDate()`).

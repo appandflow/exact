@@ -298,6 +298,34 @@ impl Lexer {
                     while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
                         pos += 1;
                     }
+                    if c == '0' && pos > start + 1 {
+                        // MIDI test steps spell bytes as two hex digits, including `00`.
+                        let line_start = out
+                            .iter()
+                            .rposition(|t| {
+                                matches!(
+                                    t.kind,
+                                    TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent
+                                )
+                            })
+                            .map_or(0, |i| i + 1);
+                        let midi_bytes = match &out[line_start..] {
+                            [Token { kind: TokenKind::Ident(op), .. }, Token { kind: TokenKind::Ident(midi), .. }, rest @ ..]
+                                if midi == "midi" && matches!(op.as_str(), "tap" | "expect") =>
+                            {
+                                rest.iter().any(|t| matches!(t.kind, TokenKind::Str(_)))
+                                    && !rest.iter().any(|t| matches!(&t.kind, TokenKind::Ident(s) if s == "at" || s == "clock"))
+                            }
+                            _ => false,
+                        };
+                        if !midi_bytes {
+                            return Err(LexError {
+                                id: "syntax-bad-number",
+                                message: "a decimal number cannot have leading zeroes; write the decimal value without leading zeroes (10 for decimal ten, 8 for octal 010)".into(),
+                                span,
+                            });
+                        }
+                    }
                     // A dot is the decimal point only when a digit follows, so
                     // `rows.0.steps` is an index and then a field, not the
                     // number `0.` (drums R7).

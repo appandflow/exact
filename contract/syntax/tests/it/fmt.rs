@@ -148,7 +148,7 @@ routes screen
         story "/:id"
     notfound
 component A
-    state n = 0001.00
+    state n = 1.00
     derive enormous = {huge}
     derive sub = n - n
     derive property = 1 . field
@@ -158,7 +158,7 @@ component A
 "#
     );
     let after = preserved(&src);
-    assert!(after.contains("0001.00"));
+    assert!(after.contains("1.00"));
     assert!(after.contains(&huge));
     assert!(after.contains("1 .field"));
     assert!(after.contains(r#"text "a\t\n\`\$" font-size=12"#));
@@ -464,4 +464,10 @@ fn midi_hex_bytes_stay_whole() {
     assert!(out.contains("90 3c 00 08 4C 0e ff"));
     assert!(out.contains("90 3c 64 at 500"));
     assert!(out.contains("80 4c 00"));
+}
+
+#[test]
+fn separated_negations_stay_separate() {
+    let src = "component A\n  derive x = - -3\n  view\n    text x\n";
+    assert!(preserved(src).contains("- -3"));
 }

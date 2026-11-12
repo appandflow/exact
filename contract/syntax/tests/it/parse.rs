@@ -889,3 +889,116 @@ fn the_negative_literal_leaves_subtraction_negation_and_exact_names_alone() {
     // `em` after a number's `e` is a unit, not an exponent.
     assert!(parse("component A\n  view\n    image \"symbol:x\" width=\"2em\"\n").is_ok());
 }
+
+#[test]
+fn update_operators_are_refused_with_alternatives() {
+    for expression in [
+        "--n",
+        "++n",
+        "n--",
+        "n++",
+        "10 - --n",
+        "10--n",
+        "-- n",
+        "++ n",
+        "n --",
+        "n ++",
+        "--3",
+        "++3",
+        "--(n)",
+        "(n)++",
+        "n.field--",
+        "abs(--n)",
+        "[n++]",
+        "true ? --n : n",
+        "`${--n}`",
+        "`${n++}`",
+    ] {
+        for line in [
+            format!("derive x = {expression}"),
+            format!("action down()\n    n = {expression}"),
+        ] {
+            let src = format!("component A\n  state n = 5\n  {line}\n");
+            let error = parse(&src).unwrap_err();
+            assert_eq!(error.id, "syntax-refused-idiom", "{expression}");
+            assert!(error.message.contains("n = n"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn dashed_profiles_and_literal_text_are_not_update_expressions() {
+    let file = parse(
+        r#"color-profile --brand-press src="assets/brand.icc"
+theme
+  ink = "color(--brand-press 0.1 0.2 0.3)"
+  alias = "ink"
+  -exact-secondary-label = "color(--brand-press 0.1 0.2 0.3)"
+component A
+  view
+    text "--n ++n 010 01.02.03" color="var(--ink)"
+    text `--n ++n 010 ${"--brand"}` animation-timeline="--scroll"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.color_profiles[0].name, "--brand-press");
+}
+
+#[test]
+fn leading_zero_numbers_are_refused_with_alternatives() {
+    for number in ["010", "08", "00", "01.5", "01e2"] {
+        let src = format!("component A\n  derive x = {number}\n");
+        let error = parse(&src).unwrap_err();
+        assert_eq!(error.id, "syntax-bad-number", "{number}");
+        assert!(error.message.contains("decimal"), "{error}");
+    }
+    for expression in [
+        "- -n",
+        "-(-n)",
+        "n- -n",
+        "10 - - -n",
+        "0",
+        "0.5",
+        "0e2",
+        "10",
+    ] {
+        parse(&format!(
+            "component A\n  state n = 5\n  derive x = {expression}\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn unsupported_numeric_spellings_do_not_compile_as_decimal_prefixes() {
+    for number in [
+        "0o10", "0O10", "0x10", "0X10", "0x", "0b10", "0B10", "0b", "1_000", "0_1", "1n", "0n",
+        "0x10n",
+    ] {
+        assert!(
+            parse(&format!("component A\n  derive x = {number}\n")).is_err(),
+            "{number}"
+        );
+    }
+}
+
+#[test]
+fn midi_bytes_keep_leading_zeroes() {
+    parse(
+        r#"test "MIDI"
+  tap midi "keys" 90 00 08
+  expect midi sent "synth" 90 00 08 at 0.5
+"#,
+    )
+    .unwrap();
+    for step in [
+        "tap midi \"keys\" 90 00 08 at 010",
+        "tap midi \"keys\" 90 00 08 clock 010",
+        "expect midi sent \"synth\" 90 00 08 at 010",
+    ] {
+        assert_eq!(
+            parse(&format!("test \"MIDI\"\n  {step}\n")).unwrap_err().id,
+            "syntax-bad-number",
+        );
+    }
+}
