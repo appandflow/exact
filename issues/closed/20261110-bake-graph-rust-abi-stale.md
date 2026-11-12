@@ -1,6 +1,7 @@
 # The bake writes Rust ABI 2 into the graph of a binary that embeds a Rust pair; its cohort and the publisher carry 4
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The graph's `rustAbi` was already `crate::compat::RUST_ABI` (f281b62c); the bake's `RUST_ABI` is now `exact_logic_abi::ABI` and the publisher reads the same declaration from `logic/abi/src/lib.rs`, so the number is written once.
 **Systems:** bake/src/receipt.rs (artifact_graph), bake/src/compat.rs, scripts/rust.mjs, scripts/app.mjs (classifyArtifacts)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

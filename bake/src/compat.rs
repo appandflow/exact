@@ -30,10 +30,11 @@ const ABI_HEADER: &str = include_str!(concat!(
 ));
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
-/// The separately linked Rust data-source wire ABI: admitted secret names
-/// before the store snapshot (LLP 1048.000 D9), two-way sockets (LLP 1016.003),
-/// cache-mode tag 12 (LLP 1162 D4), and stream protocol names (LLP 1016.000).
-pub(crate) const RUST_ABI: u32 = 8;
+/// The separately linked Rust data-source wire ABI, as the seam declares it:
+/// admitted secret names before the store snapshot (LLP 1048.000 D9), two-way
+/// sockets (LLP 1016.003), cache-mode tag 12 (LLP 1162 D4), and stream
+/// protocol names (LLP 1016.000).
+pub(crate) const RUST_ABI: u32 = exact_logic_abi::ABI;
 /// The data-module runtime a TypeScript bundle may rely on in the binary's
 /// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
 /// prelude learns something a bundle cannot do without and an older prelude
