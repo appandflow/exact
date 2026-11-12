@@ -933,7 +933,7 @@ test('an app whose name or head entry spells a script tag renders its pages in t
     expect(built.status, built.stdout + built.stderr).toBe(0);
     const shell = readFileSync(resolve(out, 'shell.html'), 'utf8'), page = readFileSync(resolve(out, 'index.html'), 'utf8');
     expect(shell).toContain('<title>Learn &lt;script> tags</title>');
-    expect(shell).toContain('<meta name="keywords" content="&lt;script>, &lt;/script>">');
+    expect(shell).toContain('<meta name="keywords" content="&lt;script&gt;, &lt;/script&gt;">');
     const document = page.indexOf('The note, rendered.');
     expect([document > page.lastIndexOf('<div id="exact-root">'), page.split('<div id="exact-root">').length - 1, page.includes('<title>Learn &lt;script&gt; tags</title>')]).toEqual([true, 1, true]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
