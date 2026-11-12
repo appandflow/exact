@@ -1,6 +1,7 @@
 # `width=50%` is refused as a missing expression, at the next attribute
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An attribute, style or keyframe value that is a number and `%` with nothing after it on the line but another attribute is refused as `syntax-unquoted-length` at the number and the `%`, with the quoted spelling; a remainder with its operand is unchanged.
 **Systems:** contract/syntax (parser, attribute values)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

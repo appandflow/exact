@@ -60,6 +60,7 @@ impl Parser {
                     }
                 };
                 p.next();
+                p.unquoted_percent(&aname)?;
                 let value = match p.expr()? {
                     // `-8` is a literal to anyone writing a keyframe.
                     Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {

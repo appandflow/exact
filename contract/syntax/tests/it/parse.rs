@@ -777,6 +777,49 @@ fn a_negative_number_after_an_attributes_equals_is_a_number_literal() {
     assert!(e.message.contains("1.8e308"), "{}", e.message);
 }
 
+/// `width=50%` is refused as the unquoted length it is, at the number and the
+/// `%`, whatever follows on its line; a remainder with its operand is not.
+#[test]
+fn an_unquoted_percentage_is_refused_at_itself() {
+    let message = "`width=50%` needs quotes: a value with a unit is a string, `width=\"50%\"` (a bare number is pixels)";
+    for (src, at) in [
+        (
+            "component A\n  view\n    column width=50% testId=\"c\"\n      text \"a\"\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column width=50%\n      text \"a\"\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column width=50% apple.width=10\n",
+            (3, 18, 21),
+        ),
+        (
+            "component A\n  view\n    column\n      width=50%\n",
+            (4, 13, 16),
+        ),
+        (
+            "style Wide\n  width=50%\ncomponent A\n  view\n    text \"a\" class=\"Wide\"\n",
+            (2, 9, 12),
+        ),
+        (
+            "keyframes Grow\n  to width=50%\ncomponent A\n  view\n    text \"a\"\n",
+            (2, 12, 15),
+        ),
+    ] {
+        let e = parse(src).unwrap_err();
+        assert_eq!(e.id, "syntax-unquoted-length", "{src}\n{e:?}");
+        assert_eq!(e.message, message, "{src}");
+        assert_eq!((e.span.line, e.span.col, e.span.end_col), at, "{src}");
+    }
+    let e = parse("component A\n  view\n    column margin-top=-5%\n").unwrap_err();
+    assert!(e.message.contains("`margin-top=\"-5%\"`"), "{e:?}");
+    // A remainder that has its operand stays one.
+    let src = "component A\n  state a = 1\n  state b = 2\n  view\n    column width=a % b height=10 % b testId=\"c\"\n";
+    parse(src).unwrap();
+}
+
 /// What the negative literal leaves alone: subtraction, a negation of
 /// something that is not a lone number, and a vendor-prefixed name.
 #[test]
