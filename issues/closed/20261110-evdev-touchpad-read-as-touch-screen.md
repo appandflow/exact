@@ -1,6 +1,7 @@
 # The evdev reader treats a touchpad as a touch screen: a finger on the pad jumps the pointer and presses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The evdev reader tells a touchpad by its fingers, no pen and no INPUT_PROP_DIRECT, moves the pointer by the finger's travel, and presses only on its click (BTN_LEFT), never on BTN_TOUCH.
 **Systems:** host/linux/src/input.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
