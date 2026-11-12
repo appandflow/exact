@@ -255,6 +255,20 @@ impl<D: DataSource> Presenter<D> {
                     if n.node_type == NodeType::Svg {
                         witness_svg(kernel, &n, &mut witness);
                     }
+                    // Inline descendants have no boxes of their own; their
+                    // identities were captured with the painted paragraph.
+                    if let Some(paragraph) = self.brush.inline_text.get(&b.id) {
+                        for id in paragraph.views() {
+                            if let Some(node) = kernel.node(id) {
+                                witness.nodes.entry(id).or_insert(Seen {
+                                    key: node.key,
+                                    parent: node.parent,
+                                    scroll_parent: self.geometry_parent(id),
+                                    scroll: None,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
