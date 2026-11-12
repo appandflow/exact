@@ -37,11 +37,6 @@ final class ScrollerChromeMacTests: XCTestCase {
         return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
     }
 
-    private func settle(_ until: () -> Bool) {
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while !until(), Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
-    }
-
     func testScrollersStopAtTheTitleBarAndTheContentScrollsBeneathIt() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "scroller-chrome")
@@ -55,7 +50,7 @@ final class ScrollerChromeMacTests: XCTestCase {
         window.orderFrontRegardless()
         let p = session.presenter
         func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }, testId) }
-        settle { p.insets.top > 0 && (try? node("content").scroll) != nil }
+        waitFor("the window's insets and the scroller") { p.insets.top > 0 && (try? node("content").scroll) != nil }
         let bar = window.contentView!.bounds.height - window.contentLayoutRect.maxY
         XCTAssertGreaterThan(bar, 0, "the title bar is over the content")
         XCTAssertEqual(p.insets.top, bar, "the page is told the bar as its safe area")
@@ -80,7 +75,7 @@ final class ScrollerChromeMacTests: XCTestCase {
         // A window whose content starts below the bar has no scroller under it.
         window.styleMask.remove(.fullSizeContentView)
         view.syncInsets()
-        settle { content.scrollerInsets.top == 0 }
+        waitFor("the scroller's insets follow the bar") { content.scrollerInsets.top == 0 }
         XCTAssertEqual(content.scrollerInsets.top, 0, "nothing of the window is over it")
         XCTAssertEqual(p.viewport.scrollerInsets.top, 0)
     }

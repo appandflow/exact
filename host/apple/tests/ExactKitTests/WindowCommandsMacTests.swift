@@ -55,8 +55,7 @@ final class WindowCommandsMacTests: XCTestCase {
         ExactWindowCommands.hide(window, keeps: true) { said.append($0) }
         XCTAssertEqual(said, [], "a window already away is left as it is")
         window.makeKeyAndOrderFront(nil) // bare `focus()`'s `front()`
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while PageFacts.restores(window) == 0, Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        waitFor("the window shown again is counted a restore") { PageFacts.restores(window) > 0 }
         XCTAssertEqual(PageFacts.restores(window), 1, "shown again: pageshow, persisted")
         XCTAssertFalse(PageFacts.persisted(window))
         PageFacts.closed(window)
