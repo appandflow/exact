@@ -2524,10 +2524,18 @@ each voice ended is the same on every host and under the driver's clock
 | --- | --- |
 | web (both targets) | Web Audio: a one-shot `AudioBufferSourceNode` per voice at `start(when)` with its `playbackRate`, through a `StereoPannerNode` when its `pan` is not 0, aimed at the speaker through the context's output timestamp; the first sound after the page's first tap or key (one before it is dropped and journaled `sound blocked`) |
 | macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate (a playback rate reads between frames by linear interpolation; a pan follows the `StereoPannerNode`'s equal-power algorithm), in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
-| Linux, Windows | none: the record only (`state.sounds.output` is `"none"` outside the driver) |
+| Linux, Windows, Android (the Linux host in its reader) | no Contract sound output: the runner keeps the voice record |
 
-Under the driver no scheduled sound plays on any host (`output: "agent"`). `app.json`'s
-root `audio_session` chooses the session every sound, video and canvas shares.
+Under the driver no scheduled sound plays on any host (`output: "agent"`). The
+runner initializes `state.sounds.output` to `"agent"`; Linux, Windows and Android
+leave it there even outside the driver. Outside the driver, macOS, iOS and tvOS
+replace it with an object whose `kind` is `"avaudioengine"` and whose `state` is `"closed"`,
+`"running"`, `"stopped"` or `"failed"`. Both web targets report an object with
+`kind: "web-audio"` and the audio context's `state` once the output loads; before
+that, the JS target reports `{kind: "web-audio", state: "loading"}` and the wasm
+target retains `"agent"`.
+
+`app.json`'s root `audio_session` chooses the session every sound, video and canvas shares.
 On iOS and tvOS, `"ambient"` (the default) obeys the ring/silent switch and
 mixes with other apps' audio. `"playback"` ignores the switch and interrupts
 other audio. `"playback-mix"` is for an instrument, toy or metronome played
