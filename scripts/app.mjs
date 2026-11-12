@@ -37,7 +37,7 @@ import { bakeOutside, compiledBakeDir, linkable, linkedInputs, recordRustBake } 
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
-import { NO_WORKSPACE, androidCargo, appleCargo, authoredWorkspace, cargoOnPath, knownWorkspace, rememberWorkspace, shellsDir, targetRustflags } from './cargo-check.mjs';
+import { NO_WORKSPACE, androidCargo, appleCargo, authoredWorkspace, cargoDiagnosticsCommand, cargoOnPath, knownWorkspace, rememberWorkspace, shellsDir, targetRustflags } from './cargo-check.mjs';
 export { cargoOnPath } from './cargo-check.mjs';
 import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
@@ -837,14 +837,14 @@ const under = (root, path) => {
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
   if (command === 'cargo') env = cargoEnvironment(env);
-  let result = spawnSync(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })));
+  let result = spawnSync(...cargoDiagnosticsCommand(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }))));
   // An offline Cargo that lacks a source it needs (a new workspace, a new
   // lock entry) fetches the lock's sources once and tries again, instead of
   // failing on the first missing crate (LLP 1054 O2).
   if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
-    if (fetched.status === 0) result = spawnSync(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })));
+    if (fetched.status === 0) result = spawnSync(...cargoDiagnosticsCommand(...androidCargo(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }))));
   }
   if (result.error || result.status !== 0) {
     if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
