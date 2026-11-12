@@ -493,11 +493,11 @@ fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
     assert_eq!(values[0].color, [255, 0, 0, 255]);
     assert_eq!(values[1].color, [0, 0, 255, 255]);
     for value in &values[..3] {
-        assert_eq!(value.radii, [Dimension::Points(0.0); 4]);
+        assert_eq!(value.radii, [const { Dimension::Points(0.0) }; 4]);
     }
     assert_eq!(
         values[3].radii,
-        [Dimension::Points(3.0); 4],
+        [const { Dimension::Points(3.0) }; 4],
         "a transparent descendant keeps its ancestor's rounding"
     );
     for inner in [
@@ -513,8 +513,8 @@ fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
             .unwrap();
         let backgrounds = text_backgrounds(kernel, &node, false, None);
         assert_eq!(
-            backgrounds[0].unwrap().radii,
-            [Dimension::Points(6.0); 4],
+            backgrounds[0].as_ref().unwrap().radii,
+            [const { Dimension::Points(6.0) }; 4],
             "{inner}"
         );
     }

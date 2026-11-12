@@ -229,10 +229,10 @@ impl BoxPaint {
         });
         Self {
             radii: [
-                s.border_radius_top_left,
-                s.border_radius_top_right,
-                s.border_radius_bottom_right,
-                s.border_radius_bottom_left,
+                s.border_radius_top_left.clone(),
+                s.border_radius_top_right.clone(),
+                s.border_radius_bottom_right.clone(),
+                s.border_radius_bottom_left.clone(),
             ]
             .map(|d| d.resolve(&env)),
             env: env.clone(),
@@ -279,8 +279,11 @@ impl BoxPaint {
         let pad = self.padding;
         BoxGeometry {
             inset: (pad[3] + widths[3], pad[0] + widths[0]),
-            outer: Shape::elliptical(rect, border::resolve_radii(self.radii, &self.env, w, h))
-                .with_corners(self.corners),
+            outer: Shape::elliptical(
+                rect,
+                border::resolve_radii(self.radii.clone(), &self.env, w, h),
+            )
+            .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],

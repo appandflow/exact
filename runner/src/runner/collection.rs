@@ -440,10 +440,10 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
     let env = kernel.arena().env();
     let r = &node.style.rare;
     let sides = [
-        r.scroll_padding_top,
-        r.scroll_padding_right,
-        r.scroll_padding_bottom,
-        r.scroll_padding_left,
+        r.scroll_padding_top.clone(),
+        r.scroll_padding_right.clone(),
+        r.scroll_padding_bottom.clone(),
+        r.scroll_padding_left.clone(),
     ];
     std::array::from_fn(|i| match sides[i].resolve(env) {
         exact_kernel::Dimension::Points(n) => f64::from(on_grid(env, n, CELLS[i])),
@@ -481,10 +481,10 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
     };
     let (env, r) = (kernel.arena().env(), &node.style.rare);
     let sides = [
-        r.scroll_margin_top,
-        r.scroll_margin_right,
-        r.scroll_margin_bottom,
-        r.scroll_margin_left,
+        r.scroll_margin_top.clone(),
+        r.scroll_margin_right.clone(),
+        r.scroll_margin_bottom.clone(),
+        r.scroll_margin_left.clone(),
     ];
     std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
 }

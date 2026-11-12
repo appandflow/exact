@@ -1447,7 +1447,7 @@ fn in_placeholder(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
 
 fn has_zero_dimension(node: exact_kernel::NodeRef<'_>) -> bool {
     let zero = |d: Dimension| matches!(d, Dimension::Points(p) if p == 0.0);
-    zero(node.style.width) || zero(node.style.height)
+    zero(node.style.width.clone()) || zero(node.style.height.clone())
 }
 
 fn hidden(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {

@@ -1102,7 +1102,7 @@ fn route_header_geometry_matches_the_browser() {
                     assert_eq!(node.source_of(row), None);
                 }
                 assert_eq!(
-                    node.computed_row(StyleId::MinHeight, |s| s.min_height),
+                    node.computed_row(StyleId::MinHeight, |s| s.min_height.clone()),
                     Dimension::Points(32.0)
                 );
                 p.tap(id(&p, "toggle")).unwrap();
