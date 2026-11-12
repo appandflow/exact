@@ -644,6 +644,17 @@ host applies the hover colour too: a look the author writes that a host
 with a pointer drops would be a tell. Still out: a look's `color` on
 Linux.
 
+**Expanded (expo/exact#151, 2026-11-12; LLP 1121 D8 as amended that day):**
+`:hover` and `:focus-visible` take `scale`, CSS's individual transform,
+which stands in for the node's own `scale` while the look holds and moves
+there on the node's own `transition`, as a browser moves a `:hover` rule's
+value. It never lays out. Consumer: hirbod's port, whose icon buttons grow
+1.08 and 1.12 on hover. Every host with a pointer shows it: the web, the Mac,
+an iPad's pointer, and Linux and Windows through the painted presenter. Take:
+none offered; waived by Charlie's ask (2026-11-12: work the open issues through
+to the ideal end state). Still out: `rotate` and `translate` in a look, and
+`scale` in `:disabled` or `:checked`.
+
 **Runtime**
 
 **Expanded (Charlie, 2026-10-13, issue-program ruling 10):** runner-owned

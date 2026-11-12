@@ -5125,7 +5125,15 @@ and Android follow (LLP 1121 stage 8 B). A look's `color` reaches the node's tex
 as its own `color` does (a descendant that writes its own keeps it), so
 `:hover color="ink"` on a link recolours its words, under a `color-scheme`
 boundary too; the web and Apple (a Mac's pointer, an iPad's) show it, and
-Linux's looks paint the box alone. Native buttons and list rows accept
+Linux's looks paint the box alone. They also take `scale`, which stands in for
+the node's own `scale` while the look holds: like it, it never lays out, and a
+`-exact-press-scale` multiplies onto it. It moves there and back on the node's
+own `transition` for `scale`, as a `:hover` rule's value moves in a browser, on
+every host with a pointer (the web, a Mac's, an iPad's, Linux and Windows); with
+none it snaps, and on the web so does one under a `-exact-spring`. An icon
+button that grows on hover:
+`button scale=1 transition="scale 150ms ease"` with `:hover` `scale = 1.08`.
+Native buttons and list rows accept
 `:active`; their other states remain the platform's. Active properties keep a
 button native, including with `appearance="auto"`. Each written property overrides
 that field; unwritten fields keep the native highlighted state. Clearing a target
