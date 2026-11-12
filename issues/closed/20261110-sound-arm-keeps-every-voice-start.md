@@ -1,6 +1,7 @@
 # The sound arm keeps an entry for every voice ever played
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The arm records a voice's start only while the device check runs, and each onset the check reports drops the voice it matched and every voice aimed before it.
 **Systems:** host/apple/soundarm/SoundArm.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
