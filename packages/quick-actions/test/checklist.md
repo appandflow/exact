@@ -1,7 +1,7 @@
-# @exact/quick-actions and Shelf's intents: drives by hand
+# @exact/quick-actions and Shelf's intents: drives and qualification
 
-What the agent cannot drive: a launcher's or a taskbar's own menu, Siri,
-and a phone (LLP 1133.023 §11 and §14). Each step says what to see.
+Simulator drives use XCTest; the other drives below are by hand (LLP
+1133.023 §11 and §14). Each step says what to see.
 Record the date, the OS version and what happened beside each step when
 you run it.
 
@@ -12,6 +12,42 @@ whether a session was booted for it, and its outcome.
 
 The app is Shelf (`apps/shelf`): the manifest's Add Book (`/add`), its
 `index` task's Continue *title*, and the tools Log Pages and Add to Shelf.
+
+## iOS simulator qualification
+
+2026-11-12, Shelf source `9de42ee4`, Xcode 27.2 (27B52), iOS 27.0 (24A434),
+iPhone 18 Pro, `lane-sim-1` (`0430DA24-F984-466E-B567-46EEC01FD156`).
+Shelf built with both faced tools and their metadata and installed successfully:
+
+```
+bun host/apple/build.mjs --ios shelf-apple --sim "$EXACT_LANE_SIM"
+bun packages/quick-actions/test/apple-ui.mjs 0430DA24-F984-466E-B567-46EEC01FD156 target/shelf-ios-reach-2026-11-12/round-2-run-2
+```
+
+The combined run passed all four tests, with 0 failures in 57.947 s.
+Screenshots and accessibility hierarchies were inspected under
+`target/shelf-ios-reach-2026-11-12/round-2-run-2/`:
+
+| Drive | Result | Evidence within that directory |
+| --- | --- | --- |
+| 1: cold Add Book | Pass, 12.767 s; the menu opens New Book | `quick-cold-2.*`, `quick-cold-3.*` |
+| 2: warm Add Book | Pass, 16.168 s; launched on Library before backgrounding | `quick-warm-2.*`, `quick-warm-3.*` |
+| 3: Spotlight opens the book | Pass, 14.564 s; selects Shelf's Piranesi, Susanna Clarke and opens Piranesi | `spotlight-1.*`, `spotlight-2.*` |
+| 4: Shortcuts lists Log Pages | Pass, 14.447 s; Log Pages is in the action picker | `shortcuts-3.*` |
+
+`xcodebuild.log` records each pass and the suite total; the result bundle is
+`results-1794485255787.xcresult`. The install log is
+`../round-2-build.log`. CoreSimulator answered throughout, and installation
+with the intents module succeeded.
+
+Spotlight's field belongs to `com.apple.Spotlight`. The drive selects the
+exact title-and-author cell and scrolls it above the floating search field
+before tapping; the book screenshot and hierarchy show Piranesi and Susanna
+Clarke. Shortcuts' search uses XCTest's private `idleAnimationWaitEnabled`
+switch to avoid Xcode 27.2's missing animation-completion notification. It
+still requires the search field and Log Pages to appear, and restores the
+switch after the search. Test 4 qualifies metadata discovery; executing
+Log Pages, Siri and authentication on a phone remain the steps below.
 
 ## iPhone
 
