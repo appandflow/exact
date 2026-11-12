@@ -379,8 +379,8 @@ final class FrameHealthOverlay: UIView {
     private func chooseShare() {
         guard let presenter = ViewPresentation.presenter(for: card) else { return }
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        for kind in FrameHealthShare.allCases {
-            sheet.addAction(UIAlertAction(title: kind.title, style: .default) { [weak self] _ in self?.share(kind) })
+        for kind in FrameHealthShare.choices(screen: observing) {
+            sheet.addAction(UIAlertAction(title: kind.title(screen: observing), style: .default) { [weak self] _ in self?.share(kind) })
         }
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         sheet.popoverPresentationController?.sourceView = card
@@ -401,11 +401,7 @@ final class FrameHealthOverlay: UIView {
             presenter.present(sheet, animated: !ExactEnv.agentFreezes)
         }
         switch kind {
-        case .report:
-            // The report is of what the face shows: the screen's frames, with their recent late frames, where it measures them
-            FrameHealthReport.prepare(health: observing ? screen?.health ?? health.reportSource : health.reportSource, session: session) {
-                present(String(decoding: $0, as: UTF8.self))
-            }
+        case .report, .clockReport: report(kind) { present(String(decoding: $0, as: UTF8.self)) }
         case .summary:
             present(FrameHealthCardText.summary(reader: shown.face, clock: shown.clock, rates: rates, display: display, source: source,
                 paused: paused, health: health).text)
@@ -414,6 +410,17 @@ final class FrameHealthOverlay: UIView {
                 display: display, source: source, paused: paused, health: health, palette: card.palette)
             if let image = picture.flatMap(UIImage.init(data:)) { present(image) }
         }
+    }
+
+    /// The agent report of what the face shows, or of Exact's frames: measuring the screen, the card gives each as a report
+    /// of its own, which names the other. Exact's frames are its frame clock's, never the native scroll's, which a face
+    /// showing Exact's frames gives instead where its late frame is the newest (`reportSource`).
+    func report(_ kind: FrameHealthShare, completion: @escaping (Data) -> Void) {
+        guard let health else { return }
+        let screenHealth = observing ? screen?.health : nil
+        let shown = kind == .clockReport ? health : screenHealth ?? health.reportSource
+        FrameHealthReport.prepare(health: shown, session: session, beside: screenHealth.map { shown === $0 ? health : $0 },
+            completion: completion)
     }
 
     override func layoutSubviews() {

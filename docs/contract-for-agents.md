@@ -3982,7 +3982,8 @@ and missed frames for the last 0.5 s and 5 s; pacing; and charts of frame rate a
 frame time, or a table of work time, late frames, maximum frame time and pacing
 changes. A tap on a chart expands it; a tap on the title defines each figure; Share,
 at its top right, asks what to share, Agent Report, Summary or Image, and opens the
-system's share sheet with that one item. The card states no pass or fail of its own;
+system's share sheet with that one item; where the card measures the screen, it offers
+two agent reports, the screen's and Exact's frames'. The card states no pass or fail of its own;
 Details, beside Share, swaps everything below the header for `perf frames health`'s
 three results over the last 5 s with their reasons and the counts behind them, in rows
 that scroll within the card. These are timing proxies; actual presentation and
@@ -4032,6 +4033,11 @@ Open the four-finger menu and choose **Frame Health**, which in a production bak
 collection, reproduce the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
 the JSON text. Exact creates no report file or automatic upload. A person can send
 that text to an agent. The system share destination controls any storage it creates.
+On iOS 18 and later the card measures the screen, and Share offers **Agent Report:
+Screen** (`ui-update`) and **Agent Report: Exact's Frames** (`exact-app-display-link`),
+each a report of its own within 4 KB. The screen's has no frame times; an app drawn by
+GPU surfaces, whose canvases Exact's frame clock ticks, has its frame times and their
+work in Exact's, its GPU execution and presentation unobserved.
 
 For controlled device checks, `scripts/fixtures/frame-health-app` is a minimal fixture:
 one Start/Stop button, one moving canvas tile and 32 static rows. It starts paused;
@@ -4094,7 +4100,9 @@ packets. No report is automatically persisted, queued for retry or sent periodic
 
 A report covers one source. The default selects the source with the most recent
 retained hitch; `report app` or `report scroll` selects explicitly. `source` identifies
-it, and `otherSources` names retained evidence in other sources. Counts and generations
+it, `otherSources` names retained evidence in other sources, and `selection` says how
+to get another: an agent's request, or, for a report the card's Share gave, its other
+agent report. Counts and generations
 belong to their named source. Forwarded apply context does not count an app apply or
 its deadline again as a native-scroll event.
 
@@ -4248,7 +4256,12 @@ maximum, including above 120 Hz; press clocks are per window and update when its
 changes.
 
 `exact.frame-health/2` is a versioned JSON schema. Field explanations stay here to
-leave bytes for evidence. `columns` names each field in a `hitches` row. Export keeps
+leave bytes for evidence. `coreSinceReload` counts every frame since the collector's
+last reset, not only the retained rows: callbacks, frame intervals, missed and late
+frames, and `frameTimeBoundsNs` and `workBoundsNs`, the bounds of the bins holding the
+median, p99 and maximum frame time and work (`perf frames health`'s bins; a null upper
+bound is the open last bin). A field is null where its source does not measure it, as
+the screen's frame times, or where its bins do not hold every frame. `columns` names each field in a `hitches` row. Export keeps
 the newest rows that fit, in chronological order, with `retention.omittedForBudget`;
 it never reduces timing precision to fit. Sequences, captures and generations are
 decimal strings; other numbers are safe JSON integers. `time.clamped` invalidates
