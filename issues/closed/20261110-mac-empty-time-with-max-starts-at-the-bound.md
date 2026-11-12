@@ -1,6 +1,7 @@
 # An empty time input on the Mac opens at its `max` instead of the current time, and does not hold its `min`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already fixed by c3eb81b7: `DateValue.initial` parses the current `HH:mm` on the day the bounds are parsed on and holds it within `min` and `max`, which `DateField.becomeFirstResponder` writes into an empty field.
 **Systems:** host/apple/Sources/ExactKit/Mac/DatesMac.swift (DateField.becomeFirstResponder), host/apple/Sources/ExactKit/ControlKinds.swift (DateValue)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
