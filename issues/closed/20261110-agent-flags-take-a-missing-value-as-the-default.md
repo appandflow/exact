@@ -1,6 +1,7 @@
 # The agent driver takes a valued flag with no value as the flag's default
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `parseFlags` reads every valued flag through one check that refuses, by the flag's name, a value that is absent or another flag (help.mjs `missingValue`), before anything is opened.
 **Systems:** scripts/agent-launch.mjs (`parseFlags`), scripts/agent.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

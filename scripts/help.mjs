@@ -19,6 +19,9 @@ import { writeSync } from 'node:fs';
 const specs = (row) => row.split(' · ');
 const name = (spec) => spec.split(' ')[0];
 const takesValue = (spec) => spec.includes(' ');
+/** Whether the argument after a flag that takes a value is none: absent, or another flag (`--archive --unsigned`).
+ * A negative number is a value. */
+export const missingValue = (arg) => arg === undefined || /^-[^\d.]/.test(arg);
 
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
 // (`runTests` reads all but those `test` lists as internal). A default said as exact.mjs's is the app

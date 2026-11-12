@@ -27,6 +27,19 @@ test('simulator drives reject --phone and preserve explicit --sim selection', ()
   expect(parseFlags(['trace', '--phone', 'phone']).flags.phone).toBe('phone');
 });
 
+// A missing value was read as the flag's default: `--url` last drove this checkout's build, `--app` last the default app.
+test('a flag that takes a value is refused by name when the value is missing or another flag', () => {
+  const valued = ['--world', '--plan', '--app', '--browser', '--test', '--session', '--open', '--url', '--seed', '--locale', '--format-locale',
+    '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--sim', '--storage', '--port', '--pid', '--out', '--fail-fetch',
+    '--permission', '--notification', '--wake', '--call', '--bind', '--home'];
+  for (const flag of valued) {
+    expect(() => parseFlags(['web', 'tree', flag])).toThrow(`${flag} needs a value`);
+    expect(() => parseFlags(['web', flag, '--json', 'tree'])).toThrow(`${flag} needs a value`);
+  }
+  expect(parseFlags(['web', '--seed', '-3', 'tree']).flags.seed).toBe(-3);
+  expect(parseFlags(['web', '--app', 'shelf', '--url', 'http://127.0.0.1:9/', 'tree']).flags).toMatchObject({ app: 'shelf', url: 'http://127.0.0.1:9/' });
+});
+
 test('polling host I/O waits for a cold guest and bounds a hung guest', async () => {
   let time = 0, reads = 0;
   const clock = { now: () => time, pause: async ms => { time += ms; } };

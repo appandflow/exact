@@ -3,6 +3,7 @@ export {gameNonInput} from '../game/inputs.mjs';
 import {readStatus, formatStatus} from '../game/status.mjs';
 // Session setup shared by the agent CLI and its programmatic driver.
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
+import { missingValue } from './help.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -497,13 +498,20 @@ export function parseFlags(argv) {
   const rest = [];
   // Only this drive's flags say what a child is (LLP 1133.007 §7), never an inherited environment.
   for (const key of ['EXACT_AGENT_PROCESS', 'EXACT_AGENT_LOGIN_ENV', 'EXACT_AGENT_HOME']) delete process.env[key];
-  for (let i = 0; i < argv.length; i++) {
+  // A flag's value, refused by the flag's name when it is absent or another flag: the reader of an absent value takes
+  // the default, so `--url` last drove this checkout's build and `--app` last the default app.
+  let i;
+  const value = () => {
+    if (missingValue(argv[i + 1])) throw new Error(`${argv[i]} needs a value`);
+    return argv[++i];
+  };
+  for (i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
-    else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
-    else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
+    else if (argv[i] === '--world') flags.world = resolve(value());
+    else if (argv[i] === '--plan') flags.plan = resolve(value());
     else if (argv[i] === '--backend') { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin'); process.env.EXACT_BACKEND_ORIGIN = value; }
-    else if (argv[i] === '--app') flags.app = argv[++i];
-    else if (argv[i] === '--browser') flags.browser = argv[++i];
+    else if (argv[i] === '--app') flags.app = value();
+    else if (argv[i] === '--browser') flags.browser = value();
     else if (argv[i] === '--size') {
       const size = argv[++i] ?? '';
       if (!/^\d+(?:\.\d+)?x\d+(?:\.\d+)?$/.test(size) || !size.split('x').every(v => Number(v) > 0 && Number.isFinite(Number(v)))) throw new Error('--size: expected positive <w>x<h>; large|xxxl needs widget <entry>');
@@ -511,44 +519,44 @@ export function parseFlags(argv) {
     }
     // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
     else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
-    else if (argv[i] === '--test') flags.test = argv[++i];
-    else if (argv[i] === '--session') flags.session = argv[++i];
-    else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
-    else if (argv[i] === '--url') flags.url = argv[++i];
+    else if (argv[i] === '--test') flags.test = value();
+    else if (argv[i] === '--session') flags.session = value();
+    else if (argv[i] === '--open') (flags.open ??= []).push(resolve(value()));
+    else if (argv[i] === '--url') flags.url = value();
     else if (argv[i] === '--device') flags.device = true;
     // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
     // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
     else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     // `--headless`: the Linux host under adb shell, which an `exact new` app's `agent android` asks for with it (app-cli.mjs).
     else if (argv[i] === '--headless') { flags.reader = false; delete process.env.EXACT_ANDROID_READER; }
-    else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
-    else if (argv[i] === '--locale') flags.locale = argv[++i];
-    else if (argv[i] === '--format-locale') flags.formatLocale = argv[++i];
-    else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
-    else if (argv[i] === '--epoch') flags.epoch = argv[++i];
-    else if (argv[i] === '--timing') flags.timing = argv[++i];
-    else if (argv[i] === '--touch') flags.touch = argv[++i];
-    else if (argv[i] === '--chrome') flags.chrome = argv[++i];
-    else if (argv[i] === '--phone') flags.phone = argv[++i];
-    else if (argv[i] === '--sim') flags.sim = argv[++i];
-    else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--seed') flags.seed = Number(value());
+    else if (argv[i] === '--locale') flags.locale = value();
+    else if (argv[i] === '--format-locale') flags.formatLocale = value();
+    else if (argv[i] === '--time-zone') flags.timeZone = value();
+    else if (argv[i] === '--epoch') flags.epoch = value();
+    else if (argv[i] === '--timing') flags.timing = value();
+    else if (argv[i] === '--touch') flags.touch = value();
+    else if (argv[i] === '--chrome') flags.chrome = value();
+    else if (argv[i] === '--phone') flags.phone = value();
+    else if (argv[i] === '--sim') flags.sim = value();
+    else if (argv[i] === '--storage') flags.storage = value();
     else if (argv[i] === '--keep-storage') flags.keepStorage = true;
     else if (argv[i] === '--reset-storage') flags.resetStorage = true;
-    else if (argv[i] === '--port') flags.port = argv[++i];
+    else if (argv[i] === '--port') flags.port = value();
     // `trace --pid <pid>` asks a running development app for its trace; `trace --out <file>` writes it with its map joined (LLP 1142 D2, D5).
-    else if (argv[i] === '--pid') flags.pid = argv[++i];
-    else if (argv[i] === '--out') flags.out = resolve(argv[++i]);
+    else if (argv[i] === '--pid') flags.pid = value();
+    else if (argv[i] === '--out') flags.out = resolve(value());
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
-    else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
+    else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, value()].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
-    else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    else if (argv[i] === '--permission') { const [name, state] = value().split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
     // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
     // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
-    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
+    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: value() });
     // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
-    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
+    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: value() });
     // A cold tool call (LLP 1133.023 §10): `--call '<tool> <json>'`, delivered once the data module is ready, as a system's call that started the app.
-    else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: argv[++i] });
+    else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: value() });
     // A launch the login item made (LLP 1133.025 D2, D6): `--login`, or `--login hidden` for one registered to open with
     // no window. The runner answers `launchedAtLogin`; the macOS host leaves the window unshown for a hidden one.
     else if (argv[i] === '--login') {
@@ -556,7 +564,7 @@ export function parseFlags(argv) {
       (flags.launchEntries ??= []).push({ launch: 'login', entry: flags.login });
     }
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
-    else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
+    else if (argv[i] === '--bind') flags.bind = [flags.bind, value()].filter(Boolean).join(',');
     // What a child process is under the agent (LLP 1133.007 §7), said to a native host in the variables its executor reads:
     // `--process <target>=<file>|script:<file.json>|real` (`all=real` every target), `--login-env NAME=value`, `--home <dir>`.
     else if (argv[i] === '--process' || argv[i] === '--login-env') {
@@ -566,7 +574,7 @@ export function parseFlags(argv) {
       const line = argv[i - 1] === '--process' && spec !== 'real' ? `${name}=${spec.startsWith('script:') ? 'script:' : ''}${resolve(file)}` : `${name}=${spec}`;
       process.env[key] = [process.env[key], line].filter(Boolean).join('\n');
     }
-    else if (argv[i] === '--home') process.env.EXACT_AGENT_HOME = resolve(argv[++i] ?? '.');
+    else if (argv[i] === '--home') process.env.EXACT_AGENT_HOME = resolve(value());
     else rest.push(argv[i]);
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
