@@ -1,6 +1,7 @@
 # UIKit hits children inside an overflow box's border
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A box whose overflow is not visible lets a touch reach its children only inside its padding edge, rounded by its inner border radii (`reachesChildren(at:)`); on its border the box itself is the target.
 **Systems:** host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
