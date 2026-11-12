@@ -1102,8 +1102,8 @@ globalThis.exact = { answer: (form, name) => { try { forms[form](name); return '
 test('module-glue prepare accepts normalized formatting and exact-only grants', async () => {
   const set = createGrantSet(structuredClone(normalized('net.fetch https://api.example\nauth.session https://login.example')));
   const formatted = ' net.fetch https://api.example\n\n  auth.session https://login.example  ';
-  const win = { Error, Promise, structuredClone, crypto: { subtle: {} }, indexedDB: null, addEventListener() {},
-    exact: { abi: 1, appId: 'test.module', grants: formatted, answer() {} }, __exact_install_storage() {},
+  const win = { Error, SyntaxError, Function, Promise, structuredClone, crypto: { subtle: {} }, indexedDB: null, addEventListener() {},
+    exact: { abi: 1, appId: 'test.module', grants: formatted, answer() {} }, __exact_install_storage() {}, __exact_has_overlay: () => '0',
     document: { createElement: () => ({}), head: { append() {} } } };
   const frame = { hidden: false, contentWindow: win, setAttribute() {}, remove() {} };
   const descriptors = Object.fromEntries(['fetch', 'document', 'location'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
