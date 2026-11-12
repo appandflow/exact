@@ -149,6 +149,25 @@ fn the_timing_function_applies_per_keyframe_interval() {
     close(at(&a, 1.5, Property::Opacity), 0.5);
 }
 
+/// Two blocks at 100%, as Chrome samples them: the last holds after the end,
+/// and a block naming the animation's own timing function is one keyframe
+/// with a block naming none, the later value winning.
+#[test]
+fn repeated_keyframes_at_one_offset_end_on_the_last() {
+    let k = |easing: &str| {
+        format!(
+            "from{{opacity:0}}to{{opacity:0.2;animation-timing-function:{easing}}}to{{opacity:0.9}}"
+        )
+    };
+    let apart = anim("a 1s linear forwards", &k("ease-in"));
+    close(at(&apart, 0.5, Property::Opacity), 0.1);
+    close(at(&apart, 1.0, Property::Opacity), 0.9);
+    close(at(&apart, 2.0, Property::Opacity), 0.9);
+    let merged = anim("a 1s linear forwards", &k("linear"));
+    close(at(&merged, 0.5, Property::Opacity), 0.45);
+    close(at(&merged, 1.0, Property::Opacity), 0.9);
+}
+
 #[test]
 fn zero_duration_jumps_to_the_end_with_forwards_fill() {
     let k = "from{opacity:0}to{opacity:1}";

@@ -1,6 +1,7 @@
 # After its end, an animation with two keyframe blocks at 100% shows the first block's value
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A property's track gives a keyframe without a timing function the animation's and merges keyframes at one offset whose timing functions then match, the later value winning, and at a progress of 1 the sampler presents the last keyframe at offset 1, as Chrome does.
 **Systems:** motion/src/animation.rs, motion/src/animation/parse.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
