@@ -162,6 +162,7 @@ mod photos;
 mod picker;
 mod picture_in_picture;
 mod placeholder;
+mod plan_surface;
 mod pointer;
 mod popover_surface;
 mod post_message;

@@ -1,4 +1,4 @@
-import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, onKeyboard, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, releaseAssets, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
+import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, onKeyboard, preferences, updateCode, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, releaseAssets, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
 import { send, applyBatch } from "./wasm/commit.js";
 import { positionContexts, contextPanel } from "./wasm/context.js";
 import { syncViewportFit } from "./wasm/views.js";
@@ -474,6 +474,7 @@ export const pageGeometry = () => {
 const resizeRunner = () => {
   if (host.wasm && host.incarnation && innerWidth > 0 && innerHeight > 0) {
     const told = host.wasm.exact_set_viewport_geometry && document.body ? writeIn(pageGeometry()) : 0;
+    host.wasm.exact_set_update?.(updateCode());
     const batch = JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)));
     // Only a size the runner took is told: a refused one is asked again, never followed by geometry alone.
     if (!batch.error) {

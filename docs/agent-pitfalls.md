@@ -849,6 +849,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Actions
 
+- **A command-line run ends while the data module still works on a thread.**
+  A terminal entry run once from a shell (`--print`, or stdout a pipe) exits
+  when nothing holds it: no request in flight, no one-shot timer armed and no
+  node `aria-busy` (LLP 1101.003 D2). A thread the module started after
+  answering a send is none of these, so the run settles and prints before
+  the work is done. Keep a node `aria-busy` from the send until the thread
+  has finished, as the harness's live column does with `session.busy`
+  (`apps/harness/terminal.contract`). (The harness's `--print`, 2026-11-12.)
+
 - **App resources belong in the root component.** A child can declare a reserved
   viewport reader, but an app source there fails with `type-child-resource`.
   Declare the resource in the root and pass the value the child needs as a prop.

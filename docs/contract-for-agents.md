@@ -4053,8 +4053,10 @@ without a colour hint, and unrecognized terminal types fall back to monochrome.
 This is conservative environment detection, not a terminal capability query.
 Use `--color auto|never|16|256|truecolor` on any terminal app or `exact-terminal`
 to override it (`always` means `truecolor`; `--color=never` also works).
-An explicit choice overrides `NO_COLOR`. Plain `print`/`document` output is
-always text; the selected palette also applies to `.ans` screenshots. A Rust
+An explicit choice overrides `NO_COLOR`. The `--drive` verbs `print` and
+`document` always write text; the selected palette also applies to `.ans`
+screenshots. Run once from a shell (`--print`), `auto` writes SGR only to a
+terminal, and `never` writes plain text, a picture as its alt text. A Rust
 embedder may call `Host::set_colors(ColorDepth::Monochrome)` before starting
 the loop or emulator; direct painting and `Vt` otherwise default to RGB for
 deterministic tests.

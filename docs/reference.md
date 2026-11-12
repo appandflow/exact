@@ -285,7 +285,26 @@ and `target/host-dev/llp [corpus-or-document]` (full screen). Both embed their
 terminal entry as a compiled plan. Rebuild after editing the entry or an
 import; launching the binary needs no Contract source or compiler work.
 `exact-terminal <entry.contract>` remains the source-driven development
-host. All three accept the headless operations and `--size COLSxROWS`.
+host. All three take the same command line (LLP 1101.003; `--help` lists it):
+
+- The words are the launch location: a `/…` word is the location itself,
+  any other word one path segment, and `--name value` the query parameter
+  `name=value` (`todo /active`, `harness --prompt "why?"`).
+- With `--print`, `--json`, or a pipe on stdin or stdout, the entry runs
+  once: it lays out at `--columns` (else the terminal's width, `$COLUMNS`,
+  80), runs until no request is pending, no `after` timer is armed and no
+  node is `aria-busy`, writes its rows (`--json`: its settled `state`, with
+  `navigation` and `exit`) and exits. `exactViewport().update` is `"none"`.
+  The exit status is 1 when the active `head`'s `status` is 404, 410 or
+  503 or the runner refused something, 2 for a usage error, 124 after
+  `--timeout` (120 s by default; `0` for none), 130 or 143 on SIGINT or
+  SIGTERM, 141 when stdout closes; at exit every `beforeunload` hears it.
+  `--color=auto` writes SGR to a terminal and plain text elsewhere;
+  `always` and `never` force it.
+- After `--drive`, the headless operations, at `--size COLSxROWS`.
+- Otherwise the app runs in this terminal, at the location.
+
+Only a terminal entry's plan runs here, and a GUI host refuses one.
 Interactive terminal I/O runs on Unix only; Windows supports headless operations.
 
 An interactive launch draws a fresh 32-bit seed for `exactTime()`. Its `locale`

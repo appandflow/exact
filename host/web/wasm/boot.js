@@ -1,6 +1,6 @@
 import { host, loadAfterPaint, localAssetURL, agentMode, now, collections, followOffset, readOut, root, log, pageNative, loadPageNative, pieces, mutate, REPLACE_SETTLE_MS, SETTLE_DEADLINE_MS, waiting, encoder, writeIn, loadStage, focus, ask, presence, arrange, motion, views, retiredViews, followedScrolls, followScroll, pendingScrolls, lists, messageFrames, messageViews, controllers, forgettable, inflight, heldAsks, pageFacts, loadGpuIfNeeded, moduleCall, rustImports, dataImports, t0, agentKeepsStore, decoder, assetNamespace, documentsGlue, AGENT_ADMITTED, httpHelpers } from "../glue.js";
 import { send, applyBatch } from "./commit.js";
-import { navigation, launchLocation, reportTime, reportPlace, preferences, foldBits, appRootFontSize, releaseAssets, afterPaint, grantOrigins, modalLayers, inertAncestor, editMenu } from "../navigation.js";
+import { navigation, launchLocation, reportTime, reportPlace, preferences, updateCode, foldBits, appRootFontSize, releaseAssets, afterPaint, grantOrigins, modalLayers, inertAncestor, editMenu } from "../navigation.js";
 import { setInputReady } from "./input.js";
 import { waitForInflight } from "./agent.js";
 import { forgetList } from "./views.js";
@@ -204,6 +204,7 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
     const payload = new Uint8Array(host.memory.buffer, ptr, bytes.length + launch.length);
     payload.set(bytes);
     payload.set(launch, bytes.length);
+    host.wasm.exact_set_update?.(updateCode());
     len = host.wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
   } else {
     if (host.page?.checkpoint) {
@@ -212,6 +213,7 @@ async function bootNow(bytes, assets = host.devAssets, current = () => true, mod
     ptr = host.wasm.exact_in(launch.length);
     // a drive's clock starts at zero (page.rs)
     new Uint8Array(host.memory.buffer, ptr, launch.length).set(launch);
+    host.wasm.exact_set_update?.(updateCode());
     len = host.wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));
