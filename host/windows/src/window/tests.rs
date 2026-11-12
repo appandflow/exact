@@ -449,3 +449,71 @@ fn a_hidden_window_reaches_first_pixel_without_a_present() {
     p.first_pixel_unshown();
     assert!(p.first_pixel_told());
 }
+
+/// A close in the same message batch as a keystroke in Windows' editor
+/// (EXACT_INK_RICHEDIT=1): the edit is still the editor's when the close
+/// arrives, and `beforeunload` must see it, or an app asks nothing and the
+/// edit is lost.
+#[test]
+#[ignore = "native Windows desktop, EXACT_INK_DEVICE=d3d11, isolated process"]
+#[allow(deprecated)]
+fn beforeunload_sees_an_edit_the_native_editor_still_holds() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MSG, WM_CHAR, WM_LBUTTONDOWN};
+    std::env::set_var("EXACT_INK_RICHEDIT", "1");
+    let events = EventLoop::<crate::accessibility::Event>::with_user_event()
+        .with_any_thread(true)
+        .build()
+        .unwrap();
+    let window = Rc::new(
+        events
+            .create_window(
+                Window::default_attributes()
+                    .with_title("Unload regression")
+                    .with_no_redirection_bitmap(true)
+                    .with_inner_size(LogicalSize::new(160., 80.)),
+            )
+            .unwrap(),
+    );
+    let owned = exact_ink::device::d3d11::Window::from_owner(window.clone()).unwrap();
+    let plan = contract::compile(
+        "component App\n  state draft = \"saved\"\n  state dirty = false\n  action type(v)\n    draft = v\n    dirty = true\n  action ask\n    if dirty\n      preventDefault()\n  view\n    main beforeunload=ask\n      input testId=\"field\" value=draft input=type width=140 height=40\n",
+    )
+    .unwrap()
+    .encode();
+    let (mut p, warning) = Presenter::boot_with(
+        &plan,
+        (),
+        (160., 80.),
+        1.,
+        Default::default(),
+        exact_linux::presenter::PainterChoice::Ink,
+    )
+    .unwrap();
+    assert!(warning.is_none());
+    assert!(p.attach_painter_window(owned.clone(), [160, 80]).unwrap());
+    let limit = Instant::now() + Duration::from_secs(5);
+    while !(p.last_frame_succeeded() && !p.dirty()) {
+        assert!(
+            Instant::now() < limit,
+            "the field's frame was not presented"
+        );
+        let _ = p.window_frame(owned.clone()).unwrap();
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    let hook = exact_ink::device::d3d11::fields::message_hook();
+    for (kind, wparam, lparam) in [
+        (WM_LBUTTONDOWN, 1, (10 << 16) | 10),
+        (WM_CHAR, 'x' as usize, 1),
+    ] {
+        let message = MSG {
+            hwnd: owned.hwnd() as _,
+            message: kind,
+            wParam: wparam,
+            lParam: lparam,
+            ..Default::default()
+        };
+        hook(&message as *const MSG as *const std::ffi::c_void);
+    }
+    // No turn ran between the keystroke and the close.
+    assert!(!p.before_unload(p.host().now()), "the handler saw the edit");
+}

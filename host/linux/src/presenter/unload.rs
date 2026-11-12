@@ -11,6 +11,10 @@ impl<D: DataSource> Presenter<D> {
     /// Ask `beforeunload`, in view order: `false` when a handler called
     /// `preventDefault()` and the window stays.
     pub fn before_unload(&mut self, now: f64) -> bool {
+        // An edit Windows' editor holds, from the same message batch as the
+        // close, is the document's before the app is asked about it.
+        #[cfg(windows)]
+        self.windows_field_edits(now);
         let listeners: Vec<ViewId> = (self.host.runner().handlers().into_iter())
             .filter(|(_, kinds)| kinds.contains(&EventKind::Beforeunload))
             .map(|(view, _)| view)
