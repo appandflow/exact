@@ -702,9 +702,16 @@ draw alike. Material UV transforms apply separately to every texture.
 Contract's opt-in `exactCanvasPerformance("surface")` read receives a bounded
 snapshot at most once per second. The renderer reports the last submitted frame's
 actual pixels, render scale, effective pixel ratio, MSAA and submitted work counts.
-Frame counts, late/missed frames, longest gap and CPU tick/feed/encode means and
-maxima cover the window since the previous snapshot. Enabling, restarting the scene
+Frame counts and CPU tick/feed/encode means and maxima cover the window since the
+previous snapshot. Late/missed frames and the longest gap describe inter-frame
+intervals completed in that window; an interval may start before its snapshot window.
+An idle poll has no completed interval to report. Enabling, restarting the scene
 or restoring a save starts a fresh window; disabling drops these counters.
+`windowMs` measures monotonic time since the previous snapshot; `fps` is submitted
+frames per second over that window, not display or compositor FPS. An idle window
+reports zero. The first snapshot, virtual-clock snapshots and the first after a
+clock-mode change leave these fields unavailable. A clock-mode change discards the
+open measurement window. Delayed snapshots use their actual elapsed time.
 The cadence comparison honors the canvas frame cap and excludes virtual time and
 the first frame after rest. CPU encoding is distinct from queue submission and GPU
 execution; unsupported timing, memory and audio

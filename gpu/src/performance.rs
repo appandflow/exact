@@ -40,7 +40,7 @@ impl Module {
         reporting.last_ms = Some(now_ms);
         instance
             .surface
-            .take_performance()
+            .take_performance(now_ms)
             .filter(|record| record.len() <= MAX_BYTES)
     }
 }
@@ -70,9 +70,9 @@ mod tests {
         fn set_performance_reporting(&mut self, enabled: bool) {
             self.0.lock().unwrap().0.push(enabled);
         }
-        fn take_performance(&mut self) -> Option<String> {
+        fn take_performance(&mut self, now_ms: f64) -> Option<String> {
             self.0.lock().unwrap().1 += 1;
-            Some("{\"frames\":1}".into())
+            Some(format!("{{\"clock\":{now_ms}}}"))
         }
     }
 
@@ -89,11 +89,17 @@ mod tests {
         assert_eq!(*calls.lock().unwrap(), (vec![], 0));
         assert!(module.set_performance_reporting(id, true));
         assert!(module.set_performance_reporting(id, true));
-        assert!(module.take_performance(id, 0.0).is_some());
+        assert_eq!(
+            module.take_performance(id, 0.0).as_deref(),
+            Some("{\"clock\":0}")
+        );
         for now in [0.0, 999.9, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(module.take_performance(id, now), None);
         }
-        assert!(module.take_performance(id, 1000.0).is_some());
+        assert_eq!(
+            module.take_performance(id, 1000.0).as_deref(),
+            Some("{\"clock\":1000}")
+        );
         assert!(module.set_performance_reporting(id, false));
         assert_eq!(module.take_performance(id, 2000.0), None);
         assert_eq!(*calls.lock().unwrap(), (vec![true, false], 2));

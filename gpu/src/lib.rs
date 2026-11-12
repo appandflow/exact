@@ -370,7 +370,8 @@ pub trait Surface {
     fn set_performance_reporting(&mut self, _enabled: bool) {}
     /// The latest performance snapshot as a JSON object. Omit unavailable metrics.
     /// Called only while enabled and no more than once per second.
-    fn take_performance(&mut self) -> Option<String> {
+    /// `now_ms` is the host's monotonic clock, including polls while rendering is idle.
+    fn take_performance(&mut self, _now_ms: f64) -> Option<String> {
         None
     }
     /// An agent request and reply as JSON objects; the host adds clock and size (S3).

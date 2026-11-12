@@ -4,23 +4,40 @@ use exact_gpu::{Frame, FrameTiming};
 use std::fmt::Write;
 
 #[derive(Default)]
-pub(crate) struct Report {
-    pub phases: [Ring; 3],
-    frames: u64,
-    late: u64,
-    missed: u64,
-    gap: f64,
-    has_period: bool,
+struct Metrics {
     pixels: (u32, u32),
     scale: f32,
     ratio: f32,
     samples: u32,
     stats: Stats,
-    pending: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct Report {
+    pub phases: [Ring; 3],
+    frames: u64,
+    last_snapshot_ms: Option<f64>,
+    live: Option<bool>,
+    late: u64,
+    missed: u64,
+    gap: f64,
+    has_period: bool,
+    metrics: Metrics,
+    pending: Option<Metrics>,
     pending_gap: Option<(f64, f64)>,
-    ready: bool,
+    rendered: bool,
 }
 impl Report {
+    pub fn clock(&mut self, seekable: bool) {
+        let live = !seekable;
+        if self.live.is_some_and(|previous| previous != live) {
+            self.last_snapshot_ms = None;
+            self.clear_window();
+            self.pending = None;
+            self.pending_gap = None;
+        }
+        self.live = Some(live);
+    }
     pub fn encoded(
         &mut self,
         frame: &Frame,
@@ -30,12 +47,13 @@ impl Report {
         stats: Stats,
         cap: u32,
     ) {
-        self.pixels = frame.pixels();
-        self.scale = scale;
-        self.ratio = frame.scale;
-        self.samples = samples;
-        self.stats = stats;
-        self.pending = true;
+        self.pending = Some(Metrics {
+            pixels: frame.pixels(),
+            scale,
+            ratio: frame.scale,
+            samples,
+            stats,
+        });
         let period = timing.display_period_ms;
         let expected = if cap > 0 {
             // The module honors caps down to 5 Hz (exact_gpu::Module::max_fps).
@@ -43,41 +61,61 @@ impl Report {
         } else {
             period
         };
-        self.pending_gap = (!frame.seekable && expected.is_finite() && expected > 0.)
-            .then_some((timing.interval_ms, expected));
+        self.pending_gap =
+            (!frame.seekable && timing.interval_ms.is_finite() && timing.interval_ms > 0.)
+                .then_some((timing.interval_ms, expected));
     }
 
     pub fn submitted(&mut self) {
-        if std::mem::take(&mut self.pending) {
+        if let Some(metrics) = self.pending.take() {
+            self.metrics = metrics;
             self.frames += 1;
-            self.ready = true;
+            self.rendered = true;
             if let Some((gap, expected)) = self.pending_gap.take() {
-                if gap.is_finite() && gap > 0. {
+                self.gap = self.gap.max(gap);
+                if expected.is_finite() && expected > 0. {
                     self.has_period = true;
-                    self.gap = self.gap.max(gap);
                     self.late += u64::from(gap > expected * 1.5);
                     self.missed += ((gap / expected).round() as u64).saturating_sub(1);
                 }
             }
         }
     }
-    pub fn take(&mut self) -> Option<String> {
-        if !self.ready {
+    pub fn take(&mut self, now_ms: f64) -> Option<String> {
+        if !self.rendered {
             return None;
         }
-        self.ready = false;
+        let window_ms = self
+            .last_snapshot_ms
+            .filter(|_| self.live == Some(true))
+            .map(|last| now_ms - last)
+            .filter(|ms| ms.is_finite() && *ms > 0.);
+        self.last_snapshot_ms = now_ms.is_finite().then_some(now_ms);
+        let m = &self.metrics;
         let mut out = format!("{{\"pixelWidth\":{},\"pixelHeight\":{},\"renderScale\":{},\"effectivePixelRatio\":{},\"devicePixelRatio\":{},\"samples\":{},\"draws\":{},\"triangles\":{},\"instances\":{},\"frames\":{}",
-            self.pixels.0, self.pixels.1, self.scale, self.ratio, self.ratio / self.scale,
-            self.samples, self.stats.draws, self.stats.triangles, self.stats.instances, self.frames);
+            m.pixels.0, m.pixels.1, m.scale, m.ratio, m.ratio / m.scale,
+            m.samples, m.stats.draws, m.stats.triangles, m.stats.instances, self.frames);
         if self.has_period {
             write!(
                 out,
-                ",\"lateFrames\":{},\"missedFrames\":{},\"longestGapMs\":{}",
-                self.late, self.missed, self.gap
+                ",\"lateFrames\":{},\"missedFrames\":{}",
+                self.late, self.missed
             )
             .unwrap();
         }
-        for (name, ring) in ["Tick", "Feed", "Encode"].into_iter().zip(&mut self.phases) {
+        if self.gap > 0. {
+            write!(out, ",\"longestGapMs\":{}", self.gap).unwrap();
+        }
+        if let Some(window_ms) = window_ms {
+            write!(
+                out,
+                ",\"windowMs\":{},\"fps\":{}",
+                window_ms,
+                self.frames as f64 * 1000. / window_ms
+            )
+            .unwrap();
+        }
+        for (name, ring) in ["Tick", "Feed", "Encode"].into_iter().zip(&self.phases) {
             if ring.count > 0 {
                 write!(
                     out,
@@ -87,15 +125,19 @@ impl Report {
                 )
                 .unwrap();
             }
-            *ring = Ring::default();
         }
         out.push('}');
+        self.clear_window();
+        Some(out)
+    }
+
+    fn clear_window(&mut self) {
         self.frames = 0;
         self.late = 0;
         self.missed = 0;
         self.gap = 0.;
         self.has_period = false;
-        Some(out)
+        self.phases = Default::default();
     }
 }
 
@@ -105,6 +147,7 @@ mod tests {
     #[test]
     fn snapshots_count_submitted_frames_honor_caps_and_reset_the_window() {
         let mut report = Report::default();
+        report.clock(false);
         let frame = Frame {
             width: 100.,
             height: 50.,
@@ -122,13 +165,33 @@ mod tests {
             ..Default::default()
         };
         report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 30);
+        assert!(report.take(0.).is_none(), "encoding is not submission");
         report.submitted();
-        let value: serde_json::Value = serde_json::from_str(&report.take().unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&report.take(0.).unwrap()).unwrap();
         assert!(
             value.get("longestGapMs").is_none(),
             "first-after-rest has no interval"
         );
         assert!(value.get("lateFrames").is_none());
+        assert!(value.get("fps").is_none());
+        assert!(value.get("windowMs").is_none());
+        report.encoded(
+            &Frame {
+                width: 200.,
+                ..frame
+            },
+            &timing,
+            0.75,
+            4,
+            Stats::default(),
+            30,
+        );
+        let value: serde_json::Value = serde_json::from_str(&report.take(0.).unwrap()).unwrap();
+        assert_eq!(
+            value["pixelWidth"], 150,
+            "an encoded frame is not submitted yet"
+        );
+        assert_eq!(value["frames"], 0);
         timing.interval_ms = 1000. / 30.;
         report.encoded(
             &frame,
@@ -141,30 +204,95 @@ mod tests {
             },
             30,
         );
-        assert!(report.take().is_none(), "encoding is not submission");
         report.phases[0].push(2.);
         report.phases[0].push(4.);
         report.submitted();
-        let value: serde_json::Value = serde_json::from_str(&report.take().unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&report.take(1000. / 30.).unwrap()).unwrap();
         assert_eq!(value["pixelWidth"], 150);
         assert_eq!(value["devicePixelRatio"], 2.);
         assert_eq!(value["lateFrames"], 0);
         assert_eq!(value["missedFrames"], 0);
+        assert!((value["fps"].as_f64().unwrap() - 30.).abs() < 1e-9);
+        assert!((value["windowMs"].as_f64().unwrap() - 1000. / 30.).abs() < 1e-9);
         assert_eq!(value["cpuTickMs"], 3.);
         assert_eq!(value["cpuTickMaxMs"], 4.);
         assert!(value.get("gpuMs").is_none());
         timing.interval_ms *= 2.;
         report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 30);
         report.submitted();
-        let value: serde_json::Value = serde_json::from_str(&report.take().unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&report.take(100.).unwrap()).unwrap();
         assert_eq!(value["frames"], 1);
         assert_eq!(value["lateFrames"], 1);
         assert_eq!(value["missedFrames"], 1);
+        assert!((value["fps"].as_f64().unwrap() - 15.).abs() < 1e-9);
         assert!(value.get("cpuTickMs").is_none());
         timing.interval_ms = 400.;
         report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 1);
         report.submitted();
-        let value: serde_json::Value = serde_json::from_str(&report.take().unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&report.take(500.).unwrap()).unwrap();
         assert_eq!(value["missedFrames"], 1, "caps below 5 Hz draw at 5 Hz");
+        timing.display_period_ms = 0.;
+        timing.interval_ms = 20.;
+        report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 0);
+        report.submitted();
+        let value: serde_json::Value = serde_json::from_str(&report.take(520.).unwrap()).unwrap();
+        assert_eq!(value["fps"], 50.);
+        assert_eq!(value["longestGapMs"], 20.);
+        assert!(value.get("lateFrames").is_none(), "unknown target cadence");
+        let value: serde_json::Value = serde_json::from_str(&report.take(1520.).unwrap()).unwrap();
+        assert_eq!(value["frames"], 0);
+        assert_eq!(value["fps"], 0.);
+        assert_eq!(value["windowMs"], 1000.);
+        report.encoded(
+            &Frame {
+                seekable: true,
+                ..frame
+            },
+            &timing,
+            0.75,
+            4,
+            Stats::default(),
+            0,
+        );
+        let value: serde_json::Value = serde_json::from_str(&report.take(2520.).unwrap()).unwrap();
+        assert_eq!(
+            value["fps"], 0.,
+            "unsubmitted encode cannot switch clock mode"
+        );
+        report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 0);
+        report.submitted();
+        report.phases[0].push(2.);
+        report.clock(true);
+        let value: serde_json::Value = serde_json::from_str(&report.take(3520.).unwrap()).unwrap();
+        assert!(
+            value.get("fps").is_none(),
+            "virtual time has no measured FPS"
+        );
+        assert_eq!(
+            value["frames"], 0,
+            "mode change drops the unfinished window"
+        );
+        assert!(value.get("longestGapMs").is_none());
+        assert!(value.get("cpuTickMs").is_none());
+        report.clock(false);
+        let value: serde_json::Value = serde_json::from_str(&report.take(4520.).unwrap()).unwrap();
+        assert!(
+            value.get("fps").is_none(),
+            "mode change invalidates the window"
+        );
+        let value: serde_json::Value = serde_json::from_str(&report.take(5520.).unwrap()).unwrap();
+        assert_eq!(value["fps"], 0.);
+        timing.display_period_ms = 20.;
+        timing.interval_ms = 3000.;
+        report.encoded(&frame, &timing, 0.75, 4, Stats::default(), 0);
+        report.submitted();
+        let value: serde_json::Value = serde_json::from_str(&report.take(5540.).unwrap()).unwrap();
+        assert_eq!(value["windowMs"], 20.);
+        assert_eq!(
+            value["longestGapMs"], 3000.,
+            "completed intervals may span snapshots"
+        );
+        assert_eq!(value["missedFrames"], 149);
     }
 }

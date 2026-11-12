@@ -330,6 +330,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     }
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
+        if let Some(report) = &mut self.perf.reporting {
+            report.clock(seekable);
+        }
         self.resting = false;
         self.idle_tick = None;
         self.presentation.clock(seekable);
@@ -628,13 +631,18 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     }
     fn set_performance_reporting(&mut self, enabled: bool) {
         if enabled {
-            self.perf.reporting.get_or_insert_with(Default::default);
+            self.perf
+                .reporting
+                .get_or_insert_with(Default::default)
+                .clock(self.seekable);
         } else {
             self.perf.reporting = None;
         }
     }
-    fn take_performance(&mut self) -> Option<String> {
-        self.perf.reporting.as_mut()?.take()
+    fn take_performance(&mut self, now_ms: f64) -> Option<String> {
+        let report = self.perf.reporting.as_mut()?;
+        report.clock(self.seekable);
+        report.take(now_ms)
     }
     fn published(&mut self) -> Option<String> {
         self.sim.as_mut().and_then(Sim::take_published)
