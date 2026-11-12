@@ -1,6 +1,7 @@
 # `host/apple/touch.mjs` is dead: nothing runs it, its simulator path throws and its presenter mode cannot build
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `host/apple/touch.mjs` and `host/apple/ios/touch.swift` are deleted; LLP 1012 keeps what the reduction found and `scripts/smoke-touch.mjs` drives real touches.
 **Systems:** host/apple/touch.mjs, host/apple/ios/touch.swift, host/apple/build.mjs (`install`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
