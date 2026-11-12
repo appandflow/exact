@@ -2197,7 +2197,7 @@ client, against the Mac's 800×768 content area. Rust is **1.97.0**, Bun
 **1.4.2**; the native build uses SDK **10.0.26100.0**'s x64 `fxc`.
 The measured executables use source `f3bd9710aa`, based on `origin/main`
 `48653eb5cb`, which includes the requested `be5413a907`. The clean NucBox mirror at
-`C:\Users\Charlie Cheever\projects\exact2` advanced through local Git
+`C:\Users\<user>\projects\exact2` advanced through local Git
 bundles on `lane/g6-windows`; no branch was pushed. The spaced startup
 driver is `336fa9e44b`; the executables are unchanged.
 
@@ -7462,7 +7462,7 @@ The original and updated default summaries agree on all 30 startup samples;
 the local 120 Hz summary equals the NucBox summary.
 
 The own mirror is
-`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120`.
+`C:\Users\<user>\projects\exact2-1149-001-win120`.
 Its `target/g7/` retains the exact build scripts, logs, binary hashes,
 mode enumerations, driver snapshots, three diagnostic captures and CSVs,
 startup JSON/quiet logs, native test outputs, DPI captures and UIA tree.
@@ -11842,7 +11842,7 @@ with G6's 25 ms.
 ### G7b reproduction and verification
 
 All originals remain at `target/g7b/` in this worktree and
-`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120b\target\g7b\`
+`C:\Users\<user>\projects\exact2-1149-001-win120b\target\g7b\`
 on the NucBox. The local `nucbox/` tree mirrors the observations: both
 60-launch cold cohorts, all 20 first-paint processes, both failed foreground
 attempts and all six capture-repair diagnostics. No earlier retained files
@@ -12120,7 +12120,7 @@ raw Unix/QPC times, rather than repeated local 01:xx labels, establish order.
 ### G7c reproduction and verification
 
 Retained evidence is under `target/g7c/` in this worktree and
-`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120b\target\g7c\`
+`C:\Users\<user>\projects\exact2-1149-001-win120b\target\g7c\`
 on the NucBox. No G7b raw files or binaries are removed. The local `nucbox/`
 tree mirrors the cold and visible cohorts, including excluded attempts,
 application and PresentMon logs, PID logs, CPU endpoints, wheel posts,
