@@ -2832,14 +2832,58 @@ for why.
 ### Pick a file of any type
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
-`multiple` allows more than one. `showPicker(id)` opens it, and `change`
-receives `Picked[]` with each file's name, type, size and
+`multiple` allows more than one. Tap a visible input or call `showPicker(id)`
+from an action to open it. `change` receives `Picked[]` with each file's name, type, size and
 `app:/tmp/picked/` path. The copy at `path` is named `<id>.<ext>`, `<id>` from the
 launch and a counter, never after the file: show or upload it under `name`. A
 specific `accept` list is limited to media types and types in the app's
 `file_handlers`. The live Linux picker is unavailable;
 its agent substitute accepts any file. Image pixel and Canvas readback remain
 deferred.
+
+For a PDF picker, declare the type in `app.json`:
+
+```json
+"file_handlers": [{ "action": "/", "accept": { "application/pdf": [".pdf"] } }]
+```
+
+In `app.contract`, receive the selected file's display name and app path.
+Cancelling keeps the previous choice:
+
+```contract
+component PdfPicker
+  state name = "No PDF selected"
+  state path = ""
+  state cancels = 0
+  action picked(files: Picked[])
+    name = match files.at(0) { case some(f) => f.name, case none => name }
+    path = match files.at(0) { case some(f) => f.path, case none => path }
+  action cancelled
+    cancels = cancels + 1
+  view
+    column
+      input type="file" id="pdf" testId="pdf" accept="application/pdf" change=picked cancel=cancelled aria-label="Choose a PDF"
+      text name testId="filename"
+```
+
+Put a PDF at `fixtures/report.pdf` beside `app.test.contract`, then run
+`bun exact.mjs test web`. The test's `pick` answers the picker that `tap`
+opened; paths are relative to the test file:
+
+```contract
+test "choose a PDF and cancel the next picker" on web
+  tap "pdf"
+  pick "pdf" "fixtures/report.pdf"
+  expect text "filename" == "report.pdf"
+  tap "pdf"
+  pick "pdf" cancel
+  expect state cancels == 1
+  expect text "filename" == "report.pdf"
+```
+
+The picker needs no grant. Reading `path` through `storage.fs.readFile`
+needs `fs.read app:/tmp/picked`. In a drive, `tap pdf` followed by
+`type @pick fixtures/report.pdf` selects a file; `tap @pick cancel` dismisses it.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 

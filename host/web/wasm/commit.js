@@ -611,6 +611,8 @@ function apply(batch) {
               });
               if (r.error) {
                 console.warn("exact:", r.error);
+              } else {
+                globalThis.exact.pickerOpened?.();
               }
             } else if (!el) {
               log(`picker: refused: no file input with id "${op.args?.[0]}"`);

@@ -577,6 +577,7 @@ export async function main() {
         views,
         retiredViews,
         agentMode,
+        pick: el => ask({ op: "showPicker", view: Number(el.dataset.view) }),
         ready: () => host.inputReady,
         inertAncestor,
         editMenu,
