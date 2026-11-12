@@ -40,8 +40,9 @@
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, placeCoreFramework, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
 import { assembleMac, assembleIOS, buildIntents, shortcutKeys } from './bundle.mjs';
+import { extensionKinds, withoutExtensions } from './extensions.mjs';
 import { spawn, spawnSync } from './toolchain.mjs';
-import { metalToolchainInstructions } from './metal.mjs';
+import { metalRequired, metalToolchainInstructions } from './metal.mjs';
 import { metalVersion, svgFilterLibrary, svgFilterLibraryName } from './svg-filter.mjs';
 export { metalVersion, svgFilterLibrary, svgFilterLibraryName };
 import { distributionToolchain } from './sdk.mjs';
@@ -107,6 +108,10 @@ const refuseMixedTargets = (cmd, args, output) => {
  * `done` waits for it, says what it said, and refuses what runApple refuses.
  * `repeated` is a step the build runs again in the foreground, which then
  * says its own failure. A build that ends early stops it. `authored` restores paths in the log (`snapshotSources`). */
+/** A build service's progress (EXACT_BUILD_STEPS=1): one `exact-step <phase>` line as each phase of an iOS/Mac build
+ * reaches the point where it waits on that phase, which its worker turns into steps; nothing otherwise. Some work
+ * starts earlier, beside the build (the Swift host and the app's modules compile while Cargo runs). */
+const buildStep = (name) => { if (process.env.EXACT_BUILD_STEPS === '1') console.log(`exact-step ${name}`); };
 function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const out = openSync(log, 'w');
   const child = spawn(...appleCargo(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] }));
@@ -583,10 +588,14 @@ async function main(args, lockHeld = false) {
     if (process.env.EXACT_UPDATE_TRUST) console.error(`ignoring EXACT_UPDATE_TRUST=${process.env.EXACT_UPDATE_TRUST}: what is distributed bakes production trust`);
     process.env.EXACT_UPDATE_TRUST = 'production';
   }
-  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
+  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim', '--extensions'].includes(args[i - 1]))), root);
   if (!ios && !args.includes('--watchos') && (args.includes('--painted-benchmark') || app.manifest.host?.macos?.presenter === 'painted')) {
     return (await import('../apple-painted/build.mjs')).buildPainted(app, args, { macInfoPlist });
   }
+  // --extensions: which app extensions this build packages (a build service's quick development build leaves some out).
+  buildStep('prepare');
+  const packaged = extensionKinds(args);
+  if (packaged.size < 4) { app.manifest = withoutExtensions(app.manifest, packaged); console.log(`host/apple: extensions ${[...packaged].join(',') || 'none'} (--extensions)`); }
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
   const { optimize, profile: productionProfile } = appleProduction(app, ios ? 'ios' : 'macos', args);
   // What the manifest and the app's files refuse is said before Cargo: an app with an update store ships into a stream,
@@ -646,7 +655,7 @@ async function main(args, lockHeld = false) {
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
-  const t0 = Date.now();
+  const t0 = Date.now(); buildStep('cargo');
   const target = ios ? (tv ? tvTarget : device ? 'aarch64-apple-ios' : iosTarget) : bakeTarget('macos');
   const library = prepareLibrary(app.dir, target); // a package's prebuilt framework (LLP 1154 D3), fetched and checked before Cargo
   const stampSdk = { sdk: sdkName, sdkVersion: designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : null }; // stampSdk: the SDK the link records
@@ -814,6 +823,7 @@ async function main(args, lockHeld = false) {
   mkdirSync(moduleTarget, { recursive: true });
   startSweep(moduleTarget);
   const metalTools = metalVersion('macosx'), metal = metalTools.status === 0;
+  if (!metal && metalRequired()) throw new Error(`host/apple: no Metal toolchain, and EXACT_APPLE_METAL_REQUIRED=1: the Canvas 2D GPU module needs it. ${metalToolchainInstructions()}`);
   if (!metal) console.warn(`host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. ${metalToolchainInstructions()}`);
   // A development build takes a module some checkout of this machine has
   // already compiled from these bytes, and keeps each one it compiles itself
@@ -925,7 +935,7 @@ async function main(args, lockHeld = false) {
     console.log(`host/apple: ${paths.embed.replace(root + '/', '')} — ${archive} ${(bytes / 1048576).toFixed(2)} MB, include/exact.h${gpu ? `, ${gpu}` : ''}${svgFilterBuilt ? `, ${svgFilterLibraryName} (the bundle's top level)` : ios ? ', no SVG filter kernels (no Metal toolchain)' : ''}, shaders, assets, compat.json; link it with ExactKit${composition === 'updating' ? ' + ExactUpdates' : ''} from the package at ${pkg.replace(root + '/', '')}`);
     if (embedOnly) { if (args.includes('--json')) reportBuilt({ path: paths.embed, ...built() }); return; }
   }
-  const t1 = Date.now();
+  const t1 = Date.now(); buildStep('swift');
   // The host's loaded modules only where the plan can reach them (LLP 1047
   // D1's loaded tier; the bake's `loads`, by the runner's own rule for each):
   // a production binary at store level 0 runs the plan it was baked with and
@@ -969,7 +979,7 @@ async function main(args, lockHeld = false) {
   if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   // A Clip's executable name may also be its parent's or a sample host's.
   const clipBin = simulatorClip ? resolve(mkdtempSync(resolve(binDir, '.clip-')), simulatorClip.executable) : null;
-  const intents = tv ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
+  const intents = tv || !packaged.has('intents') ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
@@ -1231,7 +1241,7 @@ async function main(args, lockHeld = false) {
     }
     if (launchPartsDir) { auditLaunchParts(resolve(swiftBinDir, 'ExactLaunchParts.o'), launchModules(app.dir, app.manifest), read); }
   } finally { releaseSwift(); }
-  const tSwift = Date.now();
+  const tSwift = Date.now(); buildStep('arms');
   for (const placed of arms) await placed();
   if (modules.tags.length) {
     // The manifest's roster stands when no route reads the artifact's; with no artifact, it serves nothing.
@@ -1275,7 +1285,7 @@ async function main(args, lockHeld = false) {
     // A roster read that lacks a tag's factory fails here: another route is not tried.
     checkModuleRoster(app, provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, production);
   }
-  const tArms = Date.now();
+  const tArms = Date.now(); buildStep('modules');
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,
   // which SvgIsland.swift dlopens the first time a mask or filter needs pixel
   // work) and the Canvas 2D GPU module (@ref LLP 1056 §8.5: exact-canvas-vello,
@@ -1289,7 +1299,7 @@ async function main(args, lockHeld = false) {
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
   const canvasGpuBuilt = canvasGpu ? resolve(webBuildDir, canvasGpuLoadName) : null;
   if (canvasGpu) copyFileSync(moduleLib['exact-canvas-vello'], canvasGpuBuilt);
-  const t2 = Date.now();
+  const t2 = Date.now(); buildStep('package');
   // Where the build's time went, said at its end: the app's Rust and bake; the Swift host's link, and what of its compile
   // the bake did not cover; the arms and the app's module artifact; what of the host's two Rust modules those did not
   // cover; and assembling, signing and installing.
@@ -1324,7 +1334,7 @@ async function main(args, lockHeld = false) {
     return;
   }
 
-  const { bundles, frameworkSymbols } = assembleIOS({intents, shared, library, serviceDylibs, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, clipBin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
+  const { bundles, frameworkSymbols } = assembleIOS({intents, shared, library, serviceDylibs, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, clipBin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv && packaged.has('alarms') ? alarmActivity(packages) : null}, bundleTools);
   publishProducts();
   release();
   if (!ipa && frameworkSymbols.count) console.log(`host/apple: framework symbols: ${resolve(paths.products, basename(frameworkSymbols.dir))} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)`);
