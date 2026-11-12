@@ -1360,15 +1360,15 @@ function rebuildOnChange(dist) {
   const app = sourcesOf(dist, marker.app?.id);
   if (!app || (!marker.release && resolve(dist) !== webDist())) return null;
   const out = resolve(dist), receipt = () => { try { return statSync(resolve(dist, '.exact-build.json')).mtimeMs; } catch { return 0; } };
-  // What a build reads: the app's files, but for what builds and tools write (its outputs, dependencies, dot
-  // directories but `.env`s, generated types, test reports).
+  // What a build reads: the app's files at any depth, but for what builds and tools write (its outputs,
+  // dependencies, dot directories but `.env`s, generated types, test reports).
   const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']);
-  const newest = (dir, depth = 0) => {
+  const newest = (dir) => {
     let at = 0;
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const path = resolve(dir, e.name);
       if (SKIP.has(e.name) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || path === out || path.startsWith(`${out}.`)) continue;
-      if (e.isDirectory()) { if (depth < 4) at = Math.max(at, newest(path, depth + 1)); } else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
+      if (e.isDirectory()) at = Math.max(at, newest(path)); else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
     }
     return at;
   };

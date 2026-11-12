@@ -1,6 +1,7 @@
 # `serve` does not rebuild for an edit more than four directories below the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `rebuildOnChange`'s walk for the newest source descends without a depth bound, so an edit at any depth below the app builds the site again.
 **Systems:** host/web/serve.mjs (`rebuildOnChange`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
