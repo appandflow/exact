@@ -961,7 +961,7 @@ export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
-export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece(), OnHooks.loading].filter(Boolean)).then(() => {}, () => {});
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece(), decorationPiece(), OnHooks.loading].filter(Boolean)).then(() => {}, () => {});
 const EXIT = "--exact-exit-animation"; export const exitOf = n => (n.$exit ?? n.style.getPropertyValue(EXIT)).trim(); // an element's exit: a bound one's value from the commit's start (presence-bindings.js `px`), else its style's
 /** A virtualized list's row wrapper `el` leaves with the exit its row's `root` declares (list.js): whether it stays,
  * leaving, for presence-glue.js to remove. */
@@ -1087,7 +1087,7 @@ function geoRead(op, id) {
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
 export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(liveById(id), start, end, out) : 0;
   return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
-export { decorationRecord, atomFacesRecord } from './shape.js'; import { startDecoration } from './editor.js';
+export { decorationRecord, atomFacesRecord } from './shape.js'; import { startDecoration, decorationPiece } from './editor.js';
 export const decorate = e => startDecoration(e, {own:Owner, onEnd, inflight, say});
 /** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };

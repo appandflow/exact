@@ -1435,12 +1435,20 @@ span list for new text (`@alice` replaced by `@carol`) is still a new record. Sp
 UTF-16 offsets, clamped to `value`; where two overlap the later paints over the earlier.
 Until the app's record for the field's current text arrives, as a person types, the host
 paints the last record's spans moved across the edit as a DOM `Range` is (provisional).
-Nothing is repainted while an input method composes. The web paints with
+On the web and Apple, decoration updates wait until composition ends. The web paints with
 `createValueRange()` and `CSS.highlights` and leaves the `<textarea>` in place; a browser
 without `createValueRange` paints nothing. macOS, iOS and tvOS paint TextKit 2 rendering
 attributes; Linux and Windows paint colour runs with unchanged advances; Android and the
 terminal paint nothing yet. Only the web paints `text-shadow`. `input` and
 `textarea markup="markdown"` refuse `decorations`.
+
+The agent's `tree` keeps the authored `decorations` record. `state.decorations` on the
+web, Apple, Linux and Windows reports each field's `id` and `applied` snapshot: `source`,
+`recordValue`, `provisional` and the resolved `spans` with declared styles. During
+composition the web and Apple keep the last snapshot; Linux and Windows resolve the
+current record against the composing text on the next paint. The web also reports
+`painted`: false when the browser cannot paint OpaqueRange highlights, even though the
+snapshot is resolved.
 
 An action may call `rangeFrame(id, start, end)` for the `Geometry` of a textarea's UTF-16
 range, plain or `markup="markdown"` (source offsets), as DOM's
