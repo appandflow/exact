@@ -1,6 +1,7 @@
 # The App Intents metadata pass runs from `/Applications/Xcode.app` whichever Xcode the build uses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The metadata pass takes the processor from `xcrun --find appintentsmetadataprocessor`, which honours `DEVELOPER_DIR` and `xcode-select` as the module's `swiftc` does, and its `--toolchain-dir` from that path.
 **Systems:** host/apple/intents.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
