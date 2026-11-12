@@ -1,6 +1,7 @@
 # macOS: Open Recent ▸ Clear Menu is enabled when the list is empty
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `RecentMenu` validates Clear Menu, enabled only while `KeptDocuments.recent` holds a document, as `NSDocumentController` refuses `clearRecentDocuments:` with an empty list.
 **Systems:** host/apple/Sources/ExactKit/Mac/DevMenuMac.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
