@@ -1,6 +1,7 @@
 # Changing a search input's appearance drops its autocomplete type
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A field remade for a new class sets what its props say of it (its autocomplete content type, enabled and editable state, and placeholder) before it takes the old field's place, so a style-only `appearance` change keeps them.
 **Systems:** host/apple/Sources/ExactKit/Mac/NativeFieldsMac.swift, host/apple/Sources/ExactKit/Mac/NodeViewMac.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
