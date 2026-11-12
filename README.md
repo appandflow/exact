@@ -65,7 +65,8 @@ in the UI, and no app JavaScript runs before the first pixel.
 > repository, `exact2`, is a rebuild of an earlier one ("exact1"), whose design
 > documents are research, never authority.
 
-The design record is a separate, private repository of numbered documents (LLPs), so this
+The design record is a separate, private repository of numbered documents (LLPs),
+`expo/exact-llp`, which those with access clone into `llp/` (git ignores it). This
 README and the guides cite it by number (`LLP 1115 D7`). The guides under [`docs/`](docs)
 are the public documentation.
 
@@ -315,20 +316,22 @@ bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exac
 cd ../hello
 bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
-bun exact.mjs test web tests/*.test.contract # the app's *.test.contract, or the files named
+bun exact.mjs test web                      # the app's *.test.contract, or the files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
-`app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
+`app.json` (the manifest: name, bundle id, hosts, deploy policy) and `app.test.contract`
+(its test). Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
 [`docs/start-here.md`](docs/start-here.md), the one guide it must read, and at `bun
 exact.mjs help` for the commands, including `bun exact.mjs contract …` for the compiler
 and `contract vocab` for the card of what an app writes (`--all`: every tag and property Contract accepts). Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
-is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
-by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
+is missing without changing it. The app holds no crate: a native verb (`mac`, `ios`,
+`linux`, `android`, `windows`) builds in a Cargo workspace it generates under
+`.exact/shells/`, which uses your exact2 checkout by path. To drive it from exact2,
+point `EXACT_APP_DIR` at it:
 
 ```sh
 EXACT_APP_DIR=../hello bun host/web/build.mjs hello-web
@@ -368,9 +371,8 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
-To try it in an app created with `exact new`, replace `app.contract` and
-`app.test.contract` with the examples below. In `app.ts`, keep the generated
-`export const appId = …` line and replace the rest with the TypeScript below.
+To try it in an app created with `exact new`, replace `app.contract`, `app.ts` and
+`app.test.contract` with the examples below.
 
 ```contract
 // app.contract: the view, its state, and what each action changes. It names no colour,

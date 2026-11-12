@@ -1,6 +1,7 @@
 # README.md describes the scaffold as it was, limits that are gone and a design corpus the repository does not hold
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The README's quick start runs `bun exact.mjs test web`, describes the scaffold `exact new` writes and its generated `.exact/shells/` workspace, replaces `app.ts` whole for the todo example, no longer lists the camera as out, and says where the private corpus is cloned (items 4 and 6's links and npm sentence had already gone in a60c83e5 and earlier).
 **Systems:** README.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
