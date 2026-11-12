@@ -20,6 +20,7 @@ final class DialogTopLayerIOSTests: XCTestCase {
     }
     private var window: UIWindow?
     private var kept: Presenter?
+    private var session: ExactSession?
 
     override func tearDown() {
         if let p = kept, let controller = window?.rootViewController {
@@ -27,6 +28,8 @@ final class DialogTopLayerIOSTests: XCTestCase {
             p.menus.reset()
             spin { controller.presentedViewController == nil && !p.menus.inTransition }
         }
+        session?.destroy()
+        session = nil
         window?.isHidden = true
         window = nil
         kept = nil
@@ -147,6 +150,80 @@ final class DialogTopLayerIOSTests: XCTestCase {
         let top = try XCTUnwrap(controller.presentedViewController as? DialogSheetController)
         XCTAssertTrue(top.topLayer)
         XCTAssertTrue(p.views[40]?.superview === top.scroller)
+    }
+
+    /// The dialog fixture (`dialog-sheet-reads.contract`) booted in a scene's window.
+    private func boot(_ scene: UIWindowScene) throws -> ExactSession {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_DIALOG_SHEET_READS_PLAN"], "build.mjs --test --ios compiles the fixture's plan")
+        let session = ExactApp.shared.makeSession(label: "dialog-top-layer")
+        self.session = session
+        let view = ExactView(session: session), host = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        self.window = window
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        spin { session.state == .ready && session.presenter.root.window === window && !session.presenter.viewport.bounds.isEmpty }
+        kept = session.presenter
+        return session
+    }
+
+    /// A painted dialog taller than the window stops at the window (the
+    /// modal dialog's `max-height`) and scrolls to what overflows it, a flat
+    /// child and the Close button below it, as the sheet does.
+    func testATallPaintedDialogScrollsToItsBottom() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let p = try boot(scene).presenter
+        p.dialogCommand("showModal", "painted-tall")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(window?.rootViewController?.presentedViewController as? DialogSheetController)
+        XCTAssertTrue(top.topLayer)
+        top.view.layoutIfNeeded()
+        let scroller = top.scroller
+        let dialog = try XCTUnwrap(p.views.values.first { $0.props["id"] == "painted-tall" })
+        let close = try XCTUnwrap(p.views.values.first { $0.props["id"] == "painted-tall-close" })
+        XCTAssertLessThan(dialog.bounds.height, 2000, "capped at the window")
+        let reach = dialog.convert(close.frame, to: scroller).maxY
+        XCTAssertGreaterThan(reach, scroller.bounds.height, "its Close button is past the window")
+        XCTAssertGreaterThanOrEqual(scroller.contentSize.height, reach - 0.5, "and within the scroll range")
+        scroller.setContentOffset(CGPoint(x: 0, y: scroller.contentSize.height - scroller.bounds.height), animated: false)
+        XCTAssertLessThanOrEqual(dialog.convert(close.frame, to: scroller).maxY, scroller.bounds.maxY + 0.5, "scrolled to, it shows")
+    }
+
+    /// The top layer resolves its presenter's theme, not the last one to
+    /// apply, and a live edit retints it and leaves its dimming.
+    func testTheTopLayerTakesItsPresentersThemeAndALiveEdit() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let (p, controller) = page(scene)
+        let other = Presenter()
+        defer {
+            _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: p.root)
+            _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: other.root)
+        }
+        _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["AccentColor": [0, 200, 0, 255]]]]), root: p.root)
+        p.applyThemeTint()
+        p.dialogCommand("showModal", "ask")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(controller.presentedViewController as? DialogSheetController)
+        // Another session's theme applies last.
+        _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["AccentColor": [200, 0, 0, 255]]]]), root: other.root)
+        func rgb(_ c: UIColor?) throws -> [CGFloat] {
+            var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            XCTAssertTrue(try XCTUnwrap(c).getRed(&r, green: &g, blue: &b, alpha: &a))
+            return [r, g, b]
+        }
+        XCTAssertTrue(ThemeRoles.adopted(by: p.root).contains { $0 === top.view }, "its presenter adopted it")
+        let ask = try XCTUnwrap(p.views[30])
+        for (got, want) in zip(try rgb(ThemeRoles.color("AccentColor", in: ask)), [0, 200.0 / 255, 0]) { XCTAssertEqual(got, want, accuracy: 0.01, "its presenter's accent") }
+        for (got, want) in zip(try rgb(top.view.tintColor), [0, 200.0 / 255, 0]) { XCTAssertEqual(got, want, accuracy: 0.01, "and tint") }
+        _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["AccentColor": [0, 0, 200, 255]]]]), root: p.root)
+        p.applyThemeTint()
+        for (got, want) in zip(try rgb(top.view.tintColor), [0, 0, 200.0 / 255]) { XCTAssertEqual(got, want, accuracy: 0.01, "a live edit retints it") }
+        XCTAssertEqual(top.view.backgroundColor, DialogSheetController.dimming, "and keeps its dimming")
     }
 
     /// Removed with an exit, it stays in the top layer until the exit ends,

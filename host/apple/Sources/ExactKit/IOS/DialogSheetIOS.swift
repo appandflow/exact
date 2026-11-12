@@ -100,6 +100,12 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     override func loadView() {
         let view = UIView()
         if topLayer {
+            #if os(iOS)
+            // Its presenter's theme and tint, as a sheet's (below): the dialog
+            // in it resolves its roles by them, and a live edit reaches it.
+            ThemeRoles.adopt(view, from: host?.root)
+            if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
+            #endif
             view.backgroundColor = DialogSheetController.dimming
             scroller.backgroundColor = .clear
             scroller.contentInsetAdjustmentBehavior = .never
@@ -126,12 +132,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #if os(tvOS)
         view.backgroundColor = .white
         #else
-        // The sheet's surface where the dialog painted none: the platform's
-        // (LLP 1115 D2), which UIKit elevates in dark mode.
         ThemeRoles.adopt(view, from: host?.root)
         // Its presenter's tint, as the root's (LLP 1095 D4): a sheet sits outside it.
         if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
-        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
+        self.view = view
+        paintSurface()
         scroller.keyboardDismissMode = .interactive
         #endif
         scroller.delegate = self
@@ -189,6 +194,20 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     }
     @objc private func tappedBackdrop() { host?.closeRequest(self) }
 
+    /// How far the dialog's children reach below its top: a dialog its
+    /// height caps (`HostBlock.Axis.fit`) overflows its box, and its
+    /// presentation scrolls the overflow, as the web's modal dialog
+    /// (`overflow: auto` under its `max-height`) scrolls itself. Flat
+    /// children have no view, but their layout extends that range too (LLP
+    /// 1068 §6.1). None for a dialog that scrolls itself.
+    static func overflow(of dialog: NodeView) -> CGFloat {
+        guard dialog.scrollView == nil else { return 0 }
+        let views = dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
+        let flats = dialog.presenter?.flats
+        let leaves = (flats?.children(of: dialog.id) ?? []).compactMap { flats?.leaves[$0]?.layout.maxY }.max() ?? 0
+        return max(views, leaves)
+    }
+
     /// The dialog's box is `size` now: the sheet follows it, in UIKit's own
     /// animation of a detent change.
     func fit(_ size: CGSize) {
@@ -229,7 +248,9 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
                                  y: PixelGrid.round(max(0, (port.height - size.height) / 2), scale: s))
             let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
             if dialog.center != center { dialog.center = center }
-            let content = CGSize(width: max(port.width, origin.x + size.width), height: max(port.height, origin.y + size.height))
+            // Children past its box (a dialog its `max-height` caps) are reached by scrolling, as on the sheet.
+            let content = CGSize(width: max(port.width, origin.x + size.width),
+                                 height: max(port.height, origin.y + max(size.height, Self.overflow(of: dialog))))
             if scroller.contentSize != content { scroller.contentSize = content }
             return
         }
@@ -241,14 +262,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
                              y: PixelGrid.round((box.height - size.height) / 2, scale: s))
         let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
-        // A dialog its sheet's height caps (`HostBlock.Axis.fit`) overflows
-        // its box, and the sheet scrolls the overflow, as the web's modal
-        // dialog (`overflow: auto` under its `max-height`) scrolls itself.
-        // Flat children have no view, but their layout extends that range too (LLP 1068 §6.1).
-        let views = dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
-        let flats = dialog.presenter?.flats
-        let leaves = (flats?.children(of: dialog.id) ?? []).compactMap { flats?.leaves[$0]?.layout.maxY }.max() ?? 0
-        let overflow = dialog.scrollView != nil ? 0 : max(views, leaves)
+        let overflow = Self.overflow(of: dialog)
         let port = max(0, scroller.bounds.width - inset.left - inset.right)
         let content = CGSize(width: max(port, origin.x + size.width),
                              height: max(box.height, origin.y + max(size.height, overflow)))
@@ -758,4 +772,17 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         for entry in entries.reversed() where !entry.closing { dismiss(entry, animated: false, cancelled: false) }
     }
 }
+
+#if os(iOS)
+extension DialogSheetController: PaintsSheetSurface {
+    /// Its surface, which a live theme edit paints again
+    /// (`Presenter.applyThemeTint`): the top layer's dimming, else the
+    /// sheet's ground where the dialog painted none, the platform's (LLP
+    /// 1115 D2), which UIKit elevates in dark mode.
+    func paintSurface() {
+        guard let view = viewIfLoaded else { return }
+        view.backgroundColor = topLayer ? Self.dimming : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
+    }
+}
+#endif
 #endif
