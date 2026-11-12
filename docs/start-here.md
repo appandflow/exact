@@ -183,8 +183,8 @@ fragment is the same screen: `/item/7#moves` opens at its `id="moves"` once its 
 and a `link href="#moves"` goes there. Every host, the web
 too, hides a stack's covered routes itself (not the page under a sheet, nor a wide split's list
 beside its detail); `for e in stack(nav)` keeps them mounted with their scroll, which `[top(nav)]`
-loses. A query follows the path:
-`` path("home") + `?q=${v}` ``. This list takes the scroll's place:
+loses. A query follows the path, its value encoded:
+`` path("home") + `?q=${encodeURIComponent(v)}` ``. This list takes the scroll's place:
 
 ```contract
 shape Item

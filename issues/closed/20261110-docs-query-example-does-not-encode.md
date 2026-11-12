@@ -1,6 +1,7 @@
 # Two guides build a query as `?q=${v}`, which `searchParam` reads back wrong for `&`, `+` or `#`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `start-here.md` and `recipes/website.md` build the query with `encodeURIComponent(v)`, and the recipe shows `A&B c` read back whole where the unencoded value reads back `A`.
 **Systems:** docs/start-here.md, docs/recipes/website.md
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from GPT-6 Astra's whole-project review (2026-11-10)
