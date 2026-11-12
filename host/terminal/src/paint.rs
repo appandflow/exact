@@ -228,7 +228,7 @@ fn node(
             } else {
                 Rgb(228, 228, 228)
             };
-            out.grid.fill(rect, clip, fill);
+            out.grid.fill(rect, clip, Some(fill));
         }
         if let Some(bg) = n
             .style
@@ -236,7 +236,12 @@ fn node(
             .map(|c| c.resolve(scene.dark))
             .and_then(rgb)
         {
-            out.grid.fill(rect, clip, bg);
+            out.grid.fill(rect, clip, Some(bg));
+        } else if layer && !n.style.mask.has(exact_kernel::StyleId::BackgroundColor) {
+            // An open layer the author gave no background is the
+            // platform's opaque surface (the web's `dialog` is `Canvas`):
+            // the terminal's own ground, not the page beneath.
+            out.grid.fill(rect, clip, None);
         }
         border(scene, out, &n, rect, clip, current);
         grouped::separator(scene, out, &n, clip, dx, dy);
@@ -294,6 +299,7 @@ fn node(
         h: if clips_y { clipped.h } else { clip.h },
     };
     let mut child_dy = dy;
+    let mut indicator = None;
     if scrolls {
         let reach = (n.content.1 - (f.height - bt - bb)).max(0.0);
         let offset = scene
@@ -304,34 +310,36 @@ fn node(
             .clamp(0.0, reach);
         child_dy += offset;
         out.scrollers.push((id, inner.intersect(clip), reach));
-        // A one-column indicator at the inner right edge (LLP 1101 §4).
         if reach > 0.0 && n.style.scrollbar_width != exact_kernel::ScrollbarWidth::None {
-            let track = inner.h.max(1);
-            let thumb = ((track as f32) * (f.height / (f.height + reach)))
-                .ceil()
-                .max(1.0) as i32;
-            let top = ((track - thumb) as f32 * (offset / reach)).round() as i32;
-            let x = inner.x + inner.w - 1;
-            for i in 0..track {
-                let on = i >= top && i < top + thumb;
-                let style = Style {
-                    faint: !on,
-                    ..Style::default()
-                };
-                out.grid.put(
-                    x,
-                    inner.y + i,
-                    if on { "┃" } else { "│" },
-                    1,
-                    style,
-                    child_clip,
-                );
-            }
+            indicator = Some((f.height / (f.height + reach), offset / reach));
         }
     }
     if n.node_type != NodeType::Text && !native_button {
         for child in n.child_nodes() {
             node(scene, out, child, child_clip, dx, child_dy, false);
+        }
+    }
+    // A one-column indicator at the inner right edge (LLP 1101 §4), over
+    // the rows: layout reserves no column for it.
+    if let Some((shown, scrolled)) = indicator {
+        let track = inner.h.max(1);
+        let thumb = ((track as f32) * shown).ceil().max(1.0) as i32;
+        let top = ((track - thumb) as f32 * scrolled).round() as i32;
+        let x = inner.x + inner.w - 1;
+        for i in 0..track {
+            let on = i >= top && i < top + thumb;
+            let style = Style {
+                faint: !on,
+                ..Style::default()
+            };
+            out.grid.put(
+                x,
+                inner.y + i,
+                if on { "┃" } else { "│" },
+                1,
+                style,
+                child_clip,
+            );
         }
     }
     if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {

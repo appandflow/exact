@@ -1,6 +1,7 @@
 # The terminal painter shows the page through an open dialog that has no background, and paints a scroller's indicator under its rows
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An open layer whose author wrote no `background-color` blanks its cells to the terminal's default background before its border and children, and a scroller's indicator is painted after its children, inside the same clip.
 **Systems:** host/terminal (paint.rs)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
