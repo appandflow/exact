@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
-import { plistFile } from './assets.mjs';
+import { iosAssets, plistFile } from './assets.mjs';
 import { encodePng } from '../../scripts/png.mjs';
 
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
@@ -14,6 +14,20 @@ const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', 
  * Plans embed the current schema digest. App entries need the test app's `appId` to boot. */
 export function compileFixtures(root, run, env, dir, prefix, appId) {
   const contract = args => run(env.EXACT_CONTRACT, ['build', ...args]);
+  if (prefix === 'TEST_RUNNER_EXACT') {
+    // LaunchColorIOSTests reads the build's XML and compiled catalogue as an app bundle.
+    const fixtures = env[`${prefix}_LAUNCH_COLOR_FIXTURES`] = resolve(dir, 'launch-colors');
+    for (const [name, manifest] of [
+      ['white', { background_color: '#ffffff' }],
+      ['opaque', { background_color: '#abc', color_scheme_dark: { background_color: '#123456' } }],
+      ['translucent', { background_color: '#abc', color_scheme_dark: { background_color: '#12345680' } }],
+    ]) {
+      const bundle = resolve(fixtures, `${name}.bundle`);
+      mkdirSync(bundle, { recursive: true });
+      const keys = iosAssets({ dir, name, manifest }, bundle, false);
+      writeFileSync(resolve(bundle, 'Info.plist'), plistFile({ CFBundleIdentifier: `dev.exact.launch.${name}`, CFBundlePackageType: 'BNDL', ...keys }));
+    }
+  }
   contract([resolve(root, 'host/apple/tests/fixtures/scroll-snap.contract'), '-o', env[`${prefix}_SCROLL_SNAP_PLAN`] = resolve(dir, 'scroll-snap.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/arrangement-sizing.contract'), '-o', env[`${prefix}_ARRANGEMENT_SIZING_PLAN`] = resolve(dir, 'arrangement-sizing.plan')]);
   // A test that writes its own manifest names the app the tests link (`SheetFixture`'s `data`).
