@@ -1,6 +1,7 @@
 # `transport::same` is a second copy of `compare::equivalent`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `transport::same` is deleted, and the test for an edited sequence calls `compare::equivalent_all`.
 **Systems:** runner/src/transport.rs, runner/src/compare.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
