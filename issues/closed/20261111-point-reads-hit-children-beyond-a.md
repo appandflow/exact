@@ -1,6 +1,7 @@
 # Point reads hit children beyond a scroll element's viewport
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The point walk reads a `scroll` or `list` with no `overflow-y` row as scrolling on y, as the engine lays it out, so it clips the walk to the scrollport.
 **Systems:** runner/src/geometry.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
