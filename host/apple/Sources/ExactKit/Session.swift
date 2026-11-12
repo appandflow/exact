@@ -484,7 +484,7 @@ public final class ExactSession {
     weak package var transformInputHold: DragInput?
     func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
-    private var pendingSurfaceRecords: [(String, String?)] = []
+    var pendingSurfaceRecords: [(String, String?, Bool)] = []
     private var pendingSurfaceWork: [([String: Any], Int)] = []
     /// Authentication sessions this session opened (`Auth.swift`, LLP 1069.006).
     let authSessions = AuthSessions()
@@ -1030,11 +1030,6 @@ public final class ExactSession {
     /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
     private(set) var routerOp: [String: Any]?
 
-    package func surfaceRecord(_ name: String, _ json: String?) {
-        guard state != .destroyed else { return }
-        if applying { pendingSurfaceRecords.append((name, json)); return }
-        apply(runtime.surfaceRecord(name, json))
-    }
 
     /// A batch from a timer, a scroll event or a host's measurement: one that
     /// changes nothing only moves the clock. An app's timer that writes nothing
@@ -1170,8 +1165,8 @@ public final class ExactSession {
         scheduleClock(due: batch.timerDueMs)
         if outermost {
             while !pendingSurfaceRecords.isEmpty {
-                let (name, json) = pendingSurfaceRecords.removeFirst()
-                apply(runtime.surfaceRecord(name, json))
+                let (name, json, performance) = pendingSurfaceRecords.removeFirst()
+                apply(performance ? runtime.canvasPerformanceRecord(name, json) : runtime.surfaceRecord(name, json))
             }
             drainReports()
             presenter.collections.flush()

@@ -968,6 +968,7 @@ pub const RUNNER_OWNED_SOURCES: &[&str] = &[
     "exactViewport",
     "exactPage",
     "exactSurface",
+    "exactCanvasPerformance",
     "exactTime",
     "exactTransport",
     "exactMIDI",

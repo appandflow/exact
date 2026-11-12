@@ -35,6 +35,8 @@ mod arrange_group_tests;
 mod arrange_tests;
 #[path = "canvas2d.rs"]
 pub(crate) mod canvas2d;
+#[path = "canvas_performance.rs"]
+mod canvas_performance;
 #[path = "colors.rs"]
 mod colors;
 #[path = "content_region/host.rs"]

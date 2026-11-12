@@ -764,6 +764,8 @@ typedef double (*ExactWallFn)(void);
 uint32_t exact_set_live_clock(ExactRuntime rt, ExactWallFn wall);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
+uint32_t exact_canvas_performance_requested(ExactRuntime rt, size_t len);
+uint32_t exact_canvas_performance_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* The date the next boot or candidate settles under, told before it; the

@@ -6,6 +6,22 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Publish ephemeral HUD metrics without involving the application data seam.
+    pub fn canvas_performance_record(&mut self, name: &str, json: Option<&str>) -> String {
+        let (receipts, error) = match self.runner.set_canvas_performance(name, json) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("canvas performance: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// Keep numeric viewport geometry in the same coordinate space as CSS env().
     pub fn viewport_geometry(&mut self, insets: [f32; 4], rects: Vec<[f32; 4]>) -> String {
         let [top, right, bottom, left] = insets;

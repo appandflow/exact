@@ -127,6 +127,7 @@ mod modules;
 pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
 #[cfg(test)]
 mod abort_tests;
+mod canvas_performance;
 mod split;
 mod surface_record;
 mod text_axes;
@@ -523,6 +524,7 @@ pub struct Runner<D: DataSource> {
     text_axes: text_axes::TextAxes,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
+    canvas_performance: exact_kernel::SortedMap<String, String>,
     surface_refusals: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
@@ -874,6 +876,7 @@ impl<D: DataSource> Runner<D> {
             text_axes: Default::default(),
             place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
+            canvas_performance: Default::default(),
             surface_refusals: Default::default(),
             links,
             router,

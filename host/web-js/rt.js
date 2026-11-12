@@ -746,12 +746,12 @@ export function gs(e, name, values) {
     if (queued) queued.values = v; else pending.push({ id, name, values: v, generation: 0 });
     if (!Gpu && typeof requestAnimationFrame === "function" && !globalThis.__exactRender) {
       x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root"); x.assetURL = v => rel("src", v); // a release's asset path, as the wasm glue's `localAssetURL` (LLP 1098 D6)
-      // A surface's published record (LLP 1009 D6), as the glue hands it to
-      // the wasm host: `name` or `name\0json`, to `exactSurface` readers
-      // (facts.js); dropped where no resource reads one.
+      // The GPU glue's name NUL JSON wire reaches the reserved readers in facts.js.
       let written = "";
       x.writeIn ??= t => { written = t; return 0; };
       (x.wasm ??= {}).exact_surface_record ??= () => { const at = written.indexOf("\0"); x.surfaceRecord?.(at < 0 ? written : written.slice(0, at), at < 0 ? null : written.slice(at + 1)); return 0; };
+      x.wasm.exact_canvas_performance_requested ??= () => x.canvasPerformanceRequested?.(written) ? 1 : 0;
+      x.wasm.exact_canvas_performance_record ??= () => { const at = written.indexOf("\0"); x.canvasPerformanceRecord?.(at < 0 ? written : written.slice(0, at), at < 0 ? null : written.slice(at + 1)); return 0; };
       x.send ??= () => {};
       // A surface's `message` to its canvas's `message=` handler (gpu-glue.js `messages`), as the wasm glue's `message` dispatches it.
       x.message ??= (el, text) => el?.dispatchEvent(new CustomEvent("exact-native", { detail: { kind: "message", value: text } }));

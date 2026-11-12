@@ -618,20 +618,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Document safe-area insets and row-major segment rectangles, in CSS pixels.
-    pub fn viewport_geometry(&mut self, len: usize) -> u32 {
-        let Ok((insets, rects)) = serde_json::from_slice::<([f32; 4], Vec<[f32; 4]>)>(
-            &self.input[..len.min(self.input.len())],
-        ) else {
-            return self.refuse("viewport geometry: expected [insets, rectangles]");
-        };
-        let out = self.host.as_mut().map_or_else(
-            || exact_runner::agent::error("viewport geometry: not booted"),
-            |host| host.viewport_geometry(insets, rects),
-        );
-        self.emit(out)
-    }
-
     /// A 2D canvas's geometry from the page (LLP 1056 D4).
     pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
@@ -1269,6 +1255,17 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_viewport_geometry(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().viewport_geometry(len as usize))
+        }
+
+        /// Whether this canvas name is read by a performance resource.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_requested(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().canvas_performance_requested(len as usize))
+        }
+        /// Publish or clear a canvas's performance record.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_performance_record(len as usize))
         }
 
         /// The aborts a realm heard between batches.

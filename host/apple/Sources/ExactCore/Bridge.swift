@@ -601,6 +601,12 @@ package final class Runtime {
             return read(exact_surface_record(rt, n))
         }
     }
+    package func canvasPerformanceRequested(_ name: String) -> Bool {
+        on(busy: false) { exact_canvas_performance_requested(rt, write(name)) != 0 }
+    }
+    package func canvasPerformanceRecord(_ name: String, _ json: String?) -> Batch {
+        on { read(exact_canvas_performance_record(rt, write(name + (json.map { "\0" + $0 } ?? "")))) }
+    }
     package func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
         return on {
             let n = write(value)

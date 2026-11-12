@@ -3649,7 +3649,7 @@ across a launch: a root `task restore mount` with `after(1, applySize)` sets the
 stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
-`exactSurface`, `exactTime`); the bake refuses a declared field the source does
+`exactSurface`, `exactCanvasPerformance`, `exactTime`); the bake refuses a declared field the source does
 not have. `exactViewport().displayMode` is a string: the current CSS display
 mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
 `display_override` asks for) or `standalone` on macOS, `standalone` on other
@@ -3667,6 +3667,7 @@ fields in the layout viewport's coordinates, ordered by row then column. With
 no fold it contains the whole viewport. Declare the fields your app uses in a
 segment shape and `segments: Segment[]` in its viewport shape. Insets and
 rectangles update when the host's document geometry changes.
+
 `exactViewport().pointer` and `.hover` are CSS's `pointer` (`fine`, `coarse`,
 `none`) and `hover` (`hover`, `none`) for the primary input: the web's media
 queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`
@@ -3723,6 +3724,44 @@ is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
 media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
 inform authored policy; the engine does not automatically remove all motion.
+
+`exactCanvasPerformance("world")` is an opt-in, read-only metrics resource for
+that named canvas. Declare only the fields your HUD needs, each as an option:
+
+```contract
+shape Metrics
+  frames: option<number>
+  cpuEncodeMs: option<number>
+  gpuMs: option<number>
+component App
+  resource metrics = exactCanvasPerformance("world") as shape Metrics
+  view
+    canvas surface=world
+```
+
+A canvas without a metrics resource does no reporting work. Snapshots arrive at most
+once per second while the canvas is visible, including while it is idle. Before
+its first snapshot, after disposal, and for unsupported measurements, fields are `none`. Values
+never enter kept answers, world saves, replay or simulation hashes.
+
+Numeric fields are `pixelWidth`, `pixelHeight`, `renderScale`, `devicePixelRatio`,
+`effectivePixelRatio`, `samples`, `draws`, `triangles`, `instances`, `frames`,
+`fps`, `windowMs`, `lateFrames`, `missedFrames`, `longestGapMs`, `maxFps`,
+`cpuTickMs`, `cpuFeedMs`,
+`cpuEncodeMs`, `cpuSubmitMs`, `gpuMs`, and each CPU/GPU duration's `MaxMs`
+variant (`cpuTickMaxMs`, for example). Durations and gaps are milliseconds;
+frame counters cover the sampling window and draw counters describe its latest
+submitted frame. `fps` is the submitted-frame count over the monotonic wall time
+between snapshots (`windowMs`); an idle window reports zero. The first snapshot
+and a window driven by the agent's virtual clock leave FPS unavailable.
+`processMemoryBytes`, `gameHeapBytes`, `textureMemoryBytes` and
+`geometryMemoryBytes` are optional byte counts. `audioState`, `thermalState`
+and `quality` are optional strings; `idle` is an optional boolean. Hosts and
+surfaces report only measurements they actually support. The initial game
+renderer reports render dimensions, scale, samples, draw counts, frame pacing,
+and CPU tick/feed/encode durations; GPU, memory and audio measurements remain
+unavailable. The 16 KiB snapshot limit is separate from the public surface
+record's limit.
 
 `exactSurface(name)` is the host's channel for read-only facts about where
 the app is running, not only for a GPU surface's published record. The

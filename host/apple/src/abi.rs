@@ -1250,21 +1250,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
-    pub fn surface_record(&mut self, len: usize) -> u32 {
-        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.refuse("surface record: invalid UTF-8");
-        };
-        let (name, json) = text
-            .split_once('\0')
-            .map_or((text, None), |(name, json)| (name, Some(json)));
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |host| host.surface_record(name, json));
-        self.emit(out)
-    }
-
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> u32 {
         let observed = self.live_clock.map(|clock| clock());
@@ -1460,6 +1445,7 @@ fn escape(s: &str) -> String {
 pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod boot;
+mod canvas_performance;
 use boot::PreparedHost;
 mod colors;
 mod preparation;

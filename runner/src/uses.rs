@@ -292,10 +292,12 @@ pub fn uses(plan: &Plan) -> Uses {
         uses = uses.with(Capability::Segments);
     }
     if !plan.surfaces.is_empty()
-        || plan
-            .resources
-            .iter()
-            .any(|r| plan.str(r.source) == crate::surface_record::SOURCE)
+        || plan.resources.iter().any(|r| {
+            matches!(
+                plan.str(r.source),
+                crate::surface_record::SOURCE | crate::canvas_performance::SOURCE
+            )
+        })
     {
         uses = uses.with(Capability::Surfaces);
     }

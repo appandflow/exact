@@ -21,7 +21,7 @@ test('a viewport-only plan reads the tier the agent prefers', async () => {
   try {
     copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
     writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
-    writeFileSync(resolve(dir, 'rt.js'), 'export const data = {}, Resources = [], commits = []; export const commit = (f, why) => { commits.push(why); f(); }; export function R() {} export const Refusal = Error;');
+    writeFileSync(resolve(dir, 'rt.js'), `export const data = {}, Resources = [], commits = []; export const commit = (f, why) => { commits.push(why); f(); }; export function R() {} export const Refusal = Error;`);
     const { viewport } = await import(resolve(dir, 'facts.js'));
     const { data, commits } = await import(resolve(dir, 'rt.js'));
     viewport({ v: [['gpuTier']], ratio: [['devicePixelRatio']], geometry: [['safeAreaTop', 'safeAreaBottom', 'segments'], { safeAreaTop: 'n', safeAreaBottom: 'n', segments: ['[]', { height: 'n', x: 'n', width: 'n', y: 'n' }] }] });
@@ -52,5 +52,35 @@ test('a viewport-only plan reads the tier the agent prefers', async () => {
     globalThis.exact.fold.prefer({ cols: 2, rows: 1, gap: 20 });
     expect(geometry()).toEqual([24, 34, [[844, 0, 185, 0], [844, 205, 185, 0]]]);
     expect(globalThis.exact.page.read()['gpu-tier']).toBe('low');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('canvas performance keeps unsupported metrics unavailable and refuses bad snapshots', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-performance-facts-'));
+  try {
+    copyFileSync(resolve(import.meta.dir, 'facts.js'), resolve(dir, 'facts.js'));
+    writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(resolve(import.meta.dir, '../..'), 'navigation.js'));
+    writeFileSync(resolve(dir, 'rt.js'), `export const data = {}, Resources = [{name:'hud',source:'exactCanvasPerformance'}], answers = {};
+export const Refusal = Error; export function R(r) { answers[r.name] = data.reserved[r.source](null,null,r.name); }
+export function commit(f) { try { f(); return true; } catch { return false; } }`);
+    const { canvasPerformance } = await import(resolve(dir, 'facts.js'));
+    const { data, answers } = await import(resolve(dir, 'rt.js'));
+    canvasPerformance({ hud: ['world', { frames: ['?', 'n'], gpuMs: ['?', 'n'] }] });
+    const read = () => data.reserved.exactCanvasPerformance(null, null, 'hud');
+    expect(read()).toEqual([null, null]);
+    expect(exact.canvasPerformanceRequested('world')).toBe(true);
+    expect(exact.canvasPerformanceRequested('unread')).toBe(false);
+    exact.canvasPerformanceRecord('world', '{"frames":60}');
+    expect(answers.hud).toEqual([60, null]);
+    for (const bad of ['{"frames":"bad"}', '{"frames":1e999}', ' '.repeat(16385)]) {
+      exact.canvasPerformanceRecord('world', bad);
+      expect(read()).toEqual([60, null]);
+      expect(Object.keys(exact.canvasPerformanceRefusals())).toEqual(['world']);
+    }
+    exact.canvasPerformanceRecord('unread', 'invalid');
+    expect(Object.keys(exact.canvasPerformanceRefusals())).toEqual(['world']);
+    exact.canvasPerformanceRecord('world', null);
+    expect(read()).toEqual([null, null]);
+    expect(exact.canvasPerformanceRefusals()).toEqual({});
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

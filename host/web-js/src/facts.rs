@@ -18,6 +18,7 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
         ("exactPage", page::FIELDS, "page"),
         ("exactDelivery", &delivery::FIELDS[..], "delivery"),
         ("exactSurface", &[][..], "surfaces"),
+        ("exactCanvasPerformance", &[][..], "canvasPerformance"),
         (
             "exactActivities",
             &["activities", "frequentPushesEnabled", "linked"][..],
@@ -37,16 +38,17 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
             if t.kind != exact_plan::TypeKind::Record {
                 return Err(format!("resource {resource}: `{source}` answers a record"));
             }
-            let entry = if source == "exactSurface" {
+            let entry = if matches!(source, "exactSurface" | "exactCanvasPerformance") {
+                if source == "exactCanvasPerformance" {
+                    exact_runner::canvas_performance::validate(plan, r.ty)?;
+                }
                 let surface = surface_record::surface_name(plan, r).ok_or_else(|| {
-                    format!(
-                        "resource {resource}: `exactSurface` takes one string-literal surface name"
-                    )
+                    format!("resource {resource}: `{source}` takes one string-literal surface name")
                 })?;
                 format!(
                     "{},{}",
                     serde_json::to_string(surface).unwrap(),
-                    surface_type_json(plan, r.ty)
+                    surface_type_json(plan, r.ty),
                 )
             } else {
                 let mut names = Vec::new();

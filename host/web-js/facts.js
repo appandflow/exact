@@ -103,18 +103,24 @@ export function delivery(readers) {
  * (names.js `types`)]. A record arrives from the GPU module (`gpu-glue.js`
  * calls the wasm host's `exact_surface_record`); the host's bytes are
  * `name` alone (disposed) or `name\0json`. */
-export function surfaces(readers) {
-  const records = new Map(), refusals = new Map();
+export function canvasPerformance(readers) {
+  const names = new Set(Object.values(readers).map(r => r[0]));
+  (globalThis.exact ??= {}).canvasPerformanceRequested = name => names.has(name);
+  surfaces(readers, "exactCanvasPerformance", "canvasPerformanceRecord", 16 * 1024);
+}
+
+export function surfaces(readers, source = "exactSurface", report = "surfaceRecord", limit = MAX_RECORD) {
+  const records = new Map(), refusals = new Map(), names = new Set(Object.values(readers).map(r => r[0]));
   let why = null;
-  (data.reserved ??= {}).exactSurface = (_, args, name) => {
+  (data.reserved ??= {})[source] = (_, args, name) => {
     const [surface, shape] = readers[name];
     const text = records.get(surface);
     let json;
     try {
       if (text != null) {
         // surface_record.rs MAX_BYTES (UTF-8 bytes; a third of it in UTF-16 units cannot exceed it).
-        const bytes = text.length > MAX_RECORD / 3 ? new TextEncoder().encode(text).length : 0;
-        if (bytes > MAX_RECORD) throw new Refusal(`${name}: record is ${bytes} bytes, over the ${MAX_RECORD}-byte (16 MiB) limit`);
+        const bytes = text.length > limit / 3 ? new TextEncoder().encode(text).length : 0;
+        if (bytes > limit) throw new Refusal(`${name}: record is ${bytes} bytes, over the ${limit}-byte limit`);
         try { json = JSON.parse(text); } catch (e) { throw new Refusal(`${name}: ${e.message}`); }
         if (!json || typeof json !== "object" || Array.isArray(json)) throw new Refusal(`${name}: record: expected JSON object`);
       }
@@ -122,18 +128,19 @@ export function surfaces(readers) {
     } catch (e) { why = String(e?.message ?? e); throw e; }
   };
   const x = globalThis.exact ??= {};
-  x.surfaceRecord = (surface, json) => {
+  x[report] = (surface, json) => {
+    if (!names.has(surface)) return;
     const was = records.get(surface) ?? null;
     if (was === (json ?? null)) return;
     const put = v => v == null ? records.delete(surface) : records.set(surface, v);
     put(json);
     // A record a reader refuses leaves the last one standing; `state.surfaceRefusals` says why.
     why = null;
-    if (!commit(() => { for (const r of Resources) if (r.source === "exactSurface" && readers[r.name]?.[0] === surface) R(r); }, `surface ${surface}`)) {
+    if (!commit(() => { for (const r of Resources) if (r.source === source && readers[r.name]?.[0] === surface) R(r); }, `surface ${surface}`)) {
       put(was); refusals.set(surface, why ?? "refused");
     } else refusals.delete(surface);
   };
-  x.surfaceRefusals = () => Object.fromEntries(refusals);
+  x[report === "surfaceRecord" ? "surfaceRefusals" : "canvasPerformanceRefusals"] = () => Object.fromEntries(refusals);
 }
 const MAX_RECORD = 16 << 20;
 // surface_record.rs `shaped`: absent fields are their type's zero, extra keys
@@ -143,7 +150,7 @@ function shaped(t, v, path, name) {
   if (typeof t === "string") {
     if (v === undefined) return t === "n" ? 0 : t === "b" ? false : t === "s" ? "" : null;
     if (t === "u") return v === null ? null : fail();
-    return (t === "n" && typeof v === "number") || (t === "b" && typeof v === "boolean") || (t === "s" && typeof v === "string") ? v : fail();
+    return (t === "n" && typeof v === "number" && Number.isFinite(v)) || (t === "b" && typeof v === "boolean") || (t === "s" && typeof v === "string") ? v : fail();
   }
   if (Array.isArray(t) && t[0] === "e") return v === undefined ? t[1][0] : typeof v === "string" ? v : fail();
   if (t[0] === "?") return v == null ? null : shaped(t[1], v, path, name);
