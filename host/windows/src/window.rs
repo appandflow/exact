@@ -2,6 +2,7 @@ use crate::keyboard::key_names;
 use exact_ink::counters;
 use exact_linux::{
     app::{self, Config},
+    presenter::PointerKind,
     Presenter,
 };
 use exact_runner::DataSource;
@@ -42,6 +43,7 @@ struct App<D: DataSource> {
     cursor: CursorIcon,
     buttons: u32,
     clicks: crate::clicks::Clicks,
+    touches: crate::touch::Touches,
     scale: f64,
     refit_after_scale: bool,
     next_frame: Instant,
@@ -321,6 +323,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         focused: true,
         cursor: CursorIcon::Default,
         clicks: Default::default(),
+        touches: Default::default(),
         buttons: 0,
         scale: 1.,
         next_frame: started,
@@ -1163,6 +1166,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 p.surface_lifecycle(self.minimized || self.occluded, !focused);
                 if !focused {
                     self.buttons = 0;
+                    self.touches.forget();
                     let _ = p.pointer_lost(now);
                     p.set_window_active(false);
                     // Unfocused, the pads are not read: what they were is no longer known.
@@ -1186,6 +1190,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     position.x as f32 / self.scale as f32,
                     position.y as f32 / self.scale as f32,
                 );
+                p.set_pointer_kind(PointerKind::Mouse);
                 let _ = p.pointer_move(self.pointer.0, self.pointer.1, now);
             }
             WindowEvent::CursorLeft { .. } => {
@@ -1208,6 +1213,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     (x, y)
                 };
                 let down = state == ElementState::Pressed;
+                p.set_pointer_kind(PointerKind::Mouse);
                 if down {
                     self.caret.activity(Instant::now());
                     if button != MouseButton::Left {
@@ -1252,6 +1258,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     MouseButton::Back => p.pointer_aux(8, down, x, y, now),
                     MouseButton::Forward => p.pointer_aux(16, down, x, y, now),
                     _ => {}
+                }
+            }
+            WindowEvent::Touch(touch) => {
+                self.clicks.clear();
+                if self.touches.event(p, touch, self.scale, now) {
+                    self.caret.activity(Instant::now());
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {

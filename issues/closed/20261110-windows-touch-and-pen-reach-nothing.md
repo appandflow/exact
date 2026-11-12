@@ -1,6 +1,7 @@
 # On Windows a finger or a pen on the screen reaches nothing in the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Windows host handles winit's `WindowEvent::Touch`, driving the presenter's contact with the first finger or pen down as a touch or pen pointer (`GetPointerType`), and reports the pointer as a mouse again at the next mouse event.
 **Systems:** host/windows/src/window.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
