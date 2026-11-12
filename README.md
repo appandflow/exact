@@ -788,6 +788,8 @@ install page, and the stress harnesses. They're in
 
 The workspace is MIT-licensed (`Cargo.toml`).
 
-Exact’s Snapback4 adapter uses published **0.4.33** with the matching immutable
-Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`.
-See [the adapter guide](snapback4/README.md) for wiring and device rebuilds.
+The Snapback client (`snapback4/`) is not in this repository, and Exact works without it:
+in a checkout without it, `exact new --snapback` and `bun exact.mjs snapback` refuse,
+naming the missing client. A checkout that has it there uses published **0.4.33** with
+the matching immutable Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`,
+and [its guide](snapback4/README.md) covers wiring and device rebuilds.

@@ -860,8 +860,9 @@ and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` m
 \`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
 (Snapback4 ${snapbackVersion()}, dev only; a password-only schema's dev needs \`--unsafe-dev-doors\` for it). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
 the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
-  return `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
-Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.`;
+  // Offered only where it can be done: a checkout without the client refuses both commands.
+  return snapbackDevice ? `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
+Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.` : '';
 }
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what
@@ -876,6 +877,7 @@ function agentNotes(dir, name, {game = false} = {}) {
   const doc = file => pathFrom(from, resolve(ROOT, 'docs', file));
   const sdk = file => pathFrom(from, resolve(ROOT, file));
   if (game) return gameNotes(name, doc, sdk, from);
+  const snapback = snapbackNotes(dir, from);
   return `${BEGIN}
 # ${name}: an Exact app
 
@@ -895,8 +897,7 @@ app.json's \`"commands"\`.
 \`bun exact.mjs update --without linux\` stops shipping Linux.` : ` Native verbs (\`ios\`, \`mac\`, \`linux\`, \`android\`, \`windows\`)
 name their platform in app.json on first use and build in a generated workspace;
 \`update --without <platform>\` stops shipping it.`}
-\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
-${snapbackNotes(dir, from)}
+\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.${snapback && `\n${snapback}`}
 
 Generated, so don't edit: \`exact.mjs\`${authoredApp(dir) ? `, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\`` : ''} and this block.

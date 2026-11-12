@@ -148,7 +148,7 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
-  assert.doesNotMatch(helpText('status'), /undefined/);
+  for (const verb of Object.keys(HELP)) for (const all of [false, true]) assert.doesNotMatch(helpText(verb, { all }), /undefined/, verb);
   // The index an app's exact.mjs prints, and a game's.
   const [text, gameText] = [false, true].map((game) => indexText({ verbs: Object.keys(appVerbs('app', '.', { game })) }));
   for (const index of [text, gameText]) {

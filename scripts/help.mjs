@@ -69,6 +69,7 @@ export const HELP = {
     usage: 'bun exact.mjs backend [dev|serve <release>] [flags]',
     flags: [],
     body: 'Runs the backend package installed above the app, on app.ts’s loopback origin. Use snapback --port <n> to move it.',
+    example: 'bun exact.mjs backend',
   },
   snapback: {
     line: 'wire Snapback',
@@ -78,6 +79,7 @@ export const HELP = {
       ['--artifact-only', 'with --rebuild: repair the device without changing wiring'],
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
+    example: 'bun exact.mjs snapback --port 4410',
   },
   status: {line:'the game\'s web and prove runs: phase and elapsed time', usage:'bun exact.mjs status', flags:[], body:'Lists the game\'s web and prove invocations with their phase, elapsed time, previous duration and exit status.', example:'bun exact.mjs status'},
   web: {

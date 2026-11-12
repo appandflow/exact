@@ -787,6 +787,9 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
     assert.doesNotMatch(notes, /after each edit|milestone/);
     assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
+    // Snapback is offered only by a checkout that has its client; without it, both commands are refused.
+    if (hasSnapback) assert.match(notes, /Shared data: `exact new <path> --snapback`/);
+    else assert.doesNotMatch(notes, /snapback/i);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));

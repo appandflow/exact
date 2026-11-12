@@ -1,6 +1,7 @@
 # A checkout without the Snapback client still tells every new app to wire Snapback
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A new app's `AGENTS.md` offers Snapback only when the checkout has the client, `backend` and `snapback` have examples in their help, and the README and the recipe say the client is not in the repository (the recipe's link was already fixed by `ecc96fbe`).
 **Systems:** game/new.mjs (`snapbackNotes`), scripts/help.mjs, docs/recipes/snapback.md, README.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
