@@ -537,7 +537,8 @@ group's does, `dispose(ids)` for the handles of a reply the runner dropped, `for
 the foreground or leaves it, `preferred(values)` for the agent's values, and `resumed()` when the activity is in front
 again, which is where it reads again what the person changed in Settings, since Android sends no event for it. Its
 `ExtensionContext` gives the application, the activity in front, `agent`, `now()` (the session's clock, the agent's
-under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
+under the agent), `label` (`main`, the same at every launch), `data`, `cache` and `temporary` (the directories behind
+`app:/data`, `app:/cache` and `app:/tmp`, the drive's store under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
 ended)`, which raises one of the interface's wake events and hears its outcome (LLP 1133.017 D8; `woke(id, outcome)`
 too), and
 `requestPermissions(permissions, done)`: one platform request, answered by `onRequestPermissionsResult`, or by the

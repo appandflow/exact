@@ -2633,6 +2633,20 @@ A view placed by a Contract library counts too, including through a re-export. T
 still declares the view's package as a direct dependency. A component the app never
 instantiates does not link its views' implementations.
 
+### A package's storage and session
+
+A package's implementation finds the session's directories behind `app:/data`,
+`app:/cache` and `app:/tmp` on its context: Swift `ExactPackageContext.data`, `cache` and
+`temporary`, Kotlin `ExtensionContext.data`, `cache` and `temporary`, the Linux host's
+`Context::data()`, `cache()` and `temporary()`. They are the app's own, and under the
+agent the drive's store, which a named store (`EXACT_AGENT_STORAGE`, `open({storage})`)
+keeps across the drive's launches. The sessions of one app share them, so what a package
+keeps for one session (a local replica) goes under the session's `label`, which is the
+same at every launch: the name the embedder gave the session (`makeSession(label:)`; the
+sample host's `a` and `b`), and in an app `main` (a later Mac window `window-2`,
+`window-3`, in the order they open). `session` is unique only within the process and
+`hostSession` new at each launch; key nothing durable by either.
+
 ### A package's native module, library and web assets
 
 A package fills the data module's one native module (`native.call` in `app.ts`) from the

@@ -176,7 +176,11 @@ public final class ExactApp {
     /// Creates platform views: on iOS call from the application/scene/controller
     /// lifecycle, not top-level code before UIApplicationMain (LLP 1012's timing reduction).
     public func makeSession(delegate: ExactSessionDelegate? = nil, label: String = "") -> ExactSession {
-        let s = ExactSession(app: self, label: label.isEmpty ? "session-\(sessionRefs.count + 1)" : label)
+        // An unnamed session takes the first `session-N` no live session has: the same at each launch that makes
+        // its sessions in the same order, which a package keys what it keeps by (`ExactPackageContext.label`).
+        let live = Set(sessionRefs.compactMap { $0.session?.label })
+        let named = label.isEmpty ? (1...).lazy.map { "session-\($0)" }.first { !live.contains($0) }! : label
+        let s = ExactSession(app: self, label: named)
         s.delegate = delegate; PushRegistration.listen() // before its packages can register
         sessionRefs.append(WeakSession(s))
         sessionRefs.removeAll { $0.session == nil }
