@@ -1,6 +1,7 @@
 # A virtual list scroll write can erase another scroller's capture on iOS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The iOS presenter restores every captured scroll position before it applies any authored offset, so a batch applied from a list's scroll feedback during the restore finds no capture left to clear.
 **Systems:** host/apple/Sources/ExactKit/Collection.swift, host/apple/Sources/ExactKit/IOS/PresenterIOS.swift, host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
