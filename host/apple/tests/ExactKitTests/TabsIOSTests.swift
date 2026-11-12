@@ -238,6 +238,16 @@ final class TabsIOSTests: XCTestCase {
         let nav = try XCTUnwrap(navigation.primaryNavigation)
         until("the bar's layout clears the column") { nav.navigationBar.safeAreaInsets.left >= sidebar.bounds.width - 0.5 }
         if case .edges(let edges)? = navigation.covers[route.id] { XCTAssertEqual(edges.left, 0, "no left cover on the route") }
+        // What an app's hatch adds to the container's safe area stays beside Exact's.
+        owner.additionalSafeAreaInsets.bottom = 50
+        navigation.reportCovers()
+        XCTAssertEqual(owner.additionalSafeAreaInsets.bottom, 50)
+        XCTAssertEqual(owner.additionalSafeAreaInsets.left, sidebar.bounds.width, accuracy: 0.5)
+        // Two boxes beside the routes keep their z-index order above the container.
+        let low = try node(session, "low"), lower = try node(session, "lower")
+        XCTAssertGreaterThan(lower.layer.zPosition, holder.layer.zPosition)
+        XCTAssertGreaterThan(low.layer.zPosition, lower.layer.zPosition, "z-index -1 over -2")
+        XCTAssertGreaterThan(sidebar.layer.zPosition, low.layer.zPosition, "z-index auto over -1")
     }
 }
 

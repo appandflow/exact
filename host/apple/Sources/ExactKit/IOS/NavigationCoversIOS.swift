@@ -50,7 +50,13 @@ extension NavigationHost {
             if right, !left { reach.right = max(reach.right, area.maxX - box.minX) }
         }
         if changed { PaintOrder.changed(root) }
-        if owner.additionalSafeAreaInsets != reach { owner.additionalSafeAreaInsets = reach }
+        // Exact's part only: what an app's hatch set on its container stays
+        let before = besideOwner === owner ? besideInsets : .zero, now = owner.additionalSafeAreaInsets
+        let wanted = UIEdgeInsets(top: now.top - before.top + reach.top, left: now.left - before.left + reach.left,
+                                  bottom: now.bottom - before.bottom + reach.bottom, right: now.right - before.right + reach.right)
+        if now != wanted { owner.additionalSafeAreaInsets = wanted }
+        besideInsets = reach
+        besideOwner = owner
     }
 
     /// What covers a route of its controller's safe area (`safe`): the
