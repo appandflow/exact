@@ -1,6 +1,7 @@
 # A modified CC-BY model and WPT's URL test data are committed with no licence file and no NOTICE entry
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Khronos sample's `Fox-LICENSE.md` and a README crediting each author and listing the changes now sit beside `fox.glb`, WPT's `LICENSE.md` (3-Clause BSD) beside `urltestdata.json`, NOTICE credits both, and `samples.rs` credits the Fox as its metadata does.
 **Systems:** NOTICE, game/games/skinned-fixture/art, vendor/ibex/third_party/wpt
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
