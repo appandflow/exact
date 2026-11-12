@@ -1,6 +1,7 @@
 # `excerpt` analyses the whole document to take its first lines, says it does not, and has no caller
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `exact_markdown::excerpt`, which nothing called, is deleted with its tests; the apps that show an excerpt cut their own.
 **Systems:** markdown/src/segment.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
