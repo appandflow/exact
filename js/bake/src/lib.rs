@@ -191,6 +191,7 @@ fn module_constants(
     platform: &str,
     linked: bool,
     native: Option<&contract::native::NativeSlot>,
+    preloads: &serde_json::Value,
 ) -> Result<String, String> {
     let app = meta["appId"].as_str().ok_or("missing appId")?;
     let grants = meta["grants"].as_str().ok_or("missing grants")?;
@@ -202,6 +203,15 @@ fn module_constants(
     } else {
         format!("pub const APP: &str = {app:?};\npub const GRANTS: &str = {grants:?};\n")
     };
+    if preloads
+        .as_array()
+        .is_some_and(|entries| !entries.is_empty())
+    {
+        metadata.push_str(&format!(
+            "pub const PRELOAD: &[exact_logic::exact_runner::request::Preload] = {};\n",
+            contract::preload_expression(preloads)
+        ));
+    }
     if !linked {
         let hash = meta["module"]["sha256"]
             .as_str()
@@ -322,8 +332,14 @@ fn build_sources(
     for file in &native.watched {
         println!("cargo:rerun-if-changed={}", file.display());
     }
-    let mut metadata =
-        module_constants(&meta, rust_updates, platform, outside, native.slot.as_ref())?;
+    let mut metadata = module_constants(
+        &meta,
+        rust_updates,
+        platform,
+        outside,
+        native.slot.as_ref(),
+        &compat.inputs["preload"],
+    )?;
     if platform == "windows" {
         metadata.push_str(&format!(
             "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",
@@ -1405,3 +1421,6 @@ impl Baked {
         result
     }
 }
+
+#[cfg(test)]
+mod preload_tests;

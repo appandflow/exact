@@ -446,7 +446,7 @@ impl<D: DataSource> Runner<D> {
                 origin: 0,
             });
             match ready {
-                true => self.refresh_next.push(i),
+                true => self.ask_at_launch(i),
                 false => self.resources[i].stale = true,
             }
         }
@@ -739,6 +739,17 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         change: crate::StoreChange,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let result = self.activate(change);
+        self.launch.clear();
+        result
+    }
+
+    /// The asks it makes are the launch's own (`launch`), but for a resource
+    /// a refresh already waits to ask.
+    fn activate(
+        &mut self,
+        change: crate::StoreChange,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
@@ -754,6 +765,9 @@ impl<D: DataSource> Runner<D> {
         let stale: Vec<usize> = (0..self.resources.len())
             .filter(|i| self.resources[*i].stale || readers.contains(i))
             .collect();
+        let launch: Vec<usize> = (stale.iter().copied())
+            .filter(|i| !self.refresh_next.contains(i))
+            .collect();
         // Writes made before the source was ready are overlaid from here
         self.resources
             .iter_mut()
@@ -764,6 +778,7 @@ impl<D: DataSource> Runner<D> {
                 return Ok(None);
             }
             self.owe(&stale);
+            self.launch = launch;
             return (self.reasking(|r| r.commit_again(stale, "data_ready"))).map(Some);
         }
         let what = format!(
@@ -773,6 +788,7 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint();
+        self.launch = launch;
         self.refresh_next.extend(&stale);
         self.owe(&stale);
         let result = if self.poisoned {
