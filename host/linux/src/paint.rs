@@ -1168,7 +1168,7 @@ impl Painter {
                     control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
                 let focused = walk.scene.focus == Some(node.id);
                 let label = label.as_deref().unwrap_or("");
-                self.field_control(node, content, focused, ts, label, true);
+                self.field_control(walk, node, content, &outer, focused, ts, label, true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
             // value (`control::date_text`); `type` sets it.
@@ -1181,7 +1181,7 @@ impl Painter {
                 let chosen = walk.scene.chosen.get(&node.id);
                 let shown = control::date_text(node, chosen, self.dates.as_ref());
                 let focused = walk.scene.focus == Some(node.id);
-                self.field_control(node, content, focused, ts, &shown, false);
+                self.field_control(walk, node, content, &outer, focused, ts, &shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
