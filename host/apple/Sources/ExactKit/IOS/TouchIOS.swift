@@ -392,7 +392,8 @@ extension Agent {
     /// `pop` must be the menu UIKit was last given to present, or one of its
     /// submenus (`MenuHost.presentedMenu`), and its rows (`MenuHost.given`) must
     /// read as a run of the rows shown (in a menu that scrolls, the rows it
-    /// shows as one slice of them), forward or, in a menu UIKit shows last
+    /// shows as one slice of them), passing over the titles it was given as
+    /// headers (`givenHeaders`), forward or, in a menu UIKit shows last
     /// row first, reversed; the row is the one at its place there, which
     /// every such reading must agree on. A row of another popover, however
     /// alike its rows read, is refused, and so is a row another popover of
@@ -405,7 +406,7 @@ extension Agent {
             let shown = menus.presentedMenu.keys.sorted().first.flatMap { presenter.views[$0] }.map { " (UIKit was last given \(Agent.popoverName($0))'s)" } ?? ""
             return .failure(AimRefusal(why: "it is a row of the menu of \(name), which is not the menu UIKit shows\(shown): tap its invoker first"))
         }
-        let labels = given.map(\.label)
+        let labels = given.map(\.label), headers = menus.givenHeaders[pop.id] ?? []
         if let twin = menus.presentedMenu.keys.sorted().first(where: { $0 != pop.id && menus.given[$0]?.map(\.label) == labels }) {
             return .failure(AimRefusal(why: "\(name) and popover #\(twin) are both in the menu UIKit shows and read the same; give their rows different titles"))
         }
@@ -415,7 +416,7 @@ extension Agent {
         let groups = Agent.menuGroups(in: window)
         var readings: [(rows: [MenuRow], first: Int)] = []
         for group in groups {
-            for r in Agent.runs(of: labels, in: group) where !readings.contains(where: { $0.first == r.first && $0.rows.map(\.box) == r.rows.map(\.box) }) {
+            for r in Agent.runs(of: labels, in: group, passing: headers) where !readings.contains(where: { $0.first == r.first && $0.rows.map(\.box) == r.rows.map(\.box) }) {
                 readings.append(r)
             }
         }
@@ -436,7 +437,7 @@ extension Agent {
         // at is cannot be told from the labels, so it is not picked.
         if let other = menus.presentedMenu.keys.sorted().first(where: { id in
             guard id != pop.id, let theirs = menus.given[id]?.map(\.label), !theirs.isEmpty else { return false }
-            return groups.contains { Agent.runs(of: theirs, in: $0).contains { $0.rows.contains { $0.box == box } } }
+            return groups.contains { Agent.runs(of: theirs, in: $0, passing: menus.givenHeaders[id] ?? []).contains { $0.rows.contains { $0.box == box } } }
         }) {
             return .failure(AimRefusal(why: "\(name) and popover #\(other) are both in the menu UIKit shows and read as rows shown, one maybe reversed; give their rows different titles"))
         }
@@ -480,7 +481,7 @@ extension Agent {
         let groups = Agent.menuGroups(in: window)
         return presenter.menus.presentedMenu.keys.contains { id in
             guard let labels = presenter.menus.given[id]?.map(\.label), !labels.isEmpty else { return false }
-            return groups.contains { !Agent.runs(of: labels, in: $0).isEmpty }
+            return groups.contains { !Agent.runs(of: labels, in: $0, passing: presenter.menus.givenHeaders[id] ?? []).isEmpty }
         }
     }
 
@@ -488,17 +489,31 @@ extension Agent {
 
     /// Where `group` shows the rows `labels` reads, each as its rows in
     /// `labels`' order and the place in `labels` of the first: a run of all
-    /// of them or, in a list that scrolls, one slice of them. A menu that
+    /// of them or, in a list that scrolls, one slice of them. A run passes
+    /// over the titles the menu was given as headers (`headers`: UIKit shows
+    /// a section's title as a labelled element among the rows); where a
+    /// title is also a row's label, each reading is returned. A menu that
     /// opens upward in UIKit's `.automatic` order shows its rows last first
     /// (`UIContextMenuConfiguration.ElementOrder`), so the group is read
     /// both ways.
-    static func runs(of labels: [String], in group: (scrolls: Bool, rows: [MenuRow])) -> [(rows: [MenuRow], first: Int)] {
+    static func runs(of labels: [String], in group: (scrolls: Bool, rows: [MenuRow]), passing headers: Set<String> = []) -> [(rows: [MenuRow], first: Int)] {
+        // Each way `shown`, from its start, reads as `wanted` in order,
+        // passing over headers: the rows read. `whole`: every element shown
+        // is read or passed, and `wanted` may end early (a scrolled slice);
+        // otherwise all of `wanted` is read, and elements may follow.
+        func read(_ shown: ArraySlice<MenuRow>, _ wanted: ArraySlice<String>, whole: Bool) -> [[MenuRow]] {
+            guard let row = shown.first else { return wanted.isEmpty || whole ? [[]] : [] }
+            guard let label = wanted.first else { return !whole || shown.allSatisfy({ headers.contains($0.label) }) ? [[]] : [] }
+            var out: [[MenuRow]] = []
+            if row.label == label { out += read(shown.dropFirst(), wanted.dropFirst(), whole: whole).map { [row] + $0 } }
+            if headers.contains(row.label) { out += read(shown.dropFirst(), wanted, whole: whole) }
+            return out
+        }
         func forward(_ rows: [MenuRow]) -> [(rows: [MenuRow], first: Int)] {
-            if group.scrolls, !rows.isEmpty, rows.count <= labels.count {
-                return (0...(labels.count - rows.count)).filter { k in zip(rows, labels[k...]).allSatisfy { $0.label == $1 } }.map { (rows, $0) }
+            if group.scrolls {
+                return labels.indices.flatMap { k in read(rows[...], labels[k...], whole: true).filter { !$0.isEmpty }.map { ($0, k) } }
             }
-            return rows.indices.filter { i in i + labels.count <= rows.count && zip(rows[i...], labels).allSatisfy { $0.label == $1 } }
-                .map { (Array(rows[$0..<$0 + labels.count]), 0) }
+            return rows.indices.filter { rows[$0].label == labels.first }.flatMap { i in read(rows[i...], labels[...], whole: false).map { ($0, 0) } }
         }
         return forward(group.rows) + forward(Array(group.rows.reversed()))
     }

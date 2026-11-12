@@ -20,9 +20,9 @@ extension MenuHost {
     func items(of pop: NodeView, path: [NodeView] = [], opener: NodeView? = nil) -> [UIMenuElement] {
         var sections: [(title: String?, items: [UIMenuElement])] = [(nil, [])]
         // Under the agent, what UIKit was given, in order (`given`).
-        var rows: [GivenRow] = []
-        defer { if ExactEnv.agentMode { given[pop.id] = rows } }
-        if ExactEnv.agentMode {
+        var rows: [GivenRow] = [], headers: Set<String> = []
+        defer { if recordsGiven { given[pop.id] = rows; givenHeaders[pop.id] = headers } }
+        if recordsGiven {
             if path.isEmpty { presentedMenu = [:] }
             presentedMenu[pop.id] = pop.incarnation
         }
@@ -93,6 +93,7 @@ extension MenuHost {
         }
         let filled = sections.filter { !$0.items.isEmpty }
         if filled.count <= 1, filled.first?.title == nil { return filled.first?.items ?? [] }
+        headers = Set(filled.compactMap(\.title).filter { !$0.isEmpty })
         return filled.map { UIMenu(title: $0.title ?? "", options: .displayInline, children: $0.items) }
     }
     /// The items of the popover `row` opens as a submenu: a menu it shows or

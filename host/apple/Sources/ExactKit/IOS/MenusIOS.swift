@@ -411,16 +411,16 @@ final class MenuHost {
     /// about 10 pt lower. A bar item's pull-down is a hand-built bar item's
     /// `UIMenu(title:)`, taller header and all (LLP 1021, amended 2026-10-16).
     func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
-        let headed = !heading.isEmpty && !inBar
-        let rows = rows(of: v, inBar: inBar, headed: headed)
+        let rows = rows(of: v, inBar: inBar, heading: heading)
         if heading.isEmpty { return UIMenu(children: [rows]) }
         return inBar ? UIMenu(title: heading, children: [rows]) : UIMenu(children: [UIMenu(title: heading, options: .displayInline, children: [rows])])
     }
-    /// `headed`: the rows go under the heading's inline section, whose
-    /// title UIKit draws only over rows of its own: the first untitled
-    /// section's rows are its rows, and the other sections follow it.
-    private func rows(of v: NodeView, inBar: Bool, headed: Bool = false) -> UIDeferredMenuElement {
-        UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
+    /// A `heading` outside a bar is an inline section's, whose title UIKit
+    /// draws only over rows of its own: the first untitled section's rows
+    /// are its rows, and the other sections follow it.
+    private func rows(of v: NodeView, inBar: Bool, heading: String = "") -> UIDeferredMenuElement {
+        let headed = !heading.isEmpty && !inBar
+        return UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
             func current() -> NodeView? {
                 guard let v, v.incarnation == token, self?.presenter?.views[v.id] === v, self?.eligible(v, inBar: inBar) == true else { return nil }
                 return v
@@ -438,6 +438,7 @@ final class MenuHost {
                 return
             }
             let items = self.items(of: invocation.target, opener: invoker)
+            if self.recordsGiven, !heading.isEmpty { self.givenHeaders[invocation.target.id, default: []].insert(heading) }
             guard headed, let first = items.first as? UIMenu, first.options.contains(.displayInline), first.title.isEmpty else { return completion(items) }
             completion(first.children + items.dropFirst())
         }
@@ -1016,6 +1017,14 @@ final class MenuHost {
     /// shows (`Agent.shownRow`). UIKit puts no identifier of an action on
     /// the element it shows, so a row is its place among these.
     var given: [UInt32: [GivenRow]] = [:]
+    /// Whether menus record what they give UIKit (`given`, `givenHeaders`,
+    /// `presentedMenu`): under the agent, which aims at what UIKit shows.
+    var recordsGiven = ExactEnv.agentMode
+    /// Under the agent, the titles each popover's menu was last given as
+    /// headers (its sections', and the heading of a pull-down's rows):
+    /// UIKit shows each as a labelled element among the rows, which
+    /// `Agent.runs` passes over.
+    var givenHeaders: [UInt32: Set<String>] = [:]
     /// Under the agent, the popovers (by id, with their incarnations) of
     /// the menu UIKit was last given to present: the one a menu opened
     /// with, and its submenus. A row of any other popover is not in the menu
