@@ -102,7 +102,6 @@ export const windowsWindow = (manifest) => [manifest?.host?.windows?.window?.wid
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
 export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
   return {
-    status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
     serve: ['host/web/serve.mjs'],
@@ -129,8 +128,10 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     ...game ? {} : { pattern: ['scripts/exact.mjs', 'pattern'] },
     docs: ['scripts/exact.mjs', 'docs'],
     feedback: ['scripts/feedback.mjs'],
-    // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
+    // A game's own: its hostless Rust tests, its proof's baseline, and the rows its dev loop and proof write
+    // (game/status.mjs; exact2's game/README.md). An app's dev loop listens only once it has built, so it writes none.
     ...game ? {
+      status: ['scripts/exact.mjs', 'status', dir],
       check: ['game/app/shells.mjs', dir, '--check'],
       game: ['scripts/exact.mjs', 'game'],
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
@@ -230,7 +231,11 @@ async function verbRun({ dir, name, game = false, exact2, args }, reply) {
     if (!help) { console.error(`no Exact checkout at ${exact2}: EXACT names the checkout`); return 1; }
     return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
   }
-  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+  if (verb === 'web' && rest.includes('--ready') && !game) {
+    console.error('web --ready waits for a game\'s dev loop, which serves while it builds; an app\'s web prints its URL once it serves');
+    return 2;
+  }
+  if (verb === 'status' && game || verb === 'web' && rest.includes('--ready')) {
     const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
     if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
     try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }

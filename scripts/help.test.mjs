@@ -13,7 +13,7 @@ import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 import { scriptFlags } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['status', 'web', 'web-build', 'serve', 'test', 'agent', 'verify', 'ios', 'mac', 'share', 'linux', 'windows', 'android', 'update', 'lock', 'add', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'serve', 'test', 'agent', 'verify', 'ios', 'mac', 'share', 'linux', 'windows', 'android', 'update', 'lock', 'add', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };

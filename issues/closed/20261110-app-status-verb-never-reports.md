@@ -1,6 +1,7 @@
 # An app's `status` verb is listed first in its help and can never report anything
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `status` is a game's verb, as `prove` is, and an app's `web --ready` is refused before it starts anything, since only a game's dev loop and proof write the rows both read.
 **Systems:** scripts/app-cli.mjs, scripts/help.mjs, game/status.mjs, host/web/dev.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

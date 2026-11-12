@@ -300,7 +300,7 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     const seeded = exact('seed', 'web');
     assert.equal(seeded.status, 3, seeded.stderr);
     assert.deepEqual(JSON.parse(seeded.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact: sdk, exact2: sdk });
-    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <status\|web\|[^>]*\|seed>/);
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|web-build\|[^>]*\|seed>/);
     assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'seed');
     // A built-in verb's name is the generated file's, and an empty command is no command.
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'seed.mjs'] } }, null, 2));
@@ -309,6 +309,33 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     assert.throws(() => readManifest(dir, 'field-log'), /commands\.seed: fewer than 1 items/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
+
+// Only a game's dev loop and proof write the rows `status` and `web --ready` read (game/status.mjs): an app's dev loop
+// listens once it has built, so for an app the one would always say nothing and the other always time out.
+test('status and web --ready are a game\'s verbs: an app offers neither, and its web --ready starts nothing', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const app = resolve(parent, 'field-log'), game = resolve(parent, 'block-hop'), sdk = resolve(parent, 'sdk'), started = resolve(parent, 'started');
+    createApp(app);
+    createGame(game);
+    withCli(sdk);
+    mkdirSync(resolve(sdk, 'host/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'host/web/dev.mjs'), `require('node:fs').writeFileSync(${JSON.stringify(started)}, '')`);
+    mkdirSync(resolve(sdk, 'game'), { recursive: true });
+    symlinkSync(resolve(import.meta.dir, 'status.mjs'), resolve(sdk, 'game/status.mjs'));
+    const exact = (dir, ...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: dir, env: { ...process.env, EXACT: sdk }, encoding: 'utf8' });
+    assert.doesNotMatch(exact(app, 'help').stdout, /^ {2}status /m);
+    const status = exact(app, 'status');
+    assert.equal(status.status, 2, status.stderr);
+    assert.match(status.stderr, /^Usage: bun exact\.mjs <web\|/);
+    const ready = exact(app, 'web', '--ready', '--timeout', '1');
+    assert.deepEqual([ready.status, ready.stderr.trim()], [2, 'web --ready waits for a game\'s dev loop, which serves while it builds; an app\'s web prints its URL once it serves']);
+    assert.ok(!existsSync(started), 'web --ready started the dev loop');
+    assert.match(exact(game, 'help').stdout, /^ {2}status /m);
+    const listed = exact(game, 'status');
+    assert.deepEqual([listed.status, listed.stdout.trim()], [0, 'No web or prove invocations recorded.'], listed.stderr);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
 
 // A verb added to exact.mjs decides whether it reads what before_build makes, rather than skipping it unasked.
 test('an app forwards add with its own directory, from any working directory, without before_build', () => {
