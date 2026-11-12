@@ -1,6 +1,7 @@
 # JS runtime tests fail because their stand-ins omit current runtime bindings
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The stand-ins export every name the runtime and ts-data.js import, as constructible functions or stated values, list.js is evaluated with every name it imports bound, and the tests load the runtime's request-send.js and shape.js, give a queue mutation its numeric mode and expect the store's leased retry.
 **Systems:** host/web/tests/js-runtime.test.mjs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review

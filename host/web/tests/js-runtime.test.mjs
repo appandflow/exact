@@ -21,19 +21,25 @@ mkdirSync(resolve(root, 'web'));
 writeFileSync(resolve(root, 'web/address-space.js'), 'export const setSpaceState = () => {};');
 const webJs = name => resolve(fileURLToPath(new URL(`../../web-js/${name}`, import.meta.url)));
 
-const REAL = ['rt.js', 'presence-bindings.js', 'rows.js', 'uploads.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js', 'resource-inspection.js', 'sheets.js'];
+const REAL = ['rt.js', 'request-send.js', 'presence-bindings.js', 'rows.js', 'uploads.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js', 'resource-inspection.js', 'sheets.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
-for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
+// The stand-ins export what these modules and ts-data.js import; the values the tests read are stated.
+const STATED = {
+  'admission.js': { createSecretFacade: '() => ({ read: false })', hasGrant: '() => true', appGrantSet: '() => null', coversPath: '() => true',
+    setAppGrantSet: 'g => g', overlaying: '{ on: false }', inOverlay: 'api => new Error(api)' },
+  'admission-data.js': { tsGrantSet: '{}' },
+  // The build points ts-data.js's `__FETCH_MODULE__` here, from which it imports `fetch`.
+  'ts-fetch.js': { fetch: '() => {}', answering: '{ call: null, untraced: new Set() }', files: '{ appId: null }', activeCall: '() => answering.call',
+    SOCKET_AND_FETCH: "'a mutation cannot both send on a socket and fetch'" },
+  'names.js': { sourceTypes: '{}' },
+};
+for (const [file, source] of standIns([...REAL, 'ts-data.js'], STATED)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
 writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
 // ts-data.js over a scripted store (the storage test below), written before
 // anything is imported from here: the loader reads this directory once.
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
-stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const appGrantSet = () => null; export const coversPath = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
-stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', "export const answering = { call: null, untraced: new Set() }; export const files = { appId: null }; export const dropTimers = () => {}; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
-stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
@@ -452,7 +458,7 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
   const wasAgent = clock.agent;
   clock.agent = true;
   try {
-    const slot = sig(null), edits = sig(0), m = mut('refused-send', slot, [], 's', queued);
+    const slot = sig(null), edits = sig(0), m = mut('refused-send', slot, [], 's', queued ? 1 : 0);
     if (queued) queues([[slot], [], []]);
     const send = act(value => { W(edits, edits() + 1); M(m, 'save', [value]); });
     send('later'); send('refuse');
@@ -512,7 +518,7 @@ describe('browser TypeScript send failures', () => {
           const rt = await import('/rt.js'), { install } = await import('/send-data.js');
           install(rt.data); rt.clock.agent = true;
           globalThis.asked = []; globalThis.failure = failure;
-          const slot = rt.sig('kept'), edits = rt.sig(0), m = rt.mut('failed-send', slot, [], 's', queued);
+          const slot = rt.sig('kept'), edits = rt.sig(0), m = rt.mut('failed-send', slot, [], 's', queued ? 1 : 0);
           if (queued) rt.queues([[slot, edits], [], []]);
           let thens = 0;
           m.then = () => { thens++; };

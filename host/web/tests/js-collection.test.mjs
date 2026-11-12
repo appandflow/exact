@@ -4,6 +4,7 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { imports } from './stand-ins.mjs';
 
 const webJs = name => resolve(fileURLToPath(new URL(`../../web-js/${name}`, import.meta.url)));
 
@@ -15,9 +16,12 @@ function collectionRuntime() {
   let mapCount = 0;
   const viewId = el => { const id = ++next; Views.set(id, el); return id; };
   const source = readFileSync(webJs('list.js'), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
-  const { Collection, report, Lists, HeightPreview } = Function('viewId', 'Views', 'write', 'writeItem', 'Refusal', 'Hosts', 'After', 'settled', 'Map',
-    `${source}; return { Collection, report, Lists, HeightPreview };`)(viewId, Views, () => {}, () => {}, Error, {}, [], () => {},
-      class extends Map { constructor(...args) { super(...args); mapCount++; } });
+  // Every name list.js imports is bound: these as given, the rest as functions that do nothing.
+  const given = { viewId, Views, write() {}, writeItem() {}, Refusal: Error, Hosts: {}, Before: [], After: [], settled() {},
+    Map: class extends Map { constructor(...args) { super(...args); mapCount++; } } };
+  const names = [...new Set([...imports('list.js').flatMap(i => i.local ?? []), ...Object.keys(given)])];
+  const { Collection, report, Lists, HeightPreview } = Function(...names, `${source}; return { Collection, report, Lists, HeightPreview };`)(
+    ...names.map(n => n in given ? given[n] : function () {}));
   const make = (horizontal = false) => {
     const c = new Collection({}, { x: horizontal, pw: [], ph: [], est: 100 }, null);
     c.items = Array.from({ length: 100 }, (_, i) => i);
