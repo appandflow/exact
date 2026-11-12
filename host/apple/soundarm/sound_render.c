@@ -8,6 +8,10 @@
 
 typedef struct { uint32_t kind; uint32_t sound; uint64_t id; double at; float gain, rate, pan; double ramp; } Op;
 
+/// Changes a voice holds before their time: more in one buffer than a
+/// commit at every frame makes.
+#define EXACT_SOUND_PENDING 8
+
 /// A value moving linearly from `from` at `t0` to `to` at `t1`, host seconds; `to` after.
 typedef struct { double from, to, t0, t1; } Ramp;
 
@@ -29,6 +33,10 @@ typedef struct {
     double panFrom;      // when it is panned from: a change can pan one that was not
     Ramp pan;
     float left, right;   // the equal-power gains of the pan once its ramp is over
+    // Changes not yet reached, in time order: each takes effect at the frame
+    // its time reaches, so a later one never rewrites an earlier one's ramp.
+    Op pending[EXACT_SOUND_PENDING];
+    uint32_t waiting;
 } Voice;
 
 typedef struct { const float *planes; uint32_t frames, source; } Sound;
@@ -125,6 +133,31 @@ static inline void place(const Sound *sound, double pan, float *left, float *rig
     *right = (float)sin(x * M_PI / 2);
 }
 
+/// Change `op` to voice `v`: from `op.at` each value given moves from where
+/// its ramp has it then, or, for a voice whose start is after the change,
+/// takes the value outright.
+static void change(ExactMixer *m, Voice *v, const Op *op) {
+    bool outright = op->at < v->start;
+    float given[3] = { op->gain, op->rate, op->pan };
+    Ramp *ramps[3] = { &v->gain, &v->rate, &v->pan };
+    if (isfinite(op->pan) && op->pan != 0 && !v->panned) {
+        v->panned = true;
+        v->panFrom = outright ? -INFINITY : op->at;
+        v->pan = (Ramp){ 0, 0, v->start, v->start };
+    }
+    for (int p = 0; p < 3; p++) {
+        if (!isfinite(given[p]) || (p == 2 && !v->panned)) continue;
+        double to = p == 1 ? (given[p] > 0 ? given[p] : 1) : p == 2 ? fmin(fmax(given[p], -1), 1) : given[p];
+        Ramp *r = ramps[p];
+        *r = outright ? (Ramp){ to, to, v->start, v->start } : (Ramp){ along(r, op->at), to, op->at, op->at + op->ramp };
+    }
+    if (v->panned) place(&m->sounds[v->sound], v->pan.to, &v->left, &v->right);
+}
+
+static inline double ramps_end(const Voice *v) {
+    return fmax(v->gain.t1, fmax(v->rate.t1, v->panned ? v->pan.t1 : 0));
+}
+
 /// Mix voice `v` into `out` for this buffer of `frames` frames, whose first
 /// reaches the speaker at `speaker`: from its first frame (or where it is)
 /// to its end, the file's or an End's. Whether it is still live after it.
@@ -150,9 +183,16 @@ static bool mix(ExactMixer *m, Voice *v, double speaker, uint32_t frames, AudioB
     // A stereo sound for a mono output keeps both its planes (exact_sound_set).
     uint32_t stored = m->channels == 1 && sound->source >= 2 ? 2 : m->channels;
     // Frame i reaches the speaker at speaker + i / rate; a ramp is read there.
-    double rampsEnd = fmax(v->gain.t1, fmax(v->rate.t1, v->panned ? v->pan.t1 : 0));
+    double rampsEnd = ramps_end(v);
     for (int64_t i = begin; i < stop && v->position < sound->frames; i++) {
         double at = speaker + (double)i / m->rate;
+        if (v->waiting && v->pending[0].at <= at) {
+            uint32_t n = 0;
+            while (n < v->waiting && v->pending[n].at <= at) change(m, v, &v->pending[n++]);
+            memmove(v->pending, v->pending + n, (v->waiting - n) * sizeof(Op));
+            v->waiting -= n;
+            rampsEnd = ramps_end(v);
+        }
         bool ramping = at < rampsEnd, panned = v->panned && at >= v->panFrom;
         float gain = ramping ? (float)along(&v->gain, at) : (float)v->gain.to;
         double pan = !panned ? 0 : ramping ? along(&v->pan, at) : v->pan.to;
@@ -279,22 +319,16 @@ static void apply(ExactMixer *m, double speaker, uint32_t frames, AudioBufferLis
             for (int i = 0; i < EXACT_SOUND_SLOTS; i++) {
                 Voice *v = &m->slots[i];
                 if (!v->live || v->id != op.id) continue;
-                // One whose start is after the change takes the values outright.
-                bool outright = op.at < v->start;
-                float given[3] = { op.gain, op.rate, op.pan };
-                Ramp *ramps[3] = { &v->gain, &v->rate, &v->pan };
-                if (isfinite(op.pan) && op.pan != 0 && !v->panned) {
-                    v->panned = true;
-                    v->panFrom = outright ? -INFINITY : op.at;
-                    v->pan = (Ramp){ 0, 0, v->start, v->start };
+                // One whose start is after the change takes the values now; any
+                // other waits for the frame its time reaches. A full queue lets
+                // its oldest take effect early.
+                if (op.at < v->start) { change(m, v, &op); continue; }
+                if (v->waiting == EXACT_SOUND_PENDING) {
+                    change(m, v, &v->pending[0]);
+                    memmove(v->pending, v->pending + 1, (EXACT_SOUND_PENDING - 1) * sizeof(Op));
+                    v->waiting--;
                 }
-                for (int p = 0; p < 3; p++) {
-                    if (!isfinite(given[p]) || (p == 2 && !v->panned)) continue;
-                    double to = p == 1 ? (given[p] > 0 ? given[p] : 1) : p == 2 ? fmin(fmax(given[p], -1), 1) : given[p];
-                    Ramp *r = ramps[p];
-                    *r = outright ? (Ramp){ to, to, v->start, v->start } : (Ramp){ along(r, op.at), to, op.at, op.at + op.ramp };
-                }
-                if (v->panned) place(&m->sounds[v->sound], v->pan.to, &v->left, &v->right);
+                v->pending[v->waiting++] = op;
             }
         }
     }

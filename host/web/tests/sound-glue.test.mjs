@@ -225,8 +225,13 @@ for (const engine of engines) {
         await decoded(s.out);
         s.out.ops([{ op: 'set', id: 1, at: 200, pan: -1, ramp: 0 }]);
         const rendered = await s.context.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1);
-        return { before: gain[9000], half: gain[12000], after: gain[15000], last: last(rate), panned: [left[15000], right[15000]], lines: [...g.lines, ...r.lines, ...s.lines] };
+        // A one-second file at rate 4 would have ended 250 ms in; slowed to 0.25 while it decodes, 300 ms in it is still due.
+        const d = offline(1, { 'assets/a.wav': wav(48000, 0.5) }, undefined, () => 1300);
+        d.out.ops([{ op: 'play', id: 1, sound: 0, at: 0, gain: 1, playbackRate: 4 }, { op: 'set', id: 1, at: 0, playbackRate: 0.25, ramp: 0 }]);
+        await decoded(d.out);
+        return { before: gain[9000], half: gain[12000], after: gain[15000], last: last(rate), panned: [left[15000], right[15000]], slowed: d.out.state().dropped, lines: [...g.lines, ...r.lines, ...s.lines, ...d.lines] };
       });
+      expect(got.slowed).toBe(0);
       expect(got.before).toBeCloseTo(0.5, 3);
       expect(got.half).toBeCloseTo(0.25, 2);
       expect(got.after).toBeCloseTo(0, 3);

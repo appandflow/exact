@@ -133,10 +133,11 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     voices.set(id, v);
     const buffer = buffers[sound];
     if (buffer && !(buffer instanceof Promise)) return schedule(v);
-    // Still decoding: it starts when it is decoded, from its first frame, unless its end has passed.
+    // Still decoding: it starts when it is decoded, from its first frame, unless its end has passed, at the rate a
+    // `set` may have given it meanwhile (the runner's `End` moves `stopAt` with it).
     Promise.resolve(buffer).then(b => {
       if (!voices.has(id) || sources[sound] !== src) return;
-      const length = b ? 1000 * b.duration / playbackRate : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
+      const length = b ? 1000 * b.duration / v.playbackRate : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
       if (!b || origin() + ends <= now()) { voices.delete(id); counts.dropped++; return log(`sound dropped: ${src} was still decoding at its end`); }
       schedule(v);
     });
