@@ -85,3 +85,12 @@ pub(super) fn dialog_glue(
                             })
             })
 }
+
+/// Hands the locale slot `s_<slot>` to chosen.js, for a plan that calls
+/// `setLocale`: its choice is written there before the state initializers run.
+pub(super) fn locale_slot(plan: &Plan, body: &mut String, slot: impl std::fmt::Display) {
+    use std::fmt::Write as _;
+    if exact_runner::uses::chooses_locale(plan) {
+        let _ = write!(body, "$localeSlot(s_{slot});");
+    }
+}

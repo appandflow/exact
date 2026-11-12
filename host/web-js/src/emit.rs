@@ -371,19 +371,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             format!("{}({locale}(),\"s\")", em.uses.rt("sig"))
         };
-        // A plan that runs `setLocale` reads the language it last chose,
-        // and its commit hook (commands.js) writes the slot from here on.
-        let chooses = exact_runner::uses::chooses_locale(plan);
         let _ = write!(
             body,
-            "{strings}([{}]{});const s_{}={signal};",
+            "{strings}([{}]);const s_{}={signal};",
             tables.join(","),
-            if chooses { ",1" } else { "" },
             slot.0
         );
-        if chooses {
-            let _ = write!(body, "{}(s_{});", em.uses.rt("localeSlot"), slot.0);
-        }
+        commands::locale_slot(plan, &mut body, slot.0);
     }
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
@@ -810,6 +804,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
             (modes.is_some(), "import{modes as $modes,Sx}from\"./modes.js\";"),
             (plan.slots.iter().any(|s| s.persist), "import{stored as $stored,keep as $keep}from\"./persist.js\";"),
+            (exact_runner::uses::chooses_locale(plan), "import{localeSlot as $localeSlot,setLocale as $setLocale}from\"./chosen.js\";"),
         ]
         .iter()
         .filter(|(on, _)| *on)
