@@ -15,7 +15,7 @@ import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } f
 import { tsGrantSet } from './admission-data.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources, time } from './rt.js';
-import { Shaped } from './shape.js';
+import { failureCode, failureReason, Shaped } from './shape.js';
 import { ledger, requestKey } from './uploads.js';
 useFetch(sourceFetch);
 // The app's id is app.json's, which the build writes here; app.ts need not export one.
@@ -546,7 +546,11 @@ function storageOf(grants) {
 }
 // A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
 // first use so a module that never streams carries none of it.
-const opener = (stream, conv, name) => (deliver, controller) => { controller.streamName = name; return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller)); };
+const opener = (stream, conv, name) => (deliver, controller) => {
+  controller.streamName = name;
+  return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller))
+    .catch(e => ({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
+};
 export function install(data, mixed = false, modules = null) {
   data.appId = appId;
   bodyFiles.appId = appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
