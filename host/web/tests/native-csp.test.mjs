@@ -66,3 +66,8 @@ check("the page module loads and answers native.later under a policy that admits
     expect(await answer(`policy=${policy}`)).toEqual({ answer: { op: 'echo', length: 1 }, announced: ['meter'], violations: [] });
   }
 }, 60000);
+
+check('a request of several megabytes reaches later(request) whole', async () => {
+  const bytes = 4 << 20;
+  expect((await answer(`bytes=${bytes}`)).answer).toEqual({ op: 'echo', length: bytes });
+}, 60000);
