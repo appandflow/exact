@@ -764,9 +764,17 @@ fn a_negative_number_after_an_attributes_equals_is_a_number_literal() {
         let e = parse(&format!("component A\n  view\n    input {written}\n")).unwrap_err();
         assert_eq!(e.id, "syntax-unquoted-length", "{written}");
     }
-    // An exponent that overflows is no number.
+    // A literal that overflows a double is no number, with an exponent or without.
     let e = parse("component A\n  view\n    input min=-1e999\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-number");
+    let src = format!(
+        "component A\n  state n = {}\n  view\n    text \"\"\n",
+        "9".repeat(400)
+    );
+    let e = parse(&src).unwrap_err();
+    assert_eq!(e.id, "syntax-bad-number");
+    assert_eq!((e.span.line, e.span.col), (2, 13), "{e:?}");
+    assert!(e.message.contains("1.8e308"), "{}", e.message);
 }
 
 /// What the negative literal leaves alone: subtraction, a negation of

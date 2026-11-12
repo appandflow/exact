@@ -315,15 +315,13 @@ impl Lexer {
                     // `2.5E-3`, `4e+2`): `e` or `E`, an optional sign and at
                     // least one digit. Without the digit the `e` is not part of
                     // the number, so a unit written against it (`2em`) is still
-                    // the unquoted length it was. One that overflows is no number.
-                    let mut exponent = false;
+                    // the unquoted length it was.
                     if matches!(bytes.get(pos), Some(b'e' | b'E')) {
                         let sign = usize::from(matches!(bytes.get(pos + 1), Some(b'+' | b'-')));
                         if bytes
                             .get(pos + 1 + sign)
                             .is_some_and(|n| (*n as char).is_ascii_digit())
                         {
-                            exponent = true;
                             pos += 1 + sign;
                             while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
                                 pos += 1;
@@ -331,15 +329,21 @@ impl Lexer {
                         }
                     }
                     let text = &trimmed[start..pos];
-                    let n: f64 = text
-                        .parse()
-                        .ok()
-                        .filter(|n: &f64| n.is_finite() || !exponent)
-                        .ok_or(LexError {
+                    // A literal past the largest double, with an exponent or
+                    // without, parses to infinity, which no host takes as a value.
+                    let n: f64 = text.parse().ok().filter(|n: &f64| n.is_finite()).ok_or_else(|| {
+                        let shown = match text.get(..24) {
+                            Some(head) if text.len() > 24 => format!("{head}…"),
+                            _ => text.to_string(),
+                        };
+                        LexError {
                             id: "syntax-bad-number",
-                            message: format!("`{text}` is not a number"),
+                            message: format!(
+                                "`{shown}` is too large for a number, whose largest is about 1.8e308"
+                            ),
                             span,
-                        })?;
+                        }
+                    })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
                         span: Span {

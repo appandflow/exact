@@ -139,7 +139,7 @@ component A
 
 #[test]
 fn raw_literals_survive() {
-    let huge = "9".repeat(400); // lexer accepts an overflowing decimal
+    let huge = "9".repeat(300); // still finite: the largest double has 309 digits
     let src = format!(
         r#"
 font "Brand" = "fonts/brand.ttf"

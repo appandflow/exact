@@ -1,6 +1,7 @@
 # A decimal literal too large for a double compiles to Infinity, which the runtime then refuses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The lexer refuses every number literal that overflows a double as `syntax-bad-number`, with or without an exponent, at the literal.
 **Systems:** contract/syntax lexer (number literals), contract/lower (`Expr::Number`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
