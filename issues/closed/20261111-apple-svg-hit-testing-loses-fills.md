@@ -1,6 +1,7 @@
 # Apple SVG hit testing loses fills from empty gradients
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Apple scene sends each shape's hit paints as the kernel decides them by `pointer-events` (`hp`), and the presenter hits by those rather than by what the shape draws.
 **Systems:** host/apple/src/svg.rs, host/apple/Sources/ExactKit/SvgScene.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
