@@ -1,6 +1,7 @@
 # `lower-header-unplaced` says a symbol image beside a route header's heading is not shown on iOS; the iOS presenter draws it in the title
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `lower-header-unplaced` counts a symbol image in the heading's own flex row as placed, by the rule the iOS title applies (`HeaderTitle`: the row's other shown children are bar items or unfilled symbol images), and its sentence says the title takes them.
 **Systems:** contract/lower/src/warnings.rs, host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

@@ -102,26 +102,70 @@ fn filled(node: &Node) -> bool {
 /// A passive box of texts and symbol images, one of each at least: a
 /// subtitle's line of glyphs (Signal's "🔕 Muted ⏱ 1w").
 fn glyph_line(node: &Node) -> bool {
-    let (mut symbol, mut text) = (false, false);
+    let (mut symbols, mut text) = (false, false);
     for k in kids(node) {
-        match (part(k), k) {
-            (Part::Text, _) => text = true,
-            (
-                Part::Other,
-                Node::Element {
-                    tag, positional, ..
-                },
-            ) if tag == "image" => match positional.first() {
-                // A computed source may be a symbol: the benefit.
-                Some(Expr::Str(s, _)) if !s.starts_with("symbol:") => return false,
-                Some(_) => symbol = true,
-                None => return false,
-            },
-            (Part::Hidden, _) => {}
+        match part(k) {
+            Part::Text => text = true,
+            Part::Other if symbol(k) => symbols = true,
+            Part::Hidden => {}
             _ => return false,
         }
     }
-    symbol && text && !filled(node)
+    symbols && text && !filled(node)
+}
+
+/// An image whose source is a symbol; a computed source may be one: the benefit.
+fn symbol(node: &Node) -> bool {
+    let Node::Element {
+        tag, positional, ..
+    } = node
+    else {
+        return false;
+    };
+    tag == "image"
+        && match positional.first() {
+            Some(Expr::Str(s, _)) => s.starts_with("symbol:"),
+            Some(_) => true,
+            None => false,
+        }
+}
+
+/// Whether `row` is the heading's row, whose unfilled symbol images the
+/// iOS title draws beside its text (`HeaderTitle`,
+/// NavigationTitleIOS.swift): a flex row holding the heading, each other
+/// child shown there a bar item or such an image.
+fn title_row(row: &Node) -> bool {
+    let Node::Element {
+        tag,
+        attrs,
+        children,
+        ..
+    } = row
+    else {
+        return false;
+    };
+    let flex = match literal(attrs, "display") {
+        Some(display) => display == "flex",
+        None => tag == "row",
+    };
+    if !flex || literal(attrs, "flex-direction").is_some_and(|d| d != "row") {
+        return false;
+    }
+    let mut heading = false;
+    for k in children {
+        match part(k) {
+            Part::Heading => heading = true,
+            Part::Hidden
+            | Part::Doubt
+            | Part::Pressable
+            | Part::Status
+            | Part::Search
+            | Part::Tablist => {}
+            Part::Other if symbol(k) && !filled(k) => {}
+            _ => return false,
+        }
+    }
+    heading
 }
 
 /// What the walk of one header has seen.
@@ -151,7 +195,8 @@ pub(super) const OR_NO_BAR: &str = "; or, for a site's header, say `appearance=\
 
 /// `lower-header-unplaced`: a node in a route's first `header` that the
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
-/// bar takes one heading as its title, the first text after it as the
+/// bar takes one heading as its title (with the symbol images beside it in
+/// its row, `title_row`), the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
 /// tablist, the buttons that press, open a popover or are disabled, and the
 /// readouts (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
@@ -180,7 +225,7 @@ pub(super) fn route_header<'a>(
         return;
     }
     let mut bar = Bar::default();
-    walk(kids(header), &mut bar);
+    walk(header, &mut bar);
     if bar.headings != 1 {
         if !bar.doubt {
             out.push(LowerError {
@@ -203,15 +248,17 @@ pub(super) fn route_header<'a>(
         out.push(LowerError {
             id: "lower-header-unplaced",
             message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press or are disabled and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
+                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title (with the symbol images beside it in its own row), the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press or are disabled and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
             ),
             span,
         });
     }
 }
 
-fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
-    for node in nodes {
+/// The children of `parent`, a header or a box in it, into `bar`.
+fn walk<'a>(parent: &'a Node, bar: &mut Bar<'a>) {
+    let glyphs = title_row(parent);
+    for node in kids(parent) {
         let span = node.span();
         match part(node) {
             Part::Doubt => bar.doubt = true,
@@ -232,11 +279,11 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
             // A pressable box around the heading is the title, tapped.
             Part::Pressable if !bar.tap && has_press(node) && holds_heading(node) => {
                 bar.tap = true;
-                walk(kids(node), bar);
+                walk(node, bar);
             }
             Part::Pressable => {}
             // A status around the heading is no readout: walked for it.
-            Part::Status if holds_heading(node) => walk(kids(node), bar),
+            Part::Status if holds_heading(node) => walk(node, bar),
             Part::Status => {}
             Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
             Part::Text => bar.unplaced.push((
@@ -251,10 +298,12 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
             Part::Box if !bar.passed && !bar.avatar && filled(node) && !holds_heading(node) => {
                 bar.avatar = true;
             }
-            Part::Box if holds_placed(node) => walk(kids(node), bar),
+            Part::Box if holds_placed(node) => walk(node, bar),
             // A box with nothing in it lays the bar's items out (a spacer).
             Part::Box if kids(node).is_empty() => {}
             Part::Box => bar.unplaced.push((span, "this box".into())),
+            // Drawn in the title, before or after its text.
+            Part::Other if glyphs && symbol(node) && !filled(node) => {}
             Part::Other => {
                 let what = match node {
                     Node::Element { tag, .. } if tag == "button" => {
