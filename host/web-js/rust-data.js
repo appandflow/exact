@@ -166,7 +166,19 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts, tsThrewRead = data.threwRead;
   data.threwRead = () => { const read = [threwRead, !!tsThrewRead?.()]; threwRead = false; return read[0] || read[1]; };
   data.answer = ts ? (source, args, store, target, mutation, forced) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target, mutation, forced); throw e; } } : rust;
-  data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
+  // A stream's messages that arrived together (request-send.js): each parsed in order (LLP 1016.000 D4), the last
+  // one's answer theirs; one that answers with a request (the stream asked again) ends them there.
+  data.parse = (source, args, outcome, store) => {
+    if (!outcome.streamed) return callWith(4, source, args, store, outcome);
+    let out, read = false;
+    for (const m of outcome.streamed) {
+      out = callWith(4, source, args, store, { streamed: m });
+      read ||= !!out.store;
+      if (out.req) break;
+    }
+    if (read) out.store = true;
+    return out;
+  };
   // An overlay (`overlay_request`): what a resource shows while writes affect it; none from the Rust module asks
   // the TypeScript one's, beside it.
   const types = s => (sources[s] ?? '|').split('|'), tsOverlay = data.overlay;

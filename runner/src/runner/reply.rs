@@ -126,6 +126,10 @@ impl<D: DataSource> Runner<D> {
             }
             return self.message(pos, outcome, &summary);
         }
+        // Messages that waited together (LLP 1016.000 D4): one commit.
+        if let (Some(_), Outcome::Messages(_)) = (self.pending[pos].stream, &outcome) {
+            return self.message(pos, outcome, &summary);
+        }
         // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
         if self.pending[pos].reask_at.is_some() {
             return self.reask_answered(ticket, outcome, &summary);
@@ -198,9 +202,11 @@ impl<D: DataSource> Runner<D> {
             self.long_poll_replied(pos);
         }
         let p = &mut self.pending[pos];
-        if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
-            count.coalesced += u64::from(m.coalesced);
-            sockets::socket_message(count, m);
+        if let Some(count) = p.stream.as_mut() {
+            for m in outcome.messages() {
+                count.coalesced += u64::from(m.coalesced);
+                sockets::socket_message(count, m);
+            }
         }
         let p = p.clone();
         self.note_child_outcome(p.ticket, &outcome);
@@ -251,7 +257,8 @@ impl<D: DataSource> Runner<D> {
         }
         let name = self.target_name(p.target);
         let turn = std::mem::take(&mut self.mapper_turns.landing);
-        let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
+        let message = p.stream.is_some() && !outcome.messages().is_empty();
+        let messages = outcome.messages().len().max(1) as u64;
         let failed_end = matches!(outcome, Outcome::Failed { .. });
         let ty = match p.target {
             Target::Resource(i) => self.resource_row(i).ty,
@@ -280,7 +287,10 @@ impl<D: DataSource> Runner<D> {
             self.module_parse(p.target, ty, &p.source, outcome)
                 .map(Some)
         } else {
-            let parsed = self.parse_frame(&p, message, outcome);
+            let parsed = match outcome {
+                Outcome::Messages(batch) => self.parse_batch(&p, batch),
+                outcome => self.parse_frame(&p, message, outcome),
+            };
             let parsed = parsed.and_then(|answer| match answer {
                 Some(answer) if p.target.mutation().is_some() => {
                     self.single_answer(p.target, Ok(answer)).map(Some)
@@ -442,7 +452,7 @@ impl<D: DataSource> Runner<D> {
         if message || turn {
             let pending = self.pending.iter_mut().find(|q| q.ticket == p.ticket);
             if let Some(count) = pending.and_then(|p| p.stream.as_mut()) {
-                count.messages += 1;
+                count.messages += messages;
             }
             self.sync_pending_flags();
         }
@@ -500,6 +510,32 @@ impl<D: DataSource> Runner<D> {
             .and_then(|_| self.gate_step())?;
         self.update()
     }
+    /// Messages that waited together, parsed in arrival order (LLP
+    /// 1016.000 D4): the last one's answer is the batch's, and the values
+    /// before it are the mapper's to fold. One answered otherwise than now
+    /// stops the batch there: a mapper's next turn holds the rest behind
+    /// it, in order, and a stream reopened lets them go with its old ticket.
+    fn parse_batch(
+        &mut self,
+        p: &PendingReq,
+        batch: Vec<crate::Message>,
+    ) -> Result<Option<Answer>, DataError> {
+        let mut rest = batch.into_iter();
+        let mut last = None;
+        while let Some(m) = rest.next() {
+            match self.parse_frame(p, true, Outcome::Message(m))? {
+                Some(Answer::Now(value)) => last = Some(Answer::Now(value)),
+                Some(Answer::Later(request)) if request.continuation.is_some() => {
+                    self.hold_behind_turn(p.ticket, rest.collect())
+                        .map_err(DataError::Unavailable)?;
+                    return Ok(Some(Answer::Later(request)));
+                }
+                other => return Ok(other),
+            }
+        }
+        Ok(last)
+    }
+
     fn continue_answer(&mut self, previous: &PendingReq) {
         let effects = previous.admitted_effects();
         for next in self
