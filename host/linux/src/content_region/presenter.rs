@@ -97,7 +97,8 @@ impl<D: DataSource> Presenter<D> {
             self.brush.scrollbars.limits = self.collection_scroll_limits();
             self.brush.scrollbars.pointer = self.hover_point;
         }
-        self.brush.placements = self.surfaces.placements(&self.host);
+        self.brush.placements = self.surfaces.placements(&self.host, true);
+        self.brush.composites.canvases = self.surfaces.composites();
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
         let previous = std::mem::replace(&mut self.brush.canvases, self.host.canvas_snapshots());
@@ -227,6 +228,8 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         let notes = self.brush.take_notes();
+        let pictures = std::mem::take(&mut self.brush.composites.pictures);
+        self.surfaces.children_pictures(pictures);
         self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => {

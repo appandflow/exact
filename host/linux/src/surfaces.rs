@@ -35,6 +35,7 @@ pub(crate) mod apple;
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
+mod placed;
 mod shaders;
 mod size;
 #[cfg(windows)]
@@ -930,98 +931,6 @@ impl Surfaces {
         }
         changed
     }
-    pub(crate) fn placements<D: DataSource>(
-        &self,
-        host: &Host<D>,
-    ) -> BTreeMap<u32, crate::placement::Placement> {
-        use crate::placement::Placement;
-        let mut result = BTreeMap::new();
-        for (&view, canvas) in &self.canvases {
-            let (Some(node), Some(abi)) =
-                (host.kernel().node(view), self.abis.get(&canvas.artifact))
-            else {
-                continue;
-            };
-            if unsafe { abi.symbol::<Read>(b"gpu_children_mode")(canvas.id) } != 3 {
-                continue;
-            }
-            let children = node.children();
-            for (i, id) in children.iter().enumerate() {
-                let Some(child) = host.kernel().node(*id) else {
-                    continue;
-                };
-                let f = child.frame;
-                let name = child.props.str(exact_kernel::PropId::TestId).unwrap_or("");
-                unsafe {
-                    abi.symbol::<unsafe extern "C" fn(
-                        u32,
-                        u32,
-                        *const u8,
-                        usize,
-                        f32,
-                        f32,
-                        f32,
-                        f32,
-                        u32,
-                        u32,
-                        *const u8,
-                        usize,
-                    ) -> u32>(b"gpu_child_view")(
-                        canvas.id,
-                        i as u32,
-                        name.as_ptr(),
-                        name.len(),
-                        f.x - node.frame.x,
-                        f.y - node.frame.y,
-                        f.width,
-                        f.height,
-                        0,
-                        0,
-                        std::ptr::null(),
-                        0,
-                    );
-                }
-            }
-            unsafe {
-                abi.symbol::<unsafe extern "C" fn(u32, u32) -> u32>(b"gpu_children_count")(
-                    canvas.id,
-                    children.len() as u32,
-                );
-            }
-            // The no-device executor computes the same placements at the committed
-            // viewport/clock, without trying to render a GPU frame.
-            abi.agent(canvas.id,&json!({"op":"state","now":host.now(),"width":node.frame.width,"height":node.frame.height}));
-            for (i, id) in children.iter().enumerate() {
-                let mut h = [0.; 16];
-                let code = unsafe {
-                    abi.symbol::<unsafe extern "C" fn(u32, u32, *mut f32, usize) -> u32>(
-                        b"gpu_placement",
-                    )(canvas.id, i as u32, h.as_mut_ptr(), h.len())
-                };
-                match code {
-                    1 => {
-                        result.insert(
-                            *id,
-                            Placement::Visible {
-                                h: h[..9].try_into().unwrap(),
-                                depth: h[9],
-                                clip_depth: [
-                                    h[10..13].try_into().unwrap(),
-                                    h[13..16].try_into().unwrap(),
-                                ],
-                                canvas: view,
-                            },
-                        );
-                    }
-                    2 => {
-                        result.insert(*id, Placement::Hidden);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        result
-    }
 
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, held until one is live. False when
@@ -1491,8 +1400,6 @@ mod tests;
 #[path = "surface_controls_tests.rs"]
 mod control_tests;
 
-#[path = "surfaces/retire.rs"]
 mod retire;
-#[path = "surfaces/tier.rs"]
 mod tier;
 use tier::agent_tier;

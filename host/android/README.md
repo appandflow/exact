@@ -1432,8 +1432,9 @@ The cut was the smallest one. Left in the reader:
   every app, and gives none an app's own native module (LLP 1024) or a video player, which the benchmark's apps
   passed from an activity of their own. A package's implementation of a module is the exception (below, "Module
   implementations").
-- **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
-  blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
+- **A GPU canvas over children**: a `Composite` surface (Caltrain's sky, `glass`, which refracts the content inside
+  it) is given its children's picture (`gpu_texture`) and the page no longer paints them over it; built and unit
+  tested on a Mac, not seen on a device.
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
   record is computed as its Linux crate's is, and Caltrain's names both (`store.L` is `A`, `rustMode` is `native`).
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on

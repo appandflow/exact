@@ -36,6 +36,7 @@ pub use shape::Shape;
 mod box_filter;
 pub(crate) mod button;
 mod caret;
+mod composite;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
@@ -450,6 +451,8 @@ pub struct Painter {
     fresh_order: HashMap<ViewId, exact_kernel::paint_order::Potentials>,
     rank_increments: u32,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    /// The canvases whose children their surfaces composite, and their pictures.
+    pub(crate) composites: composite::Composites,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     /// Each hatched node's overlay as last published (LLP 1075.003.000.001 §2.2.1).
@@ -585,6 +588,7 @@ impl Painter {
             svg_warned: Default::default(),
             decoration_warning: false,
             placements: BTreeMap::new(),
+            composites: Default::default(),
             canvases: BTreeMap::new(),
             overlays: BTreeMap::new(),
             top_surface: None,

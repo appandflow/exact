@@ -49,6 +49,9 @@ impl Painter {
         child_offset: (f32, f32),
         child_rect: Option<Rect4>,
     ) {
+        if self.composite(walk, node, ts, child_offset, child_rect) {
+            return;
+        }
         let lift = self.lifted_child(walk, node);
         // A native button's children are its face, painted above (LLP 1069.011 D5).
         let native =
