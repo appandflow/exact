@@ -1537,7 +1537,10 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   refuses it (`message` is Convex's, `data` a `ConvexError`'s payload), when
   the socket is not open (nothing was sent), and when the socket closes before
   the answer. That last one may have run, and nothing is sent again on the
-  next connection: a write that must not repeat carries its own key.
+  next connection: a write that must not repeat carries its own key. When
+  Convex refuses the token (an expired one), it closes the socket, and what it
+  had not answered rejects with its words, as `live.authError` has them: it
+  did not run.
 - **A person's token.** `cx.setAuth(jwt)` in a mutation's source, with a JWT
   the deployment accepts (its `auth.config.ts`); `cx.setAuth(undefined)` signs
   out. In an `async` source it may follow an `await`; in a plain `.then`

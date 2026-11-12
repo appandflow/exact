@@ -152,6 +152,22 @@ test('a token whose frame never left is sent again once Convex has taken a later
   expect([asked.read(), whoami(sync)]).toEqual([{ ok: true, value: 'hello' }, { ok: true, value: null }]);
 });
 
+test('a token Convex refused ends the requests it had not answered with its words', async () => {
+  const sync = connected('alice');
+  const acknowledged = sync.request('Mutation', 'me:note', { body: 'before' });
+  sync.frame(JSON.stringify({ type: 'MutationResponse', requestId: 0, success: true, result: 'alice', ts: T2, logLines: [] }));
+  const refused = sync.request('Mutation', 'me:note', { body: 'after expiry' });
+  sync.frame(JSON.stringify({ type: 'AuthError', error: 'Convex token identity expired', baseVersion: 1, authUpdateAttempted: false })); // recorded
+  sync.closed('the socket closed (1005)'); // recorded
+  expect(await refused.outcome).toEqual({ ok: false, message: 'Convex token identity expired' });
+  expect(await acknowledged.outcome).toEqual({ ok: true, value: 'alice' });
+  expect([sync.status, sync.authError]).toEqual(['closed', 'Convex token identity expired']);
+  // The person's answers are not given as signed out, which the next connection is.
+  expect(whoami(sync)).toBeUndefined();
+  sync.connecting('session-2');
+  expect(sync.opened().map(f => f.type)).toEqual(['Connect', 'ModifyQuerySet']);
+});
+
 test('a token changed and changed back before Convex answered gives the answers held for it again', () => {
   const sync = connected();
   sync.setAuth('alice');

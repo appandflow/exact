@@ -112,6 +112,8 @@ export class Sync {
   private identities: (string | undefined)[] = [undefined];
   /** For each of `identities`, the query-set version when it was asked for. */
   private identitiesAt: number[] = [0];
+  /** Convex refused the token on this connection: what it had not answered ends with its words. */
+  private refused = false;
   private queries = new Map<string, Query>();
   private byId = new Map<number, Query>();
   private nextQueryId = 0;
@@ -147,6 +149,7 @@ export class Sync {
       clientTs: 0,
     }];
     this.connectionCount += 1;
+    this.refused = false;
     this.identities = [undefined];
     this.identitiesAt = [0];
     this.querySetVersion = 0;
@@ -161,7 +164,8 @@ export class Sync {
    *  answer yet fails, and is asked again when one arrives. A request in flight ends here too: an answer
    *  cannot wait across the gap (natively one that awaits with nothing outstanding is refused), so, unlike
    *  the npm client (`request_manager.ts`, `restart`), this sends no mutation again on the next connection.
-   *  One the server acknowledged succeeded; any other may have run. */
+   *  One the server acknowledged succeeded; after an `AuthError` any other was refused, and otherwise it may
+   *  have run. */
   closed(reason: string, fatal = false) {
     // The close that follows a fatal end is that end's, not a new one: `failed` and its reason stand.
     if (this.status === 'failed') return;
@@ -169,8 +173,10 @@ export class Sync {
     this.error = reason;
     this.lastCloseReason = reason;
     for (const q of this.queries.values()) { q.sent = false; q.current = false; this.wake(q); }
+    // After an `AuthError` a request it had not answered was refused for the token, and its words say so
+    // (recorded: two mutations sent with an expired token drew one `AuthError`, and neither wrote).
     for (const request of this.requests.values())
-      request.settle(request.done ? { ok: true, value: request.done.value } : { ok: false, message: `The connection to Convex closed before it answered (${reason}); the ${request.kind.toLowerCase()} may have run.` });
+      request.settle(request.done ? { ok: true, value: request.done.value } : { ok: false, message: this.refused ? this.authError : `The connection to Convex closed before it answered (${reason}); the ${request.kind.toLowerCase()} may have run.` });
     this.requests.clear();
   }
 
@@ -199,6 +205,7 @@ export class Sync {
         // The server closes the socket after it. The token is dropped, so the next connection is not refused
         // for it too; the app gets a fresh one and calls `setAuth`.
         this.authError = String(message.error ?? 'Convex refused the token');
+        this.refused = true;
         this.token = undefined;
         return [];
       }

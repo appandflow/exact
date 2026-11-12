@@ -52,7 +52,8 @@ export interface ConvexClient {
    *  the same turn. A failed query throws `ConvexFailure`, and so does one asked while the socket is closed. */
   query<Q extends Reference<'query'>, T = ReturnOf<Q>>(rev: number, ref: Q, args: ArgsOf<Q>, shape?: (value: ReturnOf<Q>) => T): T | Promise<T>;
   /** A mutation: its result once the queries show its write. It rejects with `ConvexFailure` when Convex refuses it,
-   *  when the socket is not open (nothing is sent), and when the socket closes first (it may have run). */
+   *  when the socket is not open (nothing is sent), when Convex refuses the token (its words; the mutation did not
+   *  run), and when the socket closes first (it may have run). */
   mutation<M extends Reference<'mutation'>>(ref: M, args: ArgsOf<M>): Promise<ReturnOf<M>>;
   /** An action: its result. It rejects as a mutation does. */
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
