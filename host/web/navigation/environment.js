@@ -14,9 +14,41 @@ export function environment() {
     "safe-area-inset-right": r2(parseFloat(cs.paddingRight) || 0),
     "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
     "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
-    "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+    "keyboard-inset-height": keyboardInset(),
     ...foldEnv()
   };
+}
+/** `env(keyboard-inset-height)` (LLP 1039 D9): the VirtualKeyboard API's rect where the page overlays the keyboard, else how far the visual viewport, its zoom aside, falls short of the layout viewport's height before the keys. Under `interactive-widget=resizes-content` the keys shrink the layout viewport too, so its height before them is the one last read while no text field had the focus, at this width (a rotation reads it again): no software keyboard is up without one. */
+export function keyboardInset(platform = globalThis) {
+  const rect = platform.navigator?.virtualKeyboard?.boundingRect;
+  if (rect?.height > 0) {
+    return r2(rect.height);
+  }
+  const vv = platform.visualViewport;
+  if (!vv) {
+    return 0;
+  }
+  const { innerWidth: width, innerHeight: height } = platform;
+  if (!typing(platform) || keysless.width !== width) {
+    keysless = { width, height };
+  }
+  return r2(Math.max(0, Math.max(keysless.height, height) - vv.height * (vv.scale || 1)));
+}
+let keysless = { width: -1, height: 0 };
+const KEYLESS_INPUTS = new Set(["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"]);
+/** Whether the focus is in a field a software keyboard types into. */
+function typing(platform) {
+  const active = platform.document?.activeElement;
+  if (!active) {
+    return false;
+  }
+  return active.isContentEditable === true || active.tagName === "TEXTAREA" || active.tagName === "INPUT" && !KEYLESS_INPUTS.has(active.type);
+}
+/** `changed` when the keyboard may have moved beyond a resize: the VirtualKeyboard API's `geometrychange`. The window's own `resize`, while nothing is typed into, reads the height the keys are measured against. */
+export function onKeyboard(changed, platform = globalThis) {
+  keyboardInset(platform);
+  platform.addEventListener?.("resize", () => keyboardInset(platform));
+  platform.navigator?.virtualKeyboard?.addEventListener?.("geometrychange", changed);
 }
 // Read CSS when the JS fold interfaces are absent (LLP 1078 D6). Share agent substitutes with agent-navigation.js; they change facts, not CSS env() resolution (D7).
 const r2 = (x) => Math.round(x * 100) / 100;

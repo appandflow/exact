@@ -1,4 +1,4 @@
-import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, releaseAssets, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
+import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, onKeyboard, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, releaseAssets, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags, scrollDrag } from "./navigation.js";
 import { send, applyBatch } from "./wasm/commit.js";
 import { positionContexts, contextPanel } from "./wasm/context.js";
 import { syncViewportFit } from "./wasm/views.js";
@@ -456,18 +456,23 @@ export const pageFacts = pageReporter(agentMode), pageChanged = () => {
       applyBatch(JSON.parse(readOut(host.wasm.exact_set_display_scale(pageFacts.displayScale()))));
     }
     if (host.wasm.exact_set_viewport_geometry && document.body) {
-      const env = environment();
-      const insets = ["top", "right", "bottom", "left"].map(edge => env[`safe-area-inset-${edge}`]);
-      applyBatch(JSON.parse(readOut(host.wasm.exact_set_viewport_geometry(writeIn(JSON.stringify([insets, fold().rects]))))));
+      applyBatch(JSON.parse(readOut(host.wasm.exact_set_viewport_geometry(writeIn(pageGeometry())))));
     }
   }
 };
 pageFacts.onChange(pageChanged);
 addEventListener("resize", pageChanged);
+// @ref LLP 1039 D9 — the page's geometry as the browser resolves it: the safe-area insets, the segments and the keyboard's overlap
+export const pageGeometry = () => {
+  const env = environment();
+  return JSON.stringify([["top", "right", "bottom", "left"].map(edge => env[`safe-area-inset-${edge}`]), fold().rects, env["keyboard-inset-height"]]);
+};
 // @ref LLP 1069.000 D2, D3
 const mediaChanged = () => {
   if (host.wasm && host.incarnation && innerWidth > 0 && innerHeight > 0) {
-    applyBatch(presence.resize(JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits())))));
+    // The geometry rides the size: a rotation's insets and size are one commit (LLP 1039 D9).
+    const told = host.wasm.exact_set_viewport_geometry && document.body ? writeIn(pageGeometry()) : 0;
+    applyBatch(presence.resize(JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)))));
   }
   pageChanged();
   requestAnimationFrame(positionContexts);
@@ -478,6 +483,7 @@ export const foldChanged = mediaChanged;
 onFold(foldChanged);
 // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => { pageChanged(); requestAnimationFrame(positionContexts); });
+onKeyboard(pageChanged); // LLP 1039 D9: the VirtualKeyboard API moves the keys without a resize
 const symbolStyle = document.createElement("style");
 document.head.append(symbolStyle);
 // @ref LLP 1081 stage 2 — a symbol is drawn in its `color`: a zero-specificity default, so a native face's or a bar's own ink wins. LLP 1116.003 D3.2: the nearest authored accent (`--exact-accent`), as the role is (LLP 1116.001 D2) and UIKit's inherited tint. LLP 1121 stage 9 B: one whose `color` its author wrote (`data-symbol-color`, element.rs) draws in it.

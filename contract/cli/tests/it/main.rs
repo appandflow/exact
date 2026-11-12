@@ -277,6 +277,7 @@ mod unsaved;
 mod unused_components;
 mod r#use;
 mod viewport;
+mod viewport_keyboard;
 mod visible_fields;
 mod vision_translation;
 mod visual;

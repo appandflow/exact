@@ -533,6 +533,63 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
     }
 }
 
+/// LLP 1039 D9: a rotation's size and the page's geometry reach the runner
+/// in one `exact_resize` and one commit, so a branch both decide, which
+/// holds before and after, is never torn down between them; the geometry
+/// alone carries the keyboard's overlap; a malformed one is refused.
+#[test]
+fn a_resize_carries_the_page_geometry_in_its_own_commit() {
+    let source = "shape Viewport\n  width: number\n  safeAreaLeft: number\n  keyboardHeight: number\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    column\n      if (viewport.width > 700) == (viewport.safeAreaLeft > 0)\n        input aria-label=\"Name\" testId=\"name\"\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData)
+        .unwrap()
+        .encode();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
+    bridge.boot(&plan, NoData, 600.0, 800.0, "/");
+    let agent = |bridge: &mut exact_web::abi::Bridge<NoData>, op: &[u8]| {
+        let n = bridge.input_write(op);
+        let len = bridge.agent(n);
+        serde_json::from_slice::<serde_json::Value>(bridge.output_bytes(len as usize)).unwrap()
+    };
+    let since = agent(&mut bridge, br#"{"op":"logs"}"#)["next"].clone();
+    let n = bridge.input_write(b"[[0, 0, 21, 47], [], 0]");
+    let len = bridge.resize_with(800.0, 600.0, 0, 0.0, n);
+    let batch = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+    assert!(!batch.contains("\"error\":\""), "{batch}");
+    let viewport = |bridge: &mut exact_web::abi::Bridge<NoData>| {
+        agent(bridge, br#"{"op":"state"}"#)["resources"]["viewport"].clone()
+    };
+    assert_eq!(
+        viewport(&mut bridge),
+        serde_json::json!({"width": 800, "safeAreaLeft": 47, "keyboardHeight": 0})
+    );
+    let logs = agent(
+        &mut bridge,
+        format!(r#"{{"op":"logs","since":{since}}}"#).as_bytes(),
+    )
+    .to_string();
+    assert_eq!(
+        logs.matches("asked again)").count(),
+        1,
+        "one commit: {logs}"
+    );
+    // The keys alone, through the geometry the glue tells on their move.
+    let n = bridge.input_write(b"[[0, 0, 21, 47], [], 291]");
+    bridge.viewport_geometry(n);
+    assert_eq!(viewport(&mut bridge)["keyboardHeight"], 291);
+    for malformed in [
+        &b"[[0, 0, 21, 47], []]"[..],
+        b"[0]",
+        b"[[0, 0, 21, 47], [], -1]",
+    ] {
+        let n = bridge.input_write(malformed);
+        let len = bridge.resize_with(600.0, 800.0, 0, 0.0, n);
+        let out = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+        assert!(out.contains("\"error\":\""), "{out}");
+    }
+    assert_eq!(viewport(&mut bridge)["keyboardHeight"], 291);
+}
+
 /// LLP 1121 stage 4, commit 3: a value-only edit of the app's design
 /// publishes no plan (its file is written, for a host that watches it); its
 /// batch says what changed. An edit that changes the plan's

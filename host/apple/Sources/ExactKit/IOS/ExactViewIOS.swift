@@ -43,6 +43,8 @@ public final class ExactView: UIView {
     private var lastRegions: [CGFloat]?
     private var lastFold = ViewportFold.flat
     private var lastScreen: CGSize?
+    /// The keyboard's overlap last told (`exactViewport().keyboardHeight`).
+    private var lastKeyboard: CGFloat = 0
     /// The bounds' size the last fit read (`fitAheadOfLayout`).
     private var fittedSize = CGSize.zero
     /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
@@ -528,6 +530,11 @@ public final class ExactView: UIView {
         }
         let resized = size != lastSize
         if resized { lastSize = size; change.size = size }
+        // LLP 1039 D9: what the agent's `layout.env` reports as `keyboard-inset-height`.
+        if presenter.keyboardInset != lastKeyboard {
+            lastKeyboard = presenter.keyboardInset
+            change.keyboard = lastKeyboard
+        }
         // Rects that change on the same grid (a keyboard ending the
         // segments, a resize) are told with the viewport, in its one layout;
         // a new posture or grid goes through `segments`. The kernel refuses
@@ -602,6 +609,7 @@ public final class ExactView: UIView {
         if let screen = lastScreen { session.view(Runtime.ViewChange(screen: .some(screen))) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         lastRegions = nil  // the next fit tells the new runner
+        lastKeyboard = 0  // as the new runner holds
         session.segments(lastFold)
         reportScheme()
         fit()
