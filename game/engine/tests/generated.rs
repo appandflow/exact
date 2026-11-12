@@ -314,6 +314,44 @@ fn the_material_record_writes_its_shading_only_when_it_is_not_the_default() {
     assert_eq!(back.clearcoat.to_bits(), (-0.0f32).to_bits());
 }
 
+#[test]
+fn each_shading_field_changes_a_generated_models_identity() {
+    let mut original = World::new(60, 0);
+    original.generated("rock.model", triangle()).unwrap();
+    let model = original.model("rock.model").unwrap().clone();
+    let saved = original.save();
+    for field in [
+        "unlit",
+        "clearcoat",
+        "clearcoat_roughness",
+        "sheen_color",
+        "sheen_roughness",
+    ] {
+        let mut changed = model.clone();
+        let material = &mut changed.materials[0];
+        match field {
+            "unlit" => material.unlit = true,
+            "clearcoat" => material.clearcoat = 0.5,
+            "clearcoat_roughness" => material.clearcoat_roughness = 0.5,
+            "sheen_color" => material.sheen_color = [0.5; 3],
+            "sheen_roughness" => material.sheen_roughness = 0.5,
+            _ => unreachable!(),
+        }
+        assert_ne!(
+            exact_game::hash::of(&model),
+            exact_game::hash::of(&changed),
+            "{field}"
+        );
+        let mut world = World::new(60, 0);
+        world.generated_model("rock.model", changed).unwrap();
+        let error = world.load(&saved).unwrap_err().to_string();
+        assert!(
+            error.contains("rock.model") && error.contains("identity differs"),
+            "{field}: {error}"
+        );
+    }
+}
+
 /// A complete record (a tuning table's JSON) names every material field, as the
 /// derive's records must; only the name may be absent. A short record and
 /// trailing input are refused.

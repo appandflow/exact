@@ -305,3 +305,153 @@ fn a_blended_material_s_uv_offset_scrolls_its_texture_in_place() {
         "a changed offset patches the instance in place"
     );
 }
+
+#[derive(Default, exact_game::Args)]
+struct Shaded {
+    /// 0: lit; 1: unlit; 2: under a clear coat.
+    shading: u32,
+    /// Use blue for the model's own texture.
+    blue: bool,
+    /// An instance override replaces the base colour texture with blue.
+    skin: bool,
+    /// Request an undelivered model after the first look draws.
+    #[live]
+    pending: bool,
+}
+struct ShadedSkin;
+impl Game for ShadedSkin {
+    const ID: &'static str = "cosmetic-shaded-skin";
+    type Args = Shaded;
+    fn setup(w: &mut World, _: &Shaded) {
+        w.insert_resource(exact_game::Environment {
+            background: Some([0.; 3].into()),
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            tone_mapping: exact_game::ToneMapping::None,
+            ..Default::default()
+        });
+        w.spawn_named("die", (Transform::default(), Mesh::asset("die.model")));
+        w.spawn((Transform::at(0., 0., 4.), Camera::default()));
+        // Light faces the quad so that the coat's highlight is visible.
+        w.spawn((
+            Transform::at(0., 0., 1.).looking_at(Vec3::ZERO, Vec3::Y),
+            exact_game::DirectionalLight {
+                illuminance: 1_000.,
+                shadows: false,
+                ..Default::default()
+            },
+        ));
+    }
+    fn tick(w: &mut World, _: &Input, args: &Shaded) {
+        if args.pending {
+            *w.require_mut::<Mesh>("die") = Mesh::asset("pending.model");
+        }
+    }
+    fn present(p: &mut exact_game::Present<'_>, args: &Shaded) {
+        let die = p.named("die").unwrap();
+        p.cosmetic_model("die.model", || {
+            let mut model = quad(if args.blue { "blue.tex" } else { "red.tex" });
+            let material = &mut model.materials[0];
+            material.unlit = args.shading == 1;
+            if args.shading == 2 {
+                material.clearcoat = 1.;
+                material.clearcoat_roughness = 0.2;
+            }
+            model
+        })
+        .unwrap();
+        if args.skin {
+            p.insert(
+                die,
+                exact_game::MaterialOverrides(vec![exact_game::MaterialOverride {
+                    material: 0,
+                    textures: exact_game::TextureSlots {
+                        base_color: Some("blue.tex".into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }]),
+            );
+        }
+    }
+}
+
+/// A texture override keeps the material's shading, including while its model
+/// stands in for a replacement that has not arrived.
+#[test]
+fn an_instance_skin_keeps_an_unlit_or_coated_materials_shading() {
+    let Some(gpu) = gpu() else { return };
+    let centre = |shading: u32, blue: bool, skin: bool| -> [u8; 4] {
+        let mut s = WorldSurface::<ShadedSkin, crate::ModelExecutor, true>::default();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.bind(
+            &[
+                Value::Number(shading.into()),
+                Value::Bool(blue),
+                Value::Bool(skin),
+                Value::Bool(false),
+            ],
+            None,
+        )
+        .unwrap();
+        let mut requests = s.assets().requests;
+        let mut now = 0.;
+        for _ in 0..3 {
+            if requests.is_empty() {
+                break;
+            }
+            for name in &requests {
+                let rgb = match name.as_str() {
+                    "blue.tex" => [0, 0, 255],
+                    "red.tex" => [255, 0, 0],
+                    _ => panic!("unexpected asset: {name}"),
+                };
+                s.asset(name, Ok(&solid(rgb)));
+            }
+            now += 50.;
+            fixture::render(&gpu, &mut s, &frame(now)).unwrap();
+            requests = s.assets().requests;
+        }
+        assert!(requests.is_empty(), "pending assets: {requests:?}");
+        now += 50.;
+        let (pixels, _) = fixture::render(&gpu, &mut s, &frame(now)).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        if skin {
+            let models = &s.render.as_ref().unwrap().0.models;
+            let [variant] = models.variants.values().collect::<Vec<_>>()[..] else {
+                panic!("one skinned material: {:?}", models.variants.keys());
+            };
+            let material = &models.materials[variant.0];
+            assert_eq!(material.layered, shading == 2);
+            s.bind(
+                &[
+                    Value::Number(shading.into()),
+                    Value::Bool(blue),
+                    Value::Bool(skin),
+                    Value::Bool(true),
+                ],
+                None,
+            )
+            .unwrap();
+            now += 50.;
+            let (fallback, _) = fixture::render(&gpu, &mut s, &frame(now)).unwrap();
+            assert!(s.error().is_none(), "{:?}", s.error());
+            assert_eq!(s.assets().requests, ["pending.model"]);
+            assert_eq!(fallback.data, pixels.data, "fallback shading {shading}");
+        }
+        pixels.at(32, 32)
+    };
+    let mut drawn = Vec::new();
+    for shading in 0..3 {
+        let own = centre(shading, true, false);
+        assert!(
+            own[2] > 20 && own[2] > own[0].max(own[1]),
+            "shading {shading}: {own:?}"
+        );
+        assert_eq!(centre(shading, false, true), own, "shading {shading}");
+        drawn.push(own);
+    }
+    assert_ne!(drawn[1], drawn[0], "unlit draws apart from lit");
+    assert_ne!(drawn[2], drawn[0], "the coat draws apart from no coat");
+}
