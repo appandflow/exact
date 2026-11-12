@@ -2577,8 +2577,10 @@ element.arrange(using: arrangement)
 arrangement.updateArrangement(.overlay, animated: true)
 ```
 
-The pane wrappers do not measure authored content for UIKit's `.intrinsic`
-dimension. Use native automatic, absolute or fractional dimensions for now.
+UIKit's `.intrinsic` dimension measures each pane's authored content under the
+proposed constraints, including text wrapping and resolved pane margins.
+Content and margin changes update the measure; the allocated pane size remains
+UIKit's. Automatic, absolute and fractional dimensions use UIKit's sizing rules.
 
 Use a bounded scroller in each child for independent scrolling. The first visible
 vertical scroller is the default title and scroll-to-top target; `navigationScroll`
