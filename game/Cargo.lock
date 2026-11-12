@@ -610,6 +610,7 @@ dependencies = [
  "exact-gpu-reflect",
  "exact-plan",
  "objc2",
+ "objc2-foundation",
  "objc2-metal",
  "wasm-bindgen",
  "wasm-bindgen-futures",
