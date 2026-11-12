@@ -1,6 +1,7 @@
 # A spring's value at a clock time depends on which earlier times were sampled
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A running spring keeps its settle time from its start and is done once that much time has elapsed, so a seek, any frame rate and the lowered frames end it at one instant with the same bits.
 **Systems:** motion/src/transition.rs, motion/src/engine.rs, motion/src/spring.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
