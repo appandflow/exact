@@ -1,6 +1,7 @@
 # `number_text` and `js_number` are one function in two crates, each with a branch that cannot run, and differ from the `String(v)` the canvas recorder writes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both copies are deleted, and every caller writes number text with `exact_num::js`, which is JavaScript's `String(n)` for every value.
 **Systems:** color/src/lib.rs, motion/src/color/css.rs, canvas/src/font.rs, canvas/recorder.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
