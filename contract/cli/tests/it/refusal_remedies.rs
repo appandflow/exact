@@ -279,3 +279,72 @@ fn an_action_body_call_keeps_priority_without_hiding_child_use_errors() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn an_action_held_outside_a_prop_is_refused_where_it_is_written() {
+    let app = |shapes: &str, decls: &str| {
+        format!(
+            "{shapes}component App\n  state n = 0\n{decls}  action bump\n    n = n + 1\n  view\n    column\n      text `${{n}}`\n"
+        )
+    };
+    let cases = [
+        (
+            app("shape MenuItem\n  label: string\n  run: action\n\n", ""),
+            (3, 8),
+            "field `run` of shape `MenuItem` cannot hold an action",
+        ),
+        (
+            app("shape MenuItem\n  run: option<action>\n\n", ""),
+            (2, 15),
+            "field `run` of shape `MenuItem` cannot hold an action",
+        ),
+        (
+            app("", "  state f: option<action> = none\n"),
+            (3, 19),
+            "state `f` cannot hold an action",
+        ),
+        (
+            app("", "  mutation m as shape action\n"),
+            (3, 23),
+            "mutation `m` cannot hold an action",
+        ),
+        (
+            app("", "  resource r = load() as shape action\n"),
+            (3, 32),
+            "resource `r` cannot hold an action",
+        ),
+        (
+            app("", "  action run(f: action)\n    n = 1\n"),
+            (3, 17),
+            "parameter `f` of action `run` cannot hold an action",
+        ),
+        (
+            app("fn pick(a: action): number = 1\n\n", ""),
+            (1, 12),
+            "parameter `a` of `fn pick` cannot hold an action",
+        ),
+        (
+            app("", "  derive fs = [bump]\n"),
+            (3, 16),
+            "`bump` is an action, which a list cannot hold",
+        ),
+        (
+            app("", "  derive f = some(bump)\n"),
+            (3, 19),
+            "`bump` is an action, which `some(…)` cannot hold",
+        ),
+    ];
+    for (src, at, lead) in cases {
+        let e = refused(&src);
+        assert_eq!(e.id, "type-action-held", "{src}\n{e}");
+        assert_eq!((e.span.line, e.span.col), at, "{src}\n{e}");
+        assert!(e.message.starts_with(&format!("{lead}: ")), "{e}");
+        assert!(e.message.contains("`press=open(item.id)`"), "{e}");
+    }
+    // A prop holds one.
+    let prop = app("", "").replace(
+        "      text `${n}`\n",
+        "      Row(go=bump)\n\ncomponent Row\n  props\n    go: action\n  view\n    button \"Go\" press=go\n",
+    );
+    contract::compile(&prop).unwrap();
+}

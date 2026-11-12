@@ -1,6 +1,7 @@
 # An `action` type outside a prop passes the type checker and is refused by lowering at 0:0
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The type pass refuses `action` written as the type of anything but a prop or an inject, and an action held in a list or `some(…)`, as `type-action-held` at the type or the value, naming the declaration and what to write instead.
 **Systems:** contract/types, contract/lower
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

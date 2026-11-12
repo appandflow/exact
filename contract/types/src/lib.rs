@@ -32,6 +32,7 @@ mod frame;
 mod frame_commands;
 mod frames;
 mod geometry;
+mod held;
 mod injects;
 mod lists;
 mod literals;
@@ -740,6 +741,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             let mut item = Ty::Unknown;
             for (i, x) in items.iter().enumerate() {
                 let t = infer(x, scope, shapes)?;
+                held::value(&t, x, "a list")?;
                 item = match item.unify(&t) {
                     Some(u) => u,
                     None => {
@@ -756,7 +758,11 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             }
             Ty::List(Box::new(item))
         }
-        Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
+        Expr::Some(inner, _) => {
+            let t = infer(inner, scope, shapes)?;
+            held::value(&t, inner, "`some(…)`")?;
+            Ty::Option(Box::new(t))
+        }
         Expr::NamedArg(_, _, span) => {
             return err(
                 "type-named-argument",
@@ -1165,7 +1171,8 @@ pub fn check_declarations(
     for s in &file.shapes {
         let mut fields = Vec::new();
         for f in &s.fields {
-            fields.push((f.name.clone(), shapes.resolve(&f.ty)?));
+            let holder = format!("field `{}` of shape `{}`", f.name, s.name);
+            fields.push((f.name.clone(), shapes.resolve_value(&f.ty, &holder)?));
         }
         shapes.map.insert(s.name.clone(), fields);
     }
@@ -1211,9 +1218,11 @@ pub fn check_declarations(
                     p.span,
                 );
             };
-            params.push(shapes.resolve(t)?);
+            params.push(
+                shapes.resolve_value(t, &format!("parameter `{}` of `fn {}`", p.name, f.name))?,
+            );
         }
-        let ret = shapes.resolve(&f.ret)?;
+        let ret = shapes.resolve_value(&f.ret, &format!("the result of `fn {}`", f.name))?;
         shapes.fns.insert(f.name.clone(), (params, ret));
     }
     for f in &file.fns {

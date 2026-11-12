@@ -475,7 +475,7 @@ pub(super) fn infer_owned_state_initializers(
             if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
                 return Err(e);
             }
-            ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
+            ct.slots[i] = super::component::state_type(state, &scope, &types.shapes)?;
         }
         base.push_name_at(
             1,
