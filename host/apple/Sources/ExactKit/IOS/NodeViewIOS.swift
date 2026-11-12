@@ -25,8 +25,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var textRasterReady = false
     var textRasterFailed = false
     var textLayoutValid = false
-    /// The last frame showed it: Core Animation committed it in a window, not hidden (`Presenter.unshown`).
-    var showed = false
+    /// Whether a frame has shown it where it is (`Presenter.showed`).
+    var shown = Shown.uncopied
     /// What the host's own writers hid (a covered route, a tab a native control
     /// stands in for, a placement); a `display: none` box is hidden besides, as
     /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's

@@ -895,7 +895,7 @@ package final class Presenter {
                 let reused = pool.take(id)
                 if let reused, !fieldsWaiting.contains(id) { reused.makeWaitingField() }
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
-                unshown(v) // a reused view too: it is another node
+                made(v) // a reused view too: it is another node
                 #if os(iOS)
                 v.groupedOwner = op.kind == "list" && op.props["listStyle"] != nil
                 #endif
