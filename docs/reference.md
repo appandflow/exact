@@ -790,6 +790,44 @@ layers compile in the same `actool` pass as the app's catalogs; changing them
 requires a new native build. `icons` still supplies the web and the native
 raster fallback when the platform has no `icon` selection.
 
+### Store category, Game Mode and memory
+
+`categories` in `app.json` is the W3C manifest's member, which the web manifest
+carries: what the app is, for a store or catalog to file it under. A value is
+one of the W3C's standardized categories or one of Apple's, written without
+`public.app-category.` (`developer-tools`, `graphics-design`, `reference`,
+`video`, and the game genres from `action-games` to `word-games`); the build
+refuses any other. The iOS and macOS bundles' `LSApplicationCategoryType` is
+the first that Apple has a category for: `fitness` and `health` are
+`healthcare-fitness`, `photo` is `photography`, `social` is
+`social-networking`, and `books`, `food`, `government`, `kids`, `magazines`,
+`navigation`, `personalization`, `politics`, `security` and `shopping` have
+none. App Store Connect requires a category of a Mac upload. A game the game
+shell builds (`game`) with no category of Apple's is `games`.
+
+```json
+{ "categories": ["dice-games", "games"], "host": { "ios": { "increasedMemoryLimit": true } } }
+```
+
+An app whose Apple category is `games` or a genre is a game, and Game Mode
+(priority on the CPU and GPU, lower Bluetooth latency for controllers and
+AirPods, less background work) is offered to it: the bundles carry
+`LSSupportsGameMode` (iOS 18.6, macOS 26), and the iOS bundle also
+`GCSupportsGameMode`, which iOS 18.0 to 18.5 read, when `host.ios.minimumOS`
+is below 18.6. `host.ios.gameMode` and `host.macos.gameMode` set it per
+platform: `false` keeps a game too light to need it out of Game Mode, and
+`true` offers it to an app that is not a game. tvOS and an App Clip carry
+neither key.
+
+`host.ios.increasedMemoryLimit: true` signs the app with
+`com.apple.developer.kernel.increased-memory-limit`: on the iPhone and iPad
+models that allow it, the app may use more memory than the default limit. The
+app must still work without it (`os_proc_available_memory` says what it has).
+Increased Memory Limit is a capability of the App ID, so a device build takes
+only a profile that grants it and otherwise is refused
+(`memory-device-profile`); a simulator build signs it as is. Extensions, the
+App Clip and tvOS never take it.
+
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
 policy. The Swift host is compiled once per destination for every app, in

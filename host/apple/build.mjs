@@ -55,7 +55,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, grantEntitlements, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { backgroundKeys, declaredOrigin, interfaceStyle, localNetworking, modulePlist, nfcKeys, startLocation, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
+import { backgroundKeys, declaredOrigin, interfaceStyle, localNetworking, memoryEntitlements, modulePlist, nfcKeys, startLocation, storeKeys, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
 import { APPLE_STATIC_TREES, appIcon, appleRefusals, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyNativeResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { auditLaunchParts, launchModules, launchServices, serviceArgs, writeLaunchParts } from './launch-parts.mjs';
@@ -345,7 +345,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
     ...(simulator && !team ? { 'keychain-access-groups': [prefixed, app.id] } : {}),
     'get-task-allow': debuggable,
-    ...Object.fromEntries(browserEntitlements(app, distributed).map(key => [key, true])),
+    ...Object.fromEntries([...browserEntitlements(app, distributed), ...memoryEntitlements(app)].map(key => [key, true])),
   };
   // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
   // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
@@ -461,7 +461,7 @@ export const infoPlist = (app, device = false, { executable = appleExecutableNam
   Object.assign(dict, updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
-  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation), interfaceStyle(app));
+  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation), interfaceStyle(app), tv || clip ? {} : storeKeys(app, 'ios'));
   return plistFile(withPackageKeys(dict, reach));
 };
 
@@ -547,7 +547,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
   ...startLocation(app), ...declaredOrigin(app),
-  ...updateActivation(app), ...interfaceStyle(app, true),
+  ...updateActivation(app), ...interfaceStyle(app, true), ...storeKeys(app, 'macos'),
   ...openingLinks(app, 'macos', development, distributed), ...shortcutKeys(app, 'macos'),
   ...(app.manifest.host?.macos?.oneTimeCodeAutofill === 'marked' ? { NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true } : {}),
 }, reach));
@@ -643,7 +643,7 @@ async function main(args, lockHeld = false) {
   let sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
     // Refuse missing widget groups or browser approval before building; final signing checks again.
-    const required = browserEntitlements({ ...app, widgetTV: tv }, distribution);
+    const required = [...browserEntitlements({ ...app, widgetTV: tv }, distribution), ...memoryEntitlements({ ...app, widgetTV: tv })];
     prof = widgets ? entryProfiles({ app, udid: ph?.udid, phoneName: ph?.name, required }).app : profile(ph?.udid, app.id, required, { phoneName: ph?.name });
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
