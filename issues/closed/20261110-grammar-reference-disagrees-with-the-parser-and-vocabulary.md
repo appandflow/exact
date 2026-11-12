@@ -1,6 +1,7 @@
 # docs/contract-grammar.md: productions the parser has outgrown, three inventories that are short, and stale counts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `docs/contract-grammar.md` gains the productions the parser takes (`timeline`, `color-profile`, a font weight range, timer options, `enum<…>`, the MIDI, wakelock and sound test steps, `clock held`), `time` in the tag table, the eleven missing handlers, the nine missing commands with a `setMode` row, and true counts and host statements.
 **Systems:** docs/contract-grammar.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
