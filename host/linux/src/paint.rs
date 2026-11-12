@@ -1152,7 +1152,7 @@ impl Painter {
                 } else if let Some(c) = self.canvases.get(&node.id) {
                     self.backend.canvas(&c.pixels, content, &clips, ts);
                 } else {
-                    self.native(node, content, &outer, ts);
+                    self.native(node, &clips[0], ts);
                 }
             }
             NodeType::Image => {
@@ -1188,7 +1188,7 @@ impl Painter {
             }
             NodeType::Svg => self.svg(walk, node, paint.content_shape(&geometry), ts),
             NodeType::Video | NodeType::WebView | NodeType::NativeView => {
-                self.native(node, content, &outer, ts)
+                self.native(node, &geometry.content_edge(), ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label =

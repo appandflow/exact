@@ -1,6 +1,7 @@
 # Linux native content keeps the border box corner radii
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A video, web view, native view or GPU canvas is now shown in its content box on the content edge's curve, each radius less the border and padding beside it, as a picture and a 2D canvas already were.
 **Systems:** host/linux/src/paint/native.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
