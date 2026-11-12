@@ -679,7 +679,9 @@ pub(crate) fn source_argument(
 }
 
 /// `t`, a use's argument, as the declared type of the prop it fills
-/// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
+/// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option. A
+/// state's declared type, which is an `Expr::Typed` too, is refused in its
+/// own words by `component::state_type` before this runs.
 pub fn ascribe(
     t: &Ty,
     expr: &Expr,
@@ -689,18 +691,31 @@ pub fn ascribe(
     scope: &Scope,
 ) -> Result<Ty, TypeError> {
     let declared = shapes.resolve(declared)?;
-    match checks::accepts_expr(&declared, expr, t, scope, shapes) {
-        true => Ok(if declared.contains_enum() {
-            declared
-        } else {
-            declared.unify(t).expect("accepted types unify")
-        }),
-        false => err(
+    match fits(&declared, t, expr, scope, shapes) {
+        Some(t) => Ok(t),
+        None => err(
             "type-prop",
             format!("this argument is `{t}`, where the prop is declared `{declared}`"),
             span,
         ),
     }
+}
+
+/// `t`, `expr`'s inferred type, as `declared` when it fits.
+pub(crate) fn fits(
+    declared: &Ty,
+    t: &Ty,
+    expr: &Expr,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<Ty> {
+    checks::accepts_expr(declared, expr, t, scope, shapes).then(|| {
+        if declared.contains_enum() {
+            declared.clone()
+        } else {
+            declared.unify(t).expect("accepted types unify")
+        }
+    })
 }
 
 /// Infer an expression's type in `scope`, refusing one no value of could

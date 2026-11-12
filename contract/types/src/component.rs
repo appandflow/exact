@@ -1056,10 +1056,16 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
 /// A state's initializer's type. A declared type (`state n: number = …`,
 /// LLP 1116.015 D2) is checked here, where a refusal can name the state.
 pub(crate) fn state_type(s: &Binding, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
-    if let Expr::Typed(_, declared, _) = &s.expr {
-        shapes.resolve_value(declared, &format!("state `{}`", s.name))?;
-    }
-    infer(&s.expr, scope, shapes)
+    let Expr::Typed(value, declared, _) = &s.expr else {
+        return infer(&s.expr, scope, shapes);
+    };
+    let declared = shapes.resolve_value(declared, &format!("state `{}`", s.name))?;
+    let t = infer(value, scope, shapes)?;
+    super::fits(&declared, &t, value, scope, shapes).ok_or_else(|| TypeError {
+        id: "type-state-initializer",
+        message: super::enums::initializer_error(&s.name, &declared, value, &t),
+        span: value.span(),
+    })
 }
 
 /// @ref LLP 1088 D4 — a state's initializer runs before any resource

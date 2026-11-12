@@ -348,3 +348,37 @@ fn an_action_held_outside_a_prop_is_refused_where_it_is_written() {
     );
     contract::compile(&prop).unwrap();
 }
+
+#[test]
+fn a_typed_states_initializer_is_refused_as_the_states() {
+    let remedy = ": start it from a value of the declared type, or declare the type it holds";
+    let shapes = "shape Item\n  id: string\n";
+    for (decl, at, says) in [
+        ("n: number = \"a\"", (6, 21), "state `n` is declared `number`, and its initializer is `string`"),
+        (
+            "n: option<number> = some(\"a\")",
+            (6, 29),
+            "state `n` is declared `option<number>`, and its initializer is `option<string>`",
+        ),
+        ("n: Item[] = [1]", (6, 21), "state `n` is declared `Item[]`, and its initializer is `number[]`"),
+        (
+            "n: enum<\"a\", \"b\"> = \"c\"",
+            (6, 29),
+            "state `n` is declared `enum<\"a\", \"b\">`, and its initializer is `string`; \"c\" is not a declared member",
+        ),
+    ] {
+        let src = format!("{shapes}\ncomponent App\n  state k = 1\n  state {decl}\n  view\n    text \"x\"\n");
+        let e = refused(&src);
+        assert_eq!(e.id, "type-state-initializer", "{src}\n{e}");
+        assert_eq!(e.message, format!("{says}{remedy}"), "{src}");
+        assert_eq!((e.span.line, e.span.col), at, "{src}\n{e}");
+    }
+    // A row's state, typed where its component is used, says the same.
+    let e = refused(
+        "component App\n  view\n    Row(k=1)\ncomponent Row\n  props\n    k: number\n  state n: string = k\n  view\n    text n\n",
+    );
+    assert_eq!(e.id, "type-state-initializer", "{e}");
+    assert_eq!((e.span.line, e.span.col), (7, 21), "{e}");
+    contract::compile("component App\n  state n: option<number> = none\n  view\n    text \"x\"\n")
+        .unwrap();
+}

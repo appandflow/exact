@@ -1,6 +1,7 @@
 # A state whose initializer does not fit its declared type is refused as a prop's argument
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A state whose initializer does not fit its declared type is refused as `type-state-initializer` at the initializer, naming the state, both types and a rejected enum member; the repeated refusal of a use's argument noted under Verification is left as it was.
 **Systems:** contract/types (`ascribe`), contract/syntax (parser, `Expr::Typed`)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
