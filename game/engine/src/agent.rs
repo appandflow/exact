@@ -203,7 +203,7 @@ impl<G: Game> Sim<G> {
     /// A generated model's identity, its content digest (`hash::of`): the
     /// renderer's digest for it too, so the model is hashed once.
     pub fn model_identity(&self, name: &str) -> Option<u64> {
-        self.world.assets.identities.get(name).copied()
+        self.world.assets.identity(name)
     }
     /// Current renderer requests, including pending dependencies.
     pub fn presentation_assets(&self) -> impl Iterator<Item = &str> {
