@@ -274,7 +274,8 @@ open class BenchActivity(private val key: String) : ExactActivity() {
 `drive` is called once in `onCreate`, where the reader used to construct the benchmark's `Driver` (the host has
 begun to boot, the view is not made yet), with the call that scrolls the feed by a distance in pixels
 (`ExactView.scrollBy`, `Native.scroll`: the scroller under the viewport's centre, or the one a finger last moved).
-The `Drive` it returns is told when the first content has been drawn. The default returns null.
+The `Drive` it returns is told once, after the first frame following successful startup, even when the page is empty
+or only bars draw. The default returns null.
 
 Without a driver the activity no longer does what `Driver` did: show over the keyguard, turn the screen on, keep the
 screen on, ask for a 120 Hz display mode, and call `reportFullyDrawn()`. The shell's manifest asks for none of them
