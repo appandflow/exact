@@ -152,11 +152,20 @@ extension NodeView {
             areas.append(ScrollSnap.Area(from: CGFloat(position), to: CGFloat(position), stop: false))
         }
         let axis = vertical ? 1 : 0, sv = scrollView as? ScrollView
-        let rest = keeping
-            ? ScrollSnap.resnap(areas, rested: sv?.snapRested[axis] ?? .init(), current: wanted, mandatory: kind.mandatory, port: port)
-            : ScrollSnap.rest(held.isEmpty ? areas : held, projected: wanted, release: release + shift, start: flick.map { $0.start + shift },
-                              way: flick?.way ?? 0, mandatory: kind.mandatory || !held.isEmpty, port: port)
-        guard let rest else { return nil }
+        func pick() -> CGFloat? {
+            keeping
+                ? ScrollSnap.resnap(areas, rested: sv?.snapRested[axis] ?? .init(), current: wanted, mandatory: kind.mandatory, port: port)
+                : ScrollSnap.rest(held.isEmpty ? areas : held, projected: wanted, release: release + shift, start: flick.map { $0.start + shift },
+                                  way: flick?.way ?? 0, mandatory: kind.mandatory || !held.isEmpty, port: port)
+        }
+        guard var rest = pick() else { return nil }
+        // An unmounted `always` row between the release and the rest holds it too.
+        if held.isEmpty, !keeping, abs(rest - release - shift) > 0.5, presenter?.collections.entries[id]?.snapshot.horizontal == !vertical,
+           let stop = presenter?.session?.runtime.collectionSnapStop(id, release: Double(release + shift), rest: Double(rest), port: Double(port),
+                                                                     minimum: Double(range.lowerBound), maximum: Double(range.upperBound)) {
+            areas.append(ScrollSnap.Area(from: CGFloat(stop), to: CGFloat(stop), stop: true))
+            rest = pick() ?? rest
+        }
         sv?.snapRested[axis] = ScrollSnap.Rested(rest, in: areas)
         return rest - shift
     }

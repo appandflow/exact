@@ -63,8 +63,13 @@ object Native {
      * presses a node has taken so far (wrapping). Then each scroller's snap, in the same order (`host/linux/src/presenter/snap.rs`,
      * `reader_snaps`): flags (bit 0 it snaps sideways, bit 1 up and down, bit 2 `mandatory`), then sideways and then up
      * and down its snapport's length as float bits, a count, and per snap area the least and greatest offsets it rests
-     * at as float bits and 1 for `scroll-snap-stop: always`, in pixels. */
+     * at as float bits and 1 for `scroll-snap-stop: always`, in pixels; flag bit 3: a virtualized list, whose areas past
+     * these [snapsAround] tells. */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
+    /** Virtualized list [id]'s snap areas up and down ([vertical]) or sideways, for a release at offset [release] whose
+     * rest is projected near [projected] (pixels): a count, then per area its least and greatest offsets as float bits
+     * and 1 for `scroll-snap-stop: always` (`host/linux/src/presenter/snap.rs`, `reader_snaps_around`). */
+    @JvmStatic external fun snapsAround(id: Int, vertical: Boolean, release: Float, projected: Float): IntArray
     /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
      * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its
      * node became another row's item: the view starts over), flags (bit 0 it was painted and has a place, bit 1 it

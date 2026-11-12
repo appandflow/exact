@@ -57,11 +57,20 @@ extension NodeView {
             }
             let release = (vertical ? release.y : release.x) + shift
             let axis = vertical ? 1 : 0
-            let rest = keeping
-                ? ScrollSnap.resnap(areas, rested: sv.snapRested[axis], current: wanted, mandatory: kind.mandatory, port: port)
-                : ScrollSnap.rest(areas, projected: wanted, release: release, start: drag.map { (vertical ? $0.start.y : $0.start.x) + shift },
-                                  way: drag.map { ScrollSnap.way(vertical ? $0.velocity.y : $0.velocity.x) } ?? 0, mandatory: kind.mandatory, port: port)
-            guard let rest else { continue }
+            func pick() -> CGFloat? {
+                keeping
+                    ? ScrollSnap.resnap(areas, rested: sv.snapRested[axis], current: wanted, mandatory: kind.mandatory, port: port)
+                    : ScrollSnap.rest(areas, projected: wanted, release: release, start: drag.map { (vertical ? $0.start.y : $0.start.x) + shift },
+                                      way: drag.map { ScrollSnap.way(vertical ? $0.velocity.y : $0.velocity.x) } ?? 0, mandatory: kind.mandatory, port: port)
+            }
+            guard var rest = pick() else { continue }
+            // An unmounted `always` row between the release and the rest holds it too.
+            if !keeping, abs(rest - release) > 0.5, presenter?.collections.entries[id]?.snapshot.horizontal == !vertical,
+               let stop = presenter?.session?.runtime.collectionSnapStop(id, release: Double(release + toBox), rest: Double(rest + toBox), port: Double(port),
+                                                                         minimum: Double(range.lowerBound + toBox), maximum: Double(range.upperBound + toBox)) {
+                areas.append(ScrollSnap.Area(from: CGFloat(stop) - toBox, to: CGFloat(stop) - toBox, stop: true))
+                rest = pick() ?? rest
+            }
             sv.snapRested[axis] = ScrollSnap.Rested(rest, in: areas)
             if vertical { result.y = rest - shift } else { result.x = rest - shift }
             snapped = true
@@ -95,6 +104,7 @@ extension NodeView {
         let at = clip.bounds.origin, reach: CGFloat = 0.998 / (1 - 0.998)
         guard let rest = snappedOrigin(CGPoint(x: at.x + velocity.x * reach, y: at.y + velocity.y * reach), release: at,
                                        drag: (start, velocity)) else { return false }
+        scroll?.snapDropsMomentum = true
         ease(to: rest)
         return true
     }

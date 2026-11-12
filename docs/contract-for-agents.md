@@ -1751,9 +1751,10 @@ Nested scroll containers own their descendants' snap areas: `hidden` is a
 boundary; `clip` is not. When a commit moves the area a mandatory scroller rests
 on, the scroller follows it (iOS, macOS, Linux and Windows; on Android the
 reader keeps its offset). A virtualized list also reads at most 64 unmounted row
-roots near the projection (iOS, macOS), or around its offset when a touch lands
-(Android), from their measured or estimated sizes; descendants and
-layout-dependent displacement need mounted rows.
+roots near the projection (iOS, macOS; on Android around its offset when a touch
+lands and around the projection at the release), from their measured or
+estimated sizes, and an unmounted `always` row between the release and the rest
+holds it; descendants and layout-dependent displacement need mounted rows.
 
 `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any

@@ -34,7 +34,7 @@ impl Tree {
             [port, minimum, maximum],
         )?;
         let mut best: Option<f64> = None;
-        for (first, last) in areas {
+        for (first, last, _) in areas {
             let candidate = proposed.clamp(first, last);
             // Negative margins and relative insets can move the snap outside
             // its indexed slot. Compare only after reading the root's style.
@@ -49,8 +49,59 @@ impl Tree {
         Ok(best)
     }
 
+    /// The first position past `release` toward `rest` (in
+    /// [`Tree::collection_snap`]'s coordinates) that an unmounted row root
+    /// with `scroll-snap-stop: always` holds a snap at (CSS Scroll Snap 1
+    /// §6.2): an area's first position going forward, its last going back.
+    /// At most 256 rows past the release are read: a release-time read
+    /// bounded however far the projection goes.
+    pub(crate) fn collection_snap_stop(
+        &self,
+        u: &mut Update<'_>,
+        kernel: &exact_kernel::Kernel,
+        view: ViewId,
+        [release, rest, port, minimum, maximum]: [f64; 5],
+    ) -> Result<Option<f64>, InstanceError> {
+        // A move under half a point is none, as the hosts' rule has it.
+        let e = 0.5;
+        if (rest - release).abs() <= e {
+            return Ok(None);
+        }
+        let window = if rest > release {
+            [release, rest + port]
+        } else {
+            [rest - port, release]
+        };
+        let areas = self.collection_snap_areas(
+            u,
+            kernel,
+            view,
+            (release, window, 256),
+            [port, minimum, maximum],
+        )?;
+        let stops = areas.into_iter().filter(|a| a.2);
+        Ok(if rest > release {
+            stops
+                .filter_map(|(from, to, _)| {
+                    (from > release + e)
+                        .then_some(from)
+                        .or((to > release + e).then_some(to))
+                })
+                .min_by(f64::total_cmp)
+        } else {
+            stops
+                .filter_map(|(from, to, _)| {
+                    (to < release - e)
+                        .then_some(to)
+                        .or((from < release - e).then_some(from))
+                })
+                .max_by(f64::total_cmp)
+        })
+    }
+
     /// The positions each unmounted row root with a snap alignment along the
-    /// list's axis rests at, first to last, in [`Tree::collection_snap`]'s
+    /// list's axis rests at, first to last, and whether it says
+    /// `scroll-snap-stop: always`, in [`Tree::collection_snap`]'s
     /// coordinates. `rows`: a position, a window of positions, and a cap:
     /// the rows the window covers, at most `cap` up to and including the
     /// position's row and `cap` after it. `snapport`: its length and the
@@ -62,7 +113,7 @@ impl Tree {
         view: ViewId,
         (around, window, cap): (f64, [f64; 2], usize),
         [port, minimum, maximum]: [f64; 3],
-    ) -> Result<Vec<(f64, f64)>, InstanceError> {
+    ) -> Result<Vec<(f64, f64, bool)>, InstanceError> {
         let mut frames = Vec::new();
         let Some((list, _)) = super::super::text::list_region(
             None,
@@ -219,7 +270,8 @@ impl Tree {
             } else {
                 first
             };
-            areas.push((first, last));
+            let stop = style.scroll_snap_stop == exact_kernel::ScrollSnapStop::Always;
+            areas.push((first, last, stop));
         }
         Ok(areas)
     }

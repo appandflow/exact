@@ -70,10 +70,26 @@ final class ScrollSnapMacTests: XCTestCase {
         sv.reflectScrolledClipView(sv.contentView)
         // 0.5 pt/ms projects about 250 points on: 290, nearest 300.
         XCTAssertTrue(node.snapAtLift(velocity: CGPoint(x: 0.5, y: 0), start: NSPoint(x: 40, y: 0)))
-        XCTAssertTrue(sv.snapSettling, "the momentum that follows is dropped")
+        XCTAssertTrue(sv.snapSettling)
         spin { sv.contentView.bounds.minX == 300 && !sv.snapSettling }
         XCTAssertEqual(sv.contentView.bounds.minX, 300, accuracy: 0.01)
         XCTAssertFalse(sv.snapSettling)
+        // Momentum AppKit sends after the ease is over is still dropped, until
+        // it ends (CGMomentumScrollPhase: 1 begin, 2 continue, 3 end).
+        func momentum(_ dx: Int32, phase: Int64) throws -> NSEvent {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: dx, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: phase)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        XCTAssertTrue(sv.snapDropsMomentum)
+        for phase: Int64 in [1, 2, 2, 2] { sv.scrollWheel(with: try momentum(-40, phase: phase)) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(sv.contentView.bounds.minX, 300, accuracy: 0.01, "the momentum moves nothing")
+        XCTAssertTrue(sv.snapDropsMomentum)
+        sv.scrollWheel(with: try momentum(0, phase: 3))
+        XCTAssertFalse(sv.snapDropsMomentum, "its end ends the dropping")
+        XCTAssertEqual(sv.contentView.bounds.minX, 300, accuracy: 0.01)
     }
 
     /// CSS Scroll Snap 1 §5.5: a batch that moves the areas keeps the

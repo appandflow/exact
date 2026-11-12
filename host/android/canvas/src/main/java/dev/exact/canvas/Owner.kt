@@ -300,6 +300,11 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         handler.post { val u = Native.under(x, y); produce(); postMain { done(u) } }
     }
 
+    /** [Native.snapsAround], on the exact thread; [done] on the main thread with the answer. */
+    fun snapsAround(id: Int, vertical: Boolean, release: Float, projected: Float, done: (IntArray) -> Unit) {
+        handler.post { val w = Native.snapsAround(id, vertical, release, projected); postMain { done(w) } }
+    }
+
     private val step = Runnable {
         val dy: Float; val s: Int
         var ids: IntArray? = null; var moves: Array<Moved>? = null

@@ -62,7 +62,7 @@ impl<D: DataSource> Runner<D> {
         view: ViewId,
         (around, window, cap): (f64, [f64; 2], usize),
         snapport: [f64; 3],
-    ) -> Vec<(f64, f64)> {
+    ) -> Vec<(f64, f64, bool)> {
         let [port, minimum, maximum] = snapport;
         if self.poisoned
             || ![around, window[0], window[1], port, minimum, maximum]
@@ -89,6 +89,42 @@ impl<D: DataSource> Runner<D> {
                 .ok()
             })
             .unwrap_or_default()
+    }
+
+    /// The first position past `release` toward `rest` an unmounted row
+    /// root with `scroll-snap-stop: always` holds a snap at, in
+    /// [`Runner::collection_snap`]'s coordinates; `snapport`: its length and
+    /// the least and greatest positions of its start. At most 256 rows past
+    /// the release are read; no row is mounted.
+    pub fn collection_snap_stop(
+        &self,
+        view: ViewId,
+        [release, rest]: [f64; 2],
+        snapport: [f64; 3],
+    ) -> Option<f64> {
+        let [port, minimum, maximum] = snapport;
+        if self.poisoned
+            || ![release, rest, port, minimum, maximum]
+                .into_iter()
+                .all(f64::is_finite)
+            || port <= 0.0
+            || maximum < minimum
+        {
+            return None;
+        }
+        let mut ids = Ids::default();
+        let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+        u.fonts = Some(self.fonts.clone());
+        self.tree
+            .as_ref()?
+            .collection_snap_stop(
+                &mut u,
+                &self.kernel,
+                view,
+                [release, rest, port, minimum, maximum],
+            )
+            .ok()
+            .flatten()
     }
 
     /// Resolve an opaque row key without materializing that row.

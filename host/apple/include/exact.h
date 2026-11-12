@@ -670,6 +670,10 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
  * Positions are the snapport start along the list axis, in its border box;
  * minimum and maximum bound them. distance is the nearest mounted target's distance, infinity when absent. */
 double exact_collection_snap(ExactRuntime rt, uint32_t view, double proposed, double port, double minimum, double maximum, double distance);
+/* The first position past release toward rest an unmounted row root with
+ * scroll-snap-stop: always holds a snap at, in exact_collection_snap's
+ * coordinates; NaN when none within 256 rows of the release. */
+double exact_collection_snap_stop(ExactRuntime rt, uint32_t view, double release, double rest, double port, double minimum, double maximum);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);

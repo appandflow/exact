@@ -278,3 +278,43 @@ fn a_virtualized_list_adds_the_rows_it_has_not_mounted() {
         snap.areas
     );
 }
+
+#[test]
+fn a_release_far_past_the_told_rows_reads_the_rows_around_its_projection() {
+    let mut p = boot(
+        r#"component App
+  view
+    list testId="strip" virtualized=true display="flex" width=300 height=100 overflow-x="scroll" overflow-y="hidden" estimated-item-width=150 scroll-snap-type="x mandatory"
+      for n in range(1000) key=n
+        view width=150 height=100 flex-shrink=0 scroll-snap-align="start" scroll-snap-stop=(n == 100 || n == 2 ? "always" : "normal")
+"#,
+    );
+    let strip = id(&p, "strip");
+    // The touch's rows carry their `always`, an unmounted one's too, and say
+    // the scroller is a list.
+    let told = p.snap(strip, false).unwrap();
+    assert!(told.areas.iter().any(|a| a.from == 300. && a.stop));
+    assert_eq!(p.reader_snaps(&[strip], 1.)[0] & 8, 8);
+    // A release at 900 projected to 30,000: the rows there, and the first
+    // `always` row past the release on the way (card 100, at 15,000).
+    let words = p.reader_snaps_around(strip, false, 1800., 60_000., 2.);
+    let f = |w: i32| f32::from_bits(w as u32) / 2.;
+    let areas: Vec<(f32, bool)> = (0..words[0] as usize)
+        .map(|k| (f(words[1 + 3 * k]), words[3 + 3 * k] != 0))
+        .collect();
+    assert!(areas.contains(&(30_000., false)), "{areas:?}");
+    assert!(areas.contains(&(15_000., true)), "{areas:?}");
+    let snaps: Vec<SnapArea> = areas
+        .iter()
+        .map(|&(from, stop)| SnapArea {
+            from,
+            to: from,
+            stop,
+            id: 0,
+        })
+        .collect();
+    assert_eq!(
+        flicked(&snaps, 30_000., 900., (900., 1.), true, 300.),
+        Some(15_000.)
+    );
+}

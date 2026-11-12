@@ -230,6 +230,15 @@ impl<D: DataSource> Presenter<D> {
     /// virtualized list adds the rows it has not mounted, up to 64 either way
     /// of the one at its offset (`Runner::collection_snap_areas`).
     pub fn snap(&mut self, id: ViewId, vertical: bool) -> Option<Snap> {
+        self.snap_at(id, vertical, None)
+    }
+
+    /// [`Presenter::snap`], with a virtualized list's unmounted rows read
+    /// around `aim`'s second offset instead of the list's own, and the first
+    /// unmounted `always` row past its first offset toward its second
+    /// (`Runner::collection_snap_stop`): for a release at the first whose
+    /// rest is near the second.
+    fn snap_at(&mut self, id: ViewId, vertical: bool, aim: Option<(f32, f32)>) -> Option<Snap> {
         let kernel = self.host.kernel();
         let node = kernel.node(id)?;
         let kind = node.style.scroll_snap_type;
@@ -308,7 +317,7 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .any(|&(view, _, h)| view == id && h == horizontal);
         if list {
-            let around = f64::from(offset.1 + lead);
+            let around = f64::from(aim.map_or(offset.1, |a| a.1) + lead);
             let reach = 8.0 * f64::from(port);
             let rows = self.host.runner().collection_snap_areas(
                 id,
@@ -319,12 +328,24 @@ impl<D: DataSource> Presenter<D> {
                 ),
                 [f64::from(port), f64::from(range.0), f64::from(range.1)],
             );
-            areas.extend(rows.into_iter().map(|(from, to)| SnapArea {
+            areas.extend(rows.into_iter().map(|(from, to, stop)| SnapArea {
                 from: from as f32,
                 to: to as f32,
-                stop: false,
+                stop,
                 id: 0,
             }));
+            let snapport = [f64::from(port), f64::from(range.0), f64::from(range.1)];
+            let release = aim.map(|(release, rest)| [release + lead, rest + lead].map(f64::from));
+            if let Some(stop) =
+                release.and_then(|r| self.host.runner().collection_snap_stop(id, r, snapport))
+            {
+                areas.push(SnapArea {
+                    from: stop as f32,
+                    to: stop as f32,
+                    stop: true,
+                    id: 0,
+                });
+            }
         }
         for a in &mut areas {
             a.from -= lead;
@@ -409,16 +430,22 @@ impl<D: DataSource> Presenter<D> {
     /// snapport's length as float bits, a count, and per area its least and
     /// greatest offsets as float bits and 1 for `scroll-snap-stop: always`,
     /// in the reader's pixels. An axis it does not snap along has a zero
-    /// length and no areas.
+    /// length and no areas. Flag bit 3: it is a virtualized list, whose rows
+    /// past these the reader asks for at its release
+    /// ([`Presenter::reader_snaps_around`]).
     pub fn reader_snaps(&mut self, ids: &[ViewId], scale: f32) -> Vec<i32> {
         let mut out = Vec::new();
         for &id in ids {
             let snaps = [self.snap(id, false), self.snap(id, true)];
             let mandatory = snaps.iter().flatten().any(|s| s.mandatory);
+            let list = (self.host.runner().collection_data())
+                .iter()
+                .any(|&(view, _, _)| view == id);
             out.push(
                 i32::from(snaps[0].is_some())
                     | i32::from(snaps[1].is_some()) << 1
-                    | i32::from(mandatory) << 2,
+                    | i32::from(mandatory) << 2
+                    | i32::from(list) << 3,
             );
             for snap in &snaps {
                 let (port, areas) = snap
@@ -433,6 +460,36 @@ impl<D: DataSource> Presenter<D> {
                     ]);
                 }
             }
+        }
+        out
+    }
+
+    /// Virtualized list `id`'s snap areas along y when `vertical`, else x,
+    /// for a reader whose release at `release` projects a rest near
+    /// `projected` (offsets, in its pixels), past the rows it was told of at
+    /// the touch ([`Presenter::reader_snaps`]): a count, then per area its
+    /// least and greatest offsets as float bits and 1 for `always`. The rows
+    /// it has not mounted are read around the projection, with the first
+    /// `always` one past the release toward it.
+    pub fn reader_snaps_around(
+        &mut self,
+        id: ViewId,
+        vertical: bool,
+        release: f32,
+        projected: f32,
+        scale: f32,
+    ) -> Vec<i32> {
+        let areas = self
+            .snap_at(id, vertical, Some((release / scale, projected / scale)))
+            .map(|s| s.areas)
+            .unwrap_or_default();
+        let mut out = vec![areas.len() as i32];
+        for a in &areas {
+            out.extend([
+                (a.from * scale).to_bits() as i32,
+                (a.to * scale).to_bits() as i32,
+                i32::from(a.stop),
+            ]);
         }
         out
     }

@@ -47,6 +47,19 @@ impl<D: DataSource + Default> CanvasHost<D> {
         words
     }
 
+    /// List `id`'s snap areas around a release's projection, in pixels
+    /// ([`crate::presenter::Presenter::reader_snaps_around`] has the words).
+    pub fn snaps_around(
+        &mut self,
+        id: u32,
+        vertical: bool,
+        release: f32,
+        projected: f32,
+    ) -> Vec<i32> {
+        self.p
+            .reader_snaps_around(id, vertical, release, projected, self.scale)
+    }
+
     /// The reader moved scroller `id` by (`dx`, `dy`) pixels, knowing
     /// revision `rev` of it. Its rows mount after the frame, as a driver's
     /// scroll leaves them.

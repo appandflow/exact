@@ -1005,6 +1005,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_snap(view, [proposed, port, minimum, maximum, distance]), |_| f64::NAN)
         }
 
+        /// The first unmounted `always` snap position past a release toward its
+        /// rest, or NaN when there is none.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_snap_stop(rt: u32, view: u32, release: f64, rest: f64, port: f64, minimum: f64, maximum: f64) -> f64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.collection_snap_stop(view, [release, rest], [port, minimum, maximum]), |_| f64::NAN)
+        }
+
         /// Copy logical text without materializing native views. Input is
         /// two concatenated UTF-8 row keys; first_len == 0 means all text.
         #[no_mangle]

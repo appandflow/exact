@@ -366,6 +366,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         if (o != null) o.under(x, y, then) else then(Native.under(x, y))
     }
 
+    /** [Native.snapsAround], on exact2's thread when it has one. */
+    internal fun snapsAround(id: Int, vertical: Boolean, release: Float, projected: Float, then: (IntArray) -> Unit) {
+        val o = owner
+        if (o != null) o.snapsAround(id, vertical, release, projected, then) else then(Native.snapsAround(id, vertical, release, projected))
+    }
+
     /** Whether the touch that is down is a hosted field's that asked to keep it ([Fields.keeps]): no scroll takes it. */
     internal fun fieldKeeps() = fields?.keeps == true
 

@@ -289,9 +289,11 @@ package final class ChainingScrollView: NSScrollView {
     var trackPhase: Character = "-"
     /// The trackpad drag this scroller took, until its lift (`ScrollDragMac.swift`).
     var dragTrack: ScrollDragTrack?
-    /// Easing to a snap position since a lift: the momentum AppKit sends is
-    /// dropped (`ScrollSnapMac.swift`).
+    /// Easing to a snap position (`ScrollSnapMac.swift`).
     var snapSettling = false
+    /// A lift snapped: the momentum AppKit sends after it is not the
+    /// scroll's, until that momentum ends or another gesture begins.
+    var snapDropsMomentum = false
     /// Where it last came to rest along x and y, and on which snap area (`ScrollSnapMac.swift`).
     var snapRested = [ScrollSnap.Rested(), ScrollSnap.Rested()]
     /// When it last saw a wheel event (system uptime): a re-snap waits for its gesture.
@@ -304,11 +306,16 @@ package final class ChainingScrollView: NSScrollView {
         trackPhase = !event.momentumPhase.intersection(moving).isEmpty ? "d" : !event.phase.intersection(moving).isEmpty ? "t" : "-"
         defer { trackPhase = "-" }
         wheelAt = ProcessInfo.processInfo.systemUptime
-        // The momentum after a lift that snapped is not the scroll's; its end
-        // goes on to AppKit, which ends the live scroll with it.
-        let settling = snapSettling && !event.momentumPhase.isEmpty
-        if settling && event.momentumPhase.isDisjoint(with: [.ended, .cancelled]) { return }
-        if !settling { snapSettling = false; (superview as? NodeView)?.cancelElementScroll() }
+        // The momentum after a lift that snapped is not the scroll's, however
+        // long it lasts; its end goes on to AppKit, which ends the live
+        // scroll with it, and leaves the snap's ease running.
+        if !event.momentumPhase.isEmpty && snapDropsMomentum {
+            if event.momentumPhase.isDisjoint(with: [.ended, .cancelled]) { return }
+            snapDropsMomentum = false
+        } else {
+            if event.momentumPhase.isEmpty { snapDropsMomentum = false }
+            snapSettling = false; (superview as? NodeView)?.cancelElementScroll()
+        }
         (superview as? NodeView)?.presenter?.personScrolls += 1 // a wheel's notch is no live scroll (Fragment.swift)
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
         // of the height AppKit scrolls a line by (10 points unless set; it

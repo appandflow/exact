@@ -125,6 +125,71 @@ class ScrollingTest {
         assertEquals(300f, snapRest(snaps, BooleanArray(4) { true }, 1500f, 80f, 0f, 1, true, 300f)!!, 0f)
     }
 
+    @Test fun aListsAreasAroundTheProjectionJoinThoseTheTouchTold() {
+        val s = Scrolling.Scroller(1)
+        s.snaps[0] = floatArrayOf(0f, 0f, 300f, 300f, 600f, 600f, 900f, 900f)
+        s.stops[0] = BooleanArray(4)
+        // Past the areas the touch told, the last of them is the nearest: behind the projection.
+        assertEquals(900f, snapRest(s.snaps[0], s.stops[0], 6100f, 800f, 800f, 1, true, 300f)!!, 0f)
+        val b = { v: Float -> v.toBits() }
+        mergeSnaps(s, 0, intArrayOf(2, b(6000f), b(6000f), 0, b(6300f), b(6300f), 0))
+        assertEquals(6000f, snapRest(s.snaps[0], s.stops[0], 6100f, 800f, 800f, 1, true, 300f)!!, 0f)
+        // And an `always` row on the way, which the answer names too, holds it.
+        mergeSnaps(s, 0, intArrayOf(1, b(3000f), b(3000f), 1))
+        assertEquals(3000f, snapRest(s.snaps[0], s.stops[0], 6100f, 800f, 800f, 1, true, 300f)!!, 0f)
+        mergeSnaps(s, 0, intArrayOf(0))
+        assertEquals(7, s.stops[0].size)
+    }
+
+    /** A list's release, sideways from [at] at [v] px/s, with the snap the touch told; what it asked for comes back. */
+    private class ListRelease(mandatory: Boolean, val at: Float = 300f) {
+        val f = Fixture(1)
+        val field = { name: String -> Scrolling::class.java.getDeclaredField(name).apply { isAccessible = true } }
+        val s: Scrolling.Scroller
+        var asked: Pair<Float, (IntArray) -> Unit>? = null
+        init {
+            f.told(1)
+            s = f.scroller()
+            s.maxX = 100000f; s.nowX = at
+            s.snapList = true; s.snapMandatory = mandatory; s.snapPort[0] = 300f
+            s.snaps[0] = floatArrayOf(0f, 0f, 300f, 300f, 600f, 600f); s.stops[0] = BooleanArray(3)
+            field("active").set(f.scrolling, listOf(s))
+            field("sideways").setBoolean(f.scrolling, true)
+            field("dragFrom").setFloat(f.scrolling, at)
+            f.scrolling.snapsAround = { _, _, _, projected, then -> asked = projected to then }
+        }
+        val mode get() = field("mode").getInt(f.scrolling)
+        fun snap(v: Float) = Scrolling::class.java.getDeclaredMethod("snap", Float::class.java).apply { isAccessible = true }
+            .invoke(f.scrolling, v) as Boolean
+        /** The list's areas around the projection, at [positions]. */
+        fun answer(vararg positions: Float) {
+            val b = { v: Float -> v.toBits() }
+            asked!!.second(intArrayOf(positions.size) + positions.flatMap { listOf(b(it), b(it), 0) })
+        }
+    }
+
+    @Test fun aProximityListFlungPastItsToldAreasAsksForThoseAroundTheProjection() {
+        val r = ListRelease(mandatory = false)
+        assertFalse("nothing told is near: the fling is the platform's", r.snap(8000f))
+        val projected = r.asked!!.first
+        assertTrue(projected > 1000f)
+        // The fling that release starts is under way when the answer comes: one near its projection takes it.
+        r.field("mode").setInt(r.f.scrolling, 4)
+        r.answer(projected + 40f)
+        val fling = r.field("fling").get(r.f.scrolling) as android.widget.OverScroller
+        assertEquals((projected + 40f - r.at).toInt().toFloat(), fling.finalX.toFloat(), 1f)
+    }
+
+    @Test fun anAnswerForAListTheAppScrolledSinceIsDropped() {
+        val r = ListRelease(mandatory = true)
+        assertTrue(r.snap(8000f))
+        // The app scrolls the list (a new revision): the settle ends, and the late answer moves nothing.
+        r.f.scrolling.told(intArrayOf(1, 1, 1, 0, 0, 0, 0, 100000f.toBits(), 500f.toBits()))
+        assertEquals(0, r.mode)
+        r.answer(r.asked!!.first)
+        assertEquals("idle", 0, r.mode)
+    }
+
     @Test fun aFingerThatCatchesAFlingBeginsItsDragWhereItCaughtIt() {
         val f = Fixture(1)
         f.told(1)

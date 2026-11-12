@@ -10,6 +10,13 @@ extension Runtime {
         }
     }
 
+    func collectionSnapStop(_ view: UInt32, release: Double, rest: Double, port: Double, minimum: Double, maximum: Double) -> Double? {
+        on(busy: nil) {
+            let value = exact_collection_snap_stop(rt, view, release, rest, port, minimum, maximum)
+            return value.isFinite ? value : nil
+        }
+    }
+
     convenience init() {
         self.init(hooks: RuntimeHooks(
             decodeBatch: { Batch.decode($0, resolver: $1) },

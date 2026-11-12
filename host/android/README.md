@@ -344,7 +344,10 @@ offsets they rest at (`presenter/snap.rs`, `reader_snaps`). When the finger lift
 where `snapRest` picks from where the platform's fling would have left it (a fling, at the platform's minimum fling
 velocity or more, reaches at least the next position its way from where the drag began), and settles there in
 ViewPager's time with its quintic ease. At its end and flung on past it, the fling goes on to the scrollers outside. A virtualized list
-tells the rows it has not mounted up to 64 either way of its offset. A commit that moves the area a scroller rests on
+tells the rows it has not mounted up to 64 either way of its offset; at the release the reader asks for those around the
+projection and the first unmounted `always` row on the way (`Native.snapsAround`) and aims the settle again; a `proximity`
+list that the rows it told leave free flings as the platform does, and the answer may still snap it. An answer for a touch
+that ended, or for a list the app has scrolled since, is dropped. A commit that moves the area a scroller rests on
 does not move the scroller: its offset is the reader's.
 
 **The feed** is no longer one scroller chosen once at the viewport's centre. It is the scroller a finger last moved

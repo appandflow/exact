@@ -12,6 +12,15 @@ impl<D: DataSource> Bridge<D> {
             .unwrap_or(f64::NAN)
     }
 
+    /// A collection's first unmounted `always` snap position past a release
+    /// toward its rest; NaN when absent (`Runner::collection_snap_stop`).
+    pub fn collection_snap_stop(&self, view: u32, travel: [f64; 2], snapport: [f64; 3]) -> f64 {
+        self.host
+            .as_ref()
+            .and_then(|h| h.runner().collection_snap_stop(view, travel, snapport))
+            .unwrap_or(f64::NAN)
+    }
+
     /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
     /// input buffer's first `len` bytes: LE records of (u32 view, u32 kind —
     /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
