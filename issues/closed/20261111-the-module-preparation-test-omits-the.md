@@ -1,6 +1,7 @@
 # The module preparation test omits the prelude’s overlay probe
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already fixed by a72f3f0a, which gave the test's window `__exact_has_overlay: () => '0'` and the `Function` that `prepare` reads; at cf5fb747 `bun test host/web/request-refusal.test.mjs` prints 48 pass, 0 fail.
 **Systems:** host/web/request-refusal.test.mjs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
