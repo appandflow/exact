@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { GLOBAL, Graph, Repo, auditProfile, cargoTests, commands, jsSources, rustLiterals, rustSource, select, suites } from './affected.mjs';
@@ -9,7 +9,7 @@ import { classesReached } from '../host/apple/xctest.mjs';
 /** A repository of `files` (path → text) and Cargo packages (`{ name, dir, deps }`), with its metadata given; a package
  * with a `build.rs` among the files has a build script. */
 function fixture(files, packages) {
-  const root = mkdtempSync(resolve(tmpdir(), 'affected-'));
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'affected-')));
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(resolve(root, path)), { recursive: true });
     writeFileSync(resolve(root, path), text);
@@ -200,7 +200,7 @@ test("an app's tests read every crate its build compiles for their host, and its
 
 // What the lane runs a selection's Rust tests by gives each test binary what Cargo gives it.
 test('a selected package\'s tests run as Cargo runs them, and a failure is said as Cargo says it', () => {
-  const root = mkdtempSync(resolve(tmpdir(), 'affected-cargo-'));
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'affected-cargo-')));
   try {
     const crate = (name, failing) => {
       mkdirSync(resolve(root, name, 'src'), { recursive: true });
@@ -240,7 +240,7 @@ test('an environment variable a suite reads stands for the build it names', () =
 });
 
 test("a change to Swift test files alone reaches their classes and those of the files that name them, per platform", () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'affected-xctest-'));
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'affected-xctest-')));
   const files = {
     'A.swift': 'import XCTest\n\nfinal class ATests: XCTestCase {\n    static let shared = 1\n}\n',
     'Uses.swift': 'final class UsesTests: XCTestCase {\n    func testIt() { XCTAssertEqual(ATests.shared, 1) }\n}\n',
@@ -293,7 +293,7 @@ test('the commands run each workspace once, the Bun files together and every app
 });
 
 function commandFixture() {
-  const root = mkdtempSync(resolve(tmpdir(), 'affected-commands-'));
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'affected-commands-')));
   const files = ['Cargo.toml', 'game/Cargo.toml', 'core/src/lib.rs', 'game/src/lib.rs', 'scripts/sample.test.mjs',
     'apps/demo/web/src/lib.rs', 'apps/demo/first.test.contract', 'apps/demo/second.test.contract'];
   for (const file of files) {
@@ -356,7 +356,7 @@ test('--run executes later Cargo and Bun commands after a failure and retains fa
     expect(missing.ran.map(c => c[0]), missing.stderr).toEqual(['cargo', 'cargo']);
     expect(missing.status, missing.stderr).toBe(1);
   } finally { done(); }
-});
+}, 60_000); // It spawns Cargo and Bun, which a loaded machine starts slowly
 
 test('--audit executes every app test command after a failure', () => {
   const { run, done } = commandFixture();
@@ -367,7 +367,7 @@ test('--audit executes every app test command after a failure', () => {
       expect(result.status, result.stderr).toBe(status);
     }
   } finally { done(); }
-});
+}, 60_000); // It spawns Cargo and Bun, which a loaded machine starts slowly
 
 test('an audit makes every unit outside the inputs unreadable, Cargo manifests aside', () => {
   const { repo, root, done } = fixture({ 'apps/demo/app.contract': '', 'apps/other/app.contract': '', 'host/apple/A.swift': '', 'kernel/lib.rs': '' }, []);
