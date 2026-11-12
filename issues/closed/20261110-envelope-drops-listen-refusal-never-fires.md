@@ -1,6 +1,7 @@
 # A worker-placed source's `exactListen` is not refused by name: the envelope never writes the field its reader checks
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `encode_optional` refuses a turn whose request, or any fetch it leaves in flight, is a listener, while the `Request` still says so, and the dead check in `request_from` is gone.
 **Systems:** data/src/envelope.rs, local listeners (LLP 1133.005), worker placement (LLP 1027.002)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
