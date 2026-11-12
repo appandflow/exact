@@ -176,8 +176,20 @@ journal to logcat as the host comes to hold each line, with the milliseconds sin
 above were read (`adb logcat -v time`, from ActivityManager's "Start proc" line). Without it nothing is read or
 written.
 
-Not there: `Intl` in a module (the bundle has ICU's Unicode and no Intl, LLP 1107 §4.1), and a picture from a URL
-(below, "Not done").
+The published v5 Hermes bundle has ICU Unicode support but no `Intl` (LLP 1107 §4.1).
+An Intl-enabled bundle with receipt-bound English ICU data enables Ibex's
+`NumberFormat` and `DateTimeFormat` and Hermes's ICU `Collator`. Build one with
+`IBEX_DIR=/path/to/patched/ibex bun scripts/hermes-android.mjs build --intl`;
+the Ibex builder must support `IBEX_ANDROID_INTL=true` and the ICU data tiers.
+The local build targets API 29. Before `build` or `install` changes the current
+bundle, the Rust resolver checks the receipt schema, all listed archives and
+headers, the bundled compiler and ICU filters against their digests, even when
+Intl is disabled. JSI, Boost and base ICU archives must be listed. The candidate’s bytecode
+version must match the cached host compiler.
+Run `exact setup` first to install that compiler. The published bundle continues
+to build without Intl; the bake does not warn about a top-level Intl use.
+
+Not there: a picture from a URL (below, "Not done").
 
 ## Driving the reader (LLP 1107 D1)
 

@@ -1,5 +1,29 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Android 10 and Intl
+
+Android selects Intl from the validated bundle receipt. The published v5
+bundle builds without it. A receipt enabling Hermes Intl must authenticate the
+base, English and full ICU data tiers, as on Linux. `hermes-lean-sys` exports
+that availability to both the Ibex installer and Exact's Rust/C++ script lists.
+Only the selected data archive links; Exact selects English. The link directives
+keep the receipt’s VM, ICU, then platform-runtime order. Ibex supplies
+NumberFormat and DateTimeFormat; Hermes's ICU backend supplies Collator.
+Stub builds emit empty Intl bytecode beside the other binding placeholders.
+
+The release pin remains v5. A rebuilt bundle can be selected through
+`HERMES_LEAN_SYS_DIR_aarch64_linux_android`; the upstream Android builder must
+support `IBEX_ANDROID_INTL=true` and target API 29. Publishing and authenticating
+its successor is separate from this integration.
+
+The installer’s `--check-dir <directory> <rust-triple>` validates a local cross
+bundle with the build resolver and cached host compiler, without installing or
+downloading it. `scripts/hermes-android.mjs` checks each extracted candidate
+before publishing it or changing `current`. Cross-bundle admission verifies every
+receipt-listed archive, header, compiler and ICU filter against its digest,
+independently of the selected Intl data tier. Android’s JSI, Boost and base ICU archives
+must be present in the manifest.
+
 ## Portable event-stream timeouts
 
 `transport/rustls_http.rs` removes implicit read deadlines after a successful
