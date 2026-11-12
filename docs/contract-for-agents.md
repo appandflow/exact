@@ -1672,6 +1672,9 @@ With explicit `appearance="auto"`, `border-radius` sets the authored radius
 and wins over the named corner style; under the default it makes the button bare.
 `padding` and its longhands set content insets. Absent leaves the native
 control's insets/corners alone.
+On the Mac, an image-only `plain` or `borderless` button uses AppKit's push
+button height at its control size as its default minimum width and height.
+Authored dimensions and padding take precedence; its focus ring follows the image.
 
 `pointer-events` takes `none` or `auto`. A disabled native button retains
 its authored colours; bind `opacity` for authored dimming. It can open a
