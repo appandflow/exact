@@ -351,6 +351,16 @@ pub fn published(id: u32) -> Option<String> {
     with(|m| m.take_published(id)).flatten()
 }
 
+/// Enable or disable bounded HUD performance reporting.
+pub fn set_performance_reporting(id: u32, enabled: bool) -> bool {
+    with(|m| m.set_performance_reporting(id, enabled)).unwrap_or(false)
+}
+
+/// Take one metrics snapshot, at most once per second on the host clock.
+pub fn performance(id: u32, now_ms: f64) -> Option<String> {
+    with(|m| m.take_performance(id, now_ms)).flatten()
+}
+
 /// Drain posted messages as a JSON array.
 pub fn messages(id: u32) -> Option<String> {
     let messages = with(|m| m.take_messages(id)).unwrap_or_default();
@@ -617,6 +627,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_published(id: u32) -> Option<String> {
             $crate::web::published(id)
+        }
+
+        /// Enable or disable bounded HUD performance reporting.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_performance_reporting(id: u32, enabled: bool) -> bool {
+            $crate::web::set_performance_reporting(id, enabled)
+        }
+
+        /// Take one metrics snapshot, at most once per second on the host clock.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_performance(id: u32, now_ms: f64) -> Option<String> {
+            $crate::web::performance(id, now_ms)
         }
 
         /// Drain messages as a JSON array.

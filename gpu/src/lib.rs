@@ -46,6 +46,7 @@ mod frame;
 mod hdr_tests;
 mod input;
 mod pace;
+mod performance;
 pub use pace::{lower_cap, FrameTiming, HostTiming, ThermalState};
 #[cfg(not(target_arch = "wasm32"))]
 mod readback;
@@ -364,6 +365,14 @@ pub trait Surface {
     fn published(&mut self) -> Option<String> {
         None
     }
+    /// Enable bounded, read-only performance collection for an authored HUD.
+    /// Disabled by default; collection must not affect saved state or replay.
+    fn set_performance_reporting(&mut self, _enabled: bool) {}
+    /// The latest performance snapshot as a JSON object. Omit unavailable metrics.
+    /// Called only while enabled and no more than once per second.
+    fn take_performance(&mut self) -> Option<String> {
+        None
+    }
     /// An agent request and reply as JSON objects; the host adds clock and size (S3).
     fn agent(&mut self, _request: &str) -> Option<String> {
         None
@@ -507,6 +516,7 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
+    performance: performance::Reporting,
     /// An acquired image retained while the surface prepares a complete
     /// frame: it drops before `presentation`, its surface ([`release`]).
     held: Option<wgpu::SurfaceTexture>,
@@ -948,6 +958,7 @@ impl Module {
                 surface,
                 messages: Vec::new(),
                 published: None,
+                performance: performance::Reporting::default(),
                 presentation,
                 config,
                 held: None,
