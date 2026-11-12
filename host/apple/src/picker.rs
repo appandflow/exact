@@ -177,15 +177,31 @@ pub fn know_roots(app_id: &str) {
 }
 
 /// Record the app's directories, as storage is configured, and empty
-/// `app:/tmp/picked/` and `app:/tmp/shared/`: the last launch's picks and
-/// received shares are gone (D4; LLP 1133.024 D3). Their handles are pinned
-/// here for a share's reads ([`pin`]).
+/// `app:/tmp/picked/` and `app:/tmp/shared/` ([`empty_landings`]). Their
+/// handles are pinned here for a share's reads ([`pin`]).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
-    let _ = std::fs::remove_dir_all(temporary.join("picked"));
-    let _ = std::fs::remove_dir_all(temporary.join("shared"));
+    empty_landings(&temporary);
     let roots = [data, cache, temporary];
     pin(&roots);
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
+}
+
+/// The `app:/tmp` roots whose `picked` and `shared` this process has emptied.
+static LANDINGS_EMPTIED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Empty `temporary`'s `picked` and `shared` once a process: the last
+/// launch's picks and received shares are gone (D4; LLP 1133.024 D3). Each
+/// session's runtime activates its storage, and so does a plan restarted
+/// with its state carried; a later activation of the same roots leaves them,
+/// since another session (LLP 1031) or the carried state may name the files.
+fn empty_landings(temporary: &std::path::Path) {
+    let mut emptied = LANDINGS_EMPTIED.lock().unwrap_or_else(|e| e.into_inner());
+    if emptied.iter().any(|t| t == temporary) {
+        return;
+    }
+    emptied.push(temporary.to_path_buf());
+    let _ = std::fs::remove_dir_all(temporary.join("picked"));
+    let _ = std::fs::remove_dir_all(temporary.join("shared"));
 }
 
 pub(super) fn roots() -> [PathBuf; 3] {

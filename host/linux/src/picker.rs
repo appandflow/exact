@@ -68,11 +68,28 @@ fn base_from(value: Option<OsString>, home: Option<OsString>, fallback: &str) ->
 static ROOTS: Mutex<Option<[PathBuf; 3]>> = Mutex::new(None);
 
 /// Record the app's directories, and empty `app:/tmp/picked/` and
-/// `app:/tmp/shared/`: what the last launch picked or was shared is gone (D4).
+/// `app:/tmp/shared/` ([`empty_landings`]).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
+    empty_landings(&temporary);
+    *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
+}
+
+/// The `app:/tmp` roots whose `picked` and `shared` this process has emptied.
+static LANDINGS_EMPTIED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Empty `temporary`'s `picked` and `shared` once a process: what the last
+/// launch picked or was shared is gone (D4). A development reload, or an
+/// update applied while the app is open, boots a host that activates its
+/// storage again; that activation leaves them, since the state it carries
+/// may name the files.
+fn empty_landings(temporary: &Path) {
+    let mut emptied = LANDINGS_EMPTIED.lock().unwrap_or_else(|e| e.into_inner());
+    if emptied.iter().any(|t| t == temporary) {
+        return;
+    }
+    emptied.push(temporary.to_path_buf());
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
     let _ = std::fs::remove_dir_all(temporary.join("shared"));
-    *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
 }
 
 /// The app's `app:/data`, `app:/cache` and `app:/tmp` (LLP 1027.001): under
@@ -747,6 +764,28 @@ mod tests {
         assert_eq!(place("app:/data/photos/a.png/x"), None, "below a file");
         assert_eq!(place("app:/data/../private/new.png"), None);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// `picked` and `shared` are emptied at the first activation in this
+    /// process and kept at a later one, a reload's with its state carried.
+    #[test]
+    fn landings_are_emptied_once_a_process() {
+        let temporary =
+            std::env::temp_dir().join(format!("exact-landings-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temporary);
+        let put = |name: &str| {
+            let file = temporary.join(name);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "x").unwrap();
+            file
+        };
+        let stale = [put("picked/1-1.jpg"), put("shared/1/a.txt")];
+        empty_landings(&temporary);
+        assert!(stale.iter().all(|f| !f.exists()), "the last launch's files");
+        let picked = [put("picked/7-1.jpg"), put("shared/7/b.txt")];
+        empty_landings(&temporary);
+        assert!(picked.iter().all(|f| f.exists()), "this launch's files");
+        let _ = std::fs::remove_dir_all(&temporary);
     }
 
     /// An `app:/data` image resolves before storage is configured, with
