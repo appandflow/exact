@@ -12,6 +12,7 @@ import { APP_CRATES, NO_WORKSPACE } from '../scripts/cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 // Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
 const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
+const NO_SNAPBACK = 'this checkout has no Snapback client (snapback4/), so it cannot wire an app to Snapback';
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in), the template's own and those it imports. */
@@ -160,6 +161,8 @@ export function createApp(destination, options = {}) {
   if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
   if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
+  // Refused before anything is written: wiring is the last step, after the app and the backend's schema above it.
+  if (options.snapback && !snapbackDevice) throw new Error(NO_SNAPBACK);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
   // A failure leaves nothing of ours behind: the directory itself when we made
@@ -538,7 +541,7 @@ const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').re
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
 export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false, rebuild = false } = {}) {
-  if (!snapbackDevice) throw new Error('this checkout has no Snapback client (snapback4/), so it cannot wire an app to Snapback');
+  if (!snapbackDevice) throw new Error(NO_SNAPBACK);
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);

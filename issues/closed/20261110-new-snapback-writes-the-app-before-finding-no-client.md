@@ -1,6 +1,7 @@
 # `exact new --snapback` writes the app and a backend schema, then fails for want of the client
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `createApp` refuses `--snapback` in a checkout without the client before it makes the directory, with the refusal `wireSnapback` gives, so nothing is written.
 **Systems:** game/new.mjs (createApp, wireSnapback), scripts/exact.mjs (new)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

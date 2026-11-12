@@ -1132,6 +1132,18 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
   }
 });
 
+// Without the client, wiring is refused; a refusal after the app and the backend's schema were written left an app that
+// does not build, and a schema that sent the next app made beside it down the existing-backend path.
+test.skipIf(hasSnapback)('exact new --snapback in a checkout without the client is refused before it writes anything', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    for (const snapback of [{}, { online: true }]) {
+      assert.throws(() => createApp(resolve(parent, 'guest'), { snapback }), /^Error: this checkout has no Snapback client \(snapback4\/\)/);
+      assert.deepEqual(readdirSync(parent), []);
+    }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
 // `exact new --snapback` (the author's ruling of 2026-10-12, via the sb4 app farm): the README's setup block, run. The
 // backend is the directory above; the device build is `bun exact.mjs snapback`'s, skipped here (`build: false`).
 test.skipIf(!hasSnapback)('a new Snapback app is wired to the backend above it, and update follows a moved checkout\'s mount', () => {
