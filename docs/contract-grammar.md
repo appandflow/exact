@@ -2253,7 +2253,8 @@ unchecks the rest at once, then fires `input` and `change` on it, carrying its
 `value` (`on` when it has none); choosing the checked one fires nothing. With
 a radio focused, ArrowDown and ArrowRight move the focus and the check to the
 next enabled radio of its group, ArrowUp and ArrowLeft to the previous,
-wrapping, each move an `input` and a `change`; Space checks the focused one.
+wrapping. Left and Right reverse when the radio's parent group is right to
+left. Each move fires `input` and `change`; Space checks the focused one.
 `checked` is controlled as a checkbox's: after the action, every radio shows
 its bound `checked` again, so an action that writes nothing snaps the group
 back. The driver's `type <radio> true` checks it as a click does; `false` is
