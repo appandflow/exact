@@ -168,18 +168,43 @@ extension NodeView {
 
 extension GlassDeparture {
     /// What a glass shows on it, without the glass: its content view's
-    /// layer tree drawn, its children's views and the flat leaves mounted
-    /// as layers in it (`FlatLeaves`) alike. A snapshot of the content view
-    /// would hold the glass's own rendering too; drawing the layers leaves
-    /// out the effect, which is no layer of the content view's.
+    /// layer tree as it is shown now, its children's views and the flat
+    /// leaves mounted as layers in it (`FlatLeaves`) alike. A snapshot of the
+    /// content view would hold the glass's own rendering too; drawing the
+    /// layers leaves out the effect, which is no layer of the content view's.
+    /// `render(in:)` draws each layer's own values, not a running
+    /// animation's, so a descendant mid-animation is given its shown values
+    /// for the drawing (`shown`) and its own back before the batch commits.
     static func picture(of content: UIView) -> UIView {
         let format = UIGraphicsImageRendererFormat.preferred()
         format.scale = content.traitCollection.displayScale > 0 ? content.traitCollection.displayScale : format.scale
         format.opaque = false
-        let image = UIGraphicsImageRenderer(bounds: content.bounds, format: format).image { content.layer.render(in: $0.cgContext) }
+        let image = shown(content.layer) { UIGraphicsImageRenderer(bounds: content.bounds, format: format).image { content.layer.render(in: $0.cgContext) } }
         let picture = UIImageView(image: image)
         picture.frame = content.bounds
         return picture
+    }
+
+    /// `draw` run with each animated layer under `root` set to the values it
+    /// is shown at, which are put back after, with no action.
+    private static func shown<T>(_ root: CALayer, _ draw: () -> T) -> T {
+        typealias Own = (layer: CALayer, opacity: Float, position: CGPoint, bounds: CGRect, transform: CATransform3D, background: CGColor?)
+        var own: [Own] = [], below = [root]
+        while let layer = below.popLast() {
+            below += layer.sublayers ?? []
+            guard layer.animationKeys()?.isEmpty == false, layer.presentation() != nil else { continue }
+            own.append((layer, layer.opacity, layer.position, layer.bounds, layer.transform, layer.backgroundColor))
+        }
+        guard !own.isEmpty else { return draw() }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        for o in own {
+            guard let at = o.layer.presentation() else { continue }
+            (o.layer.opacity, o.layer.position, o.layer.bounds, o.layer.transform, o.layer.backgroundColor) = (at.opacity, at.position, at.bounds, at.transform, at.backgroundColor)
+        }
+        defer { for o in own { (o.layer.opacity, o.layer.position, o.layer.bounds, o.layer.transform, o.layer.backgroundColor) = (o.opacity, o.position, o.bounds, o.transform, o.background) } }
+        return draw()
     }
 
     /// A paint-only glass where the departed one was, drawn into the nearest

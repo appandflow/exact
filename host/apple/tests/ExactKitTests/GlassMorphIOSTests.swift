@@ -140,5 +140,38 @@ final class GlassMorphIOSTests: XCTestCase {
         XCTAssertEqual(Set([inside[0], inside[2]]).contains(255), true, "red, in either channel order: \(inside)")
         XCTAssertLessThan(outside[3], 20, "and nothing of the glass around it: \(outside)")
     }
+
+    /// The copy shows a descendant as it is drawn mid-animation, not at the
+    /// value its animation ends at: here the dot is held transparent by a
+    /// running animation over its opaque model.
+    func testALeavingGlassIsCopiedAsItIsShownMidAnimation() throws {
+        // Only a window the scene draws commits its animations, which a presentation then shows.
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw missing("scene", "a running animation needs a window the scene draws")
+        }
+        let p = group()
+        window.windowScene = scene
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let dot: [[String: Any]] = [
+            ["op": "create", "id": 6, "kind": "view",
+             "style": ["background_color": [255, 0, 0, 255], "text_color": [0, 0, 0, 255], "written": ["background_color"]]],
+            ["op": "frame", "id": 6, "x": 10.0, "y": 10.0, "w": 20.0, "h": 20.0]]
+        p.apply(wireBatch(glass(5, x: 128) + dot + [["op": "children", "id": 5, "ids": [6]], ["op": "children", "id": 1, "ids": [2, 5]]]))
+        let content = try XCTUnwrap(p.views[5]?.materialView?.contentView)
+        let hold = CABasicAnimation(keyPath: "opacity")
+        (hold.fromValue, hold.toValue, hold.duration) = (0, 0, 60)
+        for layer in content.layer.sublayers ?? [] { layer.add(hold, forKey: "hold") }
+        CATransaction.flush()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue((content.layer.sublayers ?? []).contains { $0.presentation()?.opacity == 0 && $0.opacity == 1 }, "the dot is shown transparent over its opaque model")
+        p.apply(pressed([["op": "destroy", "id": 5], ["op": "destroy", "id": 6], ["op": "children", "id": 1, "ids": [2]]]))
+        let picture = try XCTUnwrap(try ghosts(p).first?.contentView.subviews.first as? UIImageView)
+        let cg = try XCTUnwrap(picture.image?.cgImage)
+        let scale = CGFloat(cg.width) / picture.bounds.width
+        let bytes = try XCTUnwrap(CFDataGetBytePtr(try XCTUnwrap(cg.dataProvider?.data)))
+        let alpha = bytes[Int(20 * scale) * cg.bytesPerRow + Int(20 * scale) * cg.bitsPerPixel / 8 + 3]
+        XCTAssertLessThan(alpha, 20, "drawn as shown, transparent, not at its opaque model")
+    }
 }
 #endif
