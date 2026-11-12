@@ -55,6 +55,9 @@ export function createGame(destination, directory = import.meta.dir, options = {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|windows|gpu)$/.test(name)) {
     throw new Error('Usage: bun game/new.mjs <name|path> [--assets] [--render] (lowercase-hyphenated name, no host suffix)');
   }
+  const taken = ['logic', 'bake', 'gpu', 'render', 'web', 'apple', 'linux', 'windows', 'android']
+    .map(kind => `${name}-${kind}`).find(crate => SDK_CRATES.has(crate));
+  if (taken) throw new Error(`exact new ${destination} --game: the game's name ${name} would make the crate ${taken}, which is one of exact2's own; choose another name, such as my-${name}`);
   // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
   // (World, Camera…) or another of the template's items (Beacon, Options).
   const collided = takenTypes(directory).has(name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(''));
@@ -197,7 +200,7 @@ export function createApp(destination, options = {}) {
 
 /** The crates an app's own depend on by path (`writeApp`, `linuxCrate`): a
  * folder named `exact` would write an `exact-apple` beside the SDK's. */
-const SDK_CRATES = new Set(['ibex2-sqlite', 'exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web']);
+const SDK_CRATES = new Set(['ibex2-sqlite', 'exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web', 'exact-game-bake', 'exact-game-render']);
 
 const rosterRule = body => {
   const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);

@@ -1452,3 +1452,16 @@ test('naming Windows for a new game leaves the painter to the host', () => {
     assert.equal(manifest.deploy.store.windows, '0');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+for (const [name, options, crate] of [
+  ['exact', {}, 'exact-logic'],
+  ['exact-game', {assets:true}, 'exact-game-bake'],
+  ['exact-game', {render:true}, 'exact-game-bake'],
+]) test(`a new game refuses SDK crate collisions for ${name} ${JSON.stringify(options)} before writing files`, () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-game-name-'));
+  const destination = resolve(parent, name);
+  try {
+    assert.throws(() => createGame(destination, undefined, options), new RegExp(`would make the crate ${crate}, which is one of exact2's own`));
+    assert.ok(!existsSync(destination), 'a refused name writes nothing');
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 120_000);
