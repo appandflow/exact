@@ -1,6 +1,7 @@
 # Canvas direction getters resolve inherit instead of returning the stored token
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Both recorders' `direction` getters return the stored token, `inherit` by default, and the shared cases expect it as Chrome answers.
 **Systems:** canvas/src/context/text.rs, canvas/recorder.js, canvas/tests/cases.txt
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
