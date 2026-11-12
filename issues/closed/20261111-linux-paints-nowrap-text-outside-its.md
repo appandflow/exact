@@ -1,6 +1,7 @@
 # Linux paints nowrap text outside its overflow clip
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A text box whose overflow is not visible now paints its own lines under its overflow clip, as it clips its children, so its glyphs stop at its padding edge.
 **Systems:** host/linux/src/paint/fragments.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review

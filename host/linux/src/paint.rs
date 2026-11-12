@@ -1127,8 +1127,20 @@ impl Painter {
         }
         let outer = geometry.outer;
         let content = geometry.content;
+        // Clipped by this box when its overflow is not visible: its children,
+        // and a text's own lines (CSS Overflow 3 §3).
+        let (ox, oy) = effective_overflow(node);
+        let clip = field::overflow_clip(&surface.outer, paint.widths, (ox, oy));
         match node.node_type {
-            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
+            NodeType::Text => {
+                if let Some(clip) = &clip {
+                    self.backend.push_clip(clip, ts);
+                }
+                self.text_node(walk, node, &geometry, rect, ts);
+                if clip.is_some() {
+                    self.backend.pop_clip();
+                }
+            }
             // The rest is this element's own paint (its picture, field, or control).
             _ if !paints_self => {}
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
@@ -1234,10 +1246,7 @@ impl Painter {
             ),
             _ => {}
         }
-        // Children: clipped by this box when its overflow is not visible,
-        // moved by its scroll offset when it scrolls.
-        let (ox, oy) = effective_overflow(node);
-        let clip = field::overflow_clip(&surface.outer, paint.widths, (ox, oy));
+        // Children, moved by this box's scroll offset when it scrolls.
         let clips = clip.is_some();
         let mut child_rect = clip_rect;
         if let Some(clip) = clip {
