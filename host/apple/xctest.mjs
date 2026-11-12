@@ -51,6 +51,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/restart-list.contract'), '-o', env[`${prefix}_RESTART_LIST_PLAN`] = resolve(dir, 'restart-list.plan')]);
   // NavigationTabsIOSTests': the selected tab tapped again over a list its press asks a row of.
   contract([resolve(root, 'host/apple/tests/fixtures/tab-top-request.contract'), '-o', env[`${prefix}_TAB_TOP_REQUEST_PLAN`] = resolve(dir, 'tab-top-request.plan')]);
+  // TabStacksIOSTests': a tabpanel inside its root's tablist.
+  contract([resolve(root, 'host/apple/tests/fixtures/nested-panel-tabs.contract'), '-o', env[`${prefix}_NESTED_PANEL_TABS_PLAN`] = resolve(dir, 'nested-panel-tabs.plan')]);
   // NavigationMoreIOSTests': more tabs than an iPhone's tab bar shows, so UIKit lists some under More.
   contract([resolve(root, 'host/apple/tests/fixtures/more-tabs.contract'), '-o', env[`${prefix}_MORE_TABS_PLAN`] = resolve(dir, 'more-tabs.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/feedback-race.contract'), '-o', env[`${prefix}_FEEDBACK_RACE_PLAN`] = resolve(dir, 'feedback-race.plan')]);

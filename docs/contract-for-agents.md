@@ -1970,8 +1970,8 @@ itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 the bar's scroller with nothing written (`navigationScroll` names another; "Routes
 and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`, or, when the route
-has none, one outside every route (a header the screens share), which is optional: a
-root with a `navigationKey` alone is the navigation root and names no control. The agent's
+has none, one outside every route (a header the screens share). Naming a control is optional:
+the navigation root is the app view's first element, and `navigationKey` alone there names none. The agent's
 `back` presses it too, as Escape does on a Mac sheet. When a sheet's swipe down should not do what its
 Cancel does (Cancel reverts the edits, a swipe down keeps them), give Cancel another `id`:
 a swipe down then dismisses without pressing it, and on the Mac Cancel stays in the header,
@@ -2881,8 +2881,10 @@ a provisioning profile granting it are required. Without this opt-in iOS registe
 ([Exact developer reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 
 Every route (a node with a `navigationKey` under the root) is a direct child of the
-root or of a `role="tabpanel"` in it — through `for` and `if`, never another
-element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
+root or of a `role="tabpanel"` named by a direct `role="tab"` child of its first
+linked `role="tablist"`, through `aria-controls`. Unlinked tablists do not select
+a stack. Routes may pass through `for` and `if`, never another element: the compiler
+refuses one behind a wrapper or in an unlinked panel (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room. A covered
 route stays mounted (its nodes are in `tree`, marked `[hidden]`, or `[inactive]`

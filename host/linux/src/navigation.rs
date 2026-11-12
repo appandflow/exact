@@ -461,6 +461,116 @@ mod tests {
     use Presented::{Pushed as P, Sheet as S};
 
     #[test]
+    fn ordinary_and_tabbed_roots_project_their_routes_through_push_and_back() {
+        let routes = r#"column navigationKey="home" testId="home"
+  header
+    text "Home" role="heading"
+  button press=push testId="push"
+    text "Open"
+column navigationKey="detail" testId="detail"
+  header
+    button id="back" press=back testId="back"
+      text "Back"
+    text "Detail" role="heading"
+"#;
+        let tablist = "row role=\"tablist\"\n  button role=\"tab\" aria-controls=\"panel\"\n    text \"Home\"\n";
+        let indent = |view: &str| {
+            view.lines()
+                .map(|line| format!("  {line}\n"))
+                .collect::<String>()
+        };
+        let unlinked = tablist.replace(" aria-controls=\"panel\"", "");
+        let linked = format!(
+            "column role=\"tabpanel\" id=\"panel\"\n{}{tablist}",
+            indent(routes)
+        );
+        for back in ["", " navigationBack=\"back\""] {
+            for (children, tabbed) in [
+                (routes.to_string(), false),
+                (
+                    format!("{routes}{unlinked}column role=\"tabpanel\" id=\"panel\"\n"),
+                    false,
+                ),
+                (
+                    format!(
+                        "column\n  column role=\"tabpanel\" id=\"panel\"\n{}{tablist}",
+                        indent(&indent(routes))
+                    ),
+                    true,
+                ),
+                (
+                    format!(
+                        "{tablist}  column role=\"tabpanel\" id=\"panel\"\n{}",
+                        indent(&indent(routes))
+                    ),
+                    true,
+                ),
+                (
+                    linked.replace("role=\"tablist\"", "role=(shown ? \"tablist\" : \"group\")"),
+                    true,
+                ),
+                (
+                    linked.replace("role=\"tab\"", "role=(shown ? \"tab\" : \"group\")"),
+                    true,
+                ),
+                (
+                    linked.replace(
+                        "role=\"tabpanel\"",
+                        "role=(shown ? \"tabpanel\" : \"group\")",
+                    ),
+                    true,
+                ),
+            ] {
+                let source = format!(
+                    "component App\n  state shown = true\n  state selected = \"home\"\n  action push\n    selected = \"detail\"\n  action back\n    selected = \"home\"\n  view\n    main navigationKey=selected{back}\n{}",
+                    indent(&indent(&indent(&children)))
+                );
+                let plan = contract::compile(&source).unwrap();
+                let (mut host, error) = crate::Host::boot(
+                    &plan.encode(),
+                    (),
+                    Box::new(exact_kernel::MonospaceMeasurer::default()),
+                    390.,
+                    844.,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                let id = |name: &str| {
+                    let kernel = host.kernel();
+                    kernel
+                        .node_by_key(kernel.find_by_test_id(name)[0])
+                        .unwrap()
+                        .id
+                };
+                let (home, detail, push, back) = (id("home"), id("detail"), id("push"), id("back"));
+                let root = host.kernel().roots()[0];
+                let (tabs, stacks) = stacks(host.kernel(), root);
+                assert_eq!(tabs.is_some(), tabbed, "{source}");
+                assert_eq!(stacks, [vec![home, detail]], "{source}");
+                assert_eq!(host.shown_stack(), Some([home].as_slice()));
+                assert_eq!(host.route_visibility(home), (false, false));
+                assert_eq!(host.route_visibility(detail), (true, true));
+                assert!(host
+                    .dispatch_at(push, exact_runner::Event::Press, 0.)
+                    .is_none());
+                assert_eq!(host.shown_stack(), Some([home, detail].as_slice()));
+                assert_eq!(host.route_visibility(home), (true, true));
+                assert_eq!(host.route_visibility(detail), (false, false));
+                assert!(host
+                    .dispatch_at(back, exact_runner::Event::Press, 1.)
+                    .is_none());
+                assert_eq!(host.shown_stack(), Some([home].as_slice()));
+                assert_eq!(host.route_visibility(home), (false, false));
+                assert_eq!(host.route_visibility(detail), (true, true));
+                assert!(
+                    !exact_runner::agent::logs(host.runner(), 0).contains("matches no route"),
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn selected_route_and_only_its_modal_underlay_are_visible() {
         let keys = ["a", "b", "c", "d"];
         assert_eq!(

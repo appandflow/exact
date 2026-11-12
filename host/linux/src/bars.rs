@@ -13,7 +13,8 @@
 //!   search field or a tablist keeps those in the page under the bar: then
 //!   only what the bar shows of it (the heading, its buttons, whatever else
 //!   holds neither) is taken out;
-//! - the tablist the navigation bar replaces, likewise;
+//! - the tablist the navigation bar replaces, likewise: one that holds the
+//!   root's tabpanels keeps them in the page;
 //! - each route is inset by the room its bars take: the top bar's at its
 //!   top edge, the navigation bar's at its bottom;
 //! - a route the shell shows in a sheet (a `modal` one, or one pushed
@@ -52,8 +53,15 @@ fn within(kernel: &Kernel, node: ViewId, ancestor: ViewId) -> bool {
 /// bar), every part of it that holds neither.
 fn lifted(kernel: &Kernel, shape: &HeaderShape<ViewId>) -> Vec<ViewId> {
     let kept: Vec<ViewId> = shape.search.into_iter().chain(shape.segments).collect();
-    if kept.is_empty() {
-        return vec![shape.header];
+    covered(kernel, shape.header, &kept)
+}
+
+/// The nodes that cover `node` but for `kept`, which stay in the page: the
+/// node itself, or, where it holds any of them, every part of it that
+/// holds none.
+fn covered(kernel: &Kernel, node: ViewId, kept: &[ViewId]) -> Vec<ViewId> {
+    if !kept.iter().any(|k| within(kernel, *k, node)) {
+        return vec![node];
     }
     fn walk(kernel: &Kernel, node: ViewId, kept: &[ViewId], out: &mut Vec<ViewId>) {
         for child in kernel.node(node).map(|n| n.children()).unwrap_or_default() {
@@ -67,7 +75,7 @@ fn lifted(kernel: &Kernel, shape: &HeaderShape<ViewId>) -> Vec<ViewId> {
         }
     }
     let mut out = Vec::new();
-    walk(kernel, shape.header, &kept, &mut out);
+    walk(kernel, node, kept, &mut out);
     out
 }
 
@@ -158,8 +166,12 @@ impl<D: DataSource> Host<D> {
                 })
             });
             let below = if found.is_some() { below } else { 0.0 };
+            // A tablist may hold the root's panels: those, and their
+            // routes, stay in the page.
             if let Some(tabs) = &found {
-                wanted.insert(tabs.tablist, HostCover::Whole);
+                for id in covered(kernel, tabs.tablist, &tabs.panels) {
+                    wanted.insert(id, HostCover::Whole);
+                }
             }
             for stack in &all {
                 let kinds: Vec<Presented> = (stack.iter())

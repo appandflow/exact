@@ -997,3 +997,48 @@ fn a_reload_at_the_same_epoch_reads_the_bars_again() {
     assert_eq!(text(&p, "home-title"), "Start");
     assert_eq!(top(&mut p).title, "Start");
 }
+
+/// A tabpanel the root's tablist holds: the navigation bar stands for the
+/// tabs, and the panel's routes stay in the page, shown and pressed.
+#[test]
+fn a_panel_inside_the_tablist_stays_in_the_page() {
+    let (mut p, _) = barred(
+        r#"component App
+  state selected = "home"
+  action push
+    selected = "detail"
+  action back
+    selected = "home"
+  view
+    main navigationKey=selected navigationBack="back" width="100%" height="100%"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel" testId="tab"
+          text "Home"
+        column role="tabpanel" id="panel" flex=1
+          column navigationKey="home" testId="home"
+            header
+              text "Home" role="heading"
+            button press=push testId="push"
+              text "Open"
+          column navigationKey="detail" testId="detail"
+            header
+              button id="back" press=back testId="back"
+                text "Back"
+              text "Detail" role="heading"
+            text "Body" testId="body"
+"#,
+    );
+    assert!(p.bar_plans().1.is_some(), "a navigation bar");
+    let tab = id(&p, "tab");
+    assert!(p.rect_of(tab).is_none(), "the tab is the bar's");
+    let push = id(&p, "push");
+    assert_eq!(p.host().route_visibility(push), (false, false));
+    assert!(p.rect_of(push).is_some(), "the home route paints");
+    tap(&mut p, "push").unwrap();
+    let body = id(&p, "body");
+    assert_eq!(p.host().route_visibility(body), (false, false));
+    assert!(p.rect_of(body).is_some(), "the pushed route paints");
+    assert!(p.system_back(0.0));
+    p.run_commands(|| Nothing);
+    assert_eq!(p.host().route_visibility(push), (false, false));
+}
