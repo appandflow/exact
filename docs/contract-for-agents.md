@@ -3061,7 +3061,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   that scrolls is measured by its scroll extent, so give its rows
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
-  iOS alone sizes a sheet (LLP 1075.003 §9.11).
+  iOS sizes a sheet, and so does the web on a window narrower than 900 px: it opens
+  at the same height, its foot on the window's, and stays there (no grabber, no
+  drag between heights), with the bottom safe area below, and a route pushed inside
+  it stays in it at that height. There it is the tallest sheet in a window under 480 px tall
+  (UIKit's compact height) and on a touch screen while a text field in it has the
+  focus, as UIKit raises one over the keyboard; a wider window draws the card. macOS
+  and Linux ignore the detent (LLP 1075.003 §9.11, LLP 1115.000 D4.8).
 - A sheet opens at its first height, the shortest, as UIKit opens one, unless the
   route says `navigationInitialDetent`, one of its `navigationDetent` words:
   `navigationDetent="medium large" navigationInitialDetent="large"` opens tall with a

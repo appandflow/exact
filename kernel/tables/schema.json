@@ -6525,6 +6525,7 @@
     ["sheet-height", "length", "45rem"],
     ["sheet-margin", "length", 64],
     ["sheet-top", "length", 12],
+    ["sheet-compact-height", "length", 480],
     ["sheet-padding", "length", 24],
     ["sheet-gap", "length", 12],
     ["sheet-action-gap", "length", 8],

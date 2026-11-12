@@ -1419,9 +1419,15 @@ nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and thei
 smaller and larger side), as CSS's `vh` is the viewport's and never a
 dialog's, so `height: 50vh` is half the screen at any sheet height
 and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
-laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
-Linux show a modal route as authored and ignore the detent
-(LLP 1075.003 §9.11).
+laid out in the sheet, so give its rows `flex-shrink: 0`. On a window narrower
+than 900 pixels the web's sheet opens at the height iOS opens it at, its foot on
+the window's, and stays there: it has no grabber and is not dragged between
+heights. A route pushed inside it stays in it at that height, as in UIKit's
+sheet. It is the tallest sheet in a window under 480 pixels tall (UIKit's compact
+height), and on a touch screen while a text field in it has the focus, as UIKit
+raises a sheet over the keyboard. A wider window shows the card it always does.
+macOS and Linux show a modal route as authored and ignore the detent
+(LLP 1075.003 §9.11, LLP 1115.000 D4.8).
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string

@@ -85,7 +85,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'], 'popover-margin': ['margin', 'margin-left'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding', 'padding-inline-start'], 'menu-row-gap': ['--exact-button-space-width', 'margin-inline-end', 'padding-inline-start', 'margin-inline-start'],
-    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height', 'max-height'], 'sheet-margin': ['width', 'height', 'max-height'], 'sheet-top': ['inset'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height', 'max-height'], 'sheet-margin': ['width', 'height', 'max-height'], 'sheet-top': ['inset', 'max-height'], 'sheet-compact-height': ['@media'],
     'sheet-padding': ['padding', 'margin', 'margin-inline-end', 'padding-inline-end'], 'sheet-gap': ['padding', 'margin'], 'sheet-action-gap': ['margin'],
     'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
