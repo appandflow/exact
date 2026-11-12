@@ -1,6 +1,7 @@
 # docs/contract-for-humans.md states eight rules the compiler and hosts no longer have
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `docs/contract-for-humans.md` states the eight rules as the compiler and hosts have them: every top-level form, exponent literals, options typed for derives too, a warned read-after-assign, shadowable standard functions, `scroll-padding` on any scroller, Linux's `focus`, and `frame()` with transforms.
 **Systems:** docs/contract-for-humans.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
