@@ -469,6 +469,7 @@ extension CanvasesHost {
         for text in texts {
             guard live(e.view.id) === e else { break }
             if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
+            if haptics.take(e.id, text) { continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }
@@ -709,6 +710,8 @@ final class CanvasLifecycle: NSObject {
     }
     private func send(_ code: UInt32, excluding id: UInt32? = nil) {
         precondition(Thread.isMainThread)
+        // No texture plays while the canvases are hidden or interrupted (LLP 1009 D10).
+        owner?.haptics.suspended = hidden || interrupted
         guard let owner, !owner.modules.isEmpty else { return }
         // Each canvas's own artifact (LLP 1009 D6).
         for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { entry.module?.lifecycle?(entry.id, code) }

@@ -472,6 +472,7 @@ capability has a call of its own.
 | 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}`; or a package picture the runner admitted (LLP 1133.019 D11 item 1), `{"extension", "picture", "width", "height", "fit", "owned", "agent"}` | calls the extension's `later` or `release`, or `picture` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call. A picture is answered by `Native.picture` with its `Bitmap`, or with an error code |
 | 13 | the session's orientation lock (LLP 1133.029 D6) | 0 for none; or 1, the orientations its types allow as bits (portrait-primary 1, portrait-secondary 2, landscape-primary 4, landscape-secondary 8), whether a holder says `natural`, whether one says `current`, a count, and for each holder its node and its word as a string | sets the activity's `requestedOrientation` (`Orientation.told`): the manifest's mapping for the set, `locked` for `current`, the manifest's value for none; on a display 600 dp wide or wider only `current` | none by id: `Native.orientationApplied` reports what was asked, for `state.orientationlock.applied` |
 | 14 | whether a canvas receives pad input (LLP 1133.022 D4) | one word: 1 or 0 | observes controller buttons and joystick motion, consuming them only while 1; Android's fallback keys always pass through for navigation | none |
+| 15 | a GPU surface's haptic message (LLP 1009 D10) | the surface's id, then a string: the message's JSON as `exact_gpu::haptics` writes it (a texture's `intensity` and `sharpness`, its stop, or a pattern); exact2 sends a stop when the surface goes | `SurfaceHaptics`, on the vibrator ("Haptics", below); nothing while the activity is paused | none |
 
 Kinds 5, 6, 7, 8, 13 and 14 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back, the wake lock and the orientation lock only after a
@@ -483,6 +484,14 @@ heavy click and a double click, and Exact's names choose by those: `selection` i
 `impact-soft` `TEXT_HANDLE_MOVE`, `success` `CONFIRM`, `error` `REJECT`. Android has nothing for two of them:
 `impact-rigid` is the click `impact-medium` is, and `warning` is `REJECT`, as `error` is. The system plays a haptic or
 not by the person's touch feedback setting.
+
+A GPU surface's haptics (kind 15) need the vibrator, so the shell's manifest asks for `VIBRATE`, a normal permission.
+A texture is a repeating waveform at an amplitude of its `intensity`, played again when the amplitude changes, at
+most every 16 ms; of several surfaces' textures the strongest plays, its `sharpness` is not played, and a vibrator
+without amplitude control plays no texture. A pattern is a composition of click and tick primitives when every
+event is a transient and the device has both, otherwise a waveform on a 10 ms grid; it interrupts the texture, which
+plays again when it ends. Both use `VibrationAttributes.USAGE_TOUCH` from Android 13, so the touch feedback setting
+applies; before 13 the reader reads that setting and plays nothing when it is off.
 
 **The Sharesheet's answer** is as much as Android tells. The sheet says what was chosen to a sender it is handed
 (a target; from Android 15 also its own actions, such as Copy): that is `shared`, though nothing says the share was

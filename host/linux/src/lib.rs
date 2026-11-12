@@ -98,6 +98,7 @@ pub mod presence_secrets;
 pub mod presenter;
 pub mod raster;
 mod scroll_anchor;
+mod surface_haptics;
 mod surfaces;
 mod tamber;
 pub mod teardown;

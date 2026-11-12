@@ -557,6 +557,7 @@ open class ExactActivity : Activity() {
         // Everything committed before the pause is on disk (exact2 writes the store on a thread of its own).
         if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the pause")
         Extensions.paused()
+        requests.paused()
         super.onPause()
     }
 

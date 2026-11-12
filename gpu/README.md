@@ -180,3 +180,37 @@ the owner prepares too: surfaces can open output, but the driver drops
 macOS, the web, Linux and Android consume the request without configuring a session.
 On Android that means a module's output gets no audio focus and no interruption
 report from Exact: the module asks Android for focus and handles its loss itself.
+
+## A module's own haptics
+
+A surface plays haptics from its own callbacks, where the gesture and the
+physics are, by returning `exact_gpu::haptics::Haptic::message()` strings from
+`Surface::messages` (LLP 1009 D10). The host consumes them; the app never sees
+them. The names are Core Haptics':
+
+- `Haptic::texture(intensity, sharpness)` starts the surface's texture, a
+  continuous vibration, or moves it to new values. Send it as often as every
+  frame while the finger drags; each value is 0–1. `Haptic::Stop` stops it.
+  A surface has one texture.
+- `Haptic::Pattern` plays a short pattern now, beside the texture: transient
+  events (taps) and continuous ones, each at its time with its intensity and
+  sharpness, and curves over the pattern that multiply its intensity or add to
+  its sharpness (`CHHapticParameterCurve`). A pattern lasts at most 30 s.
+
+The host owns their life. A surface's texture stops when the surface is
+destroyed, and every texture stops while the canvases are hidden or interrupted
+(iOS) or the activity is paused (Android); a later texture message starts it
+again, so a surface that sends one each frame resumes by itself. The person's
+system haptics setting applies, as it does to `haptic()`.
+
+- **iOS**: Core Haptics, one `CHHapticEngine` for the process, haptics only, so
+  no audio session is involved. A texture is a looping continuous event moved by
+  `hapticIntensityControl` and `hapticSharpnessControl`; a pattern is a
+  `CHHapticPattern` played at once. A device without a haptic engine plays
+  nothing.
+- **Android**: the vibrator (`host/android/README.md`, "Haptics"). A texture is
+  an amplitude, so its sharpness is not played, and a device without amplitude
+  control plays no texture; a pattern is click and tick primitives, or a
+  waveform. The shell's manifest asks for `VIBRATE`.
+- **macOS, tvOS, the web, Linux, Windows**, and every host under the driver,
+  consume the messages and play nothing.

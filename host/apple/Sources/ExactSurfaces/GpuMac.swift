@@ -49,6 +49,8 @@ final class MetalCanvasView: NSView {
 /// module itself loaded once per process (LLP 1031 D12).
 final class CanvasesHost {
     lazy var lifecycle = CanvasLifecycle(self)
+    /// The canvases' haptics (LLP 1009 D10).
+    lazy var haptics = SurfaceHaptics.make()
     var editsAdmitted = false
     weak var session: ExactSession?
     var performanceTimer: Timer?
@@ -199,7 +201,7 @@ final class CanvasesHost {
             if e.waiting { session?.frames.canvasLost() }
             retainEdits(e)
             e.view.canvasInput = nil
-            if e.id != 0 { e.module?.destroy(e.id) }
+            if e.id != 0 { haptics.remove(e.id); e.module?.destroy(e.id) }
             releasePublisher(e)
         }
     }

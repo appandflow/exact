@@ -483,6 +483,7 @@ pub(crate) struct Surfaces {
     windows: BTreeMap<u32, android::Window>,
     #[cfg(any(target_os = "android", test))]
     fingers: fingers::Fingers,
+    pub(crate) haptics: crate::surface_haptics::Haptics,
 }
 /// Posts held per surface name until a canvas of that name is live; past it a
 /// post is dropped and logged. The same bound and rule on every host.
@@ -817,8 +818,8 @@ impl Surfaces {
             if let Some(bytes) = abi.read(b"gpu_messages", c.id) {
                 if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
                     for message in messages {
-                        // Headless Linux has no audio session or lifecycle to deliver.
-                        if message == "exact:audio" {
+                        // No audio session here; a haptic is the shell's (LLP 1009 D10).
+                        if message == "exact:audio" || self.haptics.take(c.id, &message) {
                             continue;
                         }
                         self.error = self.error.take().or(host.dispatch_at(
@@ -901,7 +902,9 @@ impl Surfaces {
                 }
                 if let Some(bytes) = abi.read(b"gpu_messages", id) {
                     if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
-                        for message in messages.into_iter().filter(|m| m != "exact:audio") {
+                        for message in messages.into_iter().filter(|m| {
+                            m != "exact:audio" && !m.starts_with(crate::surface_haptics::PREFIX)
+                        }) {
                             self.error = self.error.take().or(host.dispatch_at(
                                 view,
                                 Event::Message(message),
