@@ -1,6 +1,7 @@
 # A web Markdown editor whose source starts with a byte order mark draws later lines one character short and corrupts the source on the first edit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web editor decodes what it reads back from its wasm with `ignoreBOM`, so its copy of the source keeps a leading U+FEFF and agrees with every offset the editor reports.
 **Systems:** host/web/markup-editor.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

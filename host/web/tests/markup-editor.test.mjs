@@ -816,6 +816,22 @@ engineTest.chromium('chromium: Markdown editing escapes an inert ancestor at an 
   }, true);
 }, 60000);
 
+// A file saved as "UTF-8 with BOM" and decoded with `String::from_utf8` keeps
+// U+FEFF; every offset the editor reports counts it.
+engineTest.chromium('chromium: a Markdown source that starts with a byte order mark draws and edits as written', async () => {
+  const source = '\ufeff# Title\nfirst line\nsecond line';
+  await editor('chromium', source, async (page, field) => {
+    expect(await field.evaluate(el => el.value)).toBe(source);
+    expect(await field.locator('.md-line').allTextContents()).toEqual(['\ufeff# Title', 'first line', 'second line']);
+    await field.focus();
+    await field.evaluate((el, end) => el.setSelectionRange(end, end), source.length);
+    await settle(page);
+    await page.keyboard.insertText('!');
+    expect(await field.evaluate(el => el.value)).toBe(source + '!');
+    expect(only(await heard(page), 'input').map(e => e[0])).toEqual([source + '!']);
+  });
+}, 60000);
+
 // On a Mac the editor's chords are ⌘'s, and Control with a letter is the text
 // system's binding, as in a plain field: Playwright sends each with the AppKit
 // command Chrome attaches for a real keyboard (⌃A moveToBeginningOfParagraph:,
