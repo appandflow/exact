@@ -1,6 +1,7 @@
 # iOS speaks a `spinbutton`'s value as a percentage of its range
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A `spinbutton` speaks its number (or `aria-valuetext`) on iOS and has no bounds it does not write, on the Mac too, and the guide says so.
 **Systems:** host/apple/Sources/ExactKit/Accessibility.swift (rangeNumbers, rangeValueText), host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift, docs/contract-for-humans.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

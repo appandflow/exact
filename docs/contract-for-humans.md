@@ -1085,10 +1085,12 @@ data table and a `dl` as a list, its rows and cells with no role of their
 own. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
-and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
-children unread, and its value is the platform's (UIKit's `accessibilityValue`
-as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
-text its description). A `progress` or `input type="range"` says its own value.
+and 100 where a bound is unsaid, and none for a `spinbutton`) and
+`aria-valuetext`: it is one element, its children unread, and its value is the
+platform's (UIKit's `accessibilityValue` as a percentage, "30%", a
+`spinbutton`'s as its number, "3", or the text; AppKit's value, minimum and
+maximum, the text its description). A `progress` or `input type="range"` says
+its own value.
 Leave font sizes, colours and control metrics unsaid and the platform supplies them;
 what you set on a node wins.
 
