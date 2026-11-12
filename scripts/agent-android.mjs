@@ -33,9 +33,9 @@ import { writeTamberNames } from './tamber-names.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { homedir, userInfo } from 'node:os';
+import { homedir, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, PINNED_RUST, bakeWatchEnv, buildBake, claimLive, hermesBundle, cargoEnvironment, copyShaders, gpuModules, injectedProfiles, linuxBuild, mavenProblems, resolveApp, wholeProgram } from './app.mjs';
 import { ANDROID_MIN_API, hermesAndroidBundle } from './hermes-android.mjs';
@@ -909,16 +909,17 @@ export function buildApk(app, env, profile, writeLocks = false, bundle = false) 
   const development = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).embedded?.trust !== 'production';
   // The token names its hatches read (LLP 1121 D12), beside them in the build.
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
-  const graph = mavenGraph(app, writeLocks, maven);
+  const graph = mavenGraph(app, writeLocks, maven, env);
   if (!graph) return null;
   let assembled;
   try {
     // Without file watching Gradle reads its inputs to decide what is up to date; a watcher that missed an edit
-    // shipped the reader's old classes once (LLP 1159.002 D1).
-    assembled = runGradle(['--no-watch-fs', ...(env.CI ? ['--no-daemon'] : []), bundle ? ':app:bundleRelease' : ':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
+    // shipped the reader's old classes once (LLP 1159.002 D1). A daemon started in the locks' own Gradle home would
+    // outlive the home.
+    assembled = runGradle(['--no-watch-fs', ...(env.CI || graph.env.GRADLE_USER_HOME ? ['--no-daemon'] : []), bundle ? ':app:bundleRelease' : ':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
       `-PexactDevelopment=${development ? '1' : '0'}`,
       `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
-      ...gpuArgs, ...(icons.icon ? [`-PappIcon=${icons.icon}`] : []), ...(icons.banner ? [`-PappBanner=${icons.banner}`] : []), ...compose, ...extensionArgs(app, out, config, bound), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env) } });
+      ...gpuArgs, ...(icons.icon ? [`-PappIcon=${icons.icon}`] : []), ...(icons.banner ? [`-PappBanner=${icons.banner}`] : []), ...compose, ...extensionArgs(app, out, config, bound), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env), ...graph.env } });
     if (assembled) graph.kept();
   } finally {
     graph.done();
@@ -974,19 +975,41 @@ function mavenLocksPresent(app, maven) {
  * reader's own AndroidX, locked to the app's `gradle.lockfile` and verified against its `gradle-verification.xml`,
  * both beside its other locks. The verification file is Gradle's, which it reads only from the reader's `gradle/`:
  * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
- * (`kept` copies the verification back). Missing locks are refused before Gradle runs. */
-function mavenGraph(app, writeLocks, maven) {
+ * (`kept` copies the verification back), in a Gradle user home of its own (`coldGradleHome`, its variables `env`).
+ * Missing locks are refused before Gradle runs. */
+function mavenGraph(app, writeLocks, maven, env) {
   const placed = resolve(READER, 'gradle/verification-metadata.xml');
-  const none = { args: [], kept() {}, done() {} };
+  const none = { args: [], env: {}, kept() {}, done() {} };
   if (!maven.length) return none;
   const lock = resolve(app.dir, 'gradle.lockfile'), checksums = resolve(app.dir, 'gradle-verification.xml');
   rmSync(placed, { force: true });
   if (existsSync(checksums)) copyFileSync(checksums, placed);
+  const home = writeLocks ? coldGradleHome(env) : null;
   return {
     args: [`-Pmaven=${maven.join(',')}`, `-PmavenLock=${lock}`, ...(writeLocks ? ['--write-locks', '--write-verification-metadata', 'sha256'] : ['--dependency-verification=strict'])],
+    env: home ? { GRADLE_USER_HOME: home } : {},
     kept() { if (writeLocks && existsSync(placed)) copyFileSync(placed, checksums); },
-    done() { rmSync(placed, { force: true }); },
+    done() { rmSync(placed, { force: true }); if (home) rmSync(home, { recursive: true, force: true }); },
   };
+}
+
+/** A new Gradle user home for writing the locks, with nothing resolved in it, as a fresh machine's is. Gradle writes a
+ * checksum for each file it fetches, and from a warm cache it fetches fewer than a fresh machine's strict build
+ * verifies (a BOM's `.module` beside its `.pom`, another version's parent POM), so checksums written warm fail there.
+ * It keeps what is configuration or the tool, never a dependency: the home's `gradle.properties` and init scripts
+ * (`init.gradle`, `init.gradle.kts`, `init.d`: proxies, mirrors, credentials, JVM options) copied, and the wrapper's
+ * distributions linked, so Gradle is not downloaded again. The caller removes it. */
+export function coldGradleHome(env = process.env) {
+  const warm = env.GRADLE_USER_HOME || resolve(homedir(), '.gradle');
+  const home = mkdtempSync(resolve(tmpdir(), 'exact-gradle-locks-'));
+  for (const kept of ['gradle.properties', 'init.gradle', 'init.gradle.kts', 'init.d']) {
+    if (existsSync(resolve(warm, kept))) cpSync(resolve(warm, kept), resolve(home, kept), { recursive: true });
+  }
+  mkdirSync(resolve(warm, 'wrapper/dists'), { recursive: true });
+  mkdirSync(resolve(home, 'wrapper'));
+  // A junction on Windows, which needs no privilege to make.
+  symlinkSync(resolve(warm, 'wrapper/dists'), resolve(home, 'wrapper/dists'), 'junction');
+  return home;
 }
 
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's

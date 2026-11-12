@@ -860,3 +860,33 @@ test('an APK carries each GPU library the bake built, by the name Cargo gave it,
     expect(stageGpuLibraries([], jniLibs)).toEqual([]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('locks are written in a Gradle home with nothing resolved, keeping its configuration and the wrapper', async () => {
+  const { coldGradleHome } = await import('./agent-android.mjs');
+  const warm = mkdtempSync(resolve(tmpdir(), 'exact-warm-gradle-')), bare = mkdtempSync(resolve(tmpdir(), 'exact-bare-gradle-'));
+  try {
+    mkdirSync(resolve(warm, 'caches/modules-2/files-2.1/org.junit/junit-bom'), { recursive: true });
+    mkdirSync(resolve(warm, 'wrapper/dists/gradle-9.8.0-bin/abc'), { recursive: true });
+    mkdirSync(resolve(warm, 'init.d'));
+    writeFileSync(resolve(warm, 'gradle.properties'), 'systemProp.https.proxyHost=proxy.invalid\n');
+    writeFileSync(resolve(warm, 'init.d/mirror.gradle'), '// a mirror\n');
+    writeFileSync(resolve(warm, 'init.gradle'), '// credentials\n');
+    writeFileSync(resolve(warm, 'init.gradle.kts'), '// a repository\n');
+    const home = coldGradleHome({ GRADLE_USER_HOME: warm });
+    expect(existsSync(resolve(home, 'caches'))).toBe(false);
+    expect(readFileSync(resolve(home, 'gradle.properties'), 'utf8')).toContain('proxy.invalid');
+    expect(existsSync(resolve(home, 'init.d/mirror.gradle'))).toBe(true);
+    expect(readFileSync(resolve(home, 'init.gradle'), 'utf8')).toContain('credentials');
+    expect(readFileSync(resolve(home, 'init.gradle.kts'), 'utf8')).toContain('repository');
+    expect(existsSync(resolve(home, 'wrapper/dists/gradle-9.8.0-bin/abc'))).toBe(true);
+    // Removing the home leaves the distributions it linked.
+    rmSync(home, { recursive: true, force: true });
+    expect(existsSync(resolve(warm, 'wrapper/dists/gradle-9.8.0-bin/abc'))).toBe(true);
+    // A home without distributions gets the directory the wrapper downloads into.
+    rmSync(coldGradleHome({ GRADLE_USER_HOME: bare }), { recursive: true, force: true });
+    expect(existsSync(resolve(bare, 'wrapper/dists'))).toBe(true);
+  } finally {
+    rmSync(warm, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  }
+});

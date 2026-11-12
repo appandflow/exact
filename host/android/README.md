@@ -596,7 +596,11 @@ and bound implementations' coordinates (`-Pmaven`), and the graph is held by Gra
   `--dependency-verification=strict`. `gradle.properties` leaves verification off for every other build.
 - **Written** once, and again when the app's or a module's coordinates change:
   in the repository directory, `bun scripts/agent-android.mjs build <app> --apk --write-locks` (Gradle's `--write-locks` and
-  `--write-verification-metadata sha256`); the app keeps both files with its source. Without them, an app whose
+  `--write-verification-metadata sha256`); the app keeps both files with its source. They are written in a Gradle
+  user home of their own with nothing resolved in it, as a fresh machine's is: from a warm cache Gradle fetches fewer
+  files than a fresh machine verifies (a BOM's `.module` beside its `.pom`), so checksums written there fail a fresh
+  build. That home keeps the user home's `gradle.properties` and init scripts and links its wrapper distributions; the
+  write downloads the graph once, without a daemon, and the home is removed after. Without the two files, an app whose
   modules or own Kotlin name libraries is refused before Gradle runs. The refusal and `exact add` name the directory and
   command: `in <app dir>: bun exact.mjs android --write-locks` when the app has its own launcher, otherwise
   the repository directory and command above, with `EXACT_APP_DIR` set to the app's directory unless it is
