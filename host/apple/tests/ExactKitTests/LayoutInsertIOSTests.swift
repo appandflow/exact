@@ -99,4 +99,45 @@ final class LayoutInsertIOSTests: XCTestCase {
         waitFor("the sibling slides to its place") { below.layoutOffset == .zero }
     }
     #endif
+
+    /// The sibling slides over the inserted row as CSS paints them, by its later place
+    /// and its `z-index`, and takes touches first; on iOS the window's pixels at the
+    /// slide's start show nothing of the row where the sibling stands over it (#135).
+    func testTheSiblingPaintsOverTheInsertedRowAsItSlides() throws {
+        #if os(iOS)
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the window's pixels are a scene window's") }
+        #endif
+        let session = try boot()
+        session.presenter.onPress?(try XCTUnwrap(node(session, "toggle")).id)
+        let row = try XCTUnwrap(node(session, "row")), below = try XCTUnwrap(node(session, "below"))
+        let slider = try XCTUnwrap(session.presenter.controls.controls[try XCTUnwrap(node(session, "slider")).id])
+        XCTAssertTrue(row.superview === below.superview, "siblings in one container")
+        XCTAssertGreaterThan(below.paintZPosition, row.paintZPosition)
+        XCTAssertTrue(slider.isDescendant(of: row), "the slider paints in its row's turn")
+        let siblings = NodeView.hitOrder(try XCTUnwrap(row.superview).subviews)
+        XCTAssertLessThan(try XCTUnwrap(siblings.firstIndex { $0 === below }), try XCTUnwrap(siblings.firstIndex { $0 === row }), "touches reach the sibling first")
+        XCTAssertLessThan(shownY(below), row.frame.maxY - 1, "the sibling starts over the row")
+        #if os(iOS)
+        // Where the sibling shows over the row (both with their transforms), the window's
+        // pixels are the same with the row hidden: nothing of the row is drawn over it.
+        let window = try XCTUnwrap(self.window)
+        let over = row.convert(row.bounds, to: window).intersection(below.convert(below.bounds, to: window))
+        let x = over.minX.rounded(.up), y = over.minY.rounded(.up)
+        let covered = CGRect(x: x, y: y, width: over.maxX.rounded(.down) - x, height: over.maxY.rounded(.down) - y)
+        XCTAssertGreaterThan(covered.height, 20, "the sibling starts over the row's label")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let picture = {
+            CapturePixels.bytes(UIGraphicsImageRenderer(bounds: covered, format: format).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }.cgImage)
+        }
+        let shown = picture()
+        XCTAssertTrue(CapturePixels.hasPaint(shown))
+        row.isHidden = true
+        defer { row.isHidden = false }
+        XCTAssertEqual(shown, picture(), "the row draws nothing over the sibling")
+        #endif
+    }
 }
