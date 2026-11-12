@@ -458,8 +458,8 @@ completion.`,
     body: `In an app, omit <app>; from the checkout, name it. <module> is one of exact2's
 (geolocation, or @exact/geolocation): a path into this checkout,
 so it compiles against the SDK the app uses. The app's package manager installs it:
-the packageManager its package.json names, else the one whose lockfile is nearest
-(pnpm, Yarn, npm), else Bun. Then name what you use; when the module
+the packageManager the nearest package.json up to the repository names, else the one
+whose lockfile is nearest (pnpm, Yarn, npm), else Bun. Then name what you use; when the module
 has grants, add their line: docs/recipes/permissions.md.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs add @exact/in-app-browser',

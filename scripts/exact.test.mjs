@@ -1425,6 +1425,16 @@ test('add installs with the package manager the app\'s tree names, or with none 
     assert.equal(packageManager(app), 'yarn', 'a packageManager field');
   });
   inDir(dir => {
+    // A pnpm workspace that says so at its root, with a bun.lock left over in the app.
+    const app = resolve(dir, 'apps/web');
+    mkdirSync(app, { recursive: true });
+    mkdirSync(resolve(dir, '.git'));
+    writeFileSync(resolve(dir, 'package.json'), JSON.stringify({ packageManager: 'pnpm@9.12.0' }));
+    writeFileSync(resolve(app, 'package.json'), JSON.stringify({ name: 'web' }));
+    writeFileSync(resolve(app, 'bun.lock'), '');
+    assert.equal(packageManager(app), 'pnpm', 'a declaration wins over a nearer lockfile');
+  });
+  inDir(dir => {
     const root = resolve(import.meta.dir, '..'), app = resolve(dir, 'shop');
     const made = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'new', app], { encoding: 'utf8' });
     assert.equal(made.status, 0, made.stdout + made.stderr);
