@@ -460,6 +460,8 @@ database's home directory and login shell, and a wait at the process's
 exit (`wait_at_exit`). It moves the child's descriptors above 2 before
 putting them in place, and `fork` runs with every signal blocked until the
 child's handlers are defaults. A `PATH` lookup skips relative entries.
+On macOS a group's member list uses libproc's PID count to size its buffer
+and retries a full buffer, so growth cannot silently truncate the list.
 `stdlib/fs.rs` resolves `home:/` and `bundle:/` (the namespaces `grant.rs`
 reads) against roots the host sets (`set_roots`), the bundle read only,
 each path admitted as spelt and run from its root's retained descriptor
