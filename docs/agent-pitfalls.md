@@ -858,6 +858,18 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   has finished, as the harness's live column does with `session.busy`
   (`apps/harness/terminal.contract`). (The harness's `--print`, 2026-11-12.)
 
+- **A Rust update takes the other arm of a `#[cfg(target_os)]` branch.** Where a
+  replaced Rust module runs as wasm (iOS by default; `tiered` or `wasm` mode
+  elsewhere), the update is the data crate built for `wasm32-unknown-unknown`,
+  whose `target_os` is `"unknown"` and `target_family` `"wasm"` (`rustc --print cfg
+  --target wasm32-unknown-unknown`). A `#[cfg(target_os = "ios")]` arm the binary
+  ran is gone, and a `not(…)` arm or the `wasm32` one runs in its place. The bake
+  accepts the branch, since the source digest reads every arm (LLP 1030 D3a,
+  amended 2026-11-12). Branch only on `target_arch = "wasm32"`, as Markdown, Exact
+  Live and Update Lab do for what has no worker or thread there. (A crate with
+  `macos`, `ios` and `wasm32` arms, built for wasm32, ran the `wasm32` one;
+  2026-11-12.)
+
 - **App resources belong in the root component.** A child can declare a reserved
   viewport reader, but an app source there fails with `type-child-resource`.
   Declare the resource in the root and pass the value the child needs as a prop.

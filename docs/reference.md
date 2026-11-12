@@ -3914,6 +3914,14 @@ compiler) and every Rust receipt carries it as `source`. A candidate whose
 interpreted until a binary built from that source is installed; an update that
 changes only the Contract or TypeScript leaves the Rust native.
 
+The bake accepts `cfg(target_*)` branches and native dependencies in the data
+crate: the source digest reads every arm, so an edit to any of them moves it
+(LLP 1030 D3a, amended 2026-11-12). An interpreted module is built for
+`wasm32-unknown-unknown`, though, and runs only the crate's
+`target_arch = "wasm32"` arms, never one for the device's `target_os`. A crate
+whose module can be replaced should branch on nothing else
+([pitfall](agent-pitfalls.md#actions)).
+
 The repository's app entries use `contract::rust_entry` to select a concrete
 factory at bake time. A custom host adapter must do the same (and depend on
 `exact-logic`), or compose `Swappable::native`, `Swappable::tiered`, `Swappable::wasm` or

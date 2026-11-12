@@ -748,7 +748,9 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
 /// The data crate's source-input digest (LLP 1030 D3a): its tree, the trees
 /// of the path crates it is built from, the workspace lockfile, the
 /// toolchain — never its compiled output, which a `wasm32` build can keep
-/// while the native build moved. A `data/` without a `Cargo.toml` is no
+/// while the native build moved. It reads every arm of a `cfg(target_*)`
+/// branch, so the bake need not refuse one (LLP 1030 D3a, amended
+/// 2026-11-12). A `data/` without a `Cargo.toml` is no
 /// crate: TypeScript modules there are the bundle's, and an edit to them is
 /// an update, not a new cohort.
 fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
