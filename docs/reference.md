@@ -480,6 +480,60 @@ Widget entries are top-level `app.json` `widgets` rows. For example:
 Optional `title` and `description` strings supply the widget gallery's labels;
 each defaults to the humanised `kind` when omitted.
 
+On iOS and macOS, an optional `configuration` lets the person choose in Edit Widget
+(LLP 1126; LLP 1133.023). The
+entry becomes WidgetKit's
+[`AppIntentConfiguration`](https://developer.apple.com/documentation/widgetkit/appintentconfiguration),
+its [`WidgetConfigurationIntent`](https://developer.apple.com/documentation/appintents/widgetconfigurationintent)
+generated with one enum parameter per row, and the build extracts the extension's
+App Intents metadata, through which the sheet shows them:
+
+```json
+"configuration": {"title":"Next trains","description":"Choose how many departures.",
+  "parameters":[{"name":"rows","type":"enum","title":"Rows","default":"automatic",
+    "values":[{"value":"automatic","title":"Automatic"},{"value":"one","title":"1"},{"value":"three","title":"3"}]}]}
+```
+
+On watchOS, the complication picker offers
+[`recommendations`](https://developer.apple.com/documentation/widgetkit/appintentrecommendation)
+instead of a parameter form. Exact generates one per combination of declared
+values, with the default combination first and parameter/value titles as labels.
+Repeated value titles include their identifiers. If complete labels still collide,
+each label also includes the choices' UTF-8 hex identifiers to distinguish them. A widget
+with watch families may declare at most 64 combinations (the product of its
+parameter value counts); the bake refuses more and asks for fewer values or
+parameters. This Exact bound keeps the watch picker and generated bundle small.
+
+`title` and `description` (defaulting to the title) are the intent's; the sheet itself
+is headed by the widget's own `title` and `description`, as on iOS 27. Each
+parameter's `name` is a lowerCamelCase field name, its `title` the row's label and
+its `type: "enum"` a fixed list, and its `values` the menu, in order: `value` is what the render reads, `title` what the
+menu shows. `default` is one of the values, the first when omitted; it is the choice
+before the person makes one, and the gallery's. A component reads the chosen values
+as it reads the family's size, through the reserved inject `snapshot_configuration`:
+
+```
+shape Rows
+  rows: enum<"automatic", "one", "three">
+
+component NextTrains
+  inject
+    snapshot_viewport: Viewport
+    snapshot_configuration: Rows
+```
+
+The shape has one field per parameter, typed `string` or an `enum` of exactly its
+values; every injecting component names one shape. A configuration that no component
+reads, or an inject without one, fails the bake with an edit. The refresh does not see
+the configuration: one timeline serves every configuration and family, and each render
+reads its own. The configuration, labels included, is generated Swift and so a binary
+compatibility input; Live Activities have none. Keep kind, parameter and value
+identifiers stable across updates; changing a title does not change a choice.
+A removed or renamed parameter is ignored, and a missing or removed value uses
+that parameter's current default. Other valid choices are retained. Reordering
+entries, parameters or values does not reassign a saved choice. Data-backed
+options and fetching different data for each placement are not supported.
+
 `component` and the `props` shape are declared or imported by `app.contract`;
 every component prop must match a field of that shape. `preview` supplies all
 fields, with their declared types. `refresh` names a data-source function taking
@@ -724,7 +778,8 @@ again when the family's size changes; the preference fields are a still page's.
 Choose a layout by them as `docs/recipes/responsive-columns.md` does for a page
 (a Lock Screen row is under 100 pt tall; a medium widget is over 250 wide), so
 one entry serves every family it declares. The app's own plan is untouched: an
-unused component's inject is not demanded by the app's view. A `performanceNow()` call is refused everywhere, including
+unused component's inject is not demanded by the app's view. A configured widget's
+second fact is its configuration, the `snapshot_configuration` inject above. A `performanceNow()` call is refused everywhere, including
 inside `time` and `progress`; pass instants from refresh for platform time
 presentation. A variable's name imposes no restriction. A class is a style name
 or `class=(condition ? A : B)`. Only literal font families reached through the
@@ -3840,6 +3895,13 @@ mode presentation are stand-ins; archive fidelity needs the real extension.
 | `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
 | `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
 | `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
+
+| `bun scripts/agent.mjs ios widget next-trains --configuration '{"rows":"one"}' "screenshot target/one.png" state` | A configured widget's render with that choice; `state` reports the `configuration` |
+
+A configured widget's cells render its defaults, then each other value of each
+parameter (the rest at their defaults) in full colour, light and dark;
+`--configuration <json>` names parameters and values over the defaults, and a name or
+value the configuration does not declare is refused with the ones it does.
 
 An immediate refresh answer supplies its first timeline entry. Pending, empty
 or unavailable data keeps the preview; `state` reports which. The gallery's

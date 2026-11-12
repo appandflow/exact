@@ -75,7 +75,7 @@ pub use exact_runner::DataSource;
 pub use logic::{
     apple_linked, linux_entry, native_storage_constructor, rust_entry, web_linked, web_rust_mode,
 };
-pub use manifest::{Activity, Manifest, Widget};
+pub use manifest::{Activity, Configuration, Manifest, Parameter, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use module_rust::module_rust;
 pub use resolve::Origin;

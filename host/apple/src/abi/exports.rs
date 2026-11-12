@@ -408,14 +408,14 @@ macro_rules! host {
             }, |n| n)
         }
 
-        /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
+        /// Snapshot bytes, kind, and optional props and configuration JSON, concatenated in the input buffer.
         #[no_mangle]
-        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
+        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, configuration: usize, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
                 b.set_delivery($delivery);
-                b.boot_entry(plan, kind, props, ($new)(), hooks, width, height)
+                b.boot_entry(plan, kind, props, configuration, ($new)(), hooks, width, height)
             }, |n| n)
         }
         /// Refresh the entry's declared source; returns a JSON timeline or an error.

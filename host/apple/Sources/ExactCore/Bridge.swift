@@ -301,12 +301,12 @@ package final class Runtime {
     }
     /// Boot a snapshot entry's plan by its kind (LLP 1126 D2): the headless
     /// session's boot, which a running host's `bootPlan` refuses.
-    package func bootEntry(_ bytes: Data, kind: String, props: Data? = nil, width: CGFloat, height: CGFloat) -> Batch {
+    package func bootEntry(_ bytes: Data, kind: String, props: Data? = nil, configuration: Data? = nil, width: CGFloat, height: CGFloat) -> Batch {
         let batch = on { () -> Batch in
             let name = Data(kind.utf8)
-            var payload = bytes; payload.append(name); payload.append(props ?? Data())
+            var payload = bytes; payload.append(name); payload.append(props ?? Data()); payload.append(configuration ?? Data())
             _ = write(payload)
-            return read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, Float(width), Float(height)))
+            return read(exact_boot_entry(rt, bytes.count, name.count, props?.count ?? 0, configuration?.count ?? 0, Float(width), Float(height)))
         }
         return islands(batch)
     }

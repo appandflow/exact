@@ -151,6 +151,29 @@ fn widget_gallery_labels_require_a_new_binary_cohort() {
         build(&watch).id,
         "watch families are generated Swift"
     );
+    let mut configured = manifest.clone();
+    configured.json["widgets"][0]["configuration"] = serde_json::json!({"title":"Card",
+        "parameters":[{"name":"rows","type":"enum","title":"Rows","values":[{"value":"one","title":"1"}]}]});
+    assert_ne!(
+        original.id,
+        build(&configured).id,
+        "a configuration is a generated intent"
+    );
+    let implicit = build(&configured).id;
+    configured.json["widgets"][0]["configuration"]["parameters"][0]["default"] =
+        serde_json::json!("one");
+    assert_eq!(
+        implicit,
+        build(&configured).id,
+        "an omitted default is normalized"
+    );
+    configured.json["widgets"][0]["configuration"]["parameters"][0]["values"][0]["title"] =
+        serde_json::json!("One row");
+    assert_ne!(
+        implicit,
+        build(&configured).id,
+        "the option's label is generated metadata"
+    );
     manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
     assert_eq!(
         original.id,

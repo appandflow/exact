@@ -652,7 +652,7 @@ fn compatibility_with_trust(
     if !widgets.is_empty() {
         inputs["widgets"] = json!(widgets
             .iter()
-            .map(|w| json!({"kind":w.kind,"families":w.families,"watchFamilies":w.watch_families,"requiresSecrets":w.requires_secrets,"title":w.title,"description":w.description}))
+            .map(|w| json!({"kind":w.kind,"families":w.families,"watchFamilies":w.watch_families,"requiresSecrets":w.requires_secrets,"title":w.title,"description":w.description,"configuration":w.configuration.as_ref().map(contract::Configuration::json)}))
             .collect::<Vec<_>>());
     }
     let activities = manifest.live_activities()?;
