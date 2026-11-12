@@ -1081,11 +1081,7 @@ fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
         )
         .unwrap_err();
     assert!(refusal.contains("cross-origin"), "unexpected: {refusal}");
-    assert_eq!(
-        origin.asked.len(),
-        2,
-        "no card URL but the index's was fetched"
-    );
+    assert_eq!(origin.asked.len(), 2, "no card URL but the index's");
     assert_eq!(
         std::fs::read(record).unwrap(),
         before,
@@ -1125,11 +1121,7 @@ fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
 
     let refusal = origin.check(&mut store).unwrap_err();
     assert!(refusal.contains("cross-origin"), "unexpected: {refusal}");
-    assert_eq!(
-        origin.asked.len(),
-        2,
-        "only the head and its index: the whole entry was not reused"
-    );
+    assert_eq!(origin.asked.len(), 2, "the whole entry was not reused");
     assert_eq!(store.select().entry, None);
     assert_eq!(
         std::fs::read(record).unwrap(),
