@@ -1,6 +1,7 @@
 # Apple border and content curves leave a transparent gap
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `BorderPaint.contentRadii` reduces the content edge's radii in the content box, as the border hole's are reduced in the padding box and as Chrome reduces both (the hole's 80 was right; the content's 90 was not), so the two curves meet.
 **Systems:** host/apple/Sources/ExactKit/BorderPaint.swift, host/apple/Sources/ExactKit/ContentBox.swift
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
