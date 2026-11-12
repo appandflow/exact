@@ -1,6 +1,7 @@
 # LowerCheck typing misses input handler states
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Observe.step` and its traced twin dispatch a typed value to an `input` handler where the element has one and to `change` otherwise, as the hosts and `CompSem.cstep` do, so LowerCheck's replay, which calls `step`, reaches the input handler's configurations; `runScript` no longer rewrites the event itself.
 **Systems:** semantics/Contract/LowerCheck.lean, semantics/Contract/Observe.lean
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
