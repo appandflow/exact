@@ -1,6 +1,7 @@
 # The brand asset's README tells maintainers to keep a mirror file in step that does not exist
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The README names the mark's readers in this repository, the install page and the docs site, and the docs site's filled adaptation as the copy to keep identical, in place of the absent `js/src/guide/lib/icons.ts`.
 **Systems:** assets/brand/README.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
