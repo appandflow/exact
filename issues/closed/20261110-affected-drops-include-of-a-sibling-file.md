@@ -1,6 +1,7 @@
 # `affected.mjs` drops `include_str!("name")` when the file is beside the Rust file that includes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `rustSource` marks an `include_str!` or `include_bytes!` path as starting at the including file's directory (`from: 'own'`), and `references` joins a bare name there, as rustc resolves it.
 **Systems:** scripts/affected.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

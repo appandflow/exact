@@ -552,7 +552,7 @@ function references(graph, file, literals, pkgDir, as) {
       }
       // Read a build script's bare `..` (its package's parent) as the app sources there: an app's crate builds its app
       if (as === 'build' && word === '..' && pkgDir) { const up = dirname(pkgDir); if (repo.apps.has(unitOf(up))) add(`appsrc:${up}`, word); return; }
-      if (!word.includes('/') && !(passed && ROOTED.test(literal.receiver ?? ''))) return;
+      if (!word.includes('/') && literal.from !== 'own' && !(passed && ROOTED.test(literal.receiver ?? ''))) return;
       const path = word.replace(/^\/(?=\.\.?\/)/, '');
       if (path.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(path)) return;
       for (const base of bases[literal.from] ?? [...bases.own, ...bases.package, ...bases.root]) {
@@ -584,10 +584,10 @@ const CONCAT_MANIFEST = new RegExp(`(?:(include_(?:str|bytes)!)\\(\\s*)?concat!\
 /**
  * Rust's or Swift's string literals, comments skipped, each `{ text, call, receiver, prev, compared }`: `text` up to a
  * format string's first `{` (Swift's: its first `\(`), or the path after `env!("CARGO_MANIFEST_DIR")` in a `format!`
- * or `concat!`, from the package's directory (`from: 'package'`), `call` the function or macro it is passed to
- * (`join`, `include_str!`), `receiver` what that is called on, `prev` the literal just before it in the same list or
- * call chain (`"-p", "exact-linux"`, `.arg("-p").arg("exact-linux")`), `compared` whether it is compared with
- * (`== "x"`, a match arm). An attribute's string is a note (`#[ignore = "…"]`), unless it is `#[path]`'s or
+ * or `concat!`, from the package's directory (`from: 'package'`), an include's path from the file's own (`from: 'own'`),
+ * `call` the function or macro it is passed to (`join`, `include_str!`), `receiver` what that is called on, `prev` the
+ * literal just before it in the same list or call chain (`"-p", "exact-linux"`, `.arg("-p").arg("exact-linux")`),
+ * `compared` whether it is compared with (`== "x"`, a match arm). An attribute's string is a note (`#[ignore = "…"]`), unless it is `#[path]`'s or
  * `include_str!`'s. They come as `library` and `test` (inside what is under `#[cfg(test)]`), with `mods`, the modules
  * declared (`mod name;`: `{ name, path, test }`, `path` from `#[path]`, `test` when under `#[cfg(test)]`).
  */
@@ -608,6 +608,8 @@ export function rustSource(src, { swift = false } = {}) {
     if (lead && new RegExp(lead[1] ? `^[^;]*?\\b${lead[1]}\\s*=${MANIFEST}` : `^\\s*,${MANIFEST}`).test(src.slice(end, end + 200))) Object.assign(item, { text: cut(`.${text.slice(lead[0].length - 1)}`, /\{/), from: 'package' });
     // Keep the call of an include around the `concat!`: what an include reads counts in any code
     else if (joined) Object.assign(item, { text: `.${text}`, from: 'package', call: joined[1] ?? call });
+    // rustc resolves an include's path from the directory of the file that holds it
+    else if (!swift && /^include_(?:str|bytes)!$/.test(call)) item.from = 'own';
     const attribute = /#!?\[[^\]]*$/.test(before);
     if (!attribute || /#!?\[\s*path\s*=\s*$/.test(before) || /^include_(?:str|bytes)!$/.test(call)) found.push(item);
     last = { text: item.text, end };

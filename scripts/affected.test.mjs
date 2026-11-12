@@ -110,7 +110,8 @@ test("Rust's test modules, #[path] and include_str! are what they say; a deleted
     expect([later.library.map(l => l.text), later.test]).toEqual([['../x.json'], []]);
   }
   const { graph, done } = fixture({
-    'core/src/lib.rs': 'mod test_steps;\npub mod model;\nmod presenter;\n#[cfg(test)]\nmod more_tests;\n',
+    'core/src/lib.rs': 'mod test_steps;\npub mod model;\nmod presenter;\n#[cfg(test)]\nmod more_tests;\nconst S: &str = include_str!("shipped.txt");\n',
+    'core/src/shipped.txt': '',
     // (A library module's directory holds its own test modules: those stay test code.)
     'core/src/presenter.rs': '#[cfg(test)]\nmod presenter_tests;\n', 'core/src/presenter/presenter_tests.rs': '', 'core/src/test_steps.rs': '', 'core/src/more_tests.rs': 'mod helper;\n',
     'core/src/more_tests/helper.rs': '', 'core/src/model.rs': '', 'core/tests/it.rs': '#[path = "../src/model.rs"]\nmod model;\n',
@@ -124,6 +125,8 @@ test("Rust's test modules, #[path] and include_str! are what they say; a deleted
     expect(ids(graph, ['core/src/model.rs'])).toEqual(['cargo:core', 'cargo:user']);
     expect(ids(graph, ['core/src/presenter/presenter_tests.rs'])).toEqual(['cargo:core']);
     expect(ids(graph, ['core/src/test_steps.rs'])).toEqual(['cargo:core', 'cargo:user']);
+    // An include's bare name is beside the including file, and what the library includes a dependent's input
+    expect(ids(graph, ['core/src/shipped.txt'])).toEqual(['cargo:core', 'cargo:user']);
   } finally { done(); }
   const deleted = fixture({ 'scripts/gone.test.mjs': "import { test } from 'bun:test';\ntest('g', () => readFileSync(resolve(ROOT, 'scripts/fixtures/gone.contract')));\n" }, []);
   try {
