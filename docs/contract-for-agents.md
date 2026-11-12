@@ -1542,9 +1542,12 @@ out (LLP 1157).
   the socket is not open (nothing was sent), and when the socket closes before
   the answer. That last one may have run, and nothing is sent again on the
   next connection: a write that must not repeat carries its own key. When
-  Convex refuses the token (an expired one), it closes the socket, and what it
-  had not answered rejects with its words, as `live.authError` has them: it
-  did not run.
+  Convex refuses a token it closes the socket. A request sent behind the
+  refused `setAuth` rejects with Convex's words, as `live.authError` has them:
+  it did not run. When a token expires, Convex refuses it at whichever request
+  meets it first, and one sent earlier (an action still running) may have run,
+  so each rejects with "Convex refused the token before it answered (…); the
+  mutation may have run".
 - **An action's reply** arrives as soon as Convex has it, and the queries may
   show what it wrote a moment later: a mutation's reply waits for them, an
   action's does not. A view that reads both can show them out of step.
