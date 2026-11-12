@@ -509,10 +509,11 @@ fn the_design_readers_structure_moves_for_what_the_plan_keeps() {
 /// @ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible`
 /// looks are the sheet's rules for its set, with a varying token as its
 /// property; the node names its set; `:active` is the node's press paint, an
-/// absolute opacity included; a node without looks has neither.
+/// absolute opacity included; a node without looks has neither; with no
+/// boundary on the page, a look's colour adds no rule for one.
 #[test]
 fn state_looks_are_sheet_rules_for_the_nodes_set() {
-    let part = ":active\n          background-color = \"surface.card\"\n          opacity = 0.6\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        :focus-visible\n          background-color = \"surface.card\"\n";
+    let part = ":active\n          background-color = \"surface.card\"\n          opacity = 0.6\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        :focus-visible\n          background-color = \"surface.card\"\n          color = \"brand\"\n";
     let view = format!("component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        {part}        text \"c\"\n      column testId=\"same\" press=go\n        {part}        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n      column testId=\"cleared\" press=go opacity=0.5\n        :hover\n          opacity = \"unset\"\n        text \"u\"\n");
     let out = emitted("looks", DESIGN, &view);
     assert_eq!(
@@ -558,38 +559,32 @@ fn state_looks_are_sheet_rules_for_the_nodes_set() {
         "an explicit clear, as a static row's: {}",
         out.css
     );
-}
-
-/// A look's `color` is its rule's (CSS's `a:hover { color }`), a varying
-/// token as its property, so the link's text inherits it as the browser
-/// does and follows the scheme; the base keeps its own.
-#[test]
-fn a_looks_color_is_its_rules_with_the_token() {
-    let view = "component App\n  view\n    link href=\"/a\" color=\"surface.card\"\n      :hover\n        color = \"text.primary\"\n      text \"a\"\n";
-    let out = emitted("look-color", DESIGN, view);
-    let hover = out
-        .css
-        .find("[data-exact-looks=\"1\"]:hover")
-        .expect("a hover rule");
-    let rule = &out.css[hover..];
-    let rule = &rule[..rule.find('}').unwrap()];
     assert!(
-        rule.contains("color:var(--x-text-primary") && rule.contains("!important"),
-        "{rule}"
+        !out.css.contains("data-x-lc"),
+        "a page with no boundary carries no rule for one: {}",
+        out.css
     );
-    assert!(out.js.contains("color:var(--x-surface-card"), "{}", out.js);
 }
 
-/// A look's `color` is also a rule for the boundaries below that its colour
-/// reaches (`modes.js` marks them `data-x-lc`), which write the colour around
-/// them again: the look's token, so it resolves in the boundary's modes,
-/// the focus's after the hover's. A look with no `color` has none.
+/// A look's `color` is its own rule's (CSS's `a:hover { color }`), a varying
+/// token as its property, while the base keeps its own. It is also a rule for
+/// the boundaries below that its colour reaches (`modes.js` marks them
+/// `data-x-lc`), which write the colour around them again: the look's token,
+/// so it resolves in the boundary's modes, the focus's after the hover's. A
+/// look with no `color` has none.
 #[test]
-fn a_looks_color_reaches_a_boundary_below() {
+fn a_looks_color_is_its_rule_and_reaches_a_boundary_below() {
     let view = "component App\n  view\n    column\n      link href=\"/a\" color=\"surface.card\"\n        :hover\n          color = \"text.primary\"\n        :focus-visible\n          color = \"#123456\"\n        column -exact-mode=\"dark-style=dim\"\n          text \"a\"\n      link href=\"/b\"\n        :hover\n          background-color = \"surface.card\"\n        text \"b\"\n";
-    let css = emitted("look-color-below", DESIGN, view).css;
+    let out = emitted("look-color-below", DESIGN, view);
+    let css = out.css;
     let below = |at: &str| css.find(at).unwrap_or_else(|| panic!("{at} in {css}"));
     let on = ":not(:disabled,[disabled]:not([disabled=\"false\"]))";
+    let own = &css[below(&format!("[data-exact-looks=\"1\"]:hover{on}{{"))..];
+    assert!(
+        own[..own.find('}').unwrap()].contains("color:var(--x-text-primary)!important"),
+        "{own}"
+    );
+    assert!(out.js.contains("color:var(--x-surface-card"), "{}", out.js);
     let hover = below(&format!(
         "[data-exact-looks=\"1\"]:hover{on} [data-x-lc~=\"1\"]{{color:var(--x-text-primary)!important;}}"
     ));

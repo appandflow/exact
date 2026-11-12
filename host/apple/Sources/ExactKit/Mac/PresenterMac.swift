@@ -1247,6 +1247,7 @@ package final class Presenter {
             }
         }
         regridMoved()
+        NodeView.inkPlaced(reparented.compactMap { views[$0] })
         if !flights.isEmpty { flightsBatchApplied() }
         tables.sync(batch)
         navigation.sync(batch, reparented: reparented)
