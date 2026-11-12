@@ -278,6 +278,9 @@ extension Presenter {
             // Settle that layout before restoring or authoring an offset.
             if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
             if !collections.owns(node.id) { node.restoreScrollPosition(authored: authored.contains { $0.isDescendant(of: node) }) }
+            #if os(iOS)
+            node.settleZoom()
+            #endif
             if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
         }
         // Every capture is restored before any authored offset lands: a
