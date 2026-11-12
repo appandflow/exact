@@ -256,8 +256,7 @@ if (host === 'deploy') {
       check(ok && head.stream.seq === 1 && head.stream.compatibilityId === id && head.stream.channel === channel && head.signature.keyId === keyId, `the head of ${id.slice(0, 8)} verifies and names its stream`);
       const blob = (card) => resolve(origin, '.exact', 'blobs', card.sha256), listed = head.assets ? readAssetIndex(head.assets, readFileSync(blob(head.assets))) : [];
       check(!existsSync(resolve(origin, '.exact', channel, id, 'app.plan'))
-        && [head.plan, ...(head.assets ? [head.assets] : [])].every((card) => card.url === `../../blobs/${card.sha256}` && existsSync(blob(card)))
-        && listed.every((card) => card.url === `./${card.sha256}` && existsSync(blob(card)))
+        && [head.plan, ...(head.assets ? [head.assets] : []), ...listed].every((card) => card.url === (listed.includes(card) ? `./${card.sha256}` : `../../blobs/${card.sha256}`) && existsSync(blob(card)))
         && readdirSync(resolve(origin, '.exact', channel, id, 'releases')).length === 1,
       `the stream ${id.slice(0, 8)} points at immutable blobs and has one release record`);
     }
