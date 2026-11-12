@@ -1337,7 +1337,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   return { lines: out, problems, exit: failedTests || broken || (strict && problems) ? 1 : 0, full: grouped ? full : [] };
 }
 
-// `ended` takes the report's last line, which `main` prints last, after `contract verify`'s summary.
+// `ended` takes the report's last line, which `main` prints last with `contract verify`'s summary.
 async function deviceMain(argv, emitJSON, declined, ended) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
@@ -1490,8 +1490,9 @@ async function main(argv) {
   mkdirSync(dirname(kept), { recursive: true });
   writeFileSync(kept, `${done.output}${done.errors}`);
   const listed = relative(process.cwd(), kept);
-  console.log(semanticsSummary(done, listed.startsWith('..') ? kept : listed).join('\n'));
-  if (verdict) console.log(done.exit ? `${verdict}; contract verify failed (exit ${done.exit}), as above` : verdict);
+  const [summary, ...details] = semanticsSummary(done, listed.startsWith('..') ? kept : listed);
+  if (details.length) console.log(details.join('\n'));
+  console.log(verdict ? `${verdict}; ${summary}` : summary);
   return exit;
 }
 
