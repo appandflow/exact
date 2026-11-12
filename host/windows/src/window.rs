@@ -228,8 +228,9 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     if !config.windowed() {
         return crate::clipboard::run_headless::<D>(&mut config, started);
     }
-    let Some(instance) = lifecycle::claim(frame_limit.is_some(), compat, name) else {
-        return 0;
+    let instance = match lifecycle::claim(frame_limit.is_some(), compat, name) {
+        Ok(instance) => instance,
+        Err(code) => return code,
     };
     boot_phase("config-ready");
     if std::env::var_os("EXACT_SIZE").is_none() {

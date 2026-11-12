@@ -11,18 +11,23 @@
 use super::*;
 use crate::instance::{Claim, Handed, Instance};
 
-/// This launch's claim to be the app's one instance (D6): `None` when the
-/// running instance has its arguments and this process should end. A
-/// measured run (`frame_limit`, the readiness probe) stands alone.
-pub(super) fn claim(measured: bool, compat: &str, name: &str) -> Option<Option<Instance>> {
+/// This launch's claim to be the app's one instance (D6), or the exit code
+/// it ends with: 0 once the running instance has its arguments, 1 when that
+/// instance did not answer. A measured run (`frame_limit`, the readiness
+/// probe) stands alone.
+pub(super) fn claim(measured: bool, compat: &str, name: &str) -> Result<Option<Instance>, i32> {
     if measured || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-        return Some(None);
+        return Ok(None);
     }
     let args: Vec<String> = std::env::args().collect();
     match crate::instance::claim(&crate::instance::key(compat, name), &args) {
-        Claim::First(instance) => Some(Some(instance)),
-        Claim::Handed => None,
-        Claim::Alone => Some(None),
+        Claim::First(instance) => Ok(Some(instance)),
+        Claim::Handed => Err(0),
+        Claim::Busy => {
+            eprintln!("exact-windows: {name} is running and did not answer; this launch ends");
+            Err(1)
+        }
+        Claim::Alone => Ok(None),
     }
 }
 
