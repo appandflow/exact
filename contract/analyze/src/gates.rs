@@ -170,6 +170,9 @@ fn change_cycles(c: &Component) -> Vec<AnalyzeError> {
         .iter()
         .filter(|t| t.kind == TaskKind::Change)
         .collect();
+    if tasks.is_empty() {
+        return Vec::new();
+    }
     let names: BTreeSet<&str> = c
         .states
         .iter()
