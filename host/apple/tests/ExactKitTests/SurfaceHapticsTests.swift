@@ -83,7 +83,58 @@ final class SurfaceHapticsTests: XCTestCase {
         XCTAssertEqual(host.haptics.suspended, lifecycle.hidden)
     }
 
+    /// Two modules' first canvases both have surface id 1: each canvas's
+    /// haptics go by its view, so one going stops only its own texture.
+    func testTwoModulesCanvasesKeepTheirOwnTextures() {
+        let appSession = ExactApp.shared.makeSession(label: "surface-haptics-modules")
+        defer { appSession.destroy() }
+        let host = appSession.surfaceHost
+        let recorder = Recorder()
+        host.haptics = SurfaceHaptics(player: recorder)
+        host.haptics.suspended = false
+        for view in [UInt32(100), 101] {
+            let e = CanvasesHost.Entry(view: NodeView(id: view, kind: "canvas", presenter: appSession.presenter),
+                                       name: view == 100 ? "sky" : "game", values: [Any]())
+            e.id = 1
+            host.entries[view] = e
+            _ = host.haptics.take(view, texture)
+        }
+        host.destroy(view: 100)
+        XCTAssertEqual(recorder.heard, ["texture 100 0.5 0.25", "texture 101 0.5 0.25", "stop 100"])
+        XCTAssertEqual(host.haptics.playing, [101])
+        host.destroy(view: 101)
+    }
+
     #if os(iOS)
+    func testAStoppedOrResetEngineStartsAgainAtTheNextRequest() {
+        final class Engine: HapticEngine {
+            var stoppedHandler: CHHapticEngine.StoppedHandler = { _ in }
+            var resetHandler: CHHapticEngine.ResetHandler = {}
+            var starts = 0, textures = 0, patterns = 0
+            func start() throws { starts += 1 }
+            func texture() throws -> HapticTexture { textures += 1; return Texture() }
+            func play(_ pattern: CHHapticPattern) throws { patterns += 1 }
+        }
+        final class Texture: HapticTexture {
+            func send(_ parameters: [CHHapticDynamicParameter]) throws {}
+            func stop() {}
+        }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        let engine = Engine(), player = CoreHapticsPlayer(make: { engine })
+        player.texture(1, intensity: 0.5, sharpness: 0.5)
+        player.texture(1, intensity: 0.7, sharpness: 0.5)
+        XCTAssertEqual([engine.starts, engine.textures], [1, 1], "one start, one texture while it runs")
+        // An audio session interruption stops the engine; its players are gone.
+        engine.stoppedHandler(.audioSessionInterrupt)
+        settle()
+        player.texture(1, intensity: 0.5, sharpness: 0.5)
+        XCTAssertEqual([engine.starts, engine.textures], [2, 2], "started again, its texture made again")
+        engine.resetHandler()
+        settle()
+        player.play([.init(transient: true, time: 0, duration: 0, intensity: 1, sharpness: 1)], [])
+        XCTAssertEqual([engine.starts, engine.patterns], [3, 1], "a reset engine starts again too")
+    }
+
     func testCoreHapticsPatternsAreWellFormed() throws {
         guard case let .pattern(events, curves)? = SurfaceHaptic.parse(pattern) else { return XCTFail("not a pattern") }
         let made = try CoreHapticsPlayer.pattern(events, curves)

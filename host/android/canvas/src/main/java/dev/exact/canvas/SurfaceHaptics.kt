@@ -25,14 +25,15 @@ import kotlin.math.roundToInt
  *   plays. Its `sharpness` has no amplitude to go to and is not played. A vibrator without amplitude control cannot
  *   follow an intensity, and plays no texture.
  * - A **pattern** is a composition of primitives when every event is a transient and the device has the click and
- *   tick primitives (sharp transients click, dull ones tick, each scaled by its intensity); otherwise a waveform on
- *   a [GRID_MS] grid, each slot at the strongest event over it, an intensity curve multiplying. It interrupts the
- *   texture, which plays again when the pattern ends.
+ *   tick primitives and says how long each lasts (Android 12): sharp transients click, dull ones tick, each scaled by
+ *   its intensity, at its time ([schedule]). Otherwise it is a waveform on a [GRID_MS] grid, each slot at the
+ *   strongest event over it, an intensity curve multiplying. It interrupts the texture, which plays again when the
+ *   pattern's last primitive or slot ends.
  * - Everything stops while the activity is paused ([suspended]), and a surface that goes stops its texture (exact2
  *   tells it so). The person's touch feedback setting applies: from Android 13 the system applies it to
  *   [VibrationAttributes.USAGE_TOUCH]; before, a setting that is off plays nothing.
  */
-internal class SurfaceHaptics(private val context: Context) {
+internal class SurfaceHaptics(private val context: Context, suspended: Boolean) {
     private val vibrator: Vibrator? = (if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
         else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java))?.takeIf { it.hasVibrator() }
     private val handler = Handler(Looper.getMainLooper())
@@ -45,8 +46,9 @@ internal class SurfaceHaptics(private val context: Context) {
     private var patternEnds = 0L
     private val replay = Runnable { texture() }
 
-    /** While the activity is paused: nothing plays, and a texture message starts nothing. */
-    var suspended = false
+    /** While the activity is paused: nothing plays, and a texture message starts nothing. Made with the
+     * activity's state, which may be paused already. */
+    var suspended = suspended
         set(on) {
             field = on
             if (on) { textures.clear(); handler.removeCallbacks(replay); stop() }
@@ -86,17 +88,22 @@ internal class SurfaceHaptics(private val context: Context) {
         val scale = curve(p.optJSONArray("curves"))
         val list = (0 until events.length()).map { events.getJSONObject(it) }
         val transients = list.all { it.optString("type") == "transient" }
-        val effect = if (transients && Build.VERSION.SDK_INT >= 30 &&
-            v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_CLICK, VibrationEffect.Composition.PRIMITIVE_TICK)) {
+        val click = VibrationEffect.Composition.PRIMITIVE_CLICK
+        val tick = VibrationEffect.Composition.PRIMITIVE_TICK
+        val effect = if (transients && Build.VERSION.SDK_INT >= 31 && v.areAllPrimitivesSupported(click, tick)) {
+            val sorted = list.sortedBy { it.optDouble("time") }
+            val ids = IntArray(sorted.size) { if (sorted[it].optDouble("sharpness") >= 0.5) click else tick }
+            val (clickMs, tickMs) = v.getPrimitiveDurations(click, tick).let { it[0] to it[1] }
+            val relative = Build.VERSION.SDK_INT >= 36
+            val (delays, end) = schedule(IntArray(sorted.size) { (sorted[it].optDouble("time") * 1000).roundToInt() },
+                IntArray(sorted.size) { if (ids[it] == click) clickMs else tickMs }, relative)
             val c = VibrationEffect.startComposition()
-            var last = 0.0
-            for (e in list.sortedBy { it.optDouble("time") }) {
-                val t = e.optDouble("time")
-                val primitive = if (e.optDouble("sharpness") >= 0.5) VibrationEffect.Composition.PRIMITIVE_CLICK else VibrationEffect.Composition.PRIMITIVE_TICK
-                c.addPrimitive(primitive, (e.optDouble("intensity") * scale(t)).toFloat().coerceIn(0f, 1f), ((t - last) * 1000).roundToInt())
-                last = t
+            for ((i, e) in sorted.withIndex()) {
+                val scaled = (e.optDouble("intensity") * scale(e.optDouble("time"))).toFloat().coerceIn(0f, 1f)
+                if (relative) c.addPrimitive(ids[i], scaled, delays[i], VibrationEffect.Composition.DELAY_TYPE_RELATIVE_START_OFFSET)
+                else c.addPrimitive(ids[i], scaled, delays[i])
             }
-            patternEnds = SystemClock.uptimeMillis() + (last * 1000).toLong() + 50
+            patternEnds = SystemClock.uptimeMillis() + end
             c.compose()
         } else {
             // Each GRID_MS slot at the strongest event over it.
@@ -164,7 +171,27 @@ internal class SurfaceHaptics(private val context: Context) {
     /** The activity goes. */
     fun destroy() { suspended = true }
 
-    private companion object {
+    internal companion object {
+        /**
+         * Each primitive's delay for a composition, and when the last ends, in ms: primitive `i` is due at `times[i]`
+         * and lasts `durations[i]`. With `relative` (Android 16's `DELAY_TYPE_RELATIVE_START_OFFSET`) a delay counts
+         * from the previous primitive's start, so each plays at its time. Before, a delay counts from the previous
+         * primitive's end (`addPrimitive`'s pause), so durations are taken off it, and one due before the previous
+         * ends starts when it ends.
+         */
+        fun schedule(times: IntArray, durations: IntArray, relative: Boolean): Pair<IntArray, Int> {
+            val delays = IntArray(times.size)
+            var end = 0
+            var free = 0
+            for (i in times.indices) {
+                val start = if (relative) times[i] else max(times[i], free)
+                delays[i] = if (relative) times[i] - (if (i == 0) 0 else times[i - 1]) else start - free
+                free = start + durations[i]
+                end = max(end, free)
+            }
+            return delays to end
+        }
+
         const val TAG = "exact"
         /** A texture's waveform segment, repeated until it changes or stops. */
         const val TEXTURE_MS = 1000L

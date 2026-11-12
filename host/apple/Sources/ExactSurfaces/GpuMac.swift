@@ -201,7 +201,9 @@ final class CanvasesHost {
             if e.waiting { session?.frames.canvasLost() }
             retainEdits(e)
             e.view.canvasInput = nil
-            if e.id != 0 { haptics.remove(e.id); e.module?.destroy(e.id) }
+            // By the canvas's view: a surface id is its module's, and two modules count from 1.
+            haptics.remove(view)
+            if e.id != 0 { e.module?.destroy(e.id) }
             releasePublisher(e)
         }
     }

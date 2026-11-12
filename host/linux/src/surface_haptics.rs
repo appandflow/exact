@@ -2,7 +2,8 @@
 //! writes them: consumed, never dispatched to the app. A shell (Android's
 //! reader) takes them as [`crate::presenter::Request::SurfaceHaptic`] and
 //! plays them on the vibrator; with no shell (desktop Linux, Windows, a
-//! headless run) nothing plays.
+//! headless run) nothing plays. `exact:audio` is consumed beside them: this
+//! host configures no audio session.
 
 use std::collections::BTreeSet;
 
@@ -11,7 +12,8 @@ pub(crate) const PREFIX: &str = "exact:haptics ";
 /// The stop of a surface's texture.
 const STOP: &str = "{\"texture\":null}";
 
-/// The messages waiting for the shell, by surface.
+/// The messages waiting for the shell, by their canvas's view id: a
+/// surface id is its module's, and two modules both count from 1.
 #[derive(Default)]
 pub(crate) struct Haptics {
     /// A shell takes them; set by `Presenter::serve_requests`.

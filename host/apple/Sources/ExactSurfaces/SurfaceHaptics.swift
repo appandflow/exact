@@ -63,7 +63,8 @@ protocol HapticPlayer: AnyObject {
     func play(_ events: [SurfaceHaptic.Event], _ curves: [SurfaceHaptic.Curve])
 }
 
-/// Every canvas's haptics on one session's page.
+/// Every canvas's haptics on one session's page, each by its canvas's view
+/// id: a surface id is its module's, and two modules both count from 1.
 final class SurfaceHaptics {
     static let prefix = "exact:haptics "
     /// Nil where nothing plays.
@@ -114,24 +115,80 @@ final class SurfaceHaptics {
 }
 
 #if os(iOS)
-/// Core Haptics: one engine for the process's canvases, made at the first
-/// request, haptics only (no audio session), stopping itself when idle.
-final class CoreHapticsPlayer: HapticPlayer {
-    private var engine: CHHapticEngine?
-    private var textures: [UInt32: CHHapticAdvancedPatternPlayer] = [:]
+/// What the player asks of Core Haptics, narrowed so a test can stand in for the engine.
+protocol HapticEngine: AnyObject {
+    var stoppedHandler: CHHapticEngine.StoppedHandler { get set }
+    var resetHandler: CHHapticEngine.ResetHandler { get set }
+    func start() throws
+    /// A texture's player, started: `CoreHapticsPlayer.texturePattern`, looped.
+    func texture() throws -> HapticTexture
+    func play(_ pattern: CHHapticPattern) throws
+}
 
-    /// The engine, started; a stopped or reset one makes its players invalid,
-    /// so they are made again at the next request.
-    private func ready() -> CHHapticEngine? {
-        if let engine { return engine }
-        guard let made = try? CHHapticEngine() else { return nil }
+/// A playing texture.
+protocol HapticTexture: AnyObject {
+    func send(_ parameters: [CHHapticDynamicParameter]) throws
+    func stop()
+}
+
+extension CHHapticEngine: HapticEngine {
+    /// A page's engine: haptics only (no audio session), stopping itself when idle.
+    static func forSurfaces() throws -> HapticEngine {
+        let made = try CHHapticEngine()
         made.playsHapticsOnly = true
         made.isAutoShutdownEnabled = true
-        made.stoppedHandler = { [weak self] _ in DispatchQueue.main.async { self?.textures = [:] } }
-        made.resetHandler = { [weak self] in DispatchQueue.main.async { self?.textures = [:]; self?.engine = nil } }
-        do { try made.start() } catch { fputs("exact gpu: haptics: \(error)\n", stderr); return nil }
-        engine = made
         return made
+    }
+    func texture() throws -> HapticTexture {
+        let player = try makeAdvancedPlayer(with: CoreHapticsPlayer.texturePattern())
+        player.loopEnabled = true
+        try player.start(atTime: CHHapticTimeImmediate)
+        return CoreTexture(player: player)
+    }
+    func play(_ pattern: CHHapticPattern) throws {
+        try makePlayer(with: pattern).start(atTime: CHHapticTimeImmediate)
+    }
+}
+
+private final class CoreTexture: HapticTexture {
+    let player: CHHapticAdvancedPatternPlayer
+    init(player: CHHapticAdvancedPatternPlayer) { self.player = player }
+    func send(_ parameters: [CHHapticDynamicParameter]) throws { try player.sendParameters(parameters, atTime: CHHapticTimeImmediate) }
+    func stop() { try? player.stop(atTime: CHHapticTimeImmediate) }
+}
+
+/// Core Haptics: one engine for a page's canvases, made at the first request.
+/// An engine that stops (an audio session interruption, the app suspended, an
+/// idle shutdown) or is reset loses its players, and Apple asks the app to
+/// start it again: the next request starts it and makes its textures again.
+final class CoreHapticsPlayer: HapticPlayer {
+    private let make: () throws -> HapticEngine
+    private var engine: HapticEngine?
+    private var running = false
+    private var textures: [UInt32: HapticTexture] = [:]
+
+    init(make: @escaping () throws -> HapticEngine = { try CHHapticEngine.forSurfaces() }) { self.make = make }
+
+    /// The engine, started.
+    private func ready() -> HapticEngine? {
+        if engine == nil {
+            guard let made = try? make() else { return nil }
+            made.stoppedHandler = { [weak self] _ in DispatchQueue.main.async { self?.stopped() } }
+            made.resetHandler = { [weak self] in DispatchQueue.main.async { self?.stopped() } }
+            engine = made
+        }
+        guard let engine else { return nil }
+        if !running {
+            do { try engine.start() } catch { fputs("exact gpu: haptics: \(error)\n", stderr); return nil }
+            running = true
+        }
+        return engine
+    }
+
+    /// The engine stopped or was reset: the next request starts it again.
+    private func stopped() {
+        running = false
+        textures = [:]
     }
 
     /// The texture's dynamic parameters: intensity multiplies the event's 1;
@@ -169,31 +226,21 @@ final class CoreHapticsPlayer: HapticPlayer {
     func texture(_ surface: UInt32, intensity: Float, sharpness: Float) {
         guard let engine = ready() else { return }
         do {
-            if let player = textures[surface] {
-                try player.sendParameters(Self.controls(intensity: intensity, sharpness: sharpness), atTime: CHHapticTimeImmediate)
-                return
-            }
-            let player = try engine.makeAdvancedPlayer(with: Self.texturePattern())
-            player.loopEnabled = true
-            try player.start(atTime: CHHapticTimeImmediate)
-            try player.sendParameters(Self.controls(intensity: intensity, sharpness: sharpness), atTime: CHHapticTimeImmediate)
-            textures[surface] = player
+            let texture = try textures[surface] ?? engine.texture()
+            textures[surface] = texture
+            try texture.send(Self.controls(intensity: intensity, sharpness: sharpness))
         } catch {
             fputs("exact gpu: haptics: \(error)\n", stderr)
         }
     }
 
     func stopTexture(_ surface: UInt32) {
-        try? textures.removeValue(forKey: surface)?.stop(atTime: CHHapticTimeImmediate)
+        textures.removeValue(forKey: surface)?.stop()
     }
 
     func play(_ events: [SurfaceHaptic.Event], _ curves: [SurfaceHaptic.Curve]) {
         guard !events.isEmpty, let engine = ready() else { return }
-        do {
-            try engine.makePlayer(with: Self.pattern(events, curves)).start(atTime: CHHapticTimeImmediate)
-        } catch {
-            fputs("exact gpu: haptics: \(error)\n", stderr)
-        }
+        do { try engine.play(Self.pattern(events, curves)) } catch { fputs("exact gpu: haptics: \(error)\n", stderr) }
     }
 }
 #endif

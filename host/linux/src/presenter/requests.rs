@@ -87,7 +87,7 @@ pub enum Request {
     Orientation(Session),
     /// A GPU surface's haptic message (LLP 1009 D10), its JSON as
     /// `exact_gpu::haptics` wrote it: the shell plays it on the vibrator.
-    /// The surface's id, then the JSON.
+    /// The canvas's view id, then the JSON.
     SurfaceHaptic(u32, String),
 }
 

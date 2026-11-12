@@ -469,7 +469,7 @@ extension CanvasesHost {
         for text in texts {
             guard live(e.view.id) === e else { break }
             if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
-            if haptics.take(e.id, text) { continue }
+            if haptics.take(e.view.id, text) { continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }

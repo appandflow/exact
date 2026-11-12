@@ -818,8 +818,7 @@ impl Surfaces {
             if let Some(bytes) = abi.read(b"gpu_messages", c.id) {
                 if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
                     for message in messages {
-                        // No audio session here; a haptic is the shell's (LLP 1009 D10).
-                        if message == "exact:audio" || self.haptics.take(c.id, &message) {
+                        if message == "exact:audio" || self.haptics.take(view, &message) {
                             continue;
                         }
                         self.error = self.error.take().or(host.dispatch_at(
