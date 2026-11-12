@@ -223,7 +223,8 @@ component RealWorld
   task signInNext when loginNext
     after(1, pushSignIn)
   action toSignIn
-    if signedOut and not publicRoute
+    // A push already due lands on whatever home entry is on top.
+    if signedOut and not publicRoute and not loginNext
       if depth(nav) > 1
         nav = replace(nav, "/login")
       else
