@@ -1,6 +1,7 @@
 # A check whose record write fails still reports the bundle as staged
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `finish_check` builds the new record in a copy, writes it, and adopts the record and view only after the write succeeds, as `commit_activation` does.
 **Systems:** update/src/store.rs (finish_check)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
