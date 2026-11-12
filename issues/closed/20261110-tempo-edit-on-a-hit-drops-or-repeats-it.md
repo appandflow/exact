@@ -1,6 +1,7 @@
 # A tempo edit committed at a hit's time can drop that hit or play it twice
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** After a tempo edit the fill issues exactly the steps the edit took back (their time under the segment before it at or after the edit), none earlier than the edit, in the runner and in `transport.js`.
 **Systems:** runner/src/transport.rs, runner/src/sound.rs, host/web-js/transport.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
