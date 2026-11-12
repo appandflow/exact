@@ -246,13 +246,18 @@ impl Bar {
     }
 }
 
-/// Whether any node under `node` is a heading, a `popover` or `dialog`
-/// written there left out as `walk` leaves it: its heading is the top
-/// layer's, so a button wrapping one is an item, not the title's tap.
+/// What the walk leaves out with all it holds: a `popover` or `dialog`
+/// written in the header, whose content is the top layer's, and a node
+/// that is `display: none`, which the web does not show.
+const UNSHOWN: u32 = fact::LAYER | fact::HIDDEN;
+
+/// Whether any node under `node` is a heading, leaving out what `walk`
+/// leaves out: a button wrapping a popover's heading is an item, not the
+/// title's tap.
 fn holds_heading<T: Tree>(tree: &T, node: T::Node) -> bool {
     tree.children(node).into_iter().any(|child| {
         let facts = tree.facts(child);
-        facts & fact::LAYER == 0 && (facts & fact::HEADING != 0 || holds_heading(tree, child))
+        facts & UNSHOWN == 0 && (facts & fact::HEADING != 0 || holds_heading(tree, child))
     })
 }
 
@@ -278,7 +283,7 @@ impl<N: Copy + PartialEq> Walk<N> {
     fn walk<T: Tree<Node = N>>(&mut self, tree: &T, node: N, back_is_platforms: bool) {
         for child in tree.children(node) {
             let facts = tree.facts(child);
-            if facts & fact::LAYER != 0 {
+            if facts & UNSHOWN != 0 {
                 continue;
             }
             if facts & fact::HEADING != 0 {

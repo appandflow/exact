@@ -1,6 +1,7 @@
 # The header rule counts a header's `display: none` children as bar items and headings
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The header rule leaves out a `display: none` child with all it holds, as it leaves out a popover or dialog, so it is no bar item and no heading.
 **Systems:** kernel/src/bars.rs, host/apple/Sources/ExactKit/IOS/HeaderShapeIOS.swift, host/linux/src/presenter/bars.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
