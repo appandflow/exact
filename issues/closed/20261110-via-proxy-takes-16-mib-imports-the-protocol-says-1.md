@@ -1,6 +1,7 @@
 # `tamber tool --via` forwards an import of up to 16 MiB; the protocol says its proxy stays at 1 MiB
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The protocol now says the proxy sends on a token-bearing `import` up to 16 MiB and every other request up to 1 MiB, the proxy's 413 names the limit it applied, and the proxy's test covers the token-bearing import, propose and over-16 MiB cases.
 **Systems:** scripts/tamber-server.mjs, docs/tamber-protocol.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
