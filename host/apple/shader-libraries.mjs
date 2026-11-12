@@ -63,3 +63,13 @@ export function shaderLibraries(app, sdkName, out) {
   if (refused) console.warn(`host/apple: ${refused} recorded GPU shader${refused === 1 ? '' : 's'} did not compile for ${sdkName}; they compile at run time`);
   return written;
 }
+
+/** The bundle tree `capture/exact-metal` for a build of `app` whose GPU artifacts
+ * (the primary `gpu/` module and every named one, build.mjs `gpuArtifacts`) are
+ * `artifacts`: replaced by the libraries `shaderLibraries` compiles, or removed
+ * when the app has no GPU module. The number written. */
+export function bundleShaderLibraries(app, sdkName, capture, artifacts) {
+  const out = resolve(capture, 'exact-metal');
+  rmSync(out, { recursive: true, force: true });
+  return artifacts.length ? shaderLibraries(app, sdkName, out) : 0;
+}

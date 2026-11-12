@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { languageFlag, recordedSources, shaderLibraries } from './shader-libraries.mjs';
+import { bundleShaderLibraries, languageFlag, recordedSources, shaderLibraries } from './shader-libraries.mjs';
 import { metalVersion } from './svg-filter.mjs';
 
 test('the language flag is one standard from MSL 3 and a platform\'s own before it', () => {
@@ -37,5 +37,12 @@ test.skipIf(process.platform !== 'darwin' || metalVersion('macosx').status !== 0
     // An app that recorded nothing ships nothing.
     assert.equal(shaderLibraries({ dir: resolve(dir, 'none'), name: 'none' }, 'macosx', resolve(dir, 'empty')), 0);
     assert.ok(!existsSync(resolve(dir, 'empty')));
+    // An app whose only GPU modules are named ones ships them too; one with
+    // no GPU module ships none, and a stale tree goes.
+    const capture = resolve(dir, 'capture');
+    assert.equal(bundleShaderLibraries(app, 'macosx', capture, [{ built: 'libgame_gpu_world.dylib', framework: 'ExactGpuWorld' }]), 1);
+    assert.deepEqual(readdirSync(resolve(capture, 'exact-metal')), ['0123456789abcdef.metallib']);
+    assert.equal(bundleShaderLibraries(app, 'macosx', capture, []), 0);
+    assert.ok(!existsSync(resolve(capture, 'exact-metal')));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
