@@ -594,7 +594,8 @@ test.skipIf(process.platform !== 'darwin' || !releaseJavaEnv ||
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ app: { id: 'dev.exact.ci', name: 'CI' } }));
     writeFileSync(resolve(dir, 'upload.jks'), 'configuration fixture');
     const init = resolve(dir, 'inspect.gradle');
-    writeFileSync(init, `gradle.projectsEvaluated {
+    writeFileSync(init, `allprojects { repositories { maven { url = uri('https://127.0.0.1:9/unused-ci-mirror') } } }
+    gradle.projectsEvaluated {
       def app = gradle.rootProject.project(':app')
       app.tasks.register('inspectRelease') {
         doLast {
