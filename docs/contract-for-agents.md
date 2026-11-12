@@ -1721,28 +1721,33 @@ same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
 with `scroll-padding-top` equal to a header's height, the first row's
 `block="start"` is `scrollTop` 0. Any scroll container takes it, not only a
 virtualized list.
-For snapping (LLP 1008 §9), put `scroll-snap-type` on the scroller: `"x mandatory"`,
-`"y mandatory"` or `"both mandatory"`, or the axis alone (`"x"`, which is CSS's
-`x proximity`: it snaps only near an area). Put `scroll-snap-align` on its areas:
-`"start"`, `"center"` or `"end"`, or two values, the block axis's (y) then the
-inline axis's (x), as `"none center"`. `scroll-snap-stop="always"` on an area
-keeps a scroll from passing over it, so a fling moves one card or one page.
-`scroll-padding` insets the snapport and `scroll-margin` grows an area.
-The web executes CSS. The native hosts share one rule: the area position
-nearest where the platform would rest the scroll, short of the first `always`
-position past where it was released, and for proximity only within a third of
-the snapport. iOS applies it to UIKit's projected rest when a drag ends; macOS
-eases there when a trackpad lifts (from where its momentum would carry the
-scroll) or once a mouse wheel stops; Android aims its fling there; a Linux or
-Windows wheel's ticks add up until they reach past half the way to another
-position. An oversized area stays freely scrollable while it covers the
-snapport. Nested scroll containers own their descendants' snap areas: `hidden`
-is a boundary; `clip` is not. When a commit moves the area a mandatory scroller
-rests on, the scroller follows it (iOS, macOS, Linux and Windows; on Android
-the reader keeps its offset). A virtualized list also reads at most 64
-unmounted row roots near the projection (iOS, macOS), or around its offset when
-a touch lands (Android), from their measured or estimated sizes; descendants
-and layout-dependent displacement need mounted rows.
+For snapping (LLP 1008 §9), put `scroll-snap-type` on the scroller: `"x
+mandatory"`, `"y mandatory"` or `"both mandatory"`, or the axis alone (`"x"`,
+which is CSS's `x proximity`: it snaps only near an area). Put
+`scroll-snap-align` on its areas: `"start"`, `"center"` or `"end"`, or two
+values, the block axis's (y) then the inline axis's (x), as `"none center"`.
+`scroll-snap-stop="always"` on an area keeps a scroll from passing over it, so a
+fling moves one card or one page. `scroll-padding` insets the snapport and
+`scroll-margin` grows an area. The web executes CSS. The native hosts share one
+rule: the area position nearest where the platform would rest the scroll; for a
+flick (a release faster than 50 points a second, or a mouse wheel's notch) at
+least the next position its way from where the drag began, so a short quick
+flick moves one card; short of the first `always` position past where it was
+released; and for proximity only within a third of the snapport. iOS applies it
+to UIKit's projected rest when a drag ends; macOS eases there when a trackpad
+lifts (from where its momentum would carry the scroll) or once a mouse wheel
+stops; Android aims its fling there; a Linux or Windows wheel moves one position
+a notch, finer ticks adding up to a notch first. On iOS, areas whose snap
+positions (alignment and `scroll-margin` applied) are each multiple of the
+scrollport, every one `scroll-snap-stop="always"` with nothing insetting the
+snapport, page as UIKit's `isPagingEnabled` (SwiftUI's `.paging`) does. An oversized area stays freely scrollable while it covers the snapport.
+Nested scroll containers own their descendants' snap areas: `hidden` is a
+boundary; `clip` is not. When a commit moves the area a mandatory scroller rests
+on, the scroller follows it (iOS, macOS, Linux and Windows; on Android the
+reader keeps its offset). A virtualized list also reads at most 64 unmounted row
+roots near the projection (iOS, macOS), or around its offset when a touch lands
+(Android), from their measured or estimated sizes; descendants and
+layout-dependent displacement need mounted rows.
 
 `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any

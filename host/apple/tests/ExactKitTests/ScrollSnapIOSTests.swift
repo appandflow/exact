@@ -260,6 +260,72 @@ final class ScrollSnapIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.x, 400, accuracy: 0.01, "the third card, where it now is")
     }
 
+    /// LLP 1008 §9 as amended for #219: a flick reaches at least the next
+    /// position its way from where its drag began, as a UIKit pager's does;
+    /// a long fling still rests where UIKit projects.
+    func testAFlickReachesTheNextPositionFromWhereItsDragBegan() throws {
+        let (node, scroll) = try strip((0..<6).map { ("start", Double($0) * 150, 150.0) })
+        func rest(_ projected: CGFloat, release: CGFloat, start: CGFloat, velocity: CGFloat) -> CGFloat {
+            node.snappedOffset(CGPoint(x: projected, y: 0), in: scroll, release: CGPoint(x: release, y: 0),
+                               drag: (CGPoint(x: start, y: 0), CGPoint(x: velocity, y: 0))).x
+        }
+        XCTAssertEqual(rest(60, release: 40, start: 0, velocity: 0.3), 150, "a short quick flick goes on")
+        XCTAssertEqual(rest(60, release: 40, start: 0, velocity: 0.01), 0, "a release too slow to flick goes back")
+        XCTAssertEqual(rest(190, release: 170, start: 0, velocity: 0.3), 150, "a drag that already passed a card adds none")
+        XCTAssertEqual(rest(290, release: 280, start: 300, velocity: -0.3), 150, "the other way")
+        XCTAssertEqual(rest(560, release: 40, start: 0, velocity: 3), 600, "a long fling rests where UIKit projects")
+    }
+
+    /// Viewport-long `always` pages page as UIKit's `isPagingEnabled` does;
+    /// `normal` pages, shorter areas and a padded snapport keep the rule.
+    func testViewportLongAlwaysPagesPageAsUIKitDoes() throws {
+        let pages = (0..<3).map { ("start", Double($0) * 300, 300.0) }
+        let (paged, pagedScroll) = try strip(pages, stop: "always")
+        XCTAssertTrue(paged.pagesByViewport(pagedScroll))
+        paged.pageIfPager(pagedScroll)
+        XCTAssertTrue(pagedScroll.isPagingEnabled)
+        for case let area as NodeView in pagedScroll.subviews { area.style["scroll_snap_stop"] = .string("normal") }
+        paged.pageIfPager(pagedScroll)
+        XCTAssertFalse(pagedScroll.isPagingEnabled, "off again once its pages may be passed over")
+        let (free, freeScroll) = try strip(pages)
+        XCTAssertFalse(free.pagesByViewport(freeScroll), "`normal` may pass over pages")
+        let (cards, cardScroll) = try strip((0..<6).map { ("start", Double($0) * 150, 150.0) }, stop: "always")
+        XCTAssertFalse(cards.pagesByViewport(cardScroll), "areas shorter than the viewport snap by the rule")
+        let (sparse, sparseScroll) = try strip([("start", 0, 300), ("start", 600, 300)], stop: "always")
+        XCTAssertFalse(sparse.pagesByViewport(sparseScroll), "UIKit would rest at 300, where no page is")
+        let (padded, paddedScroll) = try strip(pages, stop: "always")
+        padded.style["scroll_padding_left"] = 20
+        XCTAssertFalse(padded.pagesByViewport(paddedScroll), "a padded snapport is not the scrollport UIKit pages by")
+        let (margined, marginedScroll) = try strip(pages, stop: "always")
+        for case let area as NodeView in marginedScroll.subviews { area.style["scroll_margin_left"] = -10 }
+        XCTAssertEqual(margined.snappedOffset(CGPoint(x: 290, y: 0), in: marginedScroll).x, 310, "its snap positions are 10 past the pages")
+        XCTAssertFalse(margined.pagesByViewport(marginedScroll), "UIKit would rest at 300, where no snap position is")
+        let (centred, centredScroll) = try strip(pages.map { ("center", $0.1, $0.2) }, stop: "always")
+        XCTAssertTrue(centred.pagesByViewport(centredScroll), "centred pages snap at the multiples UIKit pages to")
+    }
+
+    /// A pager's rest is recorded for a re-snap after layout (CSS Scroll Snap 1
+    /// §5.5) whether or not anything listens for `scrolldragend`.
+    func testAPagerKeepsThePageItRestedOnAcrossALayoutChange() throws {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 300, height: 100)
+        func pages(_ lead: Double) -> [[String: Any]] {
+            (0..<3).map { ["op": "frame", "id": 10 + $0, "x": lead + Double($0) * 300, "y": 0.0, "w": 300.0, "h": 100.0] }
+                + [["op": "content", "id": 1, "w": lead + 900, "h": 100.0]]
+        }
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden", "scroll_snap_type": "x mandatory"]]]
+            + (0..<3).map { ["op": "create", "id": 10 + $0, "kind": "view", "style": ["scroll_snap_align": "start", "scroll_snap_stop": "always"]] }
+            + [["op": "children", "id": 1, "ids": (0..<3).map { 10 + $0 }], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0]] + pages(0)))
+        let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+        node.pageIfPager(scroll)
+        XCTAssertTrue(scroll.isPagingEnabled)
+        scroll.contentOffset = CGPoint(x: 300, y: 0)
+        node.pagedDragEnded(scroll)
+        p.apply(wireBatch(pages(50)))
+        XCTAssertEqual(scroll.contentOffset.x, 350, accuracy: 0.01, "the second page, where it now is")
+    }
+
     /// `proximity` snaps only within a third of the snapport of the projection.
     func testProximityLeavesARestFarFromEveryArea() throws {
         let (node, scroll) = try strip([("start", 0, 100), ("start", 400, 100)], type: "x")

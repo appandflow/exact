@@ -89,13 +89,27 @@ enum ScrollSnap {
     /// would rest: a third of the snapport.
     static let proximity: CGFloat = 1 / 3
 
+    /// The speed from which a release is a flick, in points per millisecond:
+    /// Android's minimum fling velocity, 50 dp a second
+    /// (`ViewConfiguration.getScaledMinimumFlingVelocity`).
+    static let flick: CGFloat = 0.05
+
+    /// The way a release at `velocity` (points per millisecond, positive as
+    /// the offset grows) flicks: 1, −1, or 0 for none.
+    static func way(_ velocity: CGFloat) -> CGFloat {
+        abs(velocity) < flick || !velocity.isFinite ? 0 : velocity > 0 ? 1 : -1
+    }
+
     /// Where a scroll released at `release` and projected to rest at
     /// `projected` comes to rest among `areas`, or `nil` to rest where it
     /// would. The position nearest the projection (the smaller of two as
-    /// near); then, short of the first `always` position past the release in
-    /// the way it goes (§6.2); and for `proximity`, only within a third of
-    /// the snapport of the projection.
-    static func rest(_ areas: [Area], projected: CGFloat, release: CGFloat, mandatory: Bool, port: CGFloat) -> CGFloat? {
+    /// near); for a flick `way` (1 as the offset grows, −1 back), at least the
+    /// first position past `start`, where the drag began, that way; then
+    /// short of the first `always` position past the release in the way it
+    /// goes (§6.2); and for `proximity`, only within a third of the snapport
+    /// of the projection.
+    static func rest(_ areas: [Area], projected: CGFloat, release: CGFloat, start: CGFloat? = nil, way: CGFloat = 0,
+                     mandatory: Bool, port: CGFloat) -> CGFloat? {
         func at(_ a: Area) -> CGFloat { min(a.to, max(a.from, projected)) }
         guard var rest = areas.map(at).min(by: { a, b in
             let da = abs(a - projected), db = abs(b - projected)
@@ -103,6 +117,15 @@ enum ScrollSnap {
         }) else { return nil }
         // A move under half a point is none: positions from layout are fractional.
         let e: CGFloat = 0.5
+        // A flick that would rest back where its drag began, or behind, goes
+        // on to the next position its way, as a UIKit pager's does.
+        let from = start ?? release
+        if way != 0, way * (rest - from) <= e, let next = areas.compactMap({ a -> CGFloat? in
+            let p = min(a.to, max(a.from, from + way * 2 * e))
+            return way * (p - from) > e ? p : nil
+        }).min(by: { way * $0 < way * $1 }) {
+            rest = next
+        }
         if rest > release + e, let stop = areas.filter(\.stop).compactMap({ $0.from > release + e ? $0.from : $0.to > release + e ? $0.to : nil }).min() {
             rest = min(rest, stop)
         }

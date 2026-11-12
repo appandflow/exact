@@ -35,6 +35,10 @@ pub struct Snap {
 /// Where a wheel would have put a scroller unsnapped, and where it put it.
 pub(super) type WheelFree = ((f32, f32), (f32, f32));
 
+/// A browser's wheel notch, in points (`crate::input::LINE`): ticks that add
+/// up to one are a flick.
+const WHEEL_NOTCH: f32 = 40.0;
+
 /// How near a `proximity` snap's position must be to where the scroll would
 /// rest: a third of the snapport.
 pub const PROXIMITY: f32 = 1.0 / 3.0;
@@ -78,11 +82,26 @@ pub fn area(
 /// position nearest the projection (the smaller of two as near); then short
 /// of the first `always` position past the release in the way it goes
 /// (§6.2); and for `proximity`, only within a third of the snapport of the
-/// projection.
+/// projection. [`flicked`] for a flick.
 pub fn rest(
     areas: &[SnapArea],
     projected: f32,
     release: f32,
+    mandatory: bool,
+    port: f32,
+) -> Option<f32> {
+    flicked(areas, projected, release, (release, 0.0), mandatory, port)
+}
+
+/// [`rest`] for a flick `way` (1 as the offset grows, -1 back) whose drag
+/// began at `start`: before the `always` hold, a rest back where the drag
+/// began, or behind it, goes on to the first position past `start` that way,
+/// as a UIKit pager's flick does.
+pub fn flicked(
+    areas: &[SnapArea],
+    projected: f32,
+    release: f32,
+    (start, way): (f32, f32),
     mandatory: bool,
     port: f32,
 ) -> Option<f32> {
@@ -95,6 +114,13 @@ pub fn rest(
     })?;
     // A move under half a pixel is none: positions from layout are fractional.
     let e = 0.5;
+    if way != 0.0 && way * (rest - start) <= e {
+        let next = (areas.iter())
+            .map(|a| (start + way * 2.0 * e).clamp(a.from, a.to))
+            .filter(|p| way * (p - start) > e)
+            .min_by(|a, b| (way * a).total_cmp(&(way * b)));
+        rest = next.unwrap_or(rest);
+    }
     let stops = || areas.iter().filter(|a| a.stop);
     if rest > release + e {
         let first = stops()
@@ -315,7 +341,8 @@ impl<D: DataSource> Presenter<D> {
     /// it rests instead, on each axis it moved along and snaps along. Where
     /// the wheel would have put it goes on from there unsnapped while the
     /// scroller stays where the last wheel left it, so ticks too short to
-    /// reach another position add up.
+    /// reach another position add up; ticks that add up to a wheel notch are
+    /// a flick their way.
     pub(super) fn wheel_snapped(
         &mut self,
         id: ViewId,
@@ -343,7 +370,22 @@ impl<D: DataSource> Presenter<D> {
             let Some(snap) = self.snap(id, vertical) else {
                 continue;
             };
-            if let Some(at) = rest(&snap.areas, f, release, snap.mandatory, snap.port) {
+            // Ticks that add up to a browser's wheel notch are a flick their
+            // way: a notch moves a mandatory snap one position, as a
+            // browser's wheel does; finer ticks add up to one first.
+            let way = if (f - release).abs() >= WHEEL_NOTCH {
+                (f - release).signum()
+            } else {
+                0.0
+            };
+            if let Some(at) = flicked(
+                &snap.areas,
+                f,
+                release,
+                (release, way),
+                snap.mandatory,
+                snap.port,
+            ) {
                 *r = at;
             }
             match (snap.areas.iter()).find(|a| a.id != 0 && *r >= a.from - 0.5 && *r <= a.to + 0.5)
@@ -352,6 +394,11 @@ impl<D: DataSource> Presenter<D> {
                 None => self.snap_rested.remove(&(id, vertical)),
             };
         }
+        // Once it moves, the next ticks add up from where it rests.
+        let free = (
+            if rests.0 != from.0 { rests.0 } else { free.0 },
+            if rests.1 != from.1 { rests.1 } else { free.1 },
+        );
         self.wheel_free.insert(id, (free, rests));
         rests
     }

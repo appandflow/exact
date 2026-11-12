@@ -341,8 +341,9 @@ scrolls, with the theme's thumb, shown as the scroller moves and faded by `View`
 
 **Scroll snap** (LLP 1008 §9): with what is under a touch, exact2 tells the reader each scroller's snap areas as the
 offsets they rest at (`presenter/snap.rs`, `reader_snaps`). When the finger lifts, the drag's innermost scroller rests
-where `snapRest` picks from where the platform's fling would have left it, and settles there in ViewPager's time with
-its quintic ease. At its end and flung on past it, the fling goes on to the scrollers outside. A virtualized list
+where `snapRest` picks from where the platform's fling would have left it (a fling, at the platform's minimum fling
+velocity or more, reaches at least the next position its way from where the drag began), and settles there in
+ViewPager's time with its quintic ease. At its end and flung on past it, the fling goes on to the scrollers outside. A virtualized list
 tells the rows it has not mounted up to 64 either way of its offset. A commit that moves the area a scroller rests on
 does not move the scroller: its offset is the reader's.
 

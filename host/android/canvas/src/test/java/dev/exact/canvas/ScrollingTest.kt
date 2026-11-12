@@ -94,19 +94,53 @@ class ScrollingTest {
     @Test fun aSnapRestsAtTheNearestPositionShortOfAnAlwaysOne() {
         val snaps = floatArrayOf(0f, 0f, 250f, 250f, 550f, 550f, 800f, 800f)
         val normal = BooleanArray(4)
-        assertEquals(550f, snapRest(snaps, normal, 600f, 250f, true, 400f)!!, 0f)
-        assertEquals("the smaller of two as near", 250f, snapRest(snaps, normal, 400f, 250f, true, 400f)!!, 0f)
+        assertEquals(550f, snapRest(snaps, normal, 600f, 250f, 250f, 0, true, 400f)!!, 0f)
+        assertEquals("the smaller of two as near", 250f, snapRest(snaps, normal, 400f, 250f, 250f, 0, true, 400f)!!, 0f)
         val always = booleanArrayOf(true, true, true, true)
-        assertEquals("not past the next `always` position", 550f, snapRest(snaps, always, 780f, 250f, true, 400f)!!, 0f)
-        assertEquals("nor the previous one going back", 250f, snapRest(snaps, always, 10f, 550f, true, 400f)!!, 0f)
-        assertEquals(800f, snapRest(snaps, booleanArrayOf(false, false, false, true), 780f, 250f, true, 400f)!!, 0f)
+        assertEquals("not past the next `always` position", 550f, snapRest(snaps, always, 780f, 250f, 250f, 0, true, 400f)!!, 0f)
+        assertEquals("nor the previous one going back", 250f, snapRest(snaps, always, 10f, 550f, 550f, 0, true, 400f)!!, 0f)
+        assertEquals(800f, snapRest(snaps, booleanArrayOf(false, false, false, true), 780f, 250f, 250f, 0, true, 400f)!!, 0f)
         // An area longer than the snapport rests anywhere it covers it, and an `always` one is left at its end.
         val long = floatArrayOf(0f, 0f, 300f, 900f, 1200f, 1200f)
-        assertEquals(640f, snapRest(long, BooleanArray(3), 640f, 400f, true, 400f)!!, 0f)
-        assertEquals(900f, snapRest(long, booleanArrayOf(false, true, false), 1150f, 400f, true, 400f)!!, 0f)
+        assertEquals(640f, snapRest(long, BooleanArray(3), 640f, 400f, 400f, 0, true, 400f)!!, 0f)
+        assertEquals(900f, snapRest(long, booleanArrayOf(false, true, false), 1150f, 400f, 400f, 0, true, 400f)!!, 0f)
         // `proximity`: only within a third of the snapport of where it would rest.
-        assertEquals(250f, snapRest(snaps, normal, 380f, 250f, false, 400f)!!, 0f)
-        assertNull(snapRest(snaps, normal, 400f, 250f, false, 400f))
-        assertNull(snapRest(FloatArray(0), BooleanArray(0), 400f, 250f, true, 400f))
+        assertEquals(250f, snapRest(snaps, normal, 380f, 250f, 250f, 0, false, 400f)!!, 0f)
+        assertNull(snapRest(snaps, normal, 400f, 250f, 250f, 0, false, 400f))
+        assertNull(snapRest(FloatArray(0), BooleanArray(0), 400f, 250f, 250f, 0, true, 400f))
+    }
+
+    @Test fun aFlingReachesAtLeastTheNextPositionFromWhereItsDragBegan() {
+        val snaps = floatArrayOf(0f, 0f, 300f, 300f, 600f, 600f, 900f, 900f)
+        val normal = BooleanArray(4)
+        // A short quick fling projected under half a card: on to the next card, not back.
+        assertEquals(300f, snapRest(snaps, normal, 120f, 80f, 0f, 1, true, 300f)!!, 0f)
+        assertEquals(0f, snapRest(snaps, normal, 120f, 80f, 0f, 0, true, 300f)!!, 0f)
+        // Counted from where the drag began: a drag that already passed a card adds none.
+        assertEquals(300f, snapRest(snaps, normal, 420f, 400f, 0f, 1, true, 300f)!!, 0f)
+        // Back the other way, and a long fling still rests where it projects.
+        assertEquals(300f, snapRest(snaps, normal, 560f, 580f, 600f, -1, true, 300f)!!, 0f)
+        assertEquals(900f, snapRest(snaps, normal, 1500f, 80f, 0f, 1, true, 300f)!!, 0f)
+        // `always` still holds a long one at the next card.
+        assertEquals(300f, snapRest(snaps, BooleanArray(4) { true }, 1500f, 80f, 0f, 1, true, 300f)!!, 0f)
+    }
+
+    @Test fun aFingerThatCatchesAFlingBeginsItsDragWhereItCaughtIt() {
+        val f = Fixture(1)
+        f.told(1)
+        f.down()
+        f.under(f.reply(0))
+        val s = f.scroller()
+        val field = { name: String -> Scrolling::class.java.getDeclaredField(name).apply { isAccessible = true } }
+        // A fling of the last gesture, which began its drag at 0, has carried the scroller to 450.
+        field("mode").setInt(f.scrolling, 4)
+        field("active").set(f.scrolling, listOf(s))
+        field("sideways").setBoolean(f.scrolling, true)
+        field("dragFrom").setFloat(f.scrolling, 0f)
+        s.nowX = 450f
+        val e = MotionEvent.obtain(0, 10, MotionEvent.ACTION_DOWN, 100f, 100f, 0)
+        assertTrue("the catch takes the touch", f.scrolling.touch(e)); e.recycle()
+        assertEquals("dragging", 3, field("mode").getInt(f.scrolling))
+        assertEquals("the next flick counts from where it was caught", 450f, field("dragFrom").getFloat(f.scrolling), 0f)
     }
 }

@@ -11,8 +11,10 @@ import AppKit
 extension NodeView {
     /// Where the clip's origin rests instead of `proposed`, on each axis
     /// `scroll-snap-type` names, the scroll released at `release`; `nil`
-    /// when it rests where it would. `keeping`: only where `resnap` moves it.
-    func snappedOrigin(_ proposed: CGPoint, release: CGPoint, keeping: Bool = false) -> CGPoint? {
+    /// when it rests where it would. A `drag` that began at `start` and
+    /// lifted at `velocity` (points per millisecond) flicks on past where it
+    /// began (`ScrollSnap.rest`). `keeping`: only where `resnap` moves it.
+    func snappedOrigin(_ proposed: CGPoint, release: CGPoint, drag: (start: CGPoint, velocity: CGPoint)? = nil, keeping: Bool = false) -> CGPoint? {
         guard let kind = ScrollSnap.Kind(style["scroll_snap_type"]?.string), let sv = scroll, let document = sv.documentView else { return nil }
         let clip = sv.contentView
         // The clip's coordinates in the node's border box, where a list's rows are.
@@ -57,7 +59,8 @@ extension NodeView {
             let axis = vertical ? 1 : 0
             let rest = keeping
                 ? ScrollSnap.resnap(areas, rested: sv.snapRested[axis], current: wanted, mandatory: kind.mandatory, port: port)
-                : ScrollSnap.rest(areas, projected: wanted, release: release, mandatory: kind.mandatory, port: port)
+                : ScrollSnap.rest(areas, projected: wanted, release: release, start: drag.map { (vertical ? $0.start.y : $0.start.x) + shift },
+                                  way: drag.map { ScrollSnap.way(vertical ? $0.velocity.y : $0.velocity.x) } ?? 0, mandatory: kind.mandatory, port: port)
             guard let rest else { continue }
             sv.snapRested[axis] = ScrollSnap.Rested(rest, in: areas)
             if vertical { result.y = rest - shift } else { result.x = rest - shift }
@@ -87,30 +90,35 @@ extension NodeView {
     /// the rule picks from where the momentum would carry it, UIKit's normal
     /// deceleration's projection (a rate of 0.998 a millisecond). Whether it
     /// snaps, and the momentum that follows is not the scroll's.
-    func snapAtLift(velocity: CGPoint) -> Bool {
+    func snapAtLift(velocity: CGPoint, start: CGPoint) -> Bool {
         guard let clip = scroll?.contentView else { return false }
         let at = clip.bounds.origin, reach: CGFloat = 0.998 / (1 - 0.998)
-        guard let rest = snappedOrigin(CGPoint(x: at.x + velocity.x * reach, y: at.y + velocity.y * reach), release: at) else { return false }
+        guard let rest = snappedOrigin(CGPoint(x: at.x + velocity.x * reach, y: at.y + velocity.y * reach), release: at,
+                                       drag: (start, velocity)) else { return false }
         ease(to: rest)
         return true
     }
 
     /// A wheel without phases (a mouse's notches) moved this scroller from
     /// `origin`, where the wheel found it: once it has been still for
-    /// `ScrollEnd.quiet`, it eases to the rest the rule picks; `now`, for the
-    /// agent's wheel, whose drive reads the offset back at once, it goes there.
+    /// `ScrollEnd.quiet`, it eases to the rest the rule picks, the notches a
+    /// flick their way, as a browser's wheel moves a mandatory snap a
+    /// position a notch; `now`, for the agent's wheel, whose drive reads the
+    /// offset back at once, it goes there.
     func snapAfterWheel(from origin: CGPoint, now: Bool) {
         guard let sv = scroll, ScrollSnap.Kind(style["scroll_snap_type"]?.string) != nil else { return }
         sv.snapWheel?.work.cancel()
         let start = sv.snapWheel?.origin ?? origin
         if now {
             sv.snapWheel = nil
-            if let rest = snappedOrigin(sv.contentView.bounds.origin, release: start) { ease(to: rest, animated: false) }
+            let at = sv.contentView.bounds.origin
+            if let rest = snappedOrigin(at, release: start, drag: (start, CGPoint(x: at.x - start.x, y: at.y - start.y))) { ease(to: rest, animated: false) }
             return
         }
         let work = DispatchWorkItem { [weak self, weak sv] in
             sv?.snapWheel = nil
-            guard let self, let at = sv?.contentView.bounds.origin, let rest = self.snappedOrigin(at, release: start) else { return }
+            guard let self, let at = sv?.contentView.bounds.origin,
+                  let rest = self.snappedOrigin(at, release: start, drag: (start, CGPoint(x: at.x - start.x, y: at.y - start.y))) else { return }
             self.ease(to: rest)
         }
         sv.snapWheel = (start, work)

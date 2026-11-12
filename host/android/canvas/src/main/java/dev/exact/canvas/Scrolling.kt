@@ -112,6 +112,8 @@ internal class Scrolling(private val view: ExactView) {
     private var lastX = 0f
     private var lastY = 0f
     private var flingAt = 0
+    /** Where the drag's innermost scroller was when the drag began, along its axis ([snapRest]'s start). */
+    private var dragFrom = 0f
 
     /**
      * A touch event: whether it was taken here (a scroll's), so that exact2 does not hear it. A down, and every move
@@ -128,7 +130,12 @@ internal class Scrolling(private val view: ExactView) {
                 if (mode == FLINGING) {
                     // A finger on a list that is flinging stops it and has it, as the platform's lists do: no press.
                     halt()
-                    if (active.any { it.port.contains(e.x, e.y) }) { mode = DRAGGING; return true }
+                    // The drag that catches it begins where it was caught ([snapRest]'s start).
+                    if (active.any { it.port.contains(e.x, e.y) }) {
+                        mode = DRAGGING
+                        dragFrom = active.first().at(sideways)
+                        return true
+                    }
                 }
                 mode = WATCHING; answered = false; chain = emptyList(); claims = 0
                 return false
@@ -234,6 +241,7 @@ internal class Scrolling(private val view: ExactView) {
             else -> return
         }
         active = chain.filter { if (sideways) it.x else it.y }.map { it.s }
+        dragFrom = active.firstOrNull()?.at(sideways) ?: 0f
         mode = DRAGGING
         lastX = x; lastY = y
         view.forward(3, x, y, tool, 0L)
@@ -384,7 +392,8 @@ internal class Scrolling(private val view: ExactView) {
             projected += if (sideways) fling.finalX else fling.finalY
             fling.forceFinished(true)
         }
-        val target = snapRest(s.snaps[axis], s.stops[axis], projected, at, s.snapMandatory, s.snapPort[axis]) ?: return false
+        val way = if (flung) (if (v > 0f) 1 else -1) else 0
+        val target = snapRest(s.snaps[axis], s.stops[axis], projected, at, dragFrom, way, s.snapMandatory, s.snapPort[axis]) ?: return false
         val d = (target.coerceIn(0f, end) - at).roundToInt()
         if (d == 0) { mode = IDLE; return true }
         // ViewPager's settle: four times as long as the finger's speed would take to cover it, within its bound; a
@@ -590,11 +599,15 @@ internal class Scrolling(private val view: ExactView) {
  * Where a scroll released at [release] and projected to rest at [projected] comes to rest among one axis's snap areas
  * ([snaps]: each one's least and greatest offset, which differ for one longer than the snapport; [stops]:
  * `scroll-snap-stop: always`), or null to rest where it would. LLP 1008 §9's rule, as
- * `host/linux/src/presenter/snap.rs`'s `rest`: the position nearest the projection (the smaller of two as near); then
- * short of the first `always` position past the release in the way it goes (CSS Scroll Snap 1 §6.2); and for
- * `proximity` ([mandatory] false), only within a third of the snapport ([port]) of the projection.
+ * `host/linux/src/presenter/snap.rs`'s `rest`: the position nearest the projection (the smaller of two as near); for a
+ * fling [way] (1 as the offset grows, -1 back, 0 for a release too slow to fling), at least the first position past
+ * [start], where the drag began, that way; then short of the first `always` position past the release in the way it
+ * goes (CSS Scroll Snap 1 §6.2); and for `proximity` ([mandatory] false), only within a third of the snapport ([port])
+ * of the projection.
  */
-internal fun snapRest(snaps: FloatArray, stops: BooleanArray, projected: Float, release: Float, mandatory: Boolean, port: Float): Float? {
+internal fun snapRest(
+    snaps: FloatArray, stops: BooleanArray, projected: Float, release: Float, start: Float, way: Int, mandatory: Boolean, port: Float,
+): Float? {
     val n = stops.size
     if (n == 0) return null
     var rest = 0f
@@ -606,6 +619,15 @@ internal fun snapRest(snaps: FloatArray, stops: BooleanArray, projected: Float, 
     }
     // A move under half a pixel is none: positions from layout are fractional.
     val e = 0.5f
+    // A fling that would rest back where its drag began, or behind, goes on to the next position its way.
+    if (way != 0 && way * (rest - start) <= e) {
+        var next = Float.NaN
+        for (k in 0 until n) {
+            val p = (start + way * 2 * e).coerceIn(snaps[2 * k], snaps[2 * k + 1])
+            if (way * (p - start) > e && (next.isNaN() || way * p < way * next)) next = p
+        }
+        if (!next.isNaN()) rest = next
+    }
     if (rest > release + e) {
         for (k in 0 until n) if (stops[k]) {
             val from = snaps[2 * k]; val to = snaps[2 * k + 1]

@@ -166,7 +166,39 @@ fn a_rest_is_the_nearest_position_short_of_an_always_one() {
 }
 
 #[test]
-fn a_wheel_rests_where_its_ticks_add_up_to() {
+fn a_flick_reaches_at_least_the_next_position_from_where_its_drag_began() {
+    let at = |from: f32| SnapArea {
+        from,
+        to: from,
+        stop: false,
+        id: 0,
+    };
+    let cards = [at(0.), at(300.), at(600.), at(900.)];
+    // A short quick flick projected under half a card goes on to the next.
+    assert_eq!(flicked(&cards, 120., 80., (0., 1.), true, 300.), Some(300.));
+    assert_eq!(flicked(&cards, 120., 80., (0., 0.), true, 300.), Some(0.));
+    // Counted from where the drag began: one that already passed a card adds none.
+    assert_eq!(
+        flicked(&cards, 420., 400., (0., 1.), true, 300.),
+        Some(300.)
+    );
+    assert_eq!(
+        flicked(&cards, 560., 580., (600., -1.), true, 300.),
+        Some(300.)
+    );
+    assert_eq!(
+        flicked(&cards, 1500., 80., (0., 1.), true, 300.),
+        Some(900.)
+    );
+    let always = cards.map(|a| SnapArea { stop: true, ..a });
+    assert_eq!(
+        flicked(&always, 1500., 80., (0., 1.), true, 300.),
+        Some(300.)
+    );
+}
+
+#[test]
+fn a_wheel_notch_moves_a_snap_one_position_and_finer_ticks_add_up() {
     let mut p = boot(SNAPPERS);
     let rail = id(&p, "rail");
     let mut seen = Vec::new();
@@ -174,13 +206,21 @@ fn a_wheel_rests_where_its_ticks_add_up_to() {
         p.wheel(rail, 40., 0.).unwrap();
         seen.push(p.scroll_of(rail).0);
     }
-    // Ticks under half the way to the next position leave it; their sum
-    // past the half takes it there.
-    assert_eq!(seen, [0., 0., 0., 250.]);
-    // A scroll from elsewhere starts the sum over from where it put it.
+    // A notch a position, the `always` card at 550 included; the last at the end.
+    assert_eq!(seen, [250., 550., 800., 800.]);
+    // Ticks finer than a notch add up to one before it moves.
+    p.scroll_to(rail, (0., 0.));
+    let mut seen = Vec::new();
+    for _ in 0..8 {
+        p.wheel(rail, 5., 0.).unwrap();
+        seen.push(p.scroll_of(rail).0);
+    }
+    assert_eq!(seen, [0., 0., 0., 0., 0., 0., 0., 250.]);
+    // A scroll from elsewhere starts the sum over from where it put it, and
+    // a notch back goes to the position before it.
     p.scroll_to(rail, (500., 0.));
     p.wheel(rail, -40., 0.).unwrap();
-    assert_eq!(p.scroll_of(rail).0, 550.);
+    assert_eq!(p.scroll_of(rail).0, 250.);
 }
 
 #[test]
@@ -201,9 +241,7 @@ fn a_layout_change_keeps_a_scroller_on_the_area_it_rested_on() {
 "#,
     );
     let rail = id(&p, "rail");
-    for _ in 0..4 {
-        p.wheel(rail, 40., 0.).unwrap();
-    }
+    p.wheel(rail, 40., 0.).unwrap();
     assert_eq!(p.scroll_of(rail).0, 300.);
     // The cards widen: the second now rests at 350.
     p.tap(id(&p, "wider")).unwrap();

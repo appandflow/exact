@@ -738,7 +738,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The end the reader was following moved during their interaction:
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }
+        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }; pagedDragEnded(scrollView)
         guard scrollView === self.scrollView else { return }
         // A follow of the end that animates ends with its animation.
         if !decelerate, !followEndIfOwed() { endScroll() }
@@ -769,7 +769,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
-        followingEndAnimated = false
+        followingEndAnimated = false; pageIfPager(scrollView)
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil

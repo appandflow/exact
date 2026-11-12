@@ -69,7 +69,7 @@ final class ScrollSnapMacTests: XCTestCase {
         sv.contentView.scroll(to: NSPoint(x: 40, y: 0))
         sv.reflectScrolledClipView(sv.contentView)
         // 0.5 pt/ms projects about 250 points on: 290, nearest 300.
-        XCTAssertTrue(node.snapAtLift(velocity: CGPoint(x: 0.5, y: 0)))
+        XCTAssertTrue(node.snapAtLift(velocity: CGPoint(x: 0.5, y: 0), start: NSPoint(x: 40, y: 0)))
         XCTAssertTrue(sv.snapSettling, "the momentum that follows is dropped")
         spin { sv.contentView.bounds.minX == 300 && !sv.snapSettling }
         XCTAssertEqual(sv.contentView.bounds.minX, 300, accuracy: 0.01)
@@ -87,6 +87,19 @@ final class ScrollSnapMacTests: XCTestCase {
         presenter?.apply(wireBatch((0..<8).map { ["op": "frame", "id": 10 + $0, "x": Double($0) * 200, "y": 0.0, "w": 200.0, "h": 100.0] }
             + [["op": "content", "id": 1, "w": 1600.0, "h": 100.0]]))
         XCTAssertEqual(sv.contentView.bounds.minX, 400, accuracy: 0.01, "the third card, where it now is")
+    }
+
+    /// LLP 1008 §9 as amended for #219: a flick, or a wheel's notch, reaches
+    /// at least the next position its way from where it began.
+    func testANotchOrAFlickReachesTheNextPositionItsWay() throws {
+        let (node, sv) = try strip((0..<8).map { ("start", Double($0) * 150, 150.0) })
+        sv.contentView.scroll(to: NSPoint(x: 40, y: 0))
+        node.snapAfterWheel(from: .zero, now: true)
+        XCTAssertEqual(sv.contentView.bounds.minX, 150, accuracy: 0.01, "one notch, one card")
+        let slow = node.snappedOrigin(NSPoint(x: 195, y: 0), release: NSPoint(x: 190, y: 0), drag: (NSPoint(x: 150, y: 0), NSPoint(x: 0.01, y: 0)))
+        XCTAssertEqual(slow?.x, 150, "a slow lift short of half a card goes back")
+        let flick = node.snappedOrigin(NSPoint(x: 210, y: 0), release: NSPoint(x: 190, y: 0), drag: (NSPoint(x: 150, y: 0), NSPoint(x: 0.2, y: 0)))
+        XCTAssertEqual(flick?.x, 300, "a flick goes on")
     }
 
     func testWheelNotchesRestOnceTheyStop() throws {
