@@ -56,6 +56,34 @@ impl<D: DataSource + Default + 'static> App<D> {
         self.minimized || self.occluded || self.hidden
     }
 
+    /// The window closes: the app's `close()`, or the person's close, which
+    /// hides the window of an app that keeps running and otherwise asks
+    /// `beforeunload` first (studio diary R17), as the Mac does; a handler
+    /// that prevents it keeps the window, and the app's own question ends
+    /// in its `close()`, which is not asked again.
+    pub(super) fn close_requested(&mut self, events: &ActiveEventLoop) {
+        if !self.closing && self.keep_running {
+            return self.hide();
+        }
+        if let Some(p) = self.presenter.as_mut().filter(|_| !self.closing) {
+            p.advance(self.started.elapsed().as_secs_f64() * 1000.);
+            let now = p.host().now();
+            if !p.before_unload(now) {
+                // What the handler committed (its question) is drawn.
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+                return;
+            }
+        }
+        // The window is going: its hatch, then the app's, ends.
+        if let Some(p) = &mut self.presenter {
+            p.end_hatches();
+            p.end_packages();
+        }
+        events.exit();
+    }
+
     /// The window hidden by the person's close, the session running on.
     pub(super) fn hide(&mut self) {
         let Some(window) = &self.window else {

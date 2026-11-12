@@ -354,8 +354,8 @@ journal and the window stays. ⌘Q quits as before, and the app's own
 nothing there. The agent's `state.documents.windows[].visible` says whether
 the window is showing.
 
-A Windows app ends when its window closes too, unless `"keepRunning": true`
-is in `host.windows.window`. Its close button, Alt+F4 and the taskbar's
+A Windows app ends when its window closes too, after `beforeunload`, unless
+`"keepRunning": true` is in `host.windows.window`. Its close button, Alt+F4 and the taskbar's
 Close window then hide the window, and the session keeps running, its timers, streams and
 global shortcuts with it; `visibilityState`, `persisted` and `restores` read
 as on the Mac. A Windows app is one process, with `keepRunning` or without:

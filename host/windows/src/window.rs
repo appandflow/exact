@@ -1074,17 +1074,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         ) {
             self.tooltip.clear();
         }
-        if matches!(event, WindowEvent::CloseRequested) && self.keep_running && !self.closing {
-            return self.hide();
-        }
         if matches!(event, WindowEvent::CloseRequested) {
-            // The window is going: its hatch, then the app's, ends.
-            if let Some(p) = &mut self.presenter {
-                p.end_hatches();
-                p.end_packages();
-            }
-            events.exit();
-            return;
+            return self.close_requested(events);
         }
         if matches!(
             event,

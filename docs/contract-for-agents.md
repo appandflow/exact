@@ -3105,7 +3105,7 @@ each field. `head edited=dirty` marks a document with unsaved changes (the dot i
 a Mac window's close button; nothing elsewhere). Before a window closes or the app
 quits, every element with a `beforeunload` handler hears it, DOM's event: an action
 that calls `preventDefault()` keeps the window open — the browser asks "Leave
-site?", a Mac app asks its own question — and `close()` closes the window once
+site?", a Mac or Windows app asks its own question — and `close()` closes the window once
 it is answered (studio diary R17). Any other element's `title` is HTML's tooltip. `scroll document` declares page scrolling. Route `render`/`activate`
 policy belongs to the site's renderer/build pipeline; follow
 [the document fixture](../contract/corpus/document.contract) and
