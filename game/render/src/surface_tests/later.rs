@@ -9,25 +9,30 @@ const LOOKS: [(&str, &str, [u8; 3]); 3] = [
     ("green.model", "green.tex", [0, 255, 0]),
     ("blue.model", "blue.tex", [0, 0, 255]),
 ];
+/// Which look the die shows: a new world when it changes.
+#[derive(Default, exact_game::Args)]
+struct Shown {
+    look: u32,
+}
 struct Looks;
 impl Game for Looks {
     const ID: &'static str = "registered-looks";
-    type Args = ();
-    fn setup(w: &mut World, _: &()) {
-        for (model, texture, _) in LOOKS {
+    type Args = Shown;
+    fn setup(w: &mut World, shown: &Shown) {
+        for (i, (model, texture, _)) in LOOKS.into_iter().enumerate() {
             let mesh = w.generated_model(model, quad(texture)).unwrap();
-            if model == "red.model" {
+            if i == shown.look as usize {
                 w.spawn_named("die", (Transform::default(), mesh));
             }
         }
         w.spawn((Transform::at(0., 0., 4.), Camera::default()));
     }
-    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &Shown) {}
 }
 fn delivered(clock_seekable: bool) -> WorldSurface<Looks, crate::ModelExecutor, true> {
     let mut s = WorldSurface::<Looks, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
-    s.bind(&[], None).unwrap();
+    s.bind(&[Value::Number(0u32.into())], None).unwrap();
     s.clock(clock_seekable);
     let mut requested = s.assets().requests;
     requested.sort();
@@ -108,4 +113,58 @@ fn the_agents_clock_prepares_every_look_before_its_first_frame() {
     assert_eq!(hue(&pixels), 0);
     assert_eq!(prepared(&s).len(), 6, "{:?}", prepared(&s));
     assert!(!s.asset_work());
+}
+
+fn live(now: f64) -> Frame {
+    Frame {
+        seekable: false,
+        ..frame(now)
+    }
+}
+
+#[test]
+fn a_look_shown_before_the_first_frame_is_released_from_waiting() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = delivered(false);
+    s.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    // Green waited for the first frame; then a new world shows it first.
+    s.bind(&[Value::Number(1u32.into())], None).unwrap();
+    let mut now = 0.;
+    let mut first = None;
+    for _ in 0..500 {
+        now += 20.;
+        let (pixels, _) = fixture::render(&gpu, &mut s, &live(now)).unwrap();
+        if s.ready_work.is_some() {
+            first = Some(pixels);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let first = first.expect("the first frame drew the look now shown");
+    assert_eq!(hue(&first), 1);
+    assert!(prepared(&s).contains(&"green.tex"), "{:?}", prepared(&s));
+}
+
+#[test]
+fn the_agent_taking_the_clock_prepares_what_waited() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = delivered(false);
+    s.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    assert!(!prepared(&s).contains(&"blue.tex"));
+    s.clock(true);
+    let (pixels, _) = fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    assert_eq!(hue(&pixels), 0);
+    // Nothing waits, and nothing is left on the worker, under the agent's clock.
+    assert!(!s.asset_work());
+    assert_eq!(prepared(&s).len(), 6, "{:?}", prepared(&s));
+    assert!(s.sim().unwrap().device_assets_ready());
 }

@@ -194,12 +194,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         for (name, result) in prepared {
             sim.asset_prepared(&name, result);
         }
-        if later.live && !later.first {
-            // A newer delivery of a waiting name replaces it.
-            let mut waited = std::mem::take(&mut self.waiting);
-            waited.append(&mut textures);
-            textures = waited;
-        }
+        // What waits is reconsidered every time, under the presentation and
+        // the clock as they are now; a newer delivery of a waiting name replaces it.
+        let mut waited = std::mem::take(&mut self.waiting);
+        waited.append(&mut textures);
+        textures = waited;
         #[cfg(not(target_arch = "wasm32"))]
         if later.live && self.uploads.is_none() {
             self.uploads = crate::models::Uploads::new(device, queue);
@@ -229,7 +228,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(uploads) = &mut self.uploads {
-            for (name, result) in uploads.finished() {
+            for (name, result) in uploads.finished(!later.live) {
                 // A name retired or prepared since it was sent has nothing to install.
                 if !sim.awaits_preparation(&name) {
                     continue;

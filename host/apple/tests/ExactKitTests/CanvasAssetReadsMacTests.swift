@@ -6,6 +6,8 @@ import XCTest
 
 private var requested: [String] = []
 private var delivered: [String] = []
+/// Kept open for the test's life: a canvas outside a window is not live.
+private var windows: [NSWindow] = []
 private let out = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
 
 /// A canvas's asset files are read off the main thread under the live clock
@@ -14,17 +16,9 @@ private let out = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
 final class CanvasAssetReadsMacTests: XCTestCase {
     override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
 
-    func testALiveCanvasDeliversItsAssetsOnALaterTurnAndTheAgentsClockAtOnce() throws {
-        _ = NSApplication.shared
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("asset-reads-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        for name in ["a.tex", "b.tex"] { try Data(name.utf8).write(to: root.appendingPathComponent("assets/" + name)) }
-        let previous = ExactApp.shared.assetRoot
-        ExactApp.shared.assetRoot = root
-        defer { ExactApp.shared.assetRoot = previous }
-        let s = ExactApp.shared.makeSession(label: "asset-reads")
-        defer { s.destroy() }
+    /// A session with one live canvas whose module asks for `requested` and records `delivered`.
+    private func canvas(label: String) -> (ExactSession, CanvasesHost.Entry) {
+        let s = ExactApp.shared.makeSession(label: label)
         let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, _, _ in 0 },
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
@@ -49,11 +43,26 @@ final class CanvasAssetReadsMacTests: XCTestCase {
         let p = s.presenter
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = p.viewport
+        windows.append(window)
         let canvas = NodeView(id: 100, kind: "canvas", presenter: p)
         p.root.addSubview(canvas); p.views[100] = canvas
         let e = CanvasesHost.Entry(view: canvas, name: "world", values: []); e.id = 1; e.module = m
         s.surfaceHost.entries[100] = e
+        return (s, e)
+    }
 
+    func testALiveCanvasDeliversItsAssetsOnALaterTurnAndTheAgentsClockAtOnce() throws {
+        _ = NSApplication.shared
+        delivered = []
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("asset-reads-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["a.tex", "b.tex"] { try Data(name.utf8).write(to: root.appendingPathComponent("assets/" + name)) }
+        let previous = ExactApp.shared.assetRoot
+        ExactApp.shared.assetRoot = root
+        defer { ExactApp.shared.assetRoot = previous }
+        let (s, e) = canvas(label: "asset-reads")
+        defer { s.destroy() }
         requested = ["a.tex"]
         s.surfaceHost.messages(e)
         XCTAssertEqual(delivered, [], "the file is still being read")
@@ -65,6 +74,31 @@ final class CanvasAssetReadsMacTests: XCTestCase {
         requested = ["b.tex"]
         s.surfaceHost.messages(e)
         XCTAssertEqual(delivered, ["a.tex", "b.tex"], "the agent's clock is answered in the call")
+    }
+
+    func testTheAgentTakingTheClockMidReadDeliversTheReadOnce() throws {
+        _ = NSApplication.shared
+        delivered = []
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("asset-reads-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("a.tex".utf8).write(to: root.appendingPathComponent("assets/a.tex"))
+        let previous = ExactApp.shared.assetRoot
+        ExactApp.shared.assetRoot = root
+        defer { ExactApp.shared.assetRoot = previous }
+        let (s, e) = canvas(label: "asset-takeover")
+        defer { s.destroy() }
+        requested = ["a.tex"]
+        s.surfaceHost.messages(e)
+        XCTAssertEqual(delivered, [], "the file is still being read")
+        // The agent takes the clock before the read lands: the next service
+        // answers it at once, and the late result is not delivered again.
+        s.clock = 0
+        s.surfaceHost.messages(e)
+        XCTAssertEqual(delivered, ["a.tex"])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        s.surfaceHost.messages(e)
+        XCTAssertEqual(delivered, ["a.tex"])
     }
 }
 #endif

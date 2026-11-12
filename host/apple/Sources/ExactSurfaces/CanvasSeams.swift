@@ -414,12 +414,17 @@ extension CanvasesHost {
                     for name in changes["retired"] ?? [] { e.reading.removeValue(forKey: name) }
                     requests = changes["requests"] ?? []
                 }
-                let ready: [(name: String, bytes: Result<Data?, Error>)]
+                // Reads that landed are delivered whichever clock asks now.
+                var ready = e.arrived
+                e.arrived = []
                 if offMain {
                     readAssets(requests, for: e)
-                    ready = e.arrived; e.arrived = []
                 } else {
-                    ready = requests.map { name in (name, Result { try session?.app.resolver.delivery("assets/" + name) }) }
+                    // The agent took the clock with reads in flight: they are read
+                    // here, in the order asked, and their late results dropped.
+                    let inFlight = e.reading.sorted { $0.value < $1.value }.map(\.key)
+                    e.reading.removeAll()
+                    ready += (inFlight + requests).map { name in (name, Result { try session?.app.resolver.delivery("assets/" + name) }) }
                 }
                 guard !ready.isEmpty else { break }
                 delivered = true

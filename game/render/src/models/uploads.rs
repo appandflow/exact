@@ -79,10 +79,18 @@ impl Uploads {
         Ok(())
     }
     /// The uploads finished since the last call, in the order sent, each
-    /// name's latest delivery only.
-    pub(crate) fn finished(&mut self) -> Vec<(String, Result<Written, String>)> {
+    /// name's latest delivery only; with `wait`, every upload sent, waiting
+    /// for the worker (the agent's clock, which never leaves one in flight).
+    pub(crate) fn finished(&mut self, wait: bool) -> Vec<(String, Result<Written, String>)> {
+        let mut done: Vec<Done> = self.done.try_iter().collect();
+        while wait && self.in_flight > done.len() {
+            match self.done.recv() {
+                Ok(next) => done.push(next),
+                Err(_) => break,
+            }
+        }
         let mut out = Vec::new();
-        for (name, serial, written) in self.done.try_iter() {
+        for (name, serial, written) in done {
             self.in_flight -= 1;
             if self.latest.get(&name) == Some(&serial) {
                 self.latest.remove(&name);
