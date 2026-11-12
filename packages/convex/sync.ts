@@ -30,6 +30,10 @@ type Query = {
   /** The server's opaque cursor state for a paginated query, sent back on a reconnect (`local_state.ts`, `restart`). */
   journal: string | null | undefined;
   outcome: Outcome | undefined;
+  /** The token `outcome` was computed for (`undefined`: signed out). It is given only while that is the token asked for. */
+  who: string | undefined;
+  /** A result for it has arrived on this connection, so each `Transition` makes it its end's identity's. */
+  current: boolean;
   /** The generation of asks that last asked for it (see `ask`). */
   asked: number;
   /** The server has been told of it on this connection. */
@@ -84,7 +88,7 @@ export class Sync {
   /** `connecting` until the socket opens, `open` until its first `Transition`, `ready` from then; `closed` once it has
    *  ended, or `failed` when it ended on a frame this client cannot follow, which a new connection would meet again. */
   status: 'connecting' | 'open' | 'ready' | 'closed' | 'failed' = 'connecting';
-  /** Rises when an answer a query gave may have changed: a `Transition` applied, or the identity changed. */
+  /** Rises with each `Transition` applied: an answer a query gave may have changed. */
   rev = 0;
   /** Why the socket last ended; "" while it is open. */
   error = '';
@@ -98,10 +102,11 @@ export class Sync {
   /** What the server's next `Transition` must start from (`remote_query_set.ts`). */
   private version: Version = { querySet: 0, identity: 0, ts: ZERO_TS };
   private querySetVersion = 0;
-  private identityVersion = 0;
+  /** The token the app asked for last (`undefined`: signed out). */
   private token: string | undefined;
-  /** The identity the cached outcomes were computed for is not the one asked for: none is served until a `Transition` reaches `identityVersion`. */
-  private identityStale = false;
+  /** The token of each identity version this connection's frames have asked for, from 0 (signed out): an
+   *  `Authenticate` carries the last index and adds one. */
+  private identities: (string | undefined)[] = [undefined];
   private queries = new Map<string, Query>();
   private byId = new Map<number, Query>();
   private nextQueryId = 0;
@@ -137,15 +142,10 @@ export class Sync {
       clientTs: 0,
     }];
     this.connectionCount += 1;
-    if (this.token !== undefined) {
-      frames.push({ type: 'Authenticate', tokenType: 'User', value: this.token, baseVersion: 0 });
-      this.identityVersion = 1;
-      this.identityStale = true;
-    } else {
-      this.identityVersion = 0;
-      this.identityStale = false;
-    }
-    const adds = [...this.queries.values()].map(q => (q.sent = true, this.add(q)));
+    this.identities = [undefined];
+    this.querySetVersion = 0;
+    if (this.token !== undefined) frames.push(this.authenticate());
+    const adds = [...this.queries.values()].map(q => (q.sent = true, q.current = false, this.add(q)));
     frames.push({ type: 'ModifyQuerySet', baseVersion: 0, newVersion: 1, modifications: adds });
     this.querySetVersion = 1;
     return frames;
@@ -162,7 +162,7 @@ export class Sync {
     this.status = fatal ? 'failed' : 'closed';
     this.error = reason;
     this.lastCloseReason = reason;
-    for (const q of this.queries.values()) { q.sent = false; this.wake(q); }
+    for (const q of this.queries.values()) { q.sent = false; q.current = false; this.wake(q); }
     for (const request of this.requests.values())
       request.settle(request.done ? { ok: true, value: request.done.value } : { ok: false, message: `The connection to Convex closed before it answered (${reason}); the ${request.kind.toLowerCase()} may have run.` });
     this.requests.clear();
@@ -206,6 +206,7 @@ export class Sync {
     const { startVersion: start, endVersion: end } = t, at = this.version;
     if (start.querySet !== at.querySet || start.identity !== at.identity || start.ts !== at.ts)
       throw new ProtocolError(`Convex sent a Transition from ${start.querySet}:${start.identity}:${start.ts}, expected ${at.querySet}:${at.identity}:${at.ts}`);
+    if (end.identity >= this.identities.length) throw new ProtocolError(`Convex sent identity version ${end.identity}, which this client never asked for`);
     for (const m of t.modifications) {
       const q = this.byId.get(m.queryId as number);
       // (A query removed here while its result was on the way.)
@@ -214,16 +215,17 @@ export class Sync {
       else if (m.type === 'QueryFailed') q.outcome = { ok: false, message: String(m.errorMessage), ...(m.errorData === undefined ? {} : { data: this.codec.jsonToConvex(m.errorData as never) }) };
       else continue;
       if (m.journal !== undefined) q.journal = m.journal as string | null;
-      this.wake(q);
+      q.current = true;
     }
     this.version = end;
     this.status = 'ready';
     this.observe(end.ts);
-    if (this.identityStale && end.identity >= this.identityVersion) {
-      // The identity is confirmed: the answers it left unnamed are this person's too, and their asks may go on.
-      this.identityStale = false;
-      for (const q of this.queries.values()) this.wake(q);
-    }
+    // Convex's results at `end` are its identity's: it names each result the identity changed (LLP 1157
+    // §1), so one it leaves unnamed is that person's too. One from an earlier connection is not, until this
+    // connection delivers it: a connection's first `Transition` moves only the identity (recorded).
+    const who = this.identities[end.identity];
+    for (const q of this.queries.values()) if (q.current) q.who = who;
+    this.release();
     for (const [id, request] of this.requests) {
       if (!request.done || !tsAtOrBefore(request.done.ts, end.ts)) continue;
       this.requests.delete(id);
@@ -262,6 +264,23 @@ export class Sync {
     wait?.settle();
   }
 
+  /** An outcome is given only when it was computed for the token the app asked for last. */
+  private given(q: Query): Outcome | undefined {
+    return q.outcome !== undefined && q.who === this.token ? q.outcome : undefined;
+  }
+
+  /** Wakes the asks whose query now has an outcome to give. */
+  private release() {
+    for (const q of this.queries.values()) if (q.wait && this.given(q)) this.wake(q);
+  }
+
+  /** `Authenticate` with the token asked for, from the last version this connection asked for. */
+  private authenticate(): Frame {
+    const baseVersion = this.identities.length - 1;
+    this.identities.push(this.token);
+    return this.token === undefined ? { type: 'Authenticate', tokenType: 'None', baseVersion } : { type: 'Authenticate', tokenType: 'User', value: this.token, baseVersion };
+  }
+
   /** The app asks for a query's answer at `rev`. `read` gives its outcome, or nothing when there is none
    *  yet: the caller then waits on `wait`, which settles when one arrives or the socket ends. `frames`
    *  tell the server of a query new to it, and remove the ones nobody asks for any more.
@@ -285,7 +304,7 @@ export class Sync {
     const token = JSON.stringify({ udfPath: path, args: json });
     let q = this.queries.get(token);
     if (!q) {
-      q = { id: this.nextQueryId++, udfPath: path, args: json, journal: undefined, outcome: undefined, asked: this.generation, sent: false };
+      q = { id: this.nextQueryId++, udfPath: path, args: json, journal: undefined, outcome: undefined, who: undefined, current: false, asked: this.generation, sent: false };
       this.queries.set(token, q);
       this.byId.set(q.id, q);
     }
@@ -296,7 +315,7 @@ export class Sync {
       frames.push({ type: 'ModifyQuerySet', baseVersion: this.querySetVersion, newVersion: this.querySetVersion + 1, modifications: mods });
       this.querySetVersion += 1;
     }
-    const waiting = q, read = () => (waiting.outcome !== undefined && !this.identityStale ? waiting.outcome : undefined);
+    const waiting = q, read = () => this.given(waiting);
     if (read() === undefined && !q.wait) {
       let settle = () => {};
       q.wait = { promise: new Promise<void>(resolve => { settle = resolve; }), settle };
@@ -313,19 +332,25 @@ export class Sync {
     return { frames: [message], outcome };
   }
 
-  /** The person's token changed (`undefined`: signed out). Answers computed for the identity before are
-   *  kept, since the server's next `Transition` names only the ones that changed, and none is served until
-   *  that `Transition` arrives and raises `rev` (`local_state.ts`, `setAuth`). `deliver` sends the frame. */
+  /** The person's token changed (`undefined`: signed out). The answers held are kept, since Convex's next
+   *  `Transition` names only the ones that changed, and each is given again only once it is known to be
+   *  this token's (`given`). `deliver` sends the frame. */
   setAuth(token: string | undefined, deliver: (frames: Frame[]) => void = () => {}): Frame[] {
     if (token === this.token) return [];
-    const baseVersion = this.identityVersion;
-    const frames: Frame[] = !this.connected() ? [] : [token === undefined ? { type: 'Authenticate', tokenType: 'None', baseVersion } : { type: 'Authenticate', tokenType: 'User', value: token, baseVersion }];
-    // Sent before anything here changes: a turn that may not send throws, and the identity is still the one Convex has.
-    deliver(frames);
+    const was = this.token;
     this.token = token;
+    let frames: Frame[] = [];
+    try {
+      frames = this.connected() ? [this.authenticate()] : [];
+      // A turn that may not send throws here, and nothing has changed.
+      deliver(frames);
+    } catch (e) {
+      if (frames.length) this.identities.pop();
+      this.token = was;
+      throw e;
+    }
     this.authError = '';
-    this.identityStale = true;
-    this.identityVersion += frames.length;
+    this.release();
     return frames;
   }
 

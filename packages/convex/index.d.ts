@@ -55,7 +55,8 @@ export interface ConvexClient {
   /** An action: its result. It rejects as a mutation does. */
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
   /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it in a
-   *  mutation's source; in an `async` one it may follow an `await`. From a plain `.then` callback its send throws on the web. */
+   *  mutation's source; in an `async` one it may follow an `await`. From a plain `.then` callback its send throws on the web.
+   *  Until Convex has delivered an answer for the token, none computed for another is given. */
   setAuth(token: string | undefined): void;
   /** The queries Convex is asked for and the requests in flight, for a test or a log. */
   inspect(): { queries: { id: number; udfPath: string; sent: boolean; answered: boolean }[]; requests: number };

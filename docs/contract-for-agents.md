@@ -1545,7 +1545,9 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   source: `async (_a, store) => { const r = await provider.signIn(store);
   cx.setAuth(provider.idToken(store) ?? undefined); return r; }`. When
   `live.authError` says the token expired, a source that awaits
-  `provider.refresh(store)` and calls `setAuth` the same way renews it. The token stays in data code. No answer computed for the person before is given again, but the screen
+  `provider.refresh(store)` and calls `setAuth` the same way renews it. The token stays in data code.
+- **After a token change** no answer computed for another token is given,
+  across a reconnect too, until Convex delivers it for the new one. The screen
   keeps what it showed until the new answers land: gate a signed-in screen on
   your own session, as with any backend. A refused token is `live.authError`;
   Convex closes the socket, and the next connection is signed out.
