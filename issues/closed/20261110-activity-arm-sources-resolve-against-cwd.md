@@ -1,6 +1,7 @@
 # An iOS build with Live Activities started outside the checkout cannot find the activity arm's Swift sources
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 2917ed57, which resolves the arm's Swift sources from the checkout's root and tests a build run from an app's own directory.
 **Systems:** host/apple/activities.mjs, host/apple/bundle.mjs, scripts/app-cli.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
