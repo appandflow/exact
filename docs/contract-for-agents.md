@@ -3079,7 +3079,17 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `type` naming a header's button, tab or search input go through it
   (`native: "NSToolbarItem"`), and `state window.toolbar.header` names its title, its
   items by test id and which are in the overflow menu. Its search field arrives with
-  AppKit's own animation (`clock +1200 real` before a screenshot).
+  AppKit's own animation (`clock +1200 real` before a screenshot). In a list beside its
+  detail the window's title and subtitle are the detail's, as in System Settings, and
+  the list's heading stays over its rows; beside a sidebar (three columns) the list's
+  heading is the title and the detail's stays in its pane, as in Mail.
+- On the Mac a window toolbar the app declares (`row role="toolbar"
+  toolbarPlacement="window"` of action buttons and at most one heading) has Customize
+  Toolbar when every button in it has an `id` of its own: the ids are the items'
+  identities, the written order the default, and AppKit keeps the person's arrangement
+  across launches and in every window. A button hidden there keeps its place, hidden.
+  A route's `header` is not customizable: its buttons change with the route, as a
+  hand-built window's that changes with its content are.
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
   tablist with `if`: without it the root has no tabs and the panels' routes are
   found by no host.
