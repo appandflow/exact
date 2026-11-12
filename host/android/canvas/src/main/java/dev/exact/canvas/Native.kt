@@ -179,6 +179,9 @@ object Native {
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
      * host says it has somewhere to go (a request, [requests]). */
     @JvmStatic external fun back(): Boolean
+    /** Predictive Back as it goes (Android 14): `phase` 0 started, 1 moved, 2 cancelled; `progress` 0 to 1 as the
+     * system eases it; `edge` 0 the left, 1 the right. Whether exact2 previews it. The commit is [back]. */
+    @JvmStatic external fun backProgress(phase: Int, progress: Float, edge: Int): Boolean
     /** A URL given to the running app: its location goes to the navigation root's `navigate` (LLP 1133.023 D15 item 3). */
     @JvmStatic external fun open(href: String)
     /** A share given to the running app, `{"target", "share"}` as [Shares.request] writes it (LLP 1133.024 D5). */

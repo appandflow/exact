@@ -201,9 +201,27 @@ impl<D: DataSource> Presenter<D> {
         if page.axes.0 || page.axes.1 {
             chain.push(page);
         }
+        let mut claims = self.claims_at(hit);
+        // A sheet's scrim takes every drag; on the sheet, a drag up or down
+        // that no scroller of its own takes moves it (`stage/touch.rs`).
+        match self.stage_claims(x, y) {
+            Some(false) => {
+                return Under {
+                    chain: Vec::new(),
+                    claims: (true, true),
+                    field: None,
+                }
+            }
+            Some(true) => {
+                let route = self.top_sheet().map(|(id, _)| id);
+                chain.retain(|s| s.id != PAGE && route.is_some_and(|r| self.is_inside(s.id, r)));
+                claims.1 |= !chain.iter().any(|s| s.axes.1);
+            }
+            None => {}
+        }
         Under {
             chain,
-            claims: self.claims_at(hit),
+            claims,
             field: self.hosted_at(hit),
         }
     }

@@ -116,6 +116,7 @@ mod scroll_end;
 mod scrollbar;
 mod scrollers;
 pub(crate) mod split;
+mod stage;
 mod wheel;
 use scroll_end::Completion;
 #[cfg(all(test, not(windows)))]
@@ -165,6 +166,7 @@ pub use palette::{material, ContrastPalette, Material, Palette, MATERIAL_ROLES};
 pub use pointer::PointerKind;
 pub use requests::{Haptic, Pick, Request};
 pub use scrollers::{Scroller, Under, PAGE};
+pub use stage::SHEET_HANDLE;
 pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
@@ -309,6 +311,8 @@ pub struct Presenter<D: DataSource> {
     /// The top layer's open surface, where a shell makes windows (D10).
     top: top::State,
     alert: Option<alert::Open>,
+    /// The routes it places itself: sheets, and pushes and pops crossing.
+    stage: stage::State,
     /// The shell's top app bar and navigation bar, where it has them (D11).
     bars: bars::State,
     /// The accessibility tree its shell was last told, where one asks (D13).
@@ -594,6 +598,7 @@ impl<D: DataSource> Presenter<D> {
             hosted: Default::default(),
             top: Default::default(),
             alert: None,
+            stage: Default::default(),
             bars: Default::default(),
             access: Default::default(),
             segments: Vec::new(),
@@ -843,6 +848,7 @@ impl<D: DataSource> Presenter<D> {
     }
     fn service_commit(&mut self) -> Option<String> {
         self.sync_split();
+        self.sync_stage();
         // A resource refused, a request or a send failed (LLP 1142 D4): on
         // stderr as well as in the journal. The runner queues none unless it
         // measures, so a production binary prints none.
@@ -1276,7 +1282,8 @@ impl<D: DataSource> Presenter<D> {
         let animating = self.arrange.is_some()
             || self.group.is_some()
             || self.focus.is_some()
-            || self.brush.moving();
+            || self.brush.moving()
+            || self.stage_moving();
         let (layout, paint) = self.host.tick_effects(now_ms);
         if layout {
             self.hatches.stale = true;

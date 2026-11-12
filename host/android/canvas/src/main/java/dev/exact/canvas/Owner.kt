@@ -554,6 +554,12 @@ internal object Exact {
     const val KEY_WAIT_MS = 2L
 
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
+    /** Predictive Back's start (0), progress (1) or cancel (2): drawn in the frame it arrives for, as a key is. */
+    fun backProgress(phase: Int, progress: Float, edge: Int) {
+        val o = owner
+        if (o != null) { o.input(); if (o.answer(WAIT_MS) { Native.backProgress(phase, progress, edge) }) answered() }
+        else Native.backProgress(phase, progress, edge)
+    }
     /** A URL given to the running app ([Native.open], LLP 1133.023 D15 item 3): on exact2's thread, in order. */
     fun open(href: String) { val o = owner; if (o != null) { o.input(); o.call { Native.open(href) } } else Native.open(href) }
     fun share(request: String) { val o = owner; if (o != null) { o.input(); o.call { Native.share(request) } } else Native.share(request) }

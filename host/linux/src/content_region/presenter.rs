@@ -129,6 +129,10 @@ impl<D: DataSource> Presenter<D> {
         self.brush.numerals.now = self.host.now();
         self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
         self.brush.rows_dirty(self.host.kernel(), dirty);
+        self.sync_stage();
+        let stage = self.stage_paint();
+        self.brush.set_stage(self.host.kernel(), stage);
+        let shows = self.stage_shows();
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()
@@ -157,7 +161,10 @@ impl<D: DataSource> Presenter<D> {
         };
         let scene = Scene {
             kernel: host.kernel(),
-            hidden: &|id| host.route_visibility(id).0,
+            hidden: &|id| match shows.is_empty() {
+                true => host.route_visibility(id).0,
+                false => host.route_hidden_but(id, &shows),
+            },
             roots: &roots,
             presented: &presented,
             paths: &|id| host.presented_path(id),

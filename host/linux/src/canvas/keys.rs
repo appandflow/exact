@@ -54,6 +54,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
         taken
     }
 
+    /// Predictive Back as it goes (Android 14's `OnBackAnimationCallback`):
+    /// the presenter previews the pop or the sheet's close; Back itself
+    /// commits it ([`CanvasHost::back`]).
+    pub fn back_progress(&mut self, phase: i32, progress: f32, edge: i32) -> bool {
+        let now = self.now();
+        let previews = self.p.back_progress(phase, progress, edge, now);
+        self.force = true;
+        previews
+    }
+
     /// A URL the activity was given while the app runs (`onNewIntent`, or
     /// an activity made again in a running process), as a link's location
     /// (LLP 1133.023 D15 item 3). The one at launch is `EXACT_LAUNCH_URL`.

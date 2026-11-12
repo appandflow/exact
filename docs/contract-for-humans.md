@@ -1427,8 +1427,19 @@ heights. A route pushed inside it stays in it at that height, as in UIKit's
 sheet. It is the tallest sheet in a window under 480 pixels tall (UIKit's compact
 height), and on a touch screen while a text field in it has the focus, as UIKit
 raises a sheet over the keyboard. A wider window shows the card it always does.
-macOS and Linux show a modal route as authored and ignore the detent
+Android shows a modal route as Material's bottom sheet at these heights (`large`
+the window below the status bar, `medium` half that; `fit-content` rests at
+`medium`), dragged between them or down to dismiss, over a scrim
+(`host/android/README.md`). macOS and desktop Linux ignore the detent
 (LLP 1075.003 §9.11, LLP 1115.000 D4.8).
+
+A route pushed while a sheet is on top is shown inside that sheet, which keeps the
+detents of the route that opened it, and Back returns to the route before it in
+the sheet. iOS and macOS show it in the sheet's own navigation stack, the web and
+Android lay it out in the sheet's box, and desktop Linux in the box the sheet's
+own route was laid out in. On Android a drag down or a tap on the scrim closes the
+sheet with what was pushed inside it. A route pushed over a `fullscreen` route is
+a page of its own.
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string

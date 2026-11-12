@@ -73,7 +73,9 @@ pub mod rows;
 mod shadow;
 pub(crate) mod space;
 mod split;
+pub(crate) mod stage;
 mod svg;
+pub(crate) mod tape;
 pub(crate) use svg::{fitted, view_box};
 mod text_clip;
 mod text_decoration;
@@ -506,6 +508,9 @@ pub struct Painter {
     pub(crate) numerals: numerals::Numerals,
     /// Material's fields' labels, floated or resting (`material.rs`).
     pub(crate) labels: material::Labels,
+    /// The routes the presenter places itself, and their kept drawings.
+    pub(crate) stage: stage::Stage,
+    kept: stage::Kept,
 }
 
 struct Walk<'a, 'b> {
@@ -605,6 +610,8 @@ impl Painter {
             svg_layers: Vec::new(),
             numerals: Default::default(),
             labels: Default::default(),
+            stage: Default::default(),
+            kept: Default::default(),
         }
     }
 
@@ -1038,6 +1045,9 @@ impl Painter {
             .presented(&shown.colors)
             .states(node, &shown, self.dark);
         self.split_row(node, &mut paint);
+        if self.bare(node) {
+            paint.background = [0; 4];
+        }
         self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.

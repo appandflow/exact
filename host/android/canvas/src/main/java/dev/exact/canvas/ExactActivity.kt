@@ -193,6 +193,8 @@ open class ExactActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) backCallback.take(on)
     }
     private fun back() { if (Exact.back()) view.invalidate() else finish() }
+    /** Predictive Back's gesture as it goes ([Native.backProgress]): exact2 previews the pop or the sheet's close. */
+    private fun backProgress(phase: Int, progress: Float, edge: Int) { Exact.backProgress(phase, progress, edge); view.invalidate() }
 
     /** Before Android 13 Back arrives here, and the app's routes take it while they have somewhere to go. */
     @Deprecated("Android 13's OnBackInvokedDispatcher takes Back from then on ([Back]).")
@@ -200,14 +202,28 @@ open class ExactActivity : Activity() {
         if (Build.VERSION.SDK_INT < 33 && takesBack) back() else @Suppress("DEPRECATION") super.onBackPressed()
     }
 
-    /** [takeBack]'s callback from Android 13, in a class of its own: an older release never resolves its types. */
+    /** [takeBack]'s callback from Android 13, in a class of its own: an older release never resolves its types. From
+     * Android 14 it hears the gesture as it goes, so exact2 can preview what Back does (LLP 1115.001 D6, D12). */
     @android.annotation.TargetApi(33)
     private class Back(activity: ExactActivity) {
         private val dispatcher = activity.onBackInvokedDispatcher
-        private val callback = android.window.OnBackInvokedCallback { activity.back() }
+        private val callback: android.window.OnBackInvokedCallback =
+            if (Build.VERSION.SDK_INT >= 34) Predictive.callback(activity) else android.window.OnBackInvokedCallback { activity.back() }
         fun take(on: Boolean) {
             if (on) dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
             else dispatcher.unregisterOnBackInvokedCallback(callback)
+        }
+    }
+
+    /** Android 14's `OnBackAnimationCallback`, in an object of its own: an older release never resolves its types. The
+     * system eases the progress; the edge is `BackEvent`'s (0 the left, 1 the right). */
+    @android.annotation.TargetApi(34)
+    private object Predictive {
+        fun callback(activity: ExactActivity) = object : android.window.OnBackAnimationCallback {
+            override fun onBackStarted(e: android.window.BackEvent) = activity.backProgress(0, e.progress, e.swipeEdge)
+            override fun onBackProgressed(e: android.window.BackEvent) = activity.backProgress(1, e.progress, e.swipeEdge)
+            override fun onBackCancelled() = activity.backProgress(2, 0f, 0)
+            override fun onBackInvoked() = activity.back()
         }
     }
 

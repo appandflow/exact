@@ -15,7 +15,11 @@
 //!   holds neither) is taken out;
 //! - the tablist the navigation bar replaces, likewise;
 //! - each route is inset by the room its bars take: the top bar's at its
-//!   top edge, the navigation bar's at its bottom.
+//!   top edge, the navigation bar's at its bottom;
+//! - a route the shell shows in a sheet (a `modal` one, or one pushed
+//!   inside it, LLP 1115.001 D10) has no bar: its header stays in the page,
+//!   and it is inset by the sheet's drag handle at its top and the system's
+//!   bar under the sheet's foot (`presenter/stage.rs`).
 //!
 //! The room is the shell's to say ([`Host::set_bar_room`]: it depends on
 //! the window, the system's insets and the keyboard, which the presenter
@@ -23,7 +27,7 @@
 //! and nothing is covered: desktop Linux and a headless run paint the
 //! authored header and tablist as they always did.
 use super::Host;
-use crate::navigation::RouteBar;
+use crate::navigation::{sheet_of, Presented, RouteBar};
 use exact_kernel::{
     Appearance, Bar, Display, HeaderShape, HostCover, Kernel, PropId, StyleId, ViewId,
 };
@@ -82,10 +86,11 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The room a shell's bars take of a route (the top bar from its top
-    /// edge, the navigation bar from its bottom; points), or `None` for a
-    /// shell with no bars. The tree is projected again and, where what the
-    /// bars cover changed, laid out: whether it was.
-    pub fn set_bar_room(&mut self, room: Option<(f32, f32)>) -> Result<bool, String> {
+    /// edge, the navigation bar from its bottom, and the system's bar under
+    /// a sheet's foot; points), or `None` for a shell with no bars. The tree
+    /// is projected again and, where what the bars cover changed, laid out:
+    /// whether it was.
+    pub fn set_bar_room(&mut self, room: Option<(f32, f32, f32)>) -> Result<bool, String> {
         if self.navigation.bars.room == room {
             return Ok(false);
         }
@@ -135,7 +140,7 @@ impl<D: DataSource> Host<D> {
             );
         }
         let (mut routes, mut tabs, mut stacks) = (Vec::new(), None, Vec::new());
-        if let (Some(root), Some((above, below))) = (root, room) {
+        if let (Some(root), Some((above, below, foot))) = (root, room) {
             let back = kernel
                 .node(root)
                 .and_then(|n| n.props.str(PropId::NavigationBack))
@@ -157,10 +162,22 @@ impl<D: DataSource> Host<D> {
                 wanted.insert(tabs.tablist, HostCover::Whole);
             }
             for stack in &all {
+                let kinds: Vec<Presented> = (stack.iter())
+                    .map(|r| {
+                        kernel
+                            .node(*r)
+                            .map_or(Presented::Pushed, |n| Presented::of(&n))
+                    })
+                    .collect();
                 for (index, route) in stack.iter().enumerate() {
                     let Some(node) = kernel.node(*route) else {
                         continue;
                     };
+                    if sheet_of(&kinds, index).is_some() {
+                        let cover = [crate::presenter::SHEET_HANDLE, 0.0, foot, 0.0];
+                        wanted.insert(*route, HostCover::Edges(cover));
+                        continue;
+                    }
                     // A presented route starts a stack of its own (LLP
                     // 1035.001 D4): it is not pushed, and its Back control
                     // is an item of its bar.

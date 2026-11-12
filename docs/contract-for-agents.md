@@ -3072,9 +3072,19 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   display and inset from the bottom edge, as Apple's own are. A `border-radius` on the
   route is the sheet's corner radius (its top-left one; `preferredCornerRadius`), which
   also seats a large sheet flat on the bottom edge.
-  One pushed over a sheet (a confirmation over a dialog)
+  A modal route opened over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
-  under it, and popping both closes both. Under the agent's frozen timing (the
+  under it, and popping both closes both. An ordinary route pushed while a sheet
+  is on top is shown inside that sheet, which keeps its detents (on iOS and macOS
+  in its own navigation stack, on the web and Android in the sheet's box, on
+  desktop Linux in the box the sheet's route was laid out in); Back returns to
+  the route before it in the sheet, and on Android dismissing the sheet closes
+  them all. Over a `fullscreen` route a push is a page of its own. On Android a
+  modal route is Material's bottom sheet at its detents, over a scrim, dragged
+  between them or down to dismiss; pushes and pops cross on Material's shared
+  axis, and Back is previewed from Android 14 (`host/android/README.md`, "Sheets
+  and route motion"). Both move on the agent's clock there: `clock settle` before
+  reading where a sheet or a route is. Under the agent's frozen timing (the
   default) on iOS, a `tap` or `type` that opens or closes a sheet, its answer's `then`
   included, waits up to two seconds for UIKit to finish it; a reply with `settled:
   false, reason: "transition"` says it had not. `--timing platform` leaves that to

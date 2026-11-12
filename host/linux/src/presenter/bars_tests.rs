@@ -295,24 +295,25 @@ fn shelfs_library_is_a_top_app_bar_and_a_navigation_bar() {
 #[test]
 fn shelfs_add_form_and_its_other_tabs() {
     let (mut p, _) = barred(SHELF);
-    // The add form, presented: its Back control is a leading item and Save
-    // a trailing one, with no Up arrow. Its header is the bar, so the
-    // library's heading no longer shows through it.
+    // The add form, presented, is a sheet (`stage.rs`): its header stays in
+    // it as written, and the library's bar is drawn under the scrim.
     assert!(tap(&mut p, "add-book").unwrap().contains("\"bar\":\"top\""));
-    let add = top(&mut p);
-    assert_eq!(add.title, "New Book");
-    assert!(!add.up);
-    assert_eq!(titles(&add.leading), [("Cancel", None)]);
-    assert_eq!(titles(&add.trailing), [("Save", None)]);
+    let open = p.host().now() + 1000.;
+    p.tick(open);
+    let _ = p.frame();
+    assert!(p.top_sheet().is_some());
+    assert_eq!(top(&mut p).title, "Library");
     let kernel = p.host().kernel();
     let form = kernel.find_by_id("add-form")[0];
     let form = kernel.node_by_key(form).unwrap().id;
     let form = p.rect_of(form).unwrap();
+    let (_, sheet) = p.top_sheet().unwrap();
     assert!(
-        near(form.1, 64.0),
-        "the form starts under the bar: {form:?}"
+        form.1 > sheet.1 + SHEET_HANDLE,
+        "the form is in the sheet: {form:?}"
     );
-    touch(&mut p, TOP, Some("add-cancel"));
+    tap(&mut p, "add-cancel").unwrap();
+    assert!(p.top_sheet().is_none());
     assert_eq!(top(&mut p).title, "Library");
     // Stats and Discover, each chosen in the navigation bar.
     touch(&mut p, BOTTOM, Some("tab-stats"));
@@ -389,7 +390,13 @@ fn a_modal_route_blocks_the_shell_tab_bar_until_dismissed() {
         tap(&mut p, "open").unwrap();
         touch(&mut p, BOTTOM, Some("tab-other"));
         let modal = presentation != "push";
-        assert_eq!(top(&mut p).title, if modal { "Detail" } else { "Other" });
+        // Under a sheet the bar is the page's, under its scrim.
+        let title = match presentation {
+            "modal" => "Home",
+            "fullscreen" => "Detail",
+            _ => "Other",
+        };
+        assert_eq!(top(&mut p).title, title);
         if !modal {
             touch(&mut p, BOTTOM, Some("tab-home"));
         } else {

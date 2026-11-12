@@ -97,6 +97,7 @@ impl Painter {
             } else {
                 self.node(walk, child, ts, child_offset, child_rect);
             }
+            self.paint_stage(walk, child);
         }
         if group {
             self.group_end(walk);
