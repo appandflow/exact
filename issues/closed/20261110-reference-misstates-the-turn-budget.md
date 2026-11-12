@@ -1,6 +1,7 @@
 # docs/reference.md says a Hermes turn has 100 ms of wall clock and is refused as `Unavailable`; it is CPU time, refused as an overrun and asked again
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The reference says a turn's budget is its own CPU time with a ten-budget wall backstop, refused as `Overrun` with the message as now printed, and that a refused resource is asked again at 250 ms and 1 s before it fails (a mutation or stream message never); the agent guide and `set_budget_ms`'s doc comment say the same.
 **Systems:** docs/reference.md, docs/contract-for-agents.md, js/src/lib.rs (doc comment)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

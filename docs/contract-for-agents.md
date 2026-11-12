@@ -1107,8 +1107,9 @@ receive-only. See
 [the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
 
 A large response needs a parse that yields. On native hosts each turn of an
-answer has 100 ms: from its call, or from the `fetch` or storage step it
-awaited, until it next awaits one. A turn over that is refused, so a parse
+answer has 100 ms of its own (CPU) time: from its call, or from the `fetch` or
+storage step it awaited, until it next awaits one. A turn over that is refused;
+a resource keeps its value and is asked again twice before it fails, so a parse
 that passes its tests on a 300 KB thread fails on a 1 MB one.
 `await scheduler.yield()` (the web's [Prioritized Task
 Scheduling](https://wicg.github.io/scheduling-apis/#dom-scheduler-yield)) ends

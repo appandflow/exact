@@ -1436,12 +1436,18 @@ an independent reply settles as it arrives. Leave writes, and any read whose
 parse depends on an earlier reply, in the queue. Storage steps and native
 continuations cannot opt out of it.
 
-On Hermes each turn of an answer has 100 ms of wall clock: its call, or its
+On Hermes each turn of an answer has 100 ms of its own time: its call, or its
 resumption after a `fetch`, storage step or yield it awaited, until it awaits
-the next. A turn over it is refused as `Unavailable` (`` `walk` took 401.8 ms,
-over the 100 ms budget for one turn; … ``), and the message names the repair:
-`await scheduler.yield()` every few thousand items of a long loop
+the next. Its own time is the calling thread's CPU clock where the platform keeps
+one, so a turn that waits on a blocked host call spends little of it; a turn may
+still take at most ten budgets (1 s) of wall clock. A turn over either is refused
+as an overrun (`Overrun`: `` `work` took 904.5 ms of its own (CPU) time (2283.7 ms
+of wall), over the 100 ms budget for one turn; … ``), and the message names the
+repair: `await scheduler.yield()` every few thousand items of a long loop
 ([the guide](contract-for-agents.md#data-requests-and-side-effects) shows one).
+A resource so refused keeps its last value and reads as pending, and is asked
+again at 250 ms, then at 1 s; a third overrun in a row fails it as any refusal
+does. A mutation's or a stream message's overrun is not asked again.
 The host asks a yielded answer again at once, in its place among the source's
 requests, with no work and no clock, so an agent's `clock settle` runs it to its
 end without moving the clock. The browser keeps no such budget and
