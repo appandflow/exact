@@ -1,6 +1,7 @@
 # The one-scheme warning names white text on an accent fill when the fill comes from a `style`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The one-scheme warning reads a node's fill from its class's rows and its own, and drops a style's white `color` when that style's own `background-color` is `AccentColor`.
 **Systems:** contract/lower/src/warnings.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

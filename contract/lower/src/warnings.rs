@@ -953,6 +953,18 @@ fn names(e: &Expr, word: &str) -> bool {
     }
 }
 
+/// The sites from `first` on stand on an accent fill: their white text is
+/// kept (@ref LLP 1116.020 D7). White on the accent is a filled button's
+/// label (Messages' bubble): the accent stays a fill in both schemes, and
+/// `check` holds the pair to 3:1.
+fn on_accent_fill(sites: &mut Vec<Site>, first: usize) {
+    let kept: Vec<Site> = sites
+        .drain(first..)
+        .filter(|s| s.name != "color" || !s.colours.iter().all(|c| white(c)))
+        .collect();
+    sites.extend(kept);
+}
+
 /// Whether a literal colour is white.
 fn white(c: &str) -> bool {
     let c = c.trim().to_ascii_lowercase().replace(' ', "");
@@ -1047,7 +1059,13 @@ fn one_scheme(
         }
     }
     for s in styles {
+        let first = sites.len();
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
+        if width::last(&s.attrs.iter().collect::<Vec<_>>(), "background-color")
+            .is_some_and(|fill| names(&fill.value, "AccentColor"))
+        {
+            on_accent_fill(&mut sites, first);
+        }
     }
     // Each node with whether the nearest fill over it (its own included)
     // can be the accent.
@@ -1064,23 +1082,15 @@ fn one_scheme(
             Node::Element {
                 attrs, children, ..
             } => {
-                if let Some(fill) = attrs.iter().rev().find(|a| a.name == "background-color") {
+                // The fill its class gives it counts, as its own does.
+                let rows = width::rows(attrs, styles).unwrap_or_else(|| attrs.iter().collect());
+                if let Some(fill) = width::last(&rows, "background-color") {
                     accent = names(&fill.value, "AccentColor");
                 }
                 let first = sites.len();
                 colour_sites(attrs, &leaves, &locals, &mut sites);
-                // @ref LLP 1116.020 D7 — white text on an accent fill is a
-                // filled button's label (Messages' bubble): the accent stays
-                // a fill in both schemes, and `check` holds the pair to 3:1.
                 if accent {
-                    let mut i = first;
-                    while i < sites.len() {
-                        if sites[i].name == "color" && sites[i].colours.iter().all(|c| white(c)) {
-                            sites.remove(i);
-                        } else {
-                            i += 1;
-                        }
-                    }
+                    on_accent_fill(&mut sites, first);
                 }
                 (children.iter().collect(), locals)
             }
