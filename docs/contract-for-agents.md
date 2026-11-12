@@ -257,8 +257,8 @@ every node in one preorder list (`depth` and `children` give the nesting), and `
 pending, … }`. `app` is the app's name; an app outside the exact2
 checkout is found through `EXACT_APP_DIR` (its directory), as its own `exact.mjs agent`
 sets it, so a script run with plain `bun` sets it to the app's directory too
-(`EXACT_APP_DIR=/path/to/app bun ../verify.mjs`, the script kept outside the app
-folder, where it would count as a build input); the working directory alone does
+(`EXACT_APP_DIR=/path/to/app bun verify.mjs`; a script that `app.ts` never imports
+is no build input); the working directory alone does
 not select the app, and `webDist` alone does not select an app. `s.op(request)` is the
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
@@ -269,7 +269,7 @@ entry with its store and agent launch facts, keeping Back and Forward entries;
 `evaluate` takes an expression string or a function of no arguments, which runs in the page,
 so it sees none of the script's variables).
 
-Use the existing five repository checks for repository changes. Do not add a
+Use the existing six repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
 compile complete examples, parse authored tests, and check local links.
 
@@ -1650,10 +1650,11 @@ and omitted stops use CSS fix-up after layout. A zero period paints its last
 stop, as Chrome does. `background-attachment="local"` is still
 refused: separate row backgrounds restart at each row, and repetition alone
 does not make a virtualized list’s background follow its content.
-`contract vocab background-image` gives the grammar and limits. AppKit’s captured
-hatch matches Chrome exactly; UIKit qualification is pending. On UIKit, repeating
-backgrounds share the existing drawn-gradient limitation for
-`background-attachment="fixed"` ([open issue](../issues/20261011-repeating-hatch-across-list-rows.md)).
+`contract vocab background-image` gives the grammar and limits. AppKit’s, UIKit’s,
+Linux’s and the web’s hatches match Chrome
+([closed issue](../issues/closed/20261011-repeating-hatch-across-list-rows.md)). On UIKit
+a repeating background with `background-attachment="fixed"` draws unfixed, as
+any drawn gradient does there.
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
@@ -1680,8 +1681,8 @@ reach is past it, and on iOS the pull-to-refresh spinner draws below
 §6.9). `scroll-padding` (`-top`/`-bottom`, a row list's `-left`/`-right`, the
 same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
 with `scroll-padding-top` equal to a header's height, the first row's
-`block="start"` is `scrollTop` 0. Only a virtualized list takes it
-(`lower-scroll-padding` elsewhere: native hosts read it nowhere else).
+`block="start"` is `scrollTop` 0. Any scroll container takes it, not only a
+virtualized list.
 `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`

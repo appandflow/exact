@@ -1,6 +1,7 @@
 # docs/contract-for-agents.md names a refusal no compiler has (`lower-scroll-padding`), links a closed issue as open, and keeps two retired rules
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The agent guide says any scroll container takes `scroll-padding`, links the closed repeating-hatch issue and keeps only UIKit's fixed-attachment limit, says a script `app.ts` never imports is no build input, and names six checks.
 **Systems:** docs/contract-for-agents.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
