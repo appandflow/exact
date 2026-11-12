@@ -1128,14 +1128,16 @@ component App
   a child (a `text`, an `image`).
 
 ## glass: Liquid Glass, a material or a blur behind a box
-names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect, tintColor, glass tint, tinted glass, isInteractive
+names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect, tintColor, glass tint, tinted glass, isInteractive, UIBlurEffect, dark blur, blur tint, blur intensity, intensity
 
 Bars, tab bars, sheets and menus are the platform's, glass included: leave them unsaid. A
 surface of your own takes `backgroundMaterial`: `"glass"` or `"glass-clear"` is
 `UIGlassEffect` on iOS 26 and `NSGlassEffectView` on macOS 26; `"ultra-thin"`, `"thin"`,
-`"material"`, `"thick"` and `"chrome"` (each with `-light` and `-dark`) are UIKit's blurs,
-and `"sidebar"`, `"menu"`, `"popover"`, `"hud-window"` the Mac's. The web and Linux draw a
-blur that approximates each. A glass button is `buttonStyle="glass"` or
+`"material"`, `"thick"` and `"chrome"` (each with `-light` and `-dark`) are UIKit's materials,
+`"dark"`, `"light"`, `"extra-light"`, `"regular"` and `"prominent"` its plain blurs (`UIBlurEffect`
+`.dark` and so on: no material's grey wash, as expo-blur's `tint="dark"`), and `"sidebar"`,
+`"menu"`, `"popover"`, `"hud-window"` the Mac's. The web and Linux draw a blur that
+approximates each. A glass button is `buttonStyle="glass"` or
 `"prominent-glass"`, and `glassGroup=<points>` on a box merges the glass inside it as
 SwiftUI's `GlassEffectContainer` does.
 
@@ -1152,6 +1154,10 @@ component App
 - CSS's `backdrop-filter="blur(12px) saturate(1.8)"` blurs what is behind on the web, macOS
   and Linux; iOS draws a fixed light material for it, so a surface meant for iPhone says
   `backgroundMaterial`, which wins when both are written.
+- A material's strength is the platform's: UIKit's blurs take no radius or intensity, so there
+  is no "dark at 40%" (expo-blur's `intensity` holds a paused animation part way). A darker
+  card is the material with a `background-color`, which iOS, the web and Linux paint over the
+  blur (the Mac's material covers it): `backgroundMaterial="dark" background-color="rgba(14,16,21,0.5)"`.
 - A navigation bar's buttons share one glass capsule on iOS 26; `buttonStyle="glass"` on
   each gives it a capsule of its own (`contract vocab bar-buttons`).
 - `-exact-glass-tint="rgba(10,12,16,0.55)"` tints the glass itself (`UIGlassEffect.tintColor`);
