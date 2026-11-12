@@ -1,6 +1,7 @@
 # A test's `request` step refuses a scalar JSON body that the grammar and its own message admit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `request_step` takes a body when the next token begins any JSON value (a string, a number, `-`, `true`, `false` or `null` as well as `{` or `[`), as the grammar and `json_value`'s message say.
 **Systems:** contract/syntax (parser/steps.rs), docs/contract-grammar.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
