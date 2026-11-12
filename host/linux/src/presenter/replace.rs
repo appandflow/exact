@@ -55,6 +55,7 @@ impl<D: DataSource> Presenter<D> {
             field_select_tasks,
             field_change_tasks,
             bars,
+            stage,
             // The tree's, made anew by the calls below.
             surfaces: _,
             brush: _,
@@ -190,6 +191,8 @@ impl<D: DataSource> Presenter<D> {
         field_select_tasks.clear();
         field_change_tasks.clear();
         bars.replaced();
+        // Sheets, a crossing and a preview are the old tree's routes.
+        *stage = Default::default();
         self.read_ranges();
         self.give_clock();
         self.modules_replaced();

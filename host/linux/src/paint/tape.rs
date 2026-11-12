@@ -6,7 +6,9 @@
 //!
 //! A tape is recorded in its own space and replayed through a transform.
 //! It draws no kept rows and opens no reader layers, so nothing it holds is
-//! freed when its subtree goes.
+//! freed when its subtree goes; a text field the shell hosts is drawn into
+//! it as this painter draws one (`field.rs`), since the shell's own view goes
+//! with its node.
 //!
 //! The recorder is Janic Duplessis's, from his exit-animation work on the
 //! appandflow fork (`paint/exit.rs` there).
@@ -180,7 +182,11 @@ impl Backend for Recorder {
     fn plane_end(&mut self) {
         self.push(Op::PlaneEnd);
     }
-    fn surface_image(&mut self, _: Arc<Pixmap>, _: Rect4) {}
+    /// A masked SVG island or a placed canvas child, already in the walk's
+    /// space: a canvas drawn there.
+    fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4) {
+        self.push(Op::Canvas(pixels, dst, Vec::new(), Transform::identity()));
+    }
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         self.push(Op::Canvas(pixels.clone(), dst, clips.to_vec(), ts));
     }
@@ -327,4 +333,31 @@ fn mul(g: Transform, h: &[f32; 9]) -> [f32; 9] {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A masked SVG island reaches the backend as a surface image: the tape
+    /// keeps it and draws it where it was, moved by the replay.
+    #[test]
+    fn a_tape_keeps_a_surface_image() {
+        let mut red = Pixmap::new(4, 4).unwrap();
+        red.fill(tiny_skia::Color::from_rgba8(255, 0, 0, 255));
+        let tape = record(|b| b.surface_image(Arc::new(red), (10.0, 10.0, 4.0, 4.0)));
+        let mut raster = crate::raster::Raster::new();
+        raster.begin(40.0, 40.0, 1.0);
+        let mut engine = TextEngine::new();
+        let moved = Transform::from_translate(5.0, 5.0);
+        tape.replay(&mut raster, &mut engine, moved);
+        let pixels = raster.finish().unwrap();
+        let at = |x, y| pixels.pixel(x, y).unwrap();
+        assert_eq!((at(16, 16).red(), at(16, 16).green()), (255, 0));
+        let before = at(11, 11);
+        assert!(
+            before.alpha() == 0 || before.green() > 0,
+            "nothing where it was before the move"
+        );
+    }
 }

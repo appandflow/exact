@@ -52,6 +52,9 @@ pub(crate) struct Stage {
     /// did not write is not painted.
     pub(crate) bare: Vec<ViewId>,
     pub(crate) items: Vec<Item>,
+    /// Drawn after a route of their own instead, under what the stack
+    /// presents above it: a sheet a full-screen route covers.
+    pub(crate) beneath: Vec<(ViewId, Vec<Item>)>,
 }
 
 /// The drawings kept of routes, by route.
@@ -65,7 +68,8 @@ impl Painter {
     /// are let go.
     pub(crate) fn set_stage(&mut self, kernel: &Kernel, stage: Stage) {
         let key = |id: &ViewId| kernel.node(*id).map(|n| n.key);
-        let kept: Vec<NodeKey> = (stage.items.iter())
+        let beneath = stage.beneath.iter().flat_map(|(_, items)| items);
+        let kept: Vec<NodeKey> = (stage.items.iter().chain(beneath))
             .filter_map(|item| match item {
                 Item::Taped(key, _) => Some(*key),
                 Item::Route { id, tape: true, .. } => key(id),
@@ -87,15 +91,28 @@ impl Painter {
         self.stage.skip.contains(&id)
     }
 
-    /// Draw the stage, after its route `after`.
+    /// Draw what the stage draws after the route `after`.
     pub(super) fn paint_stage(&mut self, walk: &mut Walk<'_, '_>, after: ViewId) {
+        if let Some(at) = self.stage.beneath.iter().position(|(a, _)| *a == after) {
+            let items = std::mem::take(&mut self.stage.beneath[at].1);
+            self.stage_items(walk, &items);
+            self.stage.beneath[at].1 = items;
+        }
         if self.stage.after != Some(after) || self.stage.items.is_empty() {
+            return;
+        }
+        let items = std::mem::take(&mut self.stage.items);
+        self.stage_items(walk, &items);
+        self.stage.items = items;
+    }
+
+    fn stage_items(&mut self, walk: &mut Walk<'_, '_>, items: &[Item]) {
+        if items.is_empty() {
             return;
         }
         self.row_refuse();
         self.damage.unsupported = true;
-        let items = std::mem::take(&mut self.stage.items);
-        for item in &items {
+        for item in items {
             match item {
                 Item::Clip(shape, ts) => self.backend.push_clip(shape, *ts),
                 Item::PopClip => self.backend.pop_clip(),
@@ -123,7 +140,6 @@ impl Painter {
                 }),
             }
         }
-        self.stage.items = items;
     }
 
     /// A live route at the origin of `ts`, and its drawing kept.
@@ -158,8 +174,14 @@ impl Painter {
         let recorder = Recorder::default();
         let real = std::mem::replace(&mut self.backend, Box::new(recorder.clone()));
         let rows = self.rows_pause();
+        // What the frame publishes of its texts and fields stays the walk's:
+        // the tape's are in its own space.
         let boxes = walk.boxes.len();
+        let texts = std::mem::take(&mut walk.text);
+        let fields = std::mem::take(&mut walk.fields);
+        let inline = std::mem::take(&mut walk.inline);
         self.node_at(walk, id, Transform::identity(), at, None);
+        (walk.text, walk.fields, walk.inline) = (texts, fields, inline);
         walk.boxes.truncate(boxes);
         self.rows_resume(rows);
         self.backend = real;

@@ -29,7 +29,7 @@ const RETURN_MS: f64 = 150.0;
 #[derive(Debug, Clone, Copy)]
 pub(in crate::presenter) enum Gesture {
     /// A contact on a sheet's scrim.
-    Scrim { modal: NodeKey },
+    Scrim { modal: NodeKey, contact: Contact },
     /// A contact on a sheet that moves it once past the slop.
     Drag {
         modal: NodeKey,
@@ -39,7 +39,24 @@ pub(in crate::presenter) enum Gesture {
         last: (f32, f64),
         velocity: f32,
         moving: bool,
+        contact: Contact,
     },
+}
+
+/// Where a contact the stage holds is and when it was last heard, as a
+/// driver reads a contact (`agent/contact.rs`).
+#[derive(Debug, Clone, Copy)]
+pub(in crate::presenter) struct Contact {
+    at: (f32, f32),
+    event_ms: f64,
+}
+
+impl Gesture {
+    fn contact(&mut self) -> &mut Contact {
+        match self {
+            Gesture::Scrim { contact, .. } | Gesture::Drag { contact, .. } => contact,
+        }
+    }
 }
 
 /// What a predictive Back previews.
@@ -72,8 +89,15 @@ impl Preview {
             .clamp(0.0, 1.0)
     }
 
-    pub(super) fn moving(&self, now: f64) -> bool {
-        self.release.is_some_and(|g| g.moving(now))
+    /// Whether frames are owed: until a cancelled preview is back at rest
+    /// and the stage has let it go (`sync_stage`).
+    pub(super) fn moving(&self) -> bool {
+        self.release.is_some()
+    }
+
+    /// A cancelled preview back at rest.
+    pub(super) fn returned(&self, now: f64) -> bool {
+        self.release.is_some_and(|g| !g.moving(now))
     }
 
     pub(super) fn ends(&self) -> Option<f64> {
@@ -153,7 +177,10 @@ impl Preview {
 impl<D: DataSource> Presenter<D> {
     /// The top sheet, with its frame now.
     fn grab_sheet(&self) -> Option<(NodeKey, f32)> {
-        let sheet = self.stage.sheets.last().filter(|_| self.stage_presents())?;
+        let sheet = self
+            .front_sheets()
+            .last()
+            .filter(|_| self.stage_presents())?;
         Some((sheet.modal, self.sheet_top_now(sheet)))
     }
 
@@ -172,8 +199,12 @@ impl<D: DataSource> Presenter<D> {
             return false;
         };
         let (left, width) = self.sheet_span();
+        let contact = Contact {
+            at: (x, y),
+            event_ms: now,
+        };
         if y < top || x < left || x >= left + width {
-            self.stage.gesture = Some(Gesture::Scrim { modal });
+            self.stage.gesture = Some(Gesture::Scrim { modal, contact });
             return true;
         }
         let handle = y < top + SHEET_HANDLE;
@@ -185,13 +216,44 @@ impl<D: DataSource> Presenter<D> {
             last: (y, now),
             velocity: 0.0,
             moving: false,
+            contact,
         });
         false
     }
 
-    pub(in crate::presenter) fn stage_move(&mut self, y: f32, now: f64) -> bool {
+    /// The contact the stage holds where no other is down (a press on a
+    /// scrim, a sheet's drag past the slop): where it is and when it was
+    /// last heard.
+    pub(in crate::presenter) fn stage_contact(&self) -> Option<((f32, f32), f64)> {
+        match self.stage.gesture? {
+            Gesture::Scrim { contact, .. } | Gesture::Drag { contact, .. } => {
+                Some((contact.at, contact.event_ms))
+            }
+        }
+    }
+
+    /// Whether a contact down may yet drag a sheet.
+    pub(in crate::presenter) fn stage_drag_pending(&self) -> bool {
+        matches!(self.stage.gesture, Some(Gesture::Drag { .. }))
+    }
+
+    /// A driver held the contact still for `ms`.
+    pub(in crate::presenter) fn stage_delay_contact(&mut self, ms: f64) {
+        if let Some(gesture) = &mut self.stage.gesture {
+            gesture.contact().event_ms += ms;
+        }
+    }
+
+    pub(in crate::presenter) fn stage_move(&mut self, x: f32, y: f32, now: f64) -> bool {
+        if let Some(gesture) = &mut self.stage.gesture {
+            *gesture.contact() = Contact {
+                at: (x, y),
+                event_ms: now,
+            };
+        }
         let h = self.viewport.1;
-        let Some(highest) = (self.stage.sheets.last()).map(|s| h - s.heights[s.heights.len() - 1])
+        let Some(highest) =
+            (self.front_sheets().last()).map(|s| h - s.heights[s.heights.len() - 1])
         else {
             return false;
         };
@@ -244,12 +306,25 @@ impl<D: DataSource> Presenter<D> {
 
     /// A contact up: a press on the scrim dismisses; a drag settles on the
     /// detent its speed carries it to, or out of the window.
-    pub(in crate::presenter) fn stage_up(&mut self, x: f32, y: f32, now: f64) -> bool {
-        let Some(gesture) = self.stage.gesture.take() else {
+    pub(in crate::presenter) fn stage_up(&mut self, x: f32, y: f32, now: f64, event: f64) -> bool {
+        let Some(mut gesture) = self.stage.gesture.take() else {
             return false;
         };
+        if let Gesture::Drag {
+            moving: true,
+            last,
+            velocity,
+            ..
+        } = &mut gesture
+        {
+            // The release's own sample counts toward the speed.
+            let dt = (event - last.1) as f32 / 1000.0;
+            if dt > 0.0 && dt <= 0.1 {
+                *velocity = 0.6 * ((y - last.0) / dt) + 0.4 * *velocity;
+            }
+        }
         match gesture {
-            Gesture::Scrim { modal } => {
+            Gesture::Scrim { modal, .. } => {
                 let closes = (self.host.kernel().node_by_key(modal))
                     .is_some_and(|n| n.props.str(PropId::Closedby) != Some("none"));
                 let outside = self.grab_sheet().is_some_and(|(_, top)| {
@@ -391,7 +466,8 @@ impl<D: DataSource> Presenter<D> {
         let progress = progress.clamp(0.0, 1.0);
         match phase {
             0 => {
-                self.stage.preview = self.preview_target().map(|target| Preview {
+                let target = self.preview_target().filter(|_| self.back_previewable());
+                self.stage.preview = target.map(|target| Preview {
                     target,
                     progress,
                     edge,
@@ -425,14 +501,23 @@ impl<D: DataSource> Presenter<D> {
         self.stage.preview.is_some()
     }
 
+    /// Back went while a preview showed: where it did not take the route
+    /// away (a handler kept it), the preview goes back to rest.
+    pub(in crate::presenter) fn stage_back_done(&mut self, now: f64) {
+        let still = self.motion_off();
+        if let Some(p) = self.stage.preview.as_mut().filter(|p| p.release.is_none()) {
+            let ms = if still { 0.0 } else { RETURN_MS };
+            p.release = Some(Glide::new(p.progress, 0.0, now, ms, Curve::Decelerate));
+            p.progress = 0.0;
+            self.dirty = true;
+        }
+    }
+
     /// What Back would close or pop now, where the stage can preview it:
-    /// nothing while a menu or a surface of the top layer is open (Back
-    /// closes those first), nor while routes cross.
+    /// the top route, a sheet or one pushed, when Back goes to the route
+    /// (`back_previewable`); nothing while routes cross.
     fn preview_target(&self) -> Option<Target> {
         if !self.stage_presents() || self.motion_off() || self.stage.shift.is_some() {
-            return None;
-        }
-        if self.menu.is_some() || self.surface().is_some() {
             return None;
         }
         let kernel = self.host.kernel();
@@ -448,9 +533,8 @@ impl<D: DataSource> Presenter<D> {
             })
             .collect();
         let top = keys.len().checked_sub(1)?;
-        let closedby = kernel.node(stack[top])?.props.str(PropId::Closedby);
         match kinds[top] {
-            Presented::Sheet if closedby != Some("none") => Some(Target::Sheet(keys[top])),
+            Presented::Sheet => Some(Target::Sheet(keys[top])),
             Presented::Pushed if top > 0 => {
                 let sheet = sheet_of(&kinds, top);
                 Some(Target::Page {

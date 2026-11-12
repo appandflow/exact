@@ -164,6 +164,9 @@ struct Sheet {
     top: Glide,
     /// What its heights were computed from: a change places it again.
     said: (Option<String>, (f32, f32), bool),
+    /// A full-screen route presented above it covers it: it is drawn
+    /// beneath that route, as it was, and takes no touch.
+    covered: bool,
 }
 
 /// A sheet whose route has gone, sliding out of the window.
@@ -395,7 +398,9 @@ impl<D: DataSource> Presenter<D> {
                 self.stage.gesture = None;
             }
         }
-        self.stage.preview.take_if(|p| !p.live(&keys));
+        self.stage
+            .preview
+            .take_if(|p| !p.live(&keys) || p.returned(now));
         let tallest = (h - status).max(1.0);
         for (i, last) in wanted {
             let kernel = self.host.kernel();
@@ -420,9 +425,13 @@ impl<D: DataSource> Presenter<D> {
                     .flatten()
                     .unwrap_or(0)
             };
+            let covered = kinds[i..]
+                .iter()
+                .any(|k| matches!(k, Presented::Over | Presented::Full));
             match self.stage.sheets.iter_mut().find(|s| s.modal == keys[i]) {
                 Some(sheet) => {
                     sheet.shown = keys[last];
+                    sheet.covered = covered;
                     if sheet.said != said {
                         sheet.at = if keyboard {
                             found.len() - 1
@@ -448,6 +457,7 @@ impl<D: DataSource> Presenter<D> {
                         at,
                         top,
                         said,
+                        covered,
                     });
                 }
             }
@@ -595,7 +605,7 @@ impl<D: DataSource> Presenter<D> {
         self.stage.sheets.iter().any(|s| s.top.moving(now))
             || !self.stage.closing.is_empty()
             || self.stage.shift.is_some()
-            || self.stage.preview.as_ref().is_some_and(|p| p.moving(now))
+            || self.stage.preview.as_ref().is_some_and(|p| p.moving())
     }
 
     /// When the last motion on the stage ends, ms.
@@ -611,21 +621,29 @@ impl<D: DataSource> Presenter<D> {
     /// scrim or with the routes crossing, and not in the shell's views.
     pub(crate) fn stage_draws_bars(&self) -> bool {
         self.stage_presents()
-            && (!self.stage.sheets.is_empty()
+            && (self.front_sheets().next().is_some()
                 || !self.stage.closing.is_empty()
                 || self.stage.shift.is_some()
                 || self.stage.preview.is_some())
     }
 
-    /// Whether a sheet is open.
+    /// The open sheets nothing presented covers, bottom first.
+    fn front_sheets(&self) -> impl DoubleEndedIterator<Item = &Sheet> {
+        self.stage.sheets.iter().filter(|s| !s.covered)
+    }
+
+    /// Whether a sheet is open in front.
     pub(crate) fn sheet_open(&self) -> bool {
-        self.stage_presents() && !self.stage.sheets.is_empty()
+        self.stage_presents() && self.front_sheets().next().is_some()
     }
 
     /// The route the top sheet shows, and its frame (x, top, width, the
     /// height that shows), points.
     pub(crate) fn top_sheet(&self) -> Option<(ViewId, Rect4)> {
-        let sheet = self.stage.sheets.last().filter(|_| self.stage_presents())?;
+        let sheet = self
+            .front_sheets()
+            .last()
+            .filter(|_| self.stage_presents())?;
         let id = self.host.kernel().node_by_key(sheet.shown)?.id;
         let (x, width) = self.sheet_span();
         let top = self.sheet_top_now(sheet);
@@ -814,14 +832,22 @@ impl<D: DataSource> Presenter<D> {
             let Some(shown) = kernel.node_by_key(sheet.shown) else {
                 continue;
             };
+            // A sheet a full-screen route covers is drawn beneath it where
+            // that route lets it show, and takes no touch.
+            if sheet.covered && self.host.route_visibility(shown.id).0 {
+                continue;
+            }
+            let mut items = Vec::new();
             let top = self.sheet_top_now(sheet);
             let scrim = ((h - top) / sheet.heights[0]).clamp(0.0, 1.0) * SCRIM;
-            stage.items.push(Item::Fill(
+            items.push(Item::Fill(
                 Shape::rect(whole),
                 [0, 0, 0, (scrim * 255.0).round() as u8],
                 Transform::identity(),
             ));
-            stage.items.push(Item::Hit(shown.id, whole));
+            if !sheet.covered {
+                items.push(Item::Hit(shown.id, whole));
+            }
             let scale = self
                 .stage
                 .preview
@@ -837,8 +863,8 @@ impl<D: DataSource> Presenter<D> {
             let tallest = sheet.heights[sheet.heights.len() - 1];
             let body = (0.0, 0.0, width, (h - top).max(tallest));
             let shape = Shape::new(body, [SHEET_CORNER, SHEET_CORNER, 0.0, 0.0]);
-            stage.items.push(Item::Clip(shape, ts));
-            stage.items.push(Item::Fill(shape, container(modal), ts));
+            items.push(Item::Clip(shape, ts));
+            items.push(Item::Fill(shape, container(modal), ts));
             // A crossing inside this sheet, else the route it shows.
             let inner = (self.stage.shift.as_ref())
                 .filter(|s| s.sheet == Some(sheet.modal))
@@ -857,27 +883,27 @@ impl<D: DataSource> Presenter<D> {
                     };
                     for (key, pose) in order {
                         let ts = ts.pre_concat(pose.transform((0.0, 0.0)));
-                        stage.items.push(Item::Opacity(pose.opacity));
+                        items.push(Item::Opacity(pose.opacity));
                         match kernel.node_by_key(key) {
                             Some(n) => {
                                 stage.skip.push(n.id);
                                 stage.bare.push(n.id);
-                                stage.items.push(Item::Route {
+                                items.push(Item::Route {
                                     id: n.id,
                                     ts,
                                     tape: true,
                                 });
                             }
-                            None => stage.items.push(Item::Taped(key, ts)),
+                            None => items.push(Item::Taped(key, ts)),
                         }
-                        stage.items.push(Item::PopOpacity);
+                        items.push(Item::PopOpacity);
                     }
                 }
                 None => {
                     stage.skip.push(shown.id);
                     stage.bare.push(shown.id);
                     let tape = !self.motion_off();
-                    stage.items.push(Item::Route {
+                    items.push(Item::Route {
                         id: shown.id,
                         ts,
                         tape,
@@ -885,8 +911,12 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             let grip = Shape::new(((width - 32.0) / 2.0, 22.0, 32.0, 4.0), [2.0; 4]);
-            stage.items.push(Item::Fill(grip, handle, ts));
-            stage.items.push(Item::PopClip);
+            items.push(Item::Fill(grip, handle, ts));
+            items.push(Item::PopClip);
+            match sheet.covered {
+                true => stage.beneath.push((shown.id, items)),
+                false => stage.items.extend(items),
+            }
         }
         for closing in &self.stage.closing {
             let top = closing.top.at(now);

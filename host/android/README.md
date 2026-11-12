@@ -942,7 +942,9 @@ the sheet, titled by its first heading.
 
 **A route pushed while a sheet is on top is shown in it** (expo/exact#326): laid out at the sheet's width and
 height, the sheet keeping the detents of the route that opened it, the page beneath still under the scrim. A
-`fullscreen` route ends the sheet's stack: a route pushed over it is a page.
+`fullscreen` route ends the sheet's stack: a route pushed over it is a page. A `fullscreen` route presented over a
+sheet covers it: the sheet takes no touch and is not TalkBack's pane, the bars are the shell's again, and the sheet
+shows beneath the route only where that route's author wrote a background.
 
 **A push and a pop cross on Material's shared X axis**, in the page or inside a sheet: the route that leaves moves
 30 dp toward where it goes and fades over the first 35 % of 300 ms, the one that arrives moves in 30 dp from the
@@ -953,9 +955,11 @@ move on its clock: `clock settle` ends them.
 **Predictive Back** (Android 14, `OnBackAnimationCallback`, `Native.backProgress`): the reader passes the gesture's
 start, progress and edge, and its cancel. Where Back would pop a route, the route shrinks toward 90 %, moves toward
 the side the swipe came from by a twentieth of the width less 8 dp and rounds its corners to 28 dp, the route it
-returns to drawn beneath; where Back would close a sheet, the sheet shrinks toward 90 % about its foot. A cancel
-puts it back over 150 ms. The commit is Back itself, in its order, and the pop goes on from where the preview left
-the route. Nothing commits before the gesture does. On Android 13 Back is heard only when it is done.
+returns to drawn beneath; where Back would close a sheet, the sheet shrinks toward 90 % about its foot. Only what
+Back's order would take is previewed: nothing while a menu or a surface of the top layer is open, nor where the
+route's Back control is disabled. A cancel puts it back over 150 ms, and so does a commit whose Back handler keeps
+the route. Otherwise the commit is Back itself, in its order, and the pop goes on from where the preview left the
+route. Nothing commits before the gesture does. On Android 13 Back is heard only when it is done.
 
 With "remove animations" nothing moves: a sheet is at rest at once, a push is a cut, and there is no preview.
 

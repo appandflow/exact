@@ -6,6 +6,9 @@ use super::super::top::SurfacePainter;
 use super::*;
 use crate::paint::Backend;
 
+#[path = "rules_tests.rs"]
+mod rules;
+
 /// A page, a sheet with two detents and one with none, a route pushed
 /// inside the first sheet, and a page pushed over the first.
 const APP: &str = r##"routes nav
@@ -83,9 +86,9 @@ impl SurfacePainter for Pixels {
     }
 }
 
-fn boot() -> Presenter<()> {
+fn boot_source(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &crate::test_plan(APP),
+        &crate::test_plan(source),
         (),
         (412., 916.),
         1.,
@@ -99,7 +102,11 @@ fn boot() -> Presenter<()> {
 
 /// A presenter whose shell shows bars, in a phone's window.
 fn phone() -> Presenter<()> {
-    let mut p = boot();
+    phone_source(APP)
+}
+
+fn phone_source(source: &str) -> Presenter<()> {
+    let mut p = boot_source(source);
     p.serve_windows(Box::new(Pixels));
     assert_eq!(p.serve_bars(Box::new(Pixels)), None);
     assert_eq!(p.set_window(WINDOW), None);
@@ -394,10 +401,11 @@ fn predictive_back_shrinks_a_sheet_that_back_closes() {
     assert!(p.system_back(p.host().now()));
     p.run_commands(|| ());
     assert!(!has(&p, "route-info"));
-    // A sheet that will not close is not previewed.
+    // `closedby="none"` refuses the scrim and a drag, not Back (D6), so a
+    // sheet that says it is still previewed.
     tap(&mut p, "open-stuck");
     after(&mut p, 1000.0);
-    assert!(!p.back_progress(0, 0.0, 0, p.host().now()));
+    assert!(p.back_progress(0, 0.0, 0, p.host().now()));
 }
 
 #[test]

@@ -252,7 +252,8 @@ impl<D: DataSource> Presenter<D> {
         box_.contains(c.position.0, c.position.1).then_some(*key)
     }
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
-        self.contact.as_ref().map(|c| c.position)
+        (self.contact.as_ref().map(|c| c.position))
+            .or_else(|| self.stage_contact().map(|(at, _)| at))
     }
     /// The agent's contact phase is done: its press lands at once (LLP
     /// 1061 D2, D7), the clock unmoved.
@@ -261,12 +262,14 @@ impl<D: DataSource> Presenter<D> {
         self.dirty = true;
     }
     pub(crate) fn contact_event_ms(&self) -> Option<f64> {
-        self.contact.as_ref().map(|c| c.event_ms)
+        (self.contact.as_ref().map(|c| c.event_ms))
+            .or_else(|| self.stage_contact().map(|(_, ms)| ms))
     }
     pub(crate) fn delay_contact_event(&mut self, ms: f64) {
         if let Some(contact) = &mut self.contact {
             contact.event_ms += ms;
         }
+        self.stage_delay_contact(ms);
     }
     /// A held Arrange's preview again where the contact is, after an edge
     /// scroll moved the list under it (the page's `sampleMove` after its
@@ -496,7 +499,8 @@ impl<D: DataSource> Presenter<D> {
         };
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
-        result
+        // A contact that may drag a sheet is taken, whatever it presses.
+        result.map(|taken| taken || self.stage_drag_pending())
     }
     /// A desktop mouse down with the shell's platform click count.
     pub fn pointer_down_with_clicks(
@@ -723,9 +727,6 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
-        if self.stage_move(y, now_ms) {
-            return Ok(true);
-        }
         self.pointer_move_at(x, y, now_ms, now_ms)
     }
     // Agent events have timestamps for pan velocity while dispatch and held
@@ -737,6 +738,10 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         event_ms: f64,
     ) -> Result<bool, String> {
+        // A sheet's scrim, or its drag once past the slop (`stage/touch.rs`).
+        if self.stage_move(x, y, event_ms) {
+            return Ok(true);
+        }
         if self.overlay_pointer(2, x, y, now_ms) || self.scrollbar_pointer(2, x, y) {
             return Ok(true);
         }
@@ -1005,9 +1010,6 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
-        if self.stage_up(x, y, now_ms) {
-            return Ok(true);
-        }
         self.pointer_up_at(x, y, now_ms, now_ms)
     }
     pub(crate) fn pointer_up_at(
@@ -1017,6 +1019,9 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         event_ms: f64,
     ) -> Result<bool, String> {
+        if self.stage_up(x, y, now_ms, event_ms) {
+            return Ok(true);
+        }
         if self.overlay_pointer(1, x, y, now_ms) || self.scrollbar_pointer(1, x, y) {
             return Ok(true);
         }
