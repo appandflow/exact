@@ -1069,7 +1069,16 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   }
   // Absence recorded by Cargo or the linked bake is unchanged while absent; first creation counts even at an old mtime.
   const absent = new Set([...(build?.binary?.missing ?? []), ...missing]), stillAbsent = path => { const at = resolve(ROOT, path); return absent.has(at) && !existsSync(at); };
-  const tools = info ? [...depInfoNewer(since, null, info, app.workspace, directories), ...watchedNewer(since, baked, directories)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path)) && !stillAbsent(path)) : [];
+  // gameShells and GPU reflection create these during a cold build. Only the owned outputs lose the mtime
+  // bound; authored sources keep it, and the receipt still checks the generated Rust's recorded bytes.
+  const shells = app.manifest?.game && app.workspace === resolve(app.dir, '.shells') ? app.workspace : null;
+  const captured = new Set(shells ? (build?.binary?.inputs ?? []).map(input => resolve(input.path)) : []);
+  const generatedShell = path => {
+    const at = resolve(ROOT, path), name = shells && relative(shells, at).replaceAll('\\', '/');
+    return name && existsSync(at) && (/^(app|keys|surfaces)\.json$/.test(name)
+      || /^apple\/(build\.rs|src\/lib\.rs)$/.test(name) && captured.has(at));
+  };
+  const tools = info ? [...depInfoNewer(since, null, info, app.workspace, directories), ...watchedNewer(since, baked, directories)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path)) && !stillAbsent(path) && !generatedShell(path)) : [];
   return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
 }
 
