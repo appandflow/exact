@@ -5,12 +5,12 @@
 
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 export const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
-// A literal bracket key names the same property as dot access. Dynamic
-// keys and aliases stay with the runtime guard; do not evaluate them here.
+// Literal bracket keys, destructuring keys and JSX members name the same properties as dot access.
+// Dynamic keys and aliases stay with the runtime guard; do not evaluate them here.
 export const propertyName=(node)=>{
-  if (node?.type!=='MemberExpression') return null;
-  const property=bare(node.property);
-  if (!node.computed) return property?.type==='Identifier' ? property.name : null;
+  if (!['MemberExpression','JSXMemberExpression','Property'].includes(node?.type)) return null;
+  const property=bare(node.type==='Property' ? node.key : node.property);
+  if (!node.computed && ['Identifier','JSXIdentifier'].includes(property?.type)) return property.name;
   if (property?.type==='Literal' && typeof property.value==='string') return property.value;
   if (property?.type==='TemplateLiteral' && !property.expressions.length) return property.quasis[0].value.cooked;
   return null;
@@ -64,8 +64,9 @@ const FUNCTIONS=['FunctionDeclaration','FunctionExpression','ArrowFunctionExpres
 // bind, and what TypeScript erases binds nothing: a `declare`, an `import type`,
 // a `const` enum, a type-only namespace. Where it meets a construct it does not
 // model, it binds nothing, so the name is the global and an extra warning is the
-// worst it does.
-function declares(node, full=false, merged=null) {
+// worst it does. In this model a function's body (identified by `parent`) owns
+// its declarations: parameter initializers cannot see them.
+function declares(node, full=false, merged=null, parent=null) {
   const names=new Map();
   const pattern=(p)=>{
     if (!p) return;
@@ -102,10 +103,11 @@ function declares(node, full=false, merged=null) {
   else if (FUNCTIONS.includes(node.type)) {
     node.params.forEach(pattern);
     if (node.type==='FunctionExpression' && node.id) names.set(node.id.name,null);
-    if (node.body?.type==='BlockStatement') { lexical(node.body.body); vars(node.body.body); }
+    if (!full && node.body?.type==='BlockStatement') { lexical(node.body.body); vars(node.body.body); }
   }
   else if (node.type==='ClassExpression' && node.id) names.set(node.id.name,null);
-  else if (full && ['StaticBlock','TSModuleBlock'].includes(node.type)) {
+  else if (full && (['StaticBlock','TSModuleBlock'].includes(node.type)
+    || (node.type==='BlockStatement' && FUNCTIONS.includes(parent?.type)))) {
     for (const name of merged?.get(node) ?? []) names.set(name,null);
     lexical(node.body); vars(node.body);
   }
@@ -282,8 +284,8 @@ export function packageRefusals(code, label, parse, warnings=[], lang='js', wher
   // Not warned: `Function.prototype`'s named members other than `constructor` (`Function.prototype.bind`), and either side
   // of `instanceof`, which build no code from a string.
   const inert=(parent,key,grand)=>(parent?.type==='BinaryExpression' && parent.operator==='instanceof')
-    || (parent?.type==='MemberExpression' && key==='object' && propertyName(parent)==='prototype'
-      && grand?.type==='MemberExpression' && grand.object===parent && ![null,'constructor'].includes(propertyName(grand)));
+    || (['MemberExpression','JSXMemberExpression'].includes(parent?.type) && key==='object' && propertyName(parent)==='prototype'
+      && ['MemberExpression','JSXMemberExpression'].includes(grand?.type) && grand.object===parent && ![null,'constructor'].includes(propertyName(grand)));
   // Whether the name at `parent`'s `key` is declared there (a binding, erased or not), not used.
   const DECLARED={VariableDeclarator:'id',FunctionDeclaration:'id',FunctionExpression:'id',ClassDeclaration:'id',ClassExpression:'id',TSDeclareFunction:'id',
     ImportSpecifier:'local',ImportDefaultSpecifier:'local',ImportNamespaceSpecifier:'local',TSImportEqualsDeclaration:'id',CatchClause:'param',RestElement:'argument',AssignmentPattern:'left'};
@@ -292,6 +294,15 @@ export function packageRefusals(code, label, parse, warnings=[], lang='js', wher
   // A use of the global `Function` or `eval`, once per site, as a diagnostic in the compiler's form
   // (`file:line:col warning [id] text`, scripts/app-cli.mjs `compilerWarnings`).
   const fromString=(name,node)=>warnings.push(`${where(':'+at(node.start))} warning [code-from-string] uses '${name}', which builds code from a string: through this name that throws on every host, so the code fails there unless it catches the throw and takes another path, as zod does; what it reaches through \`Function.prototype.constructor\` or a function's own \`constructor\` still runs on the web, not on Hermes`);
+  // Taking the property is the reference; the pattern's binding and later alias uses add no site.
+  const destructured=(pattern,value)=>{
+    const object=bare(value);
+    if (pattern?.type!=='ObjectPattern' || object?.type!=='Identifier' || !HOSTS.includes(object.name) || !global(object.name)) return;
+    for (const property of pattern.properties) {
+      const name=propertyName(property);
+      if (CODE.includes(name)) fromString(name,property.key);
+    }
+  };
   const refuse=(name,node)=>{
     const where=label(':'+at(node.start));
     if (name==='import()') found.push(where+` loads code from a string ('${name}'), which a bundle cannot capture`);
@@ -304,25 +315,32 @@ export function packageRefusals(code, label, parse, warnings=[], lang='js', wher
     if (!node || typeof node!=='object') return;
     // TypeScript's types name no value: only its expression wrappers (`x as T`) hold code, and their types are skipped.
     if (typeof node.type==='string' && node.type.startsWith('TS') && (!TS_CODE.includes(node.type) || node.declare)) return;
+    if (node.type==='JSXClosingElement') return;
     if (Array.isArray(node)) { node.forEach((n,i)=>{ path.push([parent,key,i,scopes.length]); walk(n,parent,key); path.pop(); }); return; }
     // `typeof x` and `typeof globalThis.x` answer without `x`; `typeof x.y` reads `x`, as any use does.
     const probed=bare(node.argument), host=bare(probed?.object);
     if (node.type==='UnaryExpression' && node.operator==='typeof' && (probed?.type==='Identifier'
-      || (probed?.type==='MemberExpression' && host?.type==='Identifier' && HOSTS.includes(host.name) && free(host.name) && propertyName(probed)!==null))) return;
+      || (probed?.type==='MemberExpression' && host?.type==='Identifier' && HOSTS.includes(host.name)
+        && (free(host.name) || global(host.name)) && propertyName(probed)!==null))) return;
     const pushed=SCOPES.includes(node.type) || FUNCTIONS.includes(node.type);
     if (pushed) {
       const names=declares(node);
       scopes.push(names);
       for (const [name,init] of names) if (init) names.set(name,{init,held:rooted(init)});
-      runtime.push(declares(node,true,merged));
+      runtime.push(declares(node,true,merged,parent));
     }
     const grand=path.at(-2)?.[0];
     // `export { x } from './x.js'` names another module's export.
     const reference=!(NOT_REFERENCES[parent?.type]===key && !parent.computed) && !(parent?.type==='ExportSpecifier' && grand?.source);
     // The global `Function` or `eval`, however reached as a name, but where the name is declared (an erased binding,
-    // which the scopes leave out) and in a use that builds nothing (`inert`). A local one is left to the alias check.
-    if (node.type==='Identifier' && reference && CODE.includes(node.name) && global(node.name)
-      && !declaring(parent,key,grand) && !inert(parent,key,grand)) fromString(node.name,node);
+    // which the scopes leave out) and in a use that builds nothing (`inert`). Lowercase JSX names are tags unless
+    // they head a member expression (`eval.Component`); a closing name repeats the opening reference.
+    const jsx=node.type==='JSXIdentifier' && ((parent?.type==='JSXOpeningElement' && key==='name' && /^[A-Z]/.test(node.name))
+      || (parent?.type==='JSXMemberExpression' && key==='object'));
+    if (((node.type==='Identifier' && reference && !declaring(parent,key,grand)) || jsx)
+      && CODE.includes(node.name) && global(node.name) && !inert(parent,key,grand)) fromString(node.name,node);
+    if (node.type==='VariableDeclarator') destructured(node.id,node.init);
+    if (['AssignmentExpression','AssignmentPattern'].includes(node.type)) destructured(node.left,node.right);
     if (node.type==='Identifier' && reference && free(node.name)) {
       const name=node.name;
       const constant=name==='process' && parent?.type==='MemberExpression' && key==='object' && propertyName(parent)==='env' && grand?.type==='MemberExpression' && propertyName(grand)==='NODE_ENV';
@@ -334,10 +352,10 @@ export function packageRefusals(code, label, parse, warnings=[], lang='js', wher
       const name=binding(node.name)?.held;
       if (name && !guarded(node.name,path) && !safe()) refuse(name,node);
     }
-    if (node.type==='MemberExpression') {
+    if (['MemberExpression','JSXMemberExpression'].includes(node.type)) {
       const object=bare(node.object), name=propertyName(node);
       // Not under a `typeof` test, as an absent global is: the stand-in is a function, and the call throws.
-      if (CODE.includes(name) && object?.type==='Identifier' && HOSTS.includes(object.name) && global(object.name)
+      if (CODE.includes(name) && ['Identifier','JSXIdentifier'].includes(object?.type) && HOSTS.includes(object.name) && global(object.name)
         && !inert(parent,key,grand)) fromString(name,node);
       if (member(node) && !guarded(name,path) && !safe()) refuse(name,node);
     }

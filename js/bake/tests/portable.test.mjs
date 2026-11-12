@@ -106,3 +106,90 @@ test('a use of Function is warned where no scope binds the name at run time', ()
   const said = SCOPES.map(([scope, code]) => [scope, check(code, 'ts').warnings.map((w) => Number(/^x:(\d+):/.exec(w)[1]))]);
   expect(said).toEqual(SCOPES.map(([scope, , lines]) => [scope, lines]));
 });
+
+test('destructuring a global reads its code constructor at the property', () => {
+  const cases = [
+    ["const { Function: compile } = globalThis; compile(source);", ['1:9 Function']],
+    ["const { eval: execute } = self; execute(source);", ['1:9 eval']],
+    ["const { Function } = globalThis; Function(source);", ['1:9 Function']],
+    ["let compile; ({ Function: compile } = globalThis);", ['1:17 Function']],
+    ["const { ['Function']: compile, [`eval`]: execute } = globalThis;", ['1:10 Function', '1:33 eval']],
+    ["function run({ Function: compile } = globalThis) { return compile(source); }", ['1:16 Function']],
+    ["const { Function: compile = fallback } = (globalThis);", ['1:9 Function']],
+    ["const { 'Function': compile } = globalThis;", ['1:9 Function']],
+    ["const { nested: { Function: compile } } = globalThis;", []],
+    ["const { [key]: compile } = globalThis;", []],
+    ["const { Function: compile } = local;", []],
+    ["function run(globalThis) { const { Function: compile } = globalThis; }", []],
+    ["function run(self) { const { eval: execute } = self; }", []],
+    ["type T = { Function: typeof Function };", []],
+  ];
+  for (const [code, sites] of cases) {
+    const { refused, warnings } = check(code, 'ts');
+    expect([code, refused, warnings.map(w => w.replace(/^x:(\d+:\d+) warning \[code-from-string\] uses '([^']+)'.*$/, '$1 $2'))])
+      .toEqual([code, [], sites]);
+  }
+});
+
+test('parameter initializers see parameters and outer bindings before the body scope', () => {
+  const cases = [
+    ['function run(make = Function) { const Function = 1; return make(source); }', 1],
+    ['function run(make = Function) { var Function = 1; return make(source); }', 1],
+    ['function run(make = Function) { function Function() {} return make(source); }', 1],
+    ['function run(make = Function) { class Function {} return make(source); }', 1],
+    ['const run = (make = Function) => { let Function = 1; return make(source); };', 1],
+    ['function run(make = eval) { const eval = 1; return make(source); }', 1],
+    ['function run(make = globalThis.Function) { var globalThis = {}; }', 1],
+    ['function run({ Function: make } = globalThis) { var globalThis = {}; }', 1],
+    ['function run(make = () => Function(source)) { var Function = 1; }', 1],
+    ['function run(Function, make = Function) { return make(source); }', 0],
+    ['function run(make = Function, Function = local) { return make(source); }', 0],
+    ['function run({ Function }, make = Function) { return make(source); }', 0],
+    ['const run = function Function(make = Function) { return make(source); };', 0],
+    ['const Function = local; function run(make = Function) { var Function = 1; }', 0],
+    ['function outer() { var Function = local; function run(make = Function) { var Function = 1; } }', 0],
+    ['function run(make = local) { { var Function = local; } return Function(source); }', 0],
+    ['function run(make = local) { return () => Function(source); var Function; }', 0],
+    ['function run(make: typeof Function = local) { const Function = 1; }', 0],
+    ['function run(make = typeof Function) { var Function; }', 0],
+    ['function run(make = typeof globalThis.Function) { var globalThis; }', 0],
+    ['function run(make = typeof (globalThis as any).eval) { var globalThis; }', 0],
+  ];
+  for (const [code, count] of cases) expect([code, check(code, 'ts').warnings.length]).toEqual([code, count]);
+});
+
+test('JSX component names refer to values once, while tags and attributes do not', () => {
+  const cases = [
+    ['<Function />;', 1],
+    ['<Function></Function>;', 1],
+    ['<Function.Component></Function.Component>;', 1],
+    ['<globalThis.Function />;', 1],
+    ['<self.eval />;', 1],
+    ['Function.prototype.bind;', 0],
+    ['self.eval.prototype.bind;', 0],
+    ['<Function.prototype.bind />;', 0],
+    ['<self.eval.prototype.bind />;', 0],
+    ['<globalThis.Function.prototype.call></globalThis.Function.prototype.call>;', 0],
+    ['<eval.prototype.apply />;', 0],
+    ['Function.prototype.constructor;', 1],
+    ['self.eval.prototype.constructor;', 1],
+    ['<Function.prototype.constructor />;', 1],
+    ['<self.eval.prototype.constructor />;', 1],
+    ['<eval />;', 0],
+    ['<Function:tag />;', 0],
+    ['<div Function="eval" />;', 0],
+    ['<Function Function={Function} />;', 2],
+    ['<components.Function />;', 0],
+    ['const Function = local; <Function />;', 0],
+    ['function run(Function) { return <Function />; }', 0],
+    ['function run(globalThis) { return <globalThis.Function />; }', 0],
+    ['import type { Function } from "x"; <Function />;', 1],
+    ['type Function = () => void; <Function />;', 1],
+  ];
+  for (const lang of ['jsx', 'tsx']) {
+    for (const [code, count] of cases) {
+      if (lang === 'jsx' && /^(import type|type )/.test(code)) continue;
+      expect([lang, code, check(code, lang).warnings.length]).toEqual([lang, code, count]);
+    }
+  }
+});
