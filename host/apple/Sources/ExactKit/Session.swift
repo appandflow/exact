@@ -1474,7 +1474,7 @@ public final class ExactSession {
         cancelAuthSessions()
         taskTimers.cancel(); clockTimer?.invalidate(); timerAdmissions.takeover()
         clockTimer = nil
-        frames.run(false)
+        natives.hatchClock.reset(); frames.run(false) // a live hatch frame ticket would keep the link on through `run(false)`
         sampler?.stop(); releaseSampler()
         frameHealth.destroy()
         finishHold.moved(false) // its work ends with the runtime
