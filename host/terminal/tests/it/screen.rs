@@ -1394,3 +1394,29 @@ fn an_images_alternate_text_draws_no_control_character() {
         );
     }
 }
+
+/// Each side is drawn in its own line style (LLP 1101 §4): dashed `┄┆`,
+/// dotted `┈┊`, with the light corners, which have no such forms.
+#[test]
+fn dashed_and_dotted_borders_draw_their_own_lines() {
+    for (border, expected) in [
+        ("border=\"thin dashed\"", ["┌┄┄┄┄┐", "┆x   ┆", "└┄┄┄┄┘"]),
+        ("border=\"thin dotted\"", ["┌┈┈┈┈┐", "┊x   ┊", "└┈┈┈┈┘"]),
+        (
+            "border=\"thin solid\" border-top-style=\"dotted\" border-left-style=\"dashed\"",
+            ["┌┈┈┈┈┐", "┆x   │", "└────┘"],
+        ),
+    ] {
+        let plan = contract::compile_terminal(&format!(
+            "component App\n  view\n    column width=\"4ch\" {border}\n      text \"x\"\n"
+        ))
+        .unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 10, 4).unwrap();
+        let screen = host.frame().grid.text();
+        assert_eq!(
+            screen.lines().take(3).collect::<Vec<_>>(),
+            expected,
+            "{border}"
+        );
+    }
+}

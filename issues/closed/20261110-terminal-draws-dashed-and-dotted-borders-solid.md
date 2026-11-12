@@ -1,6 +1,7 @@
 # A terminal entry's dashed or dotted border compiles and is drawn solid
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The terminal painter draws each side in its own line style, as LLP 1101 §4 maps them (dashed `┄┆`, dotted `┈┊`, their heavy forms on a heavy border), keeping solid corners, which have no dashed or dotted forms.
 **Systems:** host/terminal (paint.rs), the terminal profile
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

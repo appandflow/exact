@@ -9,8 +9,8 @@ use crate::grid::{CellRect, Grid, Rgb, Style};
 use crate::measure::{columns, wrap, Glyph, Line};
 use exact_kernel::style::cells::{COLUMN, ROW};
 use exact_kernel::{
-    Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow, PropId,
-    TextDecorationLine, TextOverflow, ViewId, Visibility,
+    BorderStyle, Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow,
+    PropId, TextDecorationLine, TextOverflow, ViewId, Visibility,
 };
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
@@ -484,10 +484,31 @@ fn border(
         ]
         .iter()
         .any(|d| matches!(d.resolve(&env), Dimension::Points(p) if p > 0.0));
-    let (h, v) = if heavy {
-        ("━", "┃")
-    } else {
-        ("─", "│")
+    // Each side its own line (LLP 1101 §4): light `─│`, dashed `┄┆`,
+    // dotted `┈┊`, each in its heavy form for a heavy border. The corners
+    // have no dashed or dotted forms, so they stay solid.
+    let styles = [
+        s.border_style_top,
+        s.border_style_right,
+        s.border_style_bottom,
+        s.border_style_left,
+    ];
+    let line = |i: usize| {
+        let across = matches!(i, 0 | 2);
+        match (styles[i], heavy, across) {
+            (BorderStyle::Dashed, false, true) => "┄",
+            (BorderStyle::Dashed, false, false) => "┆",
+            (BorderStyle::Dashed, true, true) => "┅",
+            (BorderStyle::Dashed, true, false) => "┇",
+            (BorderStyle::Dotted, false, true) => "┈",
+            (BorderStyle::Dotted, false, false) => "┊",
+            (BorderStyle::Dotted, true, true) => "┉",
+            (BorderStyle::Dotted, true, false) => "┋",
+            (_, false, true) => "─",
+            (_, false, false) => "│",
+            (_, true, true) => "━",
+            (_, true, false) => "┃",
+        }
     };
     let (tl, tr, br, bl) = match (heavy, round) {
         (true, _) => ("┏", "┓", "┛", "┗"),
@@ -502,18 +523,18 @@ fn border(
     };
     for x in r.x..=x1 {
         if top {
-            out.grid.put(x, r.y, h, 1, style(0), clip);
+            out.grid.put(x, r.y, line(0), 1, style(0), clip);
         }
         if bottom {
-            out.grid.put(x, y1, h, 1, style(2), clip);
+            out.grid.put(x, y1, line(2), 1, style(2), clip);
         }
     }
     for y in r.y..=y1 {
         if left {
-            out.grid.put(r.x, y, v, 1, style(3), clip);
+            out.grid.put(r.x, y, line(3), 1, style(3), clip);
         }
         if right {
-            out.grid.put(x1, y, v, 1, style(1), clip);
+            out.grid.put(x1, y, line(1), 1, style(1), clip);
         }
     }
     if top && left {
