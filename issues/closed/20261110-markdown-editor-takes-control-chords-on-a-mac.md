@@ -1,6 +1,7 @@
 # On a Mac, Control+A, B, K and Y in a web Markdown editor select all, bold, ask for a link and redo
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web Markdown editor's command key is ⌘ on an Apple platform and Control elsewhere, ⌃K deletes to the line's end (at the end, the line break), and ⌃Y inserts what ⌃K deleted, so on a Mac a Control chord does what it does in a plain field.
 **Systems:** host/web/markup-editor.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
