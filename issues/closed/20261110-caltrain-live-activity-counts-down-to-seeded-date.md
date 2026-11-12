@@ -1,6 +1,7 @@
 # Caltrain's Live Activity counts down to a fixed instant in August 2026, so on a phone it reads 0:00
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Caltrain reads `exactTime()` and adds `epochAtZero - seededEpoch` to the departure's `at`, and states the alert's `updatedAt` as the real time of the last tick, so the system draws both on the real clock.
 **Systems:** apps/caltrain (app.contract, activities.contract)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
