@@ -754,6 +754,7 @@ export function androidIcons(manifest, dir, res) {
   }
   if (legacy) write('mipmap-xxxhdpi/exact_icon.png', encodePng(resize(readPng(legacy.path), 192, 192)));
   if (banner) write('drawable-xxxhdpi/exact_banner.png', encodePng(resize(readPng(banner.path), 640, 360)));
+  mkdirSync(dirname(res), { recursive: true });
   writeFileSync(`${res}.key`, key);
   return refs;
 }
