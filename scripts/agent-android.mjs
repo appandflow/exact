@@ -568,8 +568,10 @@ async function relay([serial, id, vars, encodedLease]) {
     console.error(`Android screen before launch: ${await prepareAndroidScreen(tool, serial)}`);
     sh('shell', 'am', 'force-stop', id);
     sh('logcat', '-c');
-    // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
-    const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
+    // `--activity-clear-task`: a force-stop ends the app's process but leaves its task, and an activity of another
+    // app in it (the permission controller's dialog a last drive raised) would cover this launch. `lower=0`: the
+    // engine samples every animation, so none plays on the reader's own clock.
+    const started = sh('shell', ['am', 'start', '-W', '--activity-clear-task', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
     if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
     port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
     if (!port) throw new Error('adb forward gave no port');

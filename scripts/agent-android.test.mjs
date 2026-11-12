@@ -303,6 +303,8 @@ for (const reader of [false, true]) for (const present of [false, true]) test(`t
       expect(fixture.mappings()).toEqual(present ? { 'tcp:4791': 'tcp:4791' } : reader ? { 'tcp:4791': 'tcp:9000' } : {});
       const launch = commands.find(args => args[2] === 'shell' && (reader ? args[3].startsWith('am start ') : args[3] === '-T'));
       expect(launch.at(-1)).toContain(reader ? "--es x_auth_fixture 'http://127.0.0.1:4791'" : "EXACT_AUTH_FIXTURE='http://127.0.0.1:4791'");
+      // The reader launches in a new task: whatever the last drive left in the app's task goes with it.
+      if (reader) expect(launch.at(-1)).toStartWith('am start -W --activity-clear-task -n ');
     } finally {
       if (child && child.exitCode === null) { const closed = once(child, 'close'); child.kill(); await closed; }
       fixture.dispose();
