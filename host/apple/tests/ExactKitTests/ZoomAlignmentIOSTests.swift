@@ -101,5 +101,31 @@ final class ZoomAlignmentIOSTests: XCTestCase {
         XCTAssertTrue(landing.dismissal(begins: true))
         XCTAssertNil(landing.answer(open))
     }
+
+    /// UIKit's zoom draws its source inside the container it morphs, so the
+    /// source's outer shadow would show clipped there: it is hidden while a
+    /// zoom draws the source, and back when the transition ends.
+    func testAZoomSourceCastsNoShadowUntilTheTransitionEnds() throws {
+        let p = Presenter(), host = NavigationHost(presenter: p)
+        let cards = (1...2).map { id -> NodeView in
+            let card = NodeView(id: UInt32(id), kind: "image", presenter: p)
+            p.views[card.id] = card
+            card.frame = CGRect(x: 0, y: 0, width: 240, height: 350)
+            card.applyStyle(["box_shadow": [["o": [0, 16], "b": 36, "s": 0, "c": [0, 0, 0, 41]]], "border_radius": 22])
+            card.layer.displayIfNeeded()
+            return card
+        }
+        let first = try XCTUnwrap(cards[0].shadowCaster), second = try XCTUnwrap(cards[1].shadowCaster)
+        XCTAssertFalse(first.isHidden)
+        host.hideZoomShadow(cards[0])
+        XCTAssertTrue(first.isHidden, "hidden while the zoom draws its source")
+        cards[0].applyStyle(["box_shadow": [["o": [0, 16], "b": 36, "s": 0, "c": [0, 0, 0, 41]]], "border_radius": 24])
+        XCTAssertTrue(cards[0].shadowCaster?.isHidden == true, "a restyle meanwhile keeps it hidden")
+        host.hideZoomShadow(cards[1])
+        XCTAssertFalse(first.isHidden, "a zoom from another source gives the first its shadow back")
+        XCTAssertTrue(second.isHidden)
+        host.restoreZoomShadow()
+        XCTAssertFalse(second.isHidden, "back when the transition ends")
+    }
 }
 #endif

@@ -503,6 +503,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private(set) var pendingSync = false
     /// A zoom swipe back the app followed as the finger lifted (`followZoomSwipe`), until UIKit ends it.
     weak var followedPop: RouteController?
+    /// A zoom's source whose outer shadow is hidden while UIKit's zoom draws it (`hideZoomShadow`).
+    weak var zoomShadowHidden: NodeView?
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
     private weak var pendingPress: PressHandoff?
     /// A sync was deferred (a transition ran, or there was no window yet)
@@ -1318,6 +1320,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// the stacks were reset) is not navigation's.
     private func transitionEnded(_ navigationController: UINavigationController,
                                  swipe: Swipe?, cancelled: Bool) {
+        #if os(iOS)
+        restoreZoomShadow()
+        #endif
         // Finish the departed search field while its authored handlers still exist
         if !cancelled, navigationController === navigation,
            let written = stacks[ObjectIdentifier(navigationController)]?.written {

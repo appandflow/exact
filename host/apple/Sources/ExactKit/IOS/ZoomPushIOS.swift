@@ -39,10 +39,27 @@ extension NavigationHost {
         top.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
             guard let self, let route, let preceding, presenter.views[preceding.id] === preceding,
                   let name = route.props["navigationSource"] else { return nil }
-            return presenter.views.values.filter {
+            let source = presenter.views.values.filter {
                 $0.props["id"] == name && $0.window != nil && ($0 === preceding || $0.isDescendant(of: preceding))
             }.min(by: { $0.id < $1.id })
+            if let source { hideZoomShadow(source) }
+            return source
         })
+    }
+
+    /// UIKit's zoom draws its source view's layer inside the container it morphs, clipped to that container's
+    /// rounded shape, so an outer `box-shadow`, which lies outside the source's bounds, shows as a hard band
+    /// under the card and then an outline round it. The source's outer shadow is hidden until the transition
+    /// ends (`restoreZoomShadow`).
+    func hideZoomShadow(_ source: NodeView) {
+        restoreZoomShadow()
+        source.shadowCaster?.isHidden = true
+        zoomShadowHidden = source
+    }
+
+    func restoreZoomShadow() {
+        zoomShadowHidden?.shadowCaster?.isHidden = false
+        zoomShadowHidden = nil
     }
 
     /// The zoom's swipe back is decided as the finger lifts, and UIKit ends it most of a second later, after
