@@ -1,6 +1,7 @@
 # docs/reference.md says a compile returns its first refusal, and keeps an overview of the repository that is no longer true
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `docs/reference.md` describes `build --json` as every independent diagnostic up to 20, each with a `severity`, warnings printed on a success, and the stale overview and crate table are deleted.
 **Systems:** docs/reference.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
