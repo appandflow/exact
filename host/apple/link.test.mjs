@@ -9,6 +9,22 @@ import { resolveApp } from '../../scripts/app.mjs';
 import { appleComposition, assertCapabilityFrameworks, loadedDylibs } from './link.mjs';
 import { systemFrameworks } from './compose.mjs';
 
+test('a live watch entry in an app with TypeScript reaches the bake', async () => {
+  const { buildWatch } = await import('./watch.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-watch-live-')), events = [];
+  try {
+    writeFileSync(join(dir, 'app.ts'), '');
+    const app = { dir, id: 'test.watch', displayName: 'Watch', manifest: { watch: { source: 'watch.contract', component: 'Watch' } } };
+    await assert.rejects(buildWatch(app, ['--watchos', '--no-install'], {
+      appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
+      buildParent: async () => events.push('parent'),
+      appleArtifacts: () => ({ bundle: join(dir, 'Parent.app'), namespace: dir }),
+      runApple: () => { throw new Error('watch bake reached'); },
+    }), /watch bake reached/);
+    assert.deepEqual(events, ['lock', 'parent', 'release']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test.skipIf(process.platform !== 'darwin')('production share extensions keep source dSYMs outside their signed bundles', async () => {
   const { packageShareExtension } = await import('./extensions.mjs');
   const { plistFile } = await import('./assets.mjs');

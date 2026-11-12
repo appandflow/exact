@@ -264,11 +264,12 @@ Cargo from discovering an enclosing checkout when `cargo fmt --all` visits these
 excluded path dependencies in a nested worktree. Preserve these boundaries when
 refreshing the vendored crates.
 
-`ibex2/build.rs` emits empty binding bytecode and hardening metadata only when
-`EXACT_JS_ENGINE=stub`. `hermes-lean-sys/build.rs` recognizes that same explicit
-configuration and emits empty engine/compiler metadata with no native link.
-Normal builds still validate and link the receipted lean VM. These remain
-Exact-only; paired `HERMESC_PATH` export is now generic upstream support.
+`ibex2/build.rs` emits empty binding bytecode and hardening metadata with
+`EXACT_JS_ENGINE=stub` or for watchOS. `hermes-lean-sys/build.rs` selects the
+same engine-free composition, with no native link. The watch bake refuses
+entries reaching TypeScript until LLP 1126.001 §5 Q3 passes; host-side bakers
+still validate and link the receipted lean VM. These remain Exact-only;
+paired `HERMESC_PATH` export is now generic upstream support.
 
 `secrets/darwin_keychain.mm` selects the bundle's
 `ExactKeychainAccessGroup` only when `ExactAppIdentifier` equals the Keychain

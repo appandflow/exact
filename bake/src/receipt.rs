@@ -46,6 +46,7 @@ pub(crate) fn emit(
     entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
     let (platform, target) = destination;
+    crate::widgets::check_watch_sources(app, out, target, entries)?;
     for name in [
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",

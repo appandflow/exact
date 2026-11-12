@@ -751,9 +751,12 @@ face's editor.
 The watch extension keeps the accessory families (`accessoryCircular`,
 `accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
 `accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
-families; `families` still names its iOS families. An app with `app.ts` has all
-watch entries omitted with a message, including its Rust refreshes, until the
-watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
+families; `families` still names its iOS families. An app with `app.ts` builds its
+live watch entry when that plan reaches only Rust, runner-owned or native
+module sources. The watch bake refuses a TypeScript dependency by name until
+the watch Hermes gate passes (LLP 1126.001 §5 Q3); a mixed bake declares its
+Rust ownership through `build_mixed_with`'s source list. Such an app's complications are still omitted
+with a message, including its Rust refreshes. Rust-only apps' complications
 refresh against the watch's own App Group and store. No account transfer is
 performed.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one

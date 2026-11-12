@@ -52,11 +52,8 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const watch = { ...app, id: `${app.id}.watchkitapp` };
     const bundle = resolve(parent.bundle, 'Watch', `${appleExecutableName(app)}.app`);
     rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });
-    // LLP 1126.002 D4: the watch entry of an app with `app.ts` waits for the bake to refuse
-    // only an entry that reaches TypeScript, which runs nowhere on the watch before §5 Q3's gate.
-    const typescript = existsSync(resolve(app.dir, 'app.ts'));
-    if (app.manifest.watch && typescript) console.log('host/apple: watchOS omits the watch entry of this TypeScript app until LLP 1126.001 §5 Q3 passes');
-    const live = !!app.manifest.watch && !typescript;
+    // LLP 1126.002 D4: the bake refuses a live entry that reaches TypeScript.
+    const live = !!app.manifest.watch;
     if (!entries.length && !live) {
       console.log(`host/apple: no watch entry and no Rust accessory entries; watch bundle omitted${args.includes('--run') ? '; --run skipped' : ''}`);
       return;

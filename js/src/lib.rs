@@ -334,6 +334,8 @@ pub struct Module {
     /// none when placed on main (`keeps_plan`), whose engine is this one.
     plan: Option<Plan>,
     keeps_plan: bool,
+    /// True before binding, then whether the entry reaches application code.
+    reached: bool,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
     /// Module work's let-go calls (`module_work.rs`, LLP 1146 D2).
@@ -428,6 +430,7 @@ impl Module {
             native_slot: Default::default(),
             plan: None,
             keeps_plan: true,
+            reached: true,
             sigs: HashMap::new(),
             parked: Vec::new(),
             work: Default::default(),
