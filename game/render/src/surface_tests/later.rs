@@ -42,7 +42,7 @@ fn delivered(clock_seekable: bool) -> WorldSurface<Looks, crate::ModelExecutor, 
     }
     s
 }
-fn prepared(s: &WorldSurface<Looks, crate::ModelExecutor, true>) -> Vec<&'static str> {
+fn prepared<G: Game>(s: &WorldSurface<G, crate::ModelExecutor, true>) -> Vec<&'static str> {
     let sim = s.sim().unwrap();
     LOOKS
         .iter()
@@ -167,4 +167,94 @@ fn the_agent_taking_the_clock_prepares_what_waited() {
     assert!(!s.asset_work());
     assert_eq!(prepared(&s).len(), 6, "{:?}", prepared(&s));
     assert!(s.sim().unwrap().device_assets_ready());
+}
+
+/// The die's look changes while the world runs.
+#[derive(Default, exact_game::Args)]
+struct Live {
+    #[live]
+    look: u32,
+}
+struct Switch;
+impl Game for Switch {
+    const ID: &'static str = "switched-looks";
+    type Args = Live;
+    fn setup(w: &mut World, _: &Live) {
+        for (model, texture, _) in LOOKS {
+            let mesh = w.generated_model(model, quad(texture)).unwrap();
+            if model == "red.model" {
+                w.spawn_named("die", (Transform::default(), mesh));
+            }
+        }
+        w.spawn((Transform::at(0., 0., 4.), Camera::default()));
+    }
+    fn tick(w: &mut World, _: &Input, live: &Live) {
+        let model = LOOKS[live.look as usize].0;
+        if !matches!(&*w.require::<Mesh>("die"), Mesh::Asset(name) if name == model) {
+            *w.require_mut::<Mesh>("die") = Mesh::asset(model);
+        }
+    }
+}
+type Switched = WorldSurface<Switch, crate::ModelExecutor, true>;
+/// A live surface past its first frame, the time of that frame.
+fn switched(gpu: &Gpu) -> (Switched, f64) {
+    let mut s = Switched::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[Value::Number(0u32.into())], None).unwrap();
+    s.clock(false);
+    for (_, texture, rgb) in LOOKS {
+        s.asset(texture, Ok(&solid(rgb)));
+    }
+    let mut now = 0.;
+    while s.ready_work.is_none() {
+        assert!(now < 10_000., "a live frame drew");
+        now += 20.;
+        fixture::render(gpu, &mut s, &live(now)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    (s, now)
+}
+
+#[test]
+fn after_the_first_frame_a_look_still_uploading_keeps_the_world_ticking() {
+    let Some(gpu) = gpu() else { return };
+    let (mut s, mut now) = switched(&gpu);
+    // Green's upload is held on the worker.
+    let hold = s.uploads.as_ref().unwrap().hold.clone();
+    hold.store(true, std::sync::atomic::Ordering::Release);
+    s.bind(&[Value::Number(1u32.into())], None).unwrap();
+    let tick = s.sim().unwrap().world().tick();
+    for _ in 0..5 {
+        now += 20.;
+        let (pixels, _) = fixture::render(&gpu, &mut s, &live(now)).unwrap();
+        // The old look stands in (#90) while the frames go on.
+        assert_eq!(hue(&pixels), 0);
+    }
+    assert!(
+        s.sim().unwrap().world().tick() > tick,
+        "the world ticks during the upload"
+    );
+    assert!(!prepared(&s).contains(&"green.tex"));
+    hold.store(false, std::sync::atomic::Ordering::Release);
+    let mut hues = Vec::new();
+    while hues.last() != Some(&1) {
+        assert!(hues.len() < 500, "{hues:?}");
+        now += 20.;
+        hues.push(hue(&fixture::render(&gpu, &mut s, &live(now)).unwrap().0));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn a_replacement_texture_delivered_live_replaces_the_one_drawn() {
+    let Some(gpu) = gpu() else { return };
+    let (mut s, mut now) = switched(&gpu);
+    s.asset("red.tex", Ok(&solid([0, 0, 255])));
+    let mut hues = Vec::new();
+    while hues.last() != Some(&2) {
+        assert!(hues.len() < 500, "the replacement never drew: {hues:?}");
+        now += 20.;
+        hues.push(hue(&fixture::render(&gpu, &mut s, &live(now)).unwrap().0));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }

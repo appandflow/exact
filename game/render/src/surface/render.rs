@@ -194,6 +194,25 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         for (name, result) in prepared {
             sim.asset_prepared(&name, result);
         }
+        // Uploads that finished install first: under the agent's clock every one
+        // sent, so an inline upload of a newer delivery below replaces them.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(uploads) = &mut self.uploads {
+            for (name, result) in uploads.finished(!later.live) {
+                // A name retired since it was sent has nothing to install; a
+                // replacement of one already prepared does (`Uploads` keeps
+                // only each name's latest delivery).
+                if !sim.is_loaded(&name) {
+                    continue;
+                }
+                let result = result.map(|written| {
+                    if !renderer.reactivate_texture(&name, written.digest()) {
+                        renderer.install_texture(&name, written);
+                    }
+                });
+                sim.asset_prepared(&name, result);
+            }
+        }
         // What waits is reconsidered every time, under the presentation and
         // the clock as they are now; a newer delivery of a waiting name replaces it.
         let mut waited = std::mem::take(&mut self.waiting);
@@ -225,21 +244,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 .add_texture(&name, &texture)
                 .map_err(|e| e.to_string());
             sim.asset_prepared(&name, result);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(uploads) = &mut self.uploads {
-            for (name, result) in uploads.finished(!later.live) {
-                // A name retired or prepared since it was sent has nothing to install.
-                if !sim.awaits_preparation(&name) {
-                    continue;
-                }
-                let result = result.map(|written| {
-                    if !renderer.reactivate_texture(&name, written.digest()) {
-                        renderer.install_texture(&name, written);
-                    }
-                });
-                sim.asset_prepared(&name, result);
-            }
         }
         // Closure acceptance can reactivate an identical resident model without
         // uploading it. Publish that activity before compaction considers it.
@@ -338,8 +342,12 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             );
             return sim.assets_pending();
         }
+        // After a live first frame no frame waits: an entity whose model is not
+        // ready keeps its previous look (#90), and the world keeps ticking.
         let ready = if self.seekable {
             sim.device_assets_ready()
+        } else if self.ready_work.is_some() {
+            true
         } else {
             sim.refresh_presented();
             sim.presented_assets_ready()
@@ -651,10 +659,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         let Some(sim) = &mut self.sim else {
             return;
         };
-        sim.refresh_presented();
         if !frame.now_ms.is_finite()
             || sim.is_loading()
-            || (ASSETS && !sim.presented_assets_ready())
+            || (ASSETS && self.ready_work.is_none())
             || self.generation != sim.world().presentation_generation()
         {
             return;

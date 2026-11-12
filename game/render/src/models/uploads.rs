@@ -25,6 +25,9 @@ pub(crate) struct Uploads {
     latest: BTreeMap<String, u64>,
     serial: u64,
     in_flight: usize,
+    /// While set, the worker takes no job: a test's upload still in flight.
+    #[cfg(test)]
+    pub(crate) hold: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Uploads {
@@ -34,10 +37,18 @@ impl Uploads {
         let (jobs, todo) = mpsc::channel::<Job>();
         let (finished, done) = mpsc::channel();
         let (device, queue) = (device.clone(), queue.clone());
+        #[cfg(test)]
+        let hold = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        #[cfg(test)]
+        let held = hold.clone();
         let worker = std::thread::Builder::new()
             .name("exact texture uploads".into())
             .spawn(move || {
                 for job in todo {
+                    #[cfg(test)]
+                    while held.load(std::sync::atomic::Ordering::Acquire) {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
                     let digest = exact_game::hash::of(&job.data);
                     let written =
                         write(&device, &queue, &job.data, digest).map_err(|e| e.to_string());
@@ -54,6 +65,8 @@ impl Uploads {
             latest: BTreeMap::new(),
             serial: 0,
             in_flight: 0,
+            #[cfg(test)]
+            hold,
         })
     }
     /// Queue `data` for `name`. A worker that has stopped hands the texture

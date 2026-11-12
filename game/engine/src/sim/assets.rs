@@ -239,11 +239,10 @@ impl<G: Game> Sim<G> {
     pub fn is_prepared(&self, name: &str) -> bool {
         self.world.assets.prepared.contains(name)
     }
-    /// A delivered name still waiting for its device preparation: what a
-    /// texture finished off the presenting thread may be installed as.
-    pub fn awaits_preparation(&self, name: &str) -> bool {
+    /// Whether `name` is delivered and not retired: what a texture finished
+    /// off the presenting thread may be installed as.
+    pub fn is_loaded(&self, name: &str) -> bool {
         self.world.assets.states.get(name) == Some(&crate::asset::AssetState::Loaded)
-            && !self.world.assets.prepared.contains(name)
     }
     /// Move texture payloads to the renderer; no CPU mip copy survives upload.
     pub fn take_textures(
