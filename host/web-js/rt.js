@@ -845,6 +845,8 @@ export function css(e, prop, unit, v, rendered) {
   const last = e.$css ??= {}, t = cssText(prop, unit, v);
   if (last[prop] === t) return;
   last[prop] = t;
+  // The `animation` shorthand resets the longhands a timeline's consumer writes again after it (LLP 1057.003 D5, timelines.rs `after_shorthand`).
+  if (prop === "animation") for (const p of ["animation-timeline", "animation-range", "animation-play-state"]) delete last[p];
   // An adopted node's inline style is the renderer's: a value it already
   // shows is not written again (a write restyles and repaints the node).
   // (`transparent` is the color the renderer writes as rgba(0, 0, 0, 0).)

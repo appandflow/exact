@@ -73,21 +73,25 @@ test('scroll and view timelines in a plan with no drag timeline show what the br
 }, 120000);
 
 // A bound `animation` whose shorthand the page writes again resets the timeline and the range, which are written
-// again after it: the consumer follows its scroller, not the clock.
+// again after it, from none and from another animation alike: the consumer follows its scroller, not the clock.
 const DYNAMIC = `keyframes fade
   from opacity=0
   to opacity=1
 component App
   state on = false
+  state slow = false
   action toggle
     on = not on
+  action slower
+    slow = not slow
   view
     column
       button "Toggle" press=toggle testId="toggle"
+      button "Slower" press=slower testId="slower"
       column timeline-scope="--t"
         row testId="s" width=200 height=40 overflow-x="auto" overflow-y="hidden" scroll-timeline="--t x"
           view width=800 height=40 flex-shrink=0
-        view testId="c" width=10 height=4 opacity=0.25 animation=(on ? "fade 1s linear both" : "none") animation-timeline="--t" animation-range="0px 300px"
+        view testId="c" width=10 height=4 opacity=0.25 animation=(on ? (slow ? "fade 2s linear both" : "fade 1s linear both") : "none") animation-timeline="--t" animation-range="0px 300px"
 `;
 
 test('a bound animation under a literal timeline and range follows its scroller once the page writes it', async () => {
@@ -100,6 +104,15 @@ test('a bound animation under a literal timeline and range follows its scroller 
     expect(await at(150)).toBeCloseTo(0.5, 3);
     expect(await at(75)).toBeCloseTo(0.25, 3);
     expect(await at(300)).toBeCloseTo(1, 3);
+    // Active to active: another duration, the same timeline and range.
+    await page.click('[data-testid="slower"]');
+    const shown = () => page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('[data-testid="c"]'));
+      return [s.animationDuration, s.animationTimeline, s.animationRangeStart, s.animationRangeEnd];
+    });
+    expect(await shown()).toEqual(['2s', '--t', '0px', '300px']);
+    expect(await at(150)).toBeCloseTo(0.5, 3);
+    expect(await at(30)).toBeCloseTo(0.1, 3);
   } finally { await close(); }
 }, 120000);
 
