@@ -562,10 +562,10 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows] [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows]\n       bun <exact2>/scripts/exact.mjs new <path> --game [--assets]',
     flags: [
-      ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
-      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id); default: com.example.<name>-<hex>'],
+      ['--name <name>', 'app only: the name people see (app.json app.name); default: the path\'s last part, capitalised'],
+      ['--bundle-id <id>', 'app only: the reverse-DNS id (app.json app.id); default: com.example.<name>-<hex>'],
       ['--with <platforms>', 'name native platforms in app.json now (a native verb names its own the first time it runs); repeatable'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
@@ -581,6 +581,8 @@ in app.json the first time it runs and builds in a workspace generated under .ex
 --name and --bundle-id here, before the first build: a later change to the id makes the next build cold
 and leaves the old app installed. Then cd there: its exact.mjs runs everything, and bun exact.mjs help
 lists its verbs. Read docs/start-here-site.md first for a website, else docs/start-here.md.
+A game uses --game without --name or --bundle-id. Set app.name and app.id in its generated app.json
+before the first build.
 Ports    none. Runs to completion.`,
     example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },

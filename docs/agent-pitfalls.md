@@ -2017,6 +2017,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Games
 
+- **`exact new --game` refuses `--name` and `--bundle-id`.** Those flags name an app.
+  Create the game with `exact new <path> --game`, then set `app.name` and `app.id`
+  in its generated `app.json` before the first build. (Camera fixture, 2026-11-12.)
+
 A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
 are in [Pitfalls when writing exact2 games](game-pitfalls.md).
 
