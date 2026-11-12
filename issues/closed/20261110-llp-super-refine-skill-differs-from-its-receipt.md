@@ -1,6 +1,7 @@
 # The installed llp-super-refine skill does not match the hash in the skills receipt
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The receipt was right (it is the `v0.5.2` tag's hash) and the skill was edited here to name current default models, so the receipt now records `llp-super-refine/SKILL.md` as detached and `agents/openai.yaml`, part of no release and read by nothing in `.claude/skills`, is deleted.
 **Systems:** .llp/skills-receipt.json, .claude/skills/llp-super-refine
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
