@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertCapturedContractSources, contractCompiler, installedContractPackage, namesNative, nativePlatforms, sourcePathspec, unrelocatableContractDependency } from './deploy.mjs';
+import { assertCapturedContractSources, contractCompiler, disposeSnapshot, installedContractPackage, materializeSnapshot, namesNative, nativePlatforms, snapshotOf, sourcePathspec, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
 import { pinned } from './test-workspace.mjs';
 const {changedPaths, failures, owners, retainSkippedFailures} = asyncLane;
@@ -252,16 +252,63 @@ afterAll(() => {
   rmSync(fixture, { recursive: true, force: true });
 });
 
-function compilerRoot() {
+function compilerRoot(source = 'fn main() {}\n') {
   const root = mkdtempSync(join(fixture, 'compiler-'));
   mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'Cargo.toml'), '[package]\nname="contract"\nversion="0.1.0"\nedition="2021"\n');
-  writeFileSync(join(root, 'src/main.rs'), 'fn main() {}\n');
+  writeFileSync(join(root, 'src/main.rs'), source);
   pinned(root);
   const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:root, encoding:'utf8'});
   expect(lock.status).toBe(0);
   return root;
 }
+
+test('a deploy snapshot omits the Exact corpus link and still validates application links', () => {
+  const root = mkdtempSync(join(fixture, 'snapshot-'));
+  const exact = join(root, 'exact'), corpus = join(root, 'corpus'), external = join(root, 'app');
+  const compiler = contractCompiler(compilerRoot('fn main() { print!(r#"{{"packages":[],"sources":[],"consulted":[],"errors":[]}}"#); }\n'));
+  const git = (repo, ...args) => {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout;
+  };
+  const write = (name, text) => {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  };
+  write('corpus/design.md', 'private design corpus');
+  write('exact/.gitignore', '/llp\n');
+  write('exact/apps/test/app.contract', 'app Test\n');
+  write('exact/apps/test/assets/llp/input.txt', 'app source');
+  write('app/app.contract', 'app External\n');
+  write('app/llp/input.txt', 'external app source');
+  for (const repo of [exact, external]) {
+    git(repo, 'init', '-q');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid', 'commit', '-qm', 'fixture');
+  }
+  symlinkSync(corpus, join(exact, 'llp'), 'dir');
+  expect(git(exact, 'check-ignore', 'llp').trim()).toBe('llp');
+  for (const dir of [join(exact, 'apps/test'), external]) {
+    const app = { name: 'test', dir, workspace: dir === external ? external : exact, manifest: {} };
+    const snapshot = snapshotOf(app, { compiler }, exact);
+    try {
+      expect(snapshot.dirty).toBe(false);
+      const captured = materializeSnapshot(snapshot, join(root, 'run'), app);
+      expect(readdirSync(captured.exactRoot)).not.toContain('llp');
+      const input = dir === external ? 'llp/input.txt' : 'assets/llp/input.txt';
+      expect(readFileSync(join(captured.app.dir, input), 'utf8')).toBe(dir === external ? 'external app source' : 'app source');
+    } finally { disposeSnapshot(snapshot); }
+  }
+  rmSync(join(external, 'llp'), { recursive: true });
+  writeFileSync(join(external, '.gitignore'), '/llp\n');
+  git(external, 'add', '-A');
+  git(external, '-c', 'user.name=Exact Test', '-c', 'user.email=exact@example.invalid', 'commit', '-qm', 'ignore app link');
+  symlinkSync(corpus, join(external, 'llp'), 'dir');
+  const app = { name: 'test', dir: external, workspace: external, manifest: {} };
+  expect(() => snapshotOf(app, { compiler, dirty: true }, exact)).toThrow(/symlink llp.*escapes the captured source repositories/);
+}, 30000);
 
 test('Contract discovery builds in the selected private Cargo target', () => {
   const root = compilerRoot(), target = mkdtempSync(join(fixture, 'cargo-target-'));

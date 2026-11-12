@@ -96,7 +96,7 @@ function canonicalPath(path) {
     return parent === absolute ? absolute : resolve(canonicalPath(parent), basename(absolute));
   }
 }
-/** Only actual build outputs are absent from a source snapshot: explicit root paths, not recursive basename patterns
+/** A source snapshot omits build outputs and Exact's design corpus at explicit roots, not recursive basename patterns
  * (`assets/dist/a.png` and `fixtures/target/input.rs` remain inputs when the app carries them). */
 export function sourcePathspec(repo, app, exactRoot) {
   const workspace = canonicalPath(app.workspace ?? app.dir);
@@ -104,7 +104,7 @@ export function sourcePathspec(repo, app, exactRoot) {
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
     canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'), resolve(app.dir, '.shells'),
-    resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), ...dist.map((name) => resolve(exactRoot, 'host/web', name)),
+    resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'llp'), ...dist.map((name) => resolve(exactRoot, 'host/web', name)),
     resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
   // Each game owns generated products. A sibling app's cache is no more
@@ -336,7 +336,7 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
     addCapturedPaths(source.repo, env, [...committed, ...present], true, 'could not capture tracked and untracked source');
     // Gitignore is not a source/output declaration: build.rs or another
     // committed tool can read beneath an ignored directory. Capture every
-    // ignored file except the precise generated roots in sourcePathspec.
+    // ignored file except the precise roots in sourcePathspec.
     const ignored = gitText(source.repo, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--',
       ...pathspec], 'could not inventory ignored source inputs').split('\0').filter((path) => path && allowed(path));
     addCapturedPaths(source.repo, env, ignored, true, 'could not capture ignored source inputs');
@@ -369,8 +369,8 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
 }
 
 /** The snapshot (LLP 1030.000 D3 item 1): capture every repository and every
- * dirty source byte the bake can read. Ignored files are source too unless
- * they are under a precise generated-output root. */
+ * dirty source byte the bake can read. Ignored files are source too, outside
+ * the precise roots sourcePathspec excludes. */
 export function snapshotOf(app, opts, exactRoot = ROOT) {
   app.prepare?.(true);
   const compiler = opts.compiler ? resolve(opts.compiler) : contractCompiler(exactRoot);
