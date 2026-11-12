@@ -2179,8 +2179,8 @@ fn determine_hypothetical_cross_size(
     available_space: Size<AvailableSpace>,
 ) {
     for child in line.items.iter_mut() {
-        // EXACT PATCH 54: retain Patch 50's content floor, transferring the
-        // used height rather than the preferred height (Flexbox §9.4).
+        // EXACT PATCH 54: transfer the used height (Flexbox §9.4). The
+        // content probe keeps height bounds when the preferred height is auto.
         if constants.is_column {
             if let Some(width) = crate::compute::ratio::minimum_ratio_width(
                 tree, child.node, constants.node_inner_size, Some(child.target_size.height),
