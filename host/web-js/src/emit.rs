@@ -1121,7 +1121,7 @@ impl Em<'_> {
             // A surface the app's GPU module draws (the build names them)
             // goes to it; any other is a Canvas 2D surface, drawn by the data module and replayed by the web host's own glue.
             let name = plan.str(sf.name);
-            let gpu = gpu_surfaces().iter().any(|s| s == name);
+            let gpu = commands::gpu_surfaces().iter().any(|s| s == name);
             let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
             if !gpu {
                 // Positional values, their declared types where known, and
@@ -1487,16 +1487,4 @@ impl Em<'_> {
         }
         Ok(())
     }
-}
-
-/// The surfaces the app's GPU modules draw, as the build read them from
-/// their compiled registries (`EXACT_JS_GPU_SURFACES`, comma-separated;
-/// host/web-js/build.mjs).
-fn gpu_surfaces() -> Vec<String> {
-    std::env::var("EXACT_JS_GPU_SURFACES")
-        .unwrap_or_default()
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect()
 }

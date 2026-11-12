@@ -94,3 +94,15 @@ pub(super) fn locale_slot(plan: &Plan, body: &mut String, slot: impl std::fmt::D
         let _ = write!(body, "$localeSlot(s_{slot});");
     }
 }
+
+/// The surfaces the app's GPU modules draw, as the build read them from
+/// their compiled registries (`EXACT_JS_GPU_SURFACES`, comma-separated;
+/// host/web-js/build.mjs).
+pub(super) fn gpu_surfaces() -> Vec<String> {
+    std::env::var("EXACT_JS_GPU_SURFACES")
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
