@@ -276,6 +276,107 @@ export const answer = () => value as never;
   }
 }, 30000);
 
+test('web validation drops unused package exports before refusing their environment reads', () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/web-unused-exports-'));
+  const pkg = resolve(dir, 'node_modules/debug-helper'), out = resolve(dir, 'dist');
+  try {
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Unused', app: { id: 'test.unused', name: 'Unused' } }));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    column\n      text message\n      canvas surface=spark() width=10 height=10\n');
+    writeFileSync(resolve(pkg, 'package.json'), JSON.stringify({ name: 'debug-helper', version: '1.0.0', type: 'module', exports: './index.js', types: './index.d.ts' }));
+    writeFileSync(resolve(pkg, 'index.js'), 'export const debug = () => import.meta.env.DEBUG;\n');
+    writeFileSync(resolve(pkg, 'index.d.ts'), 'export declare const debug: () => string;\n');
+    const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', dir, '--out', out, '--render', 'none'],
+      { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+    const base = "export const grants = '';\nexport const surfaces = { spark: 0 };\nexport const draw = () => false;\n";
+    writeFileSync(resolve(dir, 'app.ts'), base + "export const answer = () => 'ready';\nexport { debug } from 'debug-helper';\n");
+    const built = build();
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    expect(readFileSync(resolve(out, 'app.js'), 'utf8')).not.toContain('import.meta.env');
+    for (const source of [
+      base + 'export const answer = () => debug();\n',
+      base.replace('() => false', '() => !!debug()') + "export const answer = () => 'ready';\n",
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), "import { debug } from 'debug-helper';\n" + source);
+      const refused = build();
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('debug-helper@1.0.0 (index.js:1:28) reads import.meta.env');
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
+
+test('the web build resolves drawing exports through the module graph', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..');
+  const dir = mkdtempSync(resolve(root, 'target/web-js-exports-')), out = resolve(dir, 'dist');
+  const base = "export const grants = '';\nexport const answer = () => 'answer';\n";
+  const contract = 'component App\n  resource message = message() as shape string\n  view\n    column\n      text message\n';
+  const optional = "import type { Draw } from './app.contract.d.ts';\n"
+    + "export const surfaces = { spark: 0 };\nexport const draw: Draw = (_surface, _args, ctx) => { ctx.fillRect(0, 0, 1, 1); return false; };\n";
+  const build = () => spawnSync(process.execPath, ['host/web-js/build.mjs', dir, '--out', out, '--render', 'none'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Optional', app: { id: 'test.optional', name: 'Optional' }, rust: false }));
+    writeFileSync(resolve(dir, 'app.contract'), contract + '      canvas surface=spark() width=10 height=10\n');
+    writeFileSync(resolve(dir, 'optional.ts'), optional);
+    writeFileSync(resolve(dir, 'drawing.cjs'), "exports.surfaces = { spark: 0 }; exports.draw = (_surface, _args, ctx) => { ctx.fillRect(0, 0, 1, 1); return false; };");
+    for (const declaration of [
+      "export * from './optional';",
+      "export { draw, surfaces } from './optional';",
+      "import * as made from './optional'; export var draw = made.draw, surfaces = made.surfaces;",
+      "import * as made from './optional'; export const { draw, surfaces } = made;",
+      "export\n{ draw, surfaces } from './optional';",
+      "export { draw } from './drawing.cjs'; export * from './drawing.cjs';",
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), base + declaration);
+      const built = build();
+      expect(built.status, declaration + '\n' + built.stdout + built.stderr).toBe(0);
+      expect(readFileSync(resolve(out, '.gen/draw.js'), 'utf8')).toContain("export { drawer }");
+    }
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      return new Response(Bun.file(resolve(out, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('canvas');
+      return canvas?.getContext('2d').getImageData(0, 0, 1, 1).data[3] === 255;
+    });
+    expect(await page.locator('body').innerText()).toContain('answer');
+    writeFileSync(resolve(dir, 'app.contract'), contract);
+    writeFileSync(resolve(dir, 'helper.cjs'), 'exports.helper = 1;');
+    for (const declaration of [
+      "/* export function draw() {} */\n// export const surfaces = {};\n",
+      "export * from './helper.cjs';",
+      "export type { draw, surfaces } from './optional';",
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), base + declaration);
+      const absent = build();
+      expect(absent.status, absent.stdout + absent.stderr).toBe(0);
+      expect(readFileSync(resolve(out, '.gen/draw.js'), 'utf8')).toContain('drawer = null');
+    }
+    for (const declaration of ["export { draw } from './optional';", "export { surfaces } from './optional';"]) {
+      writeFileSync(resolve(dir, 'app.ts'), base + declaration);
+      const refused = build();
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('exports `draw` and `surfaces` together');
+    }
+    // A `draw` that is not a function fails the type check, as the native bake's seam does.
+    writeFileSync(resolve(dir, 'app.contract'), contract + '      canvas surface=spark() width=10 height=10\n');
+    writeFileSync(resolve(dir, 'number.ts'), 'export const surfaces = { spark: 0 };\nexport const draw = 42;\n');
+    for (const declaration of ['export var draw = 42; export var surfaces = { spark: 0 };', "export * from './number';"]) {
+      writeFileSync(resolve(dir, 'app.ts'), base + declaration);
+      const refused = build();
+      expect(refused.status, declaration + '\n' + refused.stdout + refused.stderr).toBe(1);
+      expect(refused.stderr).toContain('not assignable');
+    }
+  } finally { await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true }); }
+}, 60000);
+
 test('a mount whose own tsconfig.json extends a file outside it builds for the web', () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..');

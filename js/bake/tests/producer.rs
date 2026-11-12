@@ -1493,3 +1493,6 @@ fn windows_imported_packages_keep_identity_through_real_bakes() {
 
 #[path = "producer/widgets.rs"]
 mod widgets;
+
+#[path = "producer/exports.rs"]
+mod exports;

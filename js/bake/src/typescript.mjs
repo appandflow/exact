@@ -7,6 +7,7 @@
 // It reads only captured configuration; the producer owns the stage.
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
 import { resolve, relative, dirname, basename, join, sep, isAbsolute, toNamespacedPath } from 'node:path';
@@ -1276,6 +1277,53 @@ function sourceNames(stage,diagnostics) {
 // (not an RSS cap); explicit user settings always win.
 const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
 
+/** Value exports of the configured module namespace, including CommonJS re-exports. */
+export async function valueExports(stage, libraries) {
+  const module = resolve(stage, 'app.ts');
+  const compiler = createRequire(resolve(libraries, 'tsc')).resolve('typescript/unstable/async');
+  const { API } = await import(pathToFileURL(compiler).href);
+  const api = new API({ cwd: stage });
+  try {
+    const config = resolve(stage, '__exact_tsconfig.json');
+    const snapshot = await api.updateSnapshot({ openProjects: [config] });
+    try {
+      const { program, checker } = snapshot.getProject(config);
+      checkFiles(stage, libraries, await program.getSourceFileNames());
+      const file = await program.getSourceFile(module);
+      const type = await checker.getTypeAtLocation(file);
+      return (await checker.getPropertiesOfType(type)).map(symbol => symbol.name);
+    } finally { await snapshot.dispose(); }
+  } finally { await api.close(); }
+}
+
+/** Select the native canvas seam before checking or bundling, so CommonJS namespaces cannot retain an unused recorder. */
+export async function prepareCanvas(stage, libraries) {
+  const path = resolve(stage, '__exact_entry.ts'), before = readFileSync(path, 'utf8');
+  const marker = '// __exact_canvas_entry\n';
+  if (!before.includes(marker)) return;
+  const exported = await valueExports(stage, libraries);
+  const draws = exported.includes('draw');
+  if (draws !== exported.includes('surfaces'))
+    throw new Error('app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)');
+  const entry = draws ? `import { canvasSeam } from './__exact_canvas.js';
+export const abi = 2;
+export const surfacesJson = JSON.stringify(app.surfaces);
+const seam = canvasSeam(app.draw);
+export const drawCanvas = (request: string, host?: unknown): string => seam.draw(JSON.parse(request), host);
+export const retireCanvases = (retired: string): void => seam.retire(JSON.parse(retired));
+` : 'export const abi = 1;\n';
+  writeFileSync(path, before.replace(marker, entry));
+}
+
+function checkFiles(stage, libraries, files) {
+  stage = realpathSync.native(stage);
+  libraries = realpathSync.native(libraries);
+  const allowed = path => within(path, stage) || (within(path, libraries) && configuredLibrary(relative(libraries, path)));
+  for (const path of files) {
+    if (path && !allowed(realpathSync.native(path))) throw new Error('module outside captured app: ' + path);
+  }
+}
+
 /** Type-check a configured stage with the native compiler `tsc` (whose
  * standard libraries are in `libraries`): its diagnostics, or the compiler's
  * actual resolved graph, type-only imports included, must stay inside the
@@ -1286,8 +1334,6 @@ export function check(stage, tsc, libraries) {
   // TypeScript expands Windows short paths; compare the same physical names
   // for the capture, libraries and files, including directory junctions.
   stage=realpathSync.native(stage);
-  libraries=realpathSync.native(libraries);
-  const allowed = path => within(path,stage) || (within(path,libraries) && configuredLibrary(relative(libraries,path)));
   // A package's JavaScript entry (`typescript/bin/tsc`, an `EXACT_TSC`
   // override) keeps its Node shebang: run it through Bun, as the one-shot
   // producer runs its tools (js/bake/src/lib.rs `run`).
@@ -1306,9 +1352,8 @@ export function check(stage, tsc, libraries) {
         const refusal=mutationFailure ? "\nnote: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: 'YOUR_CODE', message: 'Explain the refusal'}) instead. Annotate successful helpers with Result<'source'>, or keep ok:true literal with `as const`.\n" : '';
         return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
-      for(const path of stdout.trim().split(/\r?\n/)) {
-        if(path && !allowed(realpathSync.native(path)))return fail(new Error('module outside captured app: '+path));
-      }
+      try { checkFiles(stage, libraries, stdout.trim().split(/\r?\n/)); }
+      catch (error) { return fail(error); }
       done();
     }));
 }

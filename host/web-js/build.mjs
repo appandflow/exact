@@ -242,20 +242,9 @@ const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
 // An image's pictures in the browser's floating window, loaded on first use (commands.js, LLP 1042 §9).
 cpSync(resolve(here, 'picture-in-picture.js'), resolve(gen, 'picture-in-picture.js'));
-const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
-// A Rust module says whether it draws only when it loads (canvas2d.js says so then); with none, a surface no GPU module
-// registers and app.ts does not draw would stay blank.
-if (canvas2d && !rust && !tsDraws && gpuSurfaces) {
-  const names = readFileSync(resolve(gen, 'canvas2d.flag'), 'utf8').split('\n').filter(Boolean);
-  console.error(`${app}: nothing draws the canvas surface${names.length === 1 ? '' : 's'} ${names.join(', ')}: ${existsSync(gpuLib) ? `the GPU module registers ${gpuSurfaces.join(', ') || 'no surface'}` : 'the app has no GPU module'}, and ${ts ? 'app.ts exports no `draw`' : 'it has no data source to draw on Canvas 2D'}`);
-  process.exit(1);
-}
 // The checked capture of app.ts and what it imports (typecheck, below): the
 // page and its server render bundle it, never the app's own directory.
 const tsStage = resolve(realpathSync(gen), 'typescript'), pageAppTs = resolve(tsStage, 'app.ts');
-if (tsDraws) writeFileSync(resolve(gen, 'ts-draw.js'), readFileSync(resolve(here, 'ts-draw.js'), 'utf8').replace('__APP_TS__', pageAppTs).replace('__RECORDER__', resolve(root, 'canvas/recorder.js')));
-if (tsDraws) writeFileSync(resolve(gen, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
-writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-draw.js';\n" : 'export const drawer = null;\n');
 // `exactTime`: the runner's reserved source (runner/src/time.rs), answered
 // before the app's, as the web host tells the wasm runner (navigation.js).
 // The whole map: its type strings hold braces, so a source sorted before it
@@ -307,7 +296,7 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // builds is one every host builds, refused with the same diagnostics (calc
 // F2, calendar F9/F11). The type check runs while the page bundles; the
 // build waits for it at the end. The capture is the module's one graph: its
-// syntax answers appId, grants and the exports (`staticFacts`), and the page
+// syntax answers appId and grants (`staticFacts`), its bundle the exports, and the page
 // and server bundles replay its resolutions (`replayCaptured`): no app or
 // package code runs in this process. Under `--data` (a conformance fixture's synthetic plan over
 // another app's sources) it is captured but not checked: against the
@@ -328,11 +317,9 @@ if (checkOnly) {
 // Each setting app.ts read, as inlined, and its source (`configure`; LLP 1153 D4).
 if (ts) for (const line of settingLines(JSON.parse(readFileSync(resolve(tsStage, '__exact_env.json'), 'utf8')))) console.log(line);
 async function typecheck(checking) {
-  const { configure, check, capturedSources, staticFacts, CODE_WARNINGS } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, capturedSources, staticFacts, valueExports, CODE_WARNINGS } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
-  const source = readFileSync(appTs, 'utf8');
-  let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
-  if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(source)) declarations += readFileSync(resolve(root, 'js/bake/src/canvas-types.d.ts'), 'utf8');
+  const declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
   // Beside app.ts too, for an editor, as the native development bake writes
   // it: never a captured source, written only when it changes, and said in
   // one line, as `exact.mjs contract build` says it (LLP 1116.001 D4.5).
@@ -375,12 +362,13 @@ async function typecheck(checking) {
   capture(appDir, stage, true);
   for (const [name, dir] of mounts) capture(dir, resolve(stage, name), false);
   writeFileSync(resolve(stage, 'app.contract.d.ts'), declarations);
-  // The bake's generated entry (js/bake/src/lib.rs `bake_in`, `OPTIONAL_ENTRY`), less the
-  // Canvas 2D seam, which adds no type the module must meet.
+  // The bake's optional data exports (js/bake/src/lib.rs `OPTIONAL_ENTRY`).
+  // The web host supplies its own Canvas 2D seam.
   const optional = "import type { Overlay } from './app.contract.d.ts';\ntype Optional<K extends string> = K extends keyof typeof app ? (typeof app)[K] : undefined;\nexport const overlay: Overlay | undefined = (app as { overlay?: unknown }).overlay as Optional<'overlay'>;\nexport const tools = (app as { tools?: unknown }).tools as Optional<'tools'>;\n";
   // The app's id is app.json's; app.ts need not name it, and one it names is checked against it below.
   const id = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
-  writeFileSync(resolve(stage, '__exact_entry.ts'), `import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = (app as unknown as { appId?: string }).appId ?? ${JSON.stringify(id)};\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n` + optional);
+  writeFileSync(resolve(stage, '__exact_entry.ts'), `import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = (app as unknown as { appId?: string }).appId ?? ${JSON.stringify(id)};\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n` + optional
+    + "export const draw: ((surface: string, args: any, ctx: any, frame: any) => unknown) | undefined = (app as { draw?: unknown }).draw as Optional<'draw'>;\nexport const surfaces = (app as { surfaces?: unknown }).surfaces as Optional<'surfaces'>;\n");
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts, target: 'web' }));
   writeFileSync(resolve(stage,'__exact_backend_source.json'), JSON.stringify(readFileSync(resolve(stage,'app.ts'),'utf8')));
   const real = realpathSync(stage);
@@ -424,6 +412,7 @@ async function typecheck(checking) {
     const errors = [failed, ...why.map(line => new Error(line)), await typed].filter(Boolean);
     throw Object.assign(new Error(errors.map(e => e.message ?? String(e)).join('\n')), { warnings });
   }
+  const exported = await valueExports(real, libraries);
   // The packages whose code it captured are inputs the dev loop watches, as
   // their declarations are: each package's tree, and each place it is
   // installed (a link retargeted, or a reinstall, is an edit there).
@@ -435,8 +424,19 @@ async function typecheck(checking) {
     sources.shallow = [...(sources.shallow ?? []), ...packages.flatMap(([, , installed]) => installed.map(path => [dirname(path), basename(path)]))];
     writeFileSync(listed, JSON.stringify(sources));
   }
-  return { facts: staticFacts(readFileSync(resolve(real, 'app.ts'), 'utf8'), parseSync), typed, warnings };
+  return { facts: { ...staticFacts(readFileSync(resolve(real, 'app.ts'), 'utf8'), parseSync), exported }, typed, warnings };
 }
+const tsDraws = canvas2d && captured?.facts.exported.includes('draw');
+// A Rust module says whether it draws only when it loads (canvas2d.js says so then); with none, a surface no GPU module
+// registers and app.ts does not draw would stay blank.
+if (canvas2d && !rust && !tsDraws && gpuSurfaces) {
+  const names = readFileSync(resolve(gen, 'canvas2d.flag'), 'utf8').split('\n').filter(Boolean);
+  console.error(`${app}: nothing draws the canvas surface${names.length === 1 ? '' : 's'} ${names.join(', ')}: ${existsSync(gpuLib) ? `the GPU module registers ${gpuSurfaces.join(', ') || 'no surface'}` : 'the app has no GPU module'}, and ${ts ? 'app.ts exports no `draw`' : 'it has no data source to draw on Canvas 2D'}`);
+  process.exit(1);
+}
+if (tsDraws) writeFileSync(resolve(gen, 'ts-draw.js'), readFileSync(resolve(here, 'ts-draw.js'), 'utf8').replace('__APP_TS__', pageAppTs).replace('__RECORDER__', resolve(root, 'canvas/recorder.js')));
+if (tsDraws) writeFileSync(resolve(gen, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
+writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-draw.js';\n" : 'export const drawer = null;\n');
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
   writeFileSync(file, spec);
