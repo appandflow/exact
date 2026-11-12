@@ -98,6 +98,8 @@ component App
   resource id = token() as shape string
   resource session = session() as shape string
   resource both = both() as shape string
+  resource live = connect(id) as shape string
+  resource watched = watch(session) as shape string
   mutation signedIn as shape Flag
 
   action signIn
@@ -108,6 +110,8 @@ component App
       text id testId="id"
       text session testId="session"
       text both testId="both"
+      text live testId="live"
+      text watched testId="watched"
 "#;
 
 /// Counts each source's asks; `signIn` keeps a secret.
@@ -137,6 +141,7 @@ impl DataSource for Writer {
                 store.observe_entropy();
                 store.get("session");
             }
+            "connect" | "watch" => {}
             "signIn" => {
                 store.set("session", "ada")?;
                 return Ok(Answer::Now(Value::record(vec![Value::Bool(true)])));
@@ -151,10 +156,25 @@ impl DataSource for Writer {
     }
 }
 
+/// Each source's asks, in `WRITES`' order.
+fn asks(r: &mut Runner<Writer>) -> [u32; 5] {
+    ["token", "session", "both", "connect", "watch"]
+        .map(|s| r.data().asks.get(s).copied().unwrap_or(0))
+}
+
+/// After `signIn` keeps a secret: who was asked again.
+fn sign_in(r: &mut Runner<Writer>) -> [u32; 5] {
+    let before = asks(r);
+    r.act("signIn", vec![]).unwrap();
+    let after = asks(r);
+    std::array::from_fn(|i| after[i] - before[i])
+}
+
 /// D2, "Asking again": a draw does not make a resource ask again, so a write
-/// to the store asks again the resources that read it, and not one that only
-/// drew randomness (expo/exact#54: Convex's socket, which draws its session
-/// id, was opened again by every sign-in).
+/// to the store asks again the resources that read it, directly or through
+/// their arguments, and not one that only drew randomness or took an argument
+/// derived from a draw (expo/exact#54: Convex's socket, which draws its
+/// session id, was opened again by every sign-in).
 #[test]
 fn a_store_write_asks_again_what_read_the_store_not_what_only_drew() {
     let plan = contract::bake(contract::compile(WRITES).unwrap(), Writer::default()).unwrap();
@@ -166,15 +186,34 @@ fn a_store_write_asks_again_what_read_the_store_not_what_only_drew() {
         "/",
     )
     .unwrap();
-    let asks = |r: &mut Runner<Writer>| {
-        ["token", "session", "both"].map(|s| r.data().asks.get(s).copied().unwrap_or(0))
-    };
-    let before = asks(&mut r);
-    r.act("signIn", vec![]).unwrap();
-    let after = asks(&mut r);
-    assert_eq!(after[0], before[0], "a draw alone is not asked again");
-    assert_eq!(after[1], before[1] + 1, "a store reader is");
-    assert_eq!(after[2], before[2] + 1, "and so is one that drew and read");
-    // Still the device's: bake keeps no value for it.
+    // token (drew), session (read), both (drew and read), connect(id), watch(session).
+    assert_eq!(sign_in(&mut r), [0, 1, 1, 0, 1]);
+    // Still the device's: bake keeps no value for either.
     assert!(r.resource_draws_entropy("id") && r.resource_reads_store("id"));
+    assert!(r.resource_reads_store("live"));
+}
+
+/// The same after a reload: what each reader's last ask read is carried.
+#[test]
+fn a_reload_carries_which_readers_only_drew() {
+    let plan = contract::bake(contract::compile(WRITES).unwrap(), Writer::default()).unwrap();
+    let r = Runner::boot(
+        plan.clone(),
+        Writer::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let mut reloaded = Runner::boot_carrying(
+        plan,
+        Writer::default(),
+        Kernel::with_monospace(),
+        &r.carry(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(asks(&mut reloaded), [0; 5], "every answer was carried");
+    assert_eq!(sign_in(&mut reloaded), [0, 1, 1, 0, 1]);
 }

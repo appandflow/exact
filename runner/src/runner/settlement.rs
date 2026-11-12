@@ -719,7 +719,9 @@ impl<D: DataSource> Runner<D> {
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
                     self.resources[i].store_reader |= store_dependent;
-                    self.resources[i].contents_reader |= store_dependent;
+                    if store_dependent && self.args_read_contents(i) {
+                        self.resources[i].contents_reader = true;
+                    }
                     let forced = force.contains(&i);
                     let refreshed = forced || refreshing.contains(&i);
                     self.forget_refused(i, &args);

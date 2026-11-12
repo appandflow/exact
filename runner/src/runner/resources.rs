@@ -16,8 +16,11 @@ pub(crate) struct ResourceRow {
     /// Once randomness was drawn, even by a refused call, bake cannot keep an answer.
     pub(super) entropy_reader: bool,
     /// It read what the store holds (a secret, a file, a database, an
-    /// argument derived from a reader), not only randomness.
+    /// argument derived from such a reader), not only randomness.
     pub(super) contents_reader: bool,
+    /// `contents_reader` is known: it was asked in this run, or a reload
+    /// carried what its last ask read.
+    pub(super) reads_known: bool,
     /// Topics watched by this answer; an announcement asks this row again.
     pub(super) watching: Vec<String>,
     /// A stand-in waiting for its source to become ready.
@@ -42,13 +45,44 @@ impl<D: DataSource> Runner<D> {
         (0..self.resources.len()).map(|i| self.resource_row(i))
     }
 
-    /// Whether a change to the store asks resource `i` again: it read the
-    /// store, and not only by drawing randomness, since a draw asks nothing
-    /// again (LLP 1069.005 D2). A reader the plan or a carry marked, not yet
-    /// asked in this run, counts as one that read.
+    /// Whether a change to the store asks resource `i` again: it read what
+    /// the store holds, directly or through its arguments, and not only
+    /// randomness, since a draw asks nothing again (LLP 1069.005 D2). A
+    /// reader the plan marked, whose reads are not yet known, counts as one
+    /// that read.
     pub(super) fn asks_on_store_change(&self, i: usize) -> bool {
         let row = &self.resources[i];
-        row.store_reader && (row.contents_reader || !row.entropy_reader)
+        row.store_reader && (row.contents_reader || !row.reads_known)
+    }
+
+    /// Whether resource `i`'s arguments read, directly or through derives, a
+    /// resource a store change asks again: then so must `i`. Its arguments'
+    /// provenance otherwise came from randomness alone (`id = token()`,
+    /// `live = connect(id)`). Every read the arguments could make counts.
+    pub(super) fn args_read_contents(&self, i: usize) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let mut work: Vec<_> = (self.resource_row(i).args.iter())
+            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+            .collect();
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if r != i && self.asks_on_store_change(r) =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
     }
 
     /// What an ask of resource `i` read, from the store's counts before it:
@@ -61,5 +95,6 @@ impl<D: DataSource> Runner<D> {
         row.store_reader |= reads > 0;
         row.entropy_reader |= draws > 0;
         row.contents_reader |= reads > draws;
+        row.reads_known = true;
     }
 }

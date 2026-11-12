@@ -769,6 +769,16 @@ impl<D: DataSource> Runner<D> {
                         }))
             })
             .collect();
+        // What each carried reader's last ask read (LLP 1069.005 D2): whether
+        // a store change asks it again.
+        let read_contents: Vec<Option<bool>> = (plan.resources.iter())
+            .map(|resource| {
+                let (name, source) = (plan.str(resource.name), plan.str(resource.source));
+                (carried.filter(|_| same_logic)?.read_contents.iter())
+                    .find(|(reader, origin, _)| reader == name && origin == source)
+                    .map(|(_, _, contents)| *contents)
+            })
+            .collect();
         let router = match links.router {
             Some(routing) => routing(&plan)?,
             None => None,
@@ -796,8 +806,11 @@ impl<D: DataSource> Runner<D> {
             derives: Vec::new(),
             resources: store_readers
                 .into_iter()
-                .map(|store_reader| resources::ResourceRow {
+                .zip(read_contents)
+                .map(|(store_reader, contents)| resources::ResourceRow {
                     store_reader,
+                    contents_reader: contents.unwrap_or(false),
+                    reads_known: contents.is_some(),
                     ..Default::default()
                 })
                 .collect(),
