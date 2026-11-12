@@ -1,6 +1,7 @@
 # `difftest corpus --js-only` fails two cases on its own driver: a command linked from commands.js runs instead of being recorded, and a select's `value` reads empty
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed before this closing by 38497349 (the driver's fallback proxy ignores the boot's assignment of a linked command) and bfa769b4 (the render DOM reads a select's `value` from its selected option); `corpus --js-only` now agrees on both cases.
 **Systems:** semantics/difftest/js/drive.mjs, host/web-js/dom.js, scripts/async.mjs (the `difftest-js` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
