@@ -319,7 +319,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
             window.titlebarAppearsTransparent = !view.hasWindowToolbar
             window.titleVisibility = view.hasWindowToolbar ? .visible : .hidden
-            window.backgroundColor = session.pageBackground
+            // A translucent page draws no canvas: the window's own shows through it.
+            let page = session.pageBackground
+            window.backgroundColor = page.alphaComponent > 0 ? page : .windowBackgroundColor
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
         } else {
             // A sidebar runs the window's full height, under the title bar

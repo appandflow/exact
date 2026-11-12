@@ -10,8 +10,11 @@ import AppKit
 import AVFoundation
 
 extension ExactSession {
-    /// The page's canvas colour (the first root's background): what a
-    /// full-size-content window paints behind its titlebar.
+    /// The page's canvas colour as the view draws it: the first root's
+    /// background, or the window background when it has none. It is clear
+    /// when the root's background is translucent: the view then draws no
+    /// canvas, and the containing app's views show behind the page (LLP
+    /// 1031 D3). A full-size-content window paints it behind its titlebar.
     public var pageBackground: NSColor { presenter.pageBackground }
 }
 
