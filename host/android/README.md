@@ -617,14 +617,14 @@ is the `EditText`'s to say: when the kernel measures a text control's text it as
 nothing), and on Android that calls up into the reader, from the thread layout runs on, and has the answer before
 it returns:
 
-    Fields.measure(size px, weight, flags, tracking em, line px, font file, text, width px): Long
+    Fields.measure(size px, weight, flags, tracking em, line px, font file, axes, features, text, width px): Long
 
 An `EditText` of that thread's own, never attached, is set as the field is (no background, no padding, no font
-padding, the field's size, weight, slant, tracking, line height and face) and measured; the answer is its width,
-height and first baseline in pixels. A single line is as long as its text; a `textarea` wraps at the width
-offered. Each distinct question is asked once (a form of twenty fields in one font asks two). It is no request (D5):
-that queue is taken after the frame. The container's own insets are still the painter's (its border and padding,
-`field_chrome`); the `EditText` has none.
+padding, the field's size, weight, slant, tracking, line height, face, axes and OpenType features) and measured;
+the answer is its width, height and first baseline in pixels. A single line is as long as its text; a `textarea`
+wraps at the width offered. Each distinct question is asked once (a form of twenty fields in one font asks two).
+It is no request (D5): that queue is taken after the frame. The container's own insets are still the painter's
+(its border and padding, `field_chrome`); the `EditText` has none.
 
 **What exact2 tells** (`Native.fields(): IntArray?`, null while nothing changed; taken with each stream, before the
 stream is drawn). A count, then for each live field, in tree order:
@@ -647,8 +647,11 @@ stream is drawn). A count, then for each live field, in tree order:
   `caret-color` or `accent-color` winning); its font's size in pixels, weight, tracking and line height (the
   computed font, whose own starting size is 16 by the device's font scale); and the revision, start and end of
   the selection a command last set (`setSelectionRange`, `select()`);
-- four strings: its placeholder, its `autocomplete`, its font's file and its axes (`'wght' 650, 'wdth' 75`;
-  empty for none).
+- five strings: its placeholder, its `autocomplete`, its font's file, its axes (`'wght' 650, 'wdth' 75`;
+  empty for none), and its effective OpenType features (`'tnum' 1`). The features combine
+  `font-variant-numeric` and `font-variant-ligatures` with `font-feature-settings`, whose values win for tags
+  they name. Measurement and displayed fields use the same features; an empty features string clears
+  `fontFeatureSettings`, restoring the font's defaults.
 
 A field a statement leaves out is gone, and its view with it. A field that was not painted (its row is out of the
 page's view) keeps its view, its focus and its keyboard, out of sight.

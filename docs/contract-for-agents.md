@@ -808,12 +808,11 @@ where appropriate. Digits alone do not align decimals; do not pad with spaces or
 misleading zeroes.
 
 Supported for ordinary text on macOS, iOS, tvOS, Linux, Windows, Android and both
-web targets, including prerendered pages. Exceptions:
+web targets, including prerendered pages, and for Android's native `input` and
+`textarea`. Exceptions:
 
 - **Terminal:** ordinary digits already occupy equal-width cells. Explicit
   `font-variant-numeric` settings are currently rejected.
-- **Android editable fields:** unsupported on native `input` and `textarea`;
-  they keep their font's default digits.
 - **Native buttons:** unsupported. Keep their typography; use separate `text`
   for a readout. This property also does not style Canvas/GPU drawing or native hatches.
 - **Text wrapping around shapes on web:** a paragraph using `tabular-nums` skips

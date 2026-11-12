@@ -1124,9 +1124,10 @@ the face's own.
 `font-variant-ligatures` turns the face's ligatures on or off, as CSS does:
 `none` keeps a ligating font such as Fira Code from joining `://` or `->` in an
 address or code, and the other keywords (`no-contextual`,
-`discretionary-ligatures`, …) name one kind each. Text fields take it too. A
-terminal draws no ligatures; Android's native text fields, UIKit's grouped list
-cells and content regions keep the font's own; widgets and the watch refuse it.
+`discretionary-ligatures`, …) name one kind each. Text fields take it too,
+including Android's native fields. A terminal draws no ligatures; UIKit's
+grouped list cells and content regions keep the font's own; widgets and the
+watch refuse it.
 
 Any other OpenType feature of the face is set by tag, as CSS sets it:
 `font-feature-settings="'cv05', 'cv11', 'zero'"` draws Inter's tailed `l`,
@@ -1140,8 +1141,8 @@ feature of the same tag (`cv05` is a different letter in each face). Up to
 sixteen features are named in one value.
 It applies after `font-variant-numeric` and `font-variant-ligatures` and wins
 for a feature it names, so `'tnum' 0` undoes `tabular-nums`; prefer those
-properties where they say it. It reaches text and text fields where
-`font-variant-ligatures` does.
+properties where they say it. It reaches text and text fields, including
+Android's native fields, where `font-variant-ligatures` does.
 
 ## Input, events, and commands
 
