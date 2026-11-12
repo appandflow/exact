@@ -1078,9 +1078,10 @@ public final class ExactSession {
         advanceIfDue()
     }
 
-    /// The appearance reports a landing held back (`holdingReports`), asked
-    /// once the batch the owner made before them has applied or skipped.
+    /// The reports a landing holds back (`holdingReports`) until the batches made before them apply: the controls' measured sizes, so the frame shows them (#134),
+    /// then the appearance's. The sizes also wait for slices still to land, whose older layout would apply over theirs; a size is reported only once.
     private func drainReports() {
+        if !holdingReports, !(landing && hasPublished()) { presenter.controls.reportMeasured() }
         if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
         while !holdingReports, !pendingViewDark.isEmpty {
             let (id, dark) = pendingViewDark.removeFirst()
@@ -1175,7 +1176,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            presenter.controls.reportMeasured(); drainReports() // the controls' sizes before the batch's frame shows
+            drainReports()
             presenter.collections.flush()
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
