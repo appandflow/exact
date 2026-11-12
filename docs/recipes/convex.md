@@ -4,8 +4,7 @@
 shows in every query it changes, in one commit, with nothing polled. Install:
 `EXACT_APP_DIR=$PWD bun <exact2>/scripts/exact.mjs add convex`, `bun add convex`,
 then `npx convex dev`, Convex's own. The rest (errors, tokens, tests, the HTTP
-client): `bun exact.mjs docs convex live queries`, which prints that section
-of `docs/contract-for-agents.md`. A whole app: `apps/mosaic`.
+client): `bun exact.mjs docs convex live queries`. A whole app: `apps/mosaic`.
 
 ```ts
 import { convex, ConvexFailure } from '@exact/convex';
@@ -64,8 +63,7 @@ component Chat
 - **Shape a result in the same call,** `cx.query`'s fourth argument: `(b) => ({
   tiles: b.cells.map(…) })`. An `async` wrapper makes every change a pending
   frame.
-- **A person's token:** `cx.setAuth(jwt)` in a mutation's source, after any
-  `fetch` it awaits, never before one in the same turn (the runner refuses
-  that mutation). Renew it from a task before it expires.
+- **`cx.setAuth(jwt)`** in a mutation's source, after any `fetch` it awaits,
+  never before one (the runner refuses that mutation).
 - **A drive against a real deployment** takes a new `--seed` each
   launch, or Convex answers the second launch's writes without running them.
