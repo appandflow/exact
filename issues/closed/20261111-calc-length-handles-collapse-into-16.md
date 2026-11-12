@@ -1,6 +1,7 @@
 # Calc length handles collapse into 16 engine-style hash buckets on 64-bit hosts
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `engine_hash` hashes a calc length's whole handle, so distinct calc lengths fall in distinct buckets.
 **Systems:** kernel/src/shared_style.rs, kernel/src/style/handles.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
