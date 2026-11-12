@@ -5199,6 +5199,36 @@
       "translate",
       "character.bubble",
       "m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"
+    ],
+    [
+      "bag",
+      "bag",
+      "M5 8h14v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8ZM9 8V6.5a3 3 0 0 1 6 0V8"
+    ],
+    [
+      "bag-fill",
+      "bag.fill",
+      "M4 8h16v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8ZM8 8V6.5a4 4 0 0 1 8 0V8h-2V6.5a2 2 0 0 0-4 0V8Z"
+    ],
+    [
+      "phone",
+      "phone",
+      "M5 4h3.5l1.5 4-2 1.5a11 11 0 0 0 6.5 6.5l1.5-2 4 1.5V19a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"
+    ],
+    [
+      "smartphone",
+      "iphone",
+      "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM10.5 5h3"
+    ],
+    [
+      "article",
+      "doc.plaintext",
+      "M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM8.5 8h7M8.5 12h7M8.5 16h4"
+    ],
+    [
+      "radio",
+      "radio",
+      "M4 9h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM6 9l12-5M10.5 14.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM14 13h4M14 16h4"
     ]
   ],
   "symbolAliases": [
@@ -5445,6 +5475,30 @@
     [
       "smiley",
       "emoji"
+    ],
+    [
+      "shopping-bag",
+      "bag"
+    ],
+    [
+      "local-mall",
+      "bag"
+    ],
+    [
+      "call",
+      "phone"
+    ],
+    [
+      "local-phone",
+      "phone"
+    ],
+    [
+      "phone-iphone",
+      "smartphone"
+    ],
+    [
+      "phone-android",
+      "smartphone"
     ]
   ],
   "symbolGlyphs": [

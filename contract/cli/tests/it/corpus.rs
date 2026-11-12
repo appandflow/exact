@@ -38,6 +38,12 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         "cart",
         "sort",
         "filter",
+        "bag",
+        "bag-fill",
+        "phone",
+        "smartphone",
+        "article",
+        "radio",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
