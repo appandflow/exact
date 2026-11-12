@@ -1,6 +1,7 @@
 # The LLP reader's "newest" order lists each sub-document above its parent, indented under the document before it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** "Newest" reverses the groups of documents that share a top-level number rather than the rows, so each parent comes first and is followed by its own sub-documents in number order.
 **Systems:** apps/llp/data (lib.rs), apps/llp (app.contract)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
