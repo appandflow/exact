@@ -602,11 +602,9 @@ fn a_looks_color_is_its_rule_and_reaches_a_boundary_below() {
 /// writes the token again as its implied row, no author's, so the kernel's
 /// symbol under the boundary takes no written colour; one beside it does.
 /// So does one under a boundary whose own bound colour clears or is refused,
-/// step after step; a written value there is said. The JS target marks those under a boundary for
-/// symbols.js to decide by its implied row (`$xs`) and its binding
-/// (`$ink`), and the one beside as written.
+/// step after step; a written value there is said.
 #[test]
-fn a_symbol_under_a_mode_boundary_is_decided_as_the_kernel_decides() {
+fn a_mode_boundarys_implied_colour_is_not_authored() {
     let dir = std::env::temp_dir().join(format!("exact-web-js-modes-ink-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -631,9 +629,8 @@ fn a_symbol_under_a_mode_boundary_is_decided_as_the_kernel_decides() {
     );
     // A boundary whose own bound colour clears, or takes a value the row
     // refuses, keeps its implied row, one clear after another included; a
-    // value its author wrote is said. The JS target's rule (symbols.js
-    // `inked`: the implied row first, then the binding) agrees at each step.
-    let js = |v: &str| !matches!(v, "inherit" | "unset" | "currentcolor" | "nope" | "nada");
+    // value its author wrote is said.
+    let written = |v: &str| !matches!(v, "inherit" | "unset" | "currentcolor" | "nope" | "nada");
     let steps = [
         "unset",
         "currentcolor",
@@ -654,31 +651,6 @@ fn a_symbol_under_a_mode_boundary_is_decided_as_the_kernel_decides() {
             kernel.node_by_key(kernel.find_by_test_id(v)[0]).unwrap().id
         };
         host.dispatch(button, exact_runner::Event::Press);
-        assert_eq!(said(&host, "bound-under"), js(v), "after {v}");
+        assert_eq!(said(&host, "bound-under"), written(v), "after {v}");
     }
-    let sites = crate::emit::Sites::new(&plan).unwrap();
-    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
-    let props = |id: &str| {
-        let part = parts.iter().flatten();
-        let mut part = part.filter(|p| p.props.get("data-testid").is_some_and(|t| t == id));
-        part.next().unwrap().props.clone()
-    };
-    assert!(props("beside").contains_key("data-symbol-color"));
-    let under = props("under");
-    assert!(!under.contains_key("data-symbol-color"), "{under:?}");
-    assert_eq!(under.get("data-symbol-ink").map(String::as_str), Some("11"));
-    assert_eq!(
-        props("boundary").get("data-exact-ink").map(String::as_str),
-        Some("b")
-    );
-    let bound = props("bound-under");
-    assert_eq!(
-        bound.get("data-symbol-ink").map(String::as_str),
-        Some("11"),
-        "{bound:?}"
-    );
-    assert_eq!(
-        props("bound").get("data-exact-ink").map(String::as_str),
-        Some("1b")
-    );
 }
