@@ -1,6 +1,7 @@
 # `history` lists a merged branch's design edits twice; the protocol says first-parent only
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `designLog` walks the log with `--first-parent`, as the protocol says, so a merged branch's design edit is listed once, in the merge, and the walk and each commit's comparison use the same parent.
 **Systems:** scripts/tamber-history.mjs, docs/tamber-protocol.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
