@@ -502,7 +502,11 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     // Calculate child baselines. This function is internally smart and only computes child baselines
     // if they are necessary.
     debug_log!("calculate_children_base_lines");
-    calculate_children_base_lines(tree, known_dimensions, available_space, &mut flex_lines, &constants);
+    let laid_out_children = calculate_children_base_lines(tree, known_dimensions, available_space, &mut flex_lines, &constants);
+    // EXACT PATCH 72: the cached final layout no longer describes these children.
+    if run_mode == RunMode::ComputeSize && laid_out_children {
+        tree.invalidate_final_layout(node);
+    }
 
     // 8. Calculate the cross size of each flex line.
     debug_log!("calculate_cross_size");
@@ -2299,14 +2303,15 @@ fn calculate_children_base_lines(
     available_space: Size<AvailableSpace>,
     flex_lines: &mut [FlexLine],
     constants: &AlgoConstants,
-) {
+) -> bool {
     // Only compute baselines for flex rows because we only support baseline alignment in the cross axis
     // where that axis is also the inline axis
     // TODO: this may need revisiting if/when we support vertical writing modes
     if !constants.is_row {
-        return;
+        return false;
     }
 
+    let mut laid_out_children = false;
     for line in flex_lines {
         // If a flex line has one or zero items participating in baseline alignment then baseline alignment is a no-op so we skip
         let line_baseline_child_count =
@@ -2321,6 +2326,7 @@ fn calculate_children_base_lines(
                 continue;
             }
 
+            laid_out_children = true;
             let measured_size_and_baselines = tree.compute_child_layout(
                 child.node,
                 LayoutInput {
@@ -2372,6 +2378,7 @@ fn calculate_children_base_lines(
             child.baseline = baseline + child.margin.top;
         }
     }
+    laid_out_children
 }
 
 /// Calculate the cross size of each flex line.
