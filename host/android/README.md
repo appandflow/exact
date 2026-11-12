@@ -901,7 +901,8 @@ Not built of D10:
   `alertdialog` today, so the two cannot be told apart (LLP 1115.000 D13.4).
 - The arrow keys reach a surface; nothing else of D7.6's hardware keys is built for the page.
 
-Not seen on a phone: Shelf itself (it has no `android/` crate; the fixture uses its shapes); an `alertdialog`
+Not checked on a phone in this menu/dialog qualification: Shelf itself (its Android crate is
+`apps/shelf/android`; the fixture uses its shapes); an `alertdialog`
 written as a popover, and an `aria-checked` row (neither is in a test either); a font scale changed with a menu
 open; rotation with a surface open; a second display; TalkBack. The dialog's width between
 its limits is the window less 24 dp a side, which was not compared with a Compose dialog on the same phone, and no
