@@ -101,7 +101,9 @@ enum DateValue {
         switch kind {
         case "date": return date.date(from: s)
         case "time": return time.date(from: s) ?? seconds.date(from: String(s.prefix(8)))
-        default: return local.date(from: s) ?? localSeconds.date(from: String(s.prefix(19)))
+        default:
+            let value = s.replacingOccurrences(of: " ", with: "T")
+            return local.date(from: value) ?? localSeconds.date(from: String(value.prefix(19)))
         }
     }
 
