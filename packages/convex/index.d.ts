@@ -53,7 +53,8 @@ export interface ConvexClient {
    *  when the socket is not open (nothing is sent), when Convex refuses the token (its words; the mutation did not
    *  run), and when the socket closes first (it may have run). */
   mutation<M extends Reference<'mutation'>>(ref: M, args: ArgsOf<M>): Promise<ReturnOf<M>>;
-  /** An action: its result. It rejects as a mutation does. */
+  /** An action: its result, as soon as Convex has it; the queries may show what it wrote a moment later. It rejects
+   *  as a mutation does. */
   action<A extends Reference<'action'>>(ref: A, args: ArgsOf<A>): Promise<ReturnOf<A>>;
   /** The person's token (a JWT the deployment is configured to accept), or `undefined` signed out. Call it in a
    *  mutation's source; in an `async` one it may follow an `await`. From a plain `.then` callback its send throws on the web.
@@ -66,5 +67,6 @@ export interface ConvexClient {
   inspect(): { queries: { id: number; udfPath: string; sent: boolean; answered: boolean }[]; requests: number };
 }
 
-/** A client for the deployment at `address` (its `CONVEX_URL`), over `functions`, Convex's own. */
+/** A client for the deployment at `address` (its `CONVEX_URL`, or the same origin as a socket's, `wss:` or `ws:`), over
+ *  `functions`, Convex's own. */
 export declare function convex(address: string, functions: ConvexFunctions, options?: ConvexOptions): ConvexClient;

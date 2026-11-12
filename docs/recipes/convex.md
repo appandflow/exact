@@ -4,7 +4,8 @@
 shows in every query it changes, in one commit, with nothing polled. Install:
 `EXACT_APP_DIR=$PWD bun <exact2>/scripts/exact.mjs add convex`, `bun add convex`,
 then `npx convex dev`, Convex's own. The rest (errors, tokens, tests, the HTTP
-client): `bun exact.mjs docs convex live queries`. A whole app: `apps/mosaic`.
+client): `bun exact.mjs docs convex live queries`, which prints that section
+of `docs/contract-for-agents.md`. A whole app: `apps/mosaic`.
 
 ```ts
 import { convex, ConvexFailure } from '@exact/convex';
@@ -12,8 +13,9 @@ import { getFunctionName } from 'convex/server';
 import { convexToJson, jsonToConvex } from 'convex/values';
 import { api } from './convex/_generated/api';
 
-// The deployment twice, literally: its URL, and its origin as a socket's.
-const CONVEX = 'https://happy-otter-123.convex.cloud';
+// The deployment twice, literally (a grant is a constant): `convex()` takes its
+// URL or, as here, the origin the grant names.
+const CONVEX = 'wss://happy-otter-123.convex.cloud';
 export const grants = 'net.websocket wss://happy-otter-123.convex.cloud';
 
 const cx = convex(CONVEX, { getFunctionName, convexToJson, jsonToConvex });

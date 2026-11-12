@@ -950,6 +950,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   no mutation as the wrong person meanwhile (`bun exact.mjs docs convex live
   queries`). (expo/exact#54, 2026-11-12.)
 
+- **An upload of a picked file under the agent fails only when it runs.** The
+  `pick` succeeds, and the upload's `exactBodyFrom app:/…` fails with `storage
+  is unavailable in agent mode unless the drive names a scratch store`: a
+  picked file is a copy in app storage, which a web drive has only with
+  `--storage <name>`. Fix: name one on any drive that uploads what it picks.
+  (expo/exact#54, 2026-11-12.)
+
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement

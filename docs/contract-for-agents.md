@@ -1509,10 +1509,14 @@ remain unimplemented. The existing native capabilities still advertise
 Google active requests and the Apple/passkey combination. A combined `publicKey` and passive `identity` call still belongs to
 passkeys; this Apple-only path does not implement it (LLP 1133.014 D10).
 
-### Convex live queries (`@exact/convex`)
+### Convex live queries
 
-The `convex` recipe is the code; this is what it leaves out (LLP 1157).
+The `convex` recipe is the code for `@exact/convex`; this is what it leaves
+out (LLP 1157).
 
+- **The deployment's address.** `convex(address, …)` takes its `CONVEX_URL`
+  (`https:`) or the same origin as a socket's (`wss:`), so one build-time
+  setting can name both it and the `net.websocket` grant.
 - **`live.status`.** `connecting`, `open`, `ready` (results have arrived),
   `closed` (the socket ended or never opened: refresh `live`, as the recipe's
   `retry` does) or `failed` (Convex said something this client cannot follow;
@@ -1541,6 +1545,9 @@ The `convex` recipe is the code; this is what it leaves out (LLP 1157).
   Convex refuses the token (an expired one), it closes the socket, and what it
   had not answered rejects with its words, as `live.authError` has them: it
   did not run.
+- **An action's reply** arrives as soon as Convex has it, and the queries may
+  show what it wrote a moment later: a mutation's reply waits for them, an
+  action's does not. A view that reads both can show them out of step.
 - **A person's token.** `cx.setAuth(jwt)` in a mutation's source, with a JWT
   the deployment accepts (its `auth.config.ts`); `cx.setAuth(undefined)` signs
   out. In an `async` source it may follow an `await`; in a plain `.then`
