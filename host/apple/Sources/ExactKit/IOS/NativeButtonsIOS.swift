@@ -19,6 +19,10 @@ final class NativeButtonIOS: UIButton {
         get { placedAccessibilityFrame ?? super.accessibilityFrame }
         set { super.accessibilityFrame = newValue }
     }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     weak var owner: NodeView?
     override init(frame: CGRect) {
         super.init(frame: frame)

@@ -32,7 +32,10 @@ final class EmptyDateElement: UIAccessibilityElement, AgentOwned {
         set {}
     }
     override var accessibilityActivationPoint: CGPoint {
-        get { native.map(\.accessibilityActivationPoint) ?? CGPoint(x: accessibilityFrame.midX, y: accessibilityFrame.midY) }
+        get {
+            guard let native else { return CGPoint(x: accessibilityFrame.midX, y: accessibilityFrame.midY) }
+            return picker?.placedScreenPoint(native.accessibilityActivationPoint) ?? native.accessibilityActivationPoint
+        }
         set {}
     }
     override var accessibilityIdentifier: String? { get { (native as? UIAccessibilityIdentification)?.accessibilityIdentifier } set {} }

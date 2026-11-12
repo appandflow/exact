@@ -21,6 +21,10 @@ class ExactCheckbox: UIControl {
         get { placedAccessibilityFrame ?? super.accessibilityFrame }
         set { super.accessibilityFrame = newValue }
     }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var ariaUnavailable = false { didSet { if ariaUnavailable != oldValue { updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }

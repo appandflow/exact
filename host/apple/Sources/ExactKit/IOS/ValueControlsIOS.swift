@@ -14,6 +14,10 @@ private final class SelectButtonIOS: UIButton {
         get { placedAccessibilityFrame ?? super.accessibilityFrame }
         set { super.accessibilityFrame = newValue }
     }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     var valueAlignment = UIControl.ContentHorizontalAlignment.left {
         didSet { if oldValue != valueAlignment { setNeedsLayout() } }
     }

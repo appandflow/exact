@@ -36,6 +36,21 @@ extension UIView {
         return UIAccessibility.convertToScreenCoordinates(owner.drawnRect(owner.convert(bounds, from: self), in: window), in: window)
     }
 
+    /// `point`, a point on screen as UIKit's view tree has it (an element's
+    /// activation point UIKit computed), where the surface draws it; nil when
+    /// this view is not inside a placed canvas child.
+    func placedScreenPoint(_ point: CGPoint) -> CGPoint? { placedScreenRect(CGRect(origin: point, size: .zero))?.origin }
+
+    /// Where VoiceOver taps this view, inside a placed canvas child: UIKit's
+    /// own point (`native`), mapped through the placement unless UIKit took
+    /// it from the frame this view already maps (its default, the frame's
+    /// midpoint). VoiceOver's synthesized tap there is mapped back to the view
+    /// by the canvas's hit test.
+    func placedActivationPoint(from native: CGPoint) -> CGPoint? {
+        guard let frame = placedAccessibilityFrame else { return nil }
+        return frame.contains(native) ? native : placedScreenPoint(native)
+    }
+
     /// `rect`, a box on screen as UIKit's view tree has it (an element's
     /// frame UIKit computed), where the surface draws it; nil when this view
     /// is not inside a placed canvas child.
@@ -98,6 +113,13 @@ final class PlacedElement: UIAccessibilityElement, AgentOwned {
         }
         set {}
     }
+    override var accessibilityActivationPoint: CGPoint {
+        get {
+            guard let native else { return .zero }
+            return control?.placedScreenPoint(native.accessibilityActivationPoint) ?? native.accessibilityActivationPoint
+        }
+        set {}
+    }
     override var accessibilityIdentifier: String? { get { (native as? UIAccessibilityIdentification)?.accessibilityIdentifier } set {} }
     override var accessibilityCustomActions: [UIAccessibilityCustomAction]? { get { native?.accessibilityCustomActions } set {} }
     override func accessibilityActivate() -> Bool { native?.accessibilityActivate() ?? false }
@@ -137,6 +159,10 @@ final class ExactSwitch: UISwitch {
     override var accessibilityFrame: CGRect {
         get { placedAccessibilityFrame ?? super.accessibilityFrame }
         set { super.accessibilityFrame = newValue }
+    }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
     }
 }
 #endif

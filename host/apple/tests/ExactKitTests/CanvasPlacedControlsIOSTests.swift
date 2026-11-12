@@ -81,11 +81,12 @@ final class CanvasPlacedControlsIOSTests: XCTestCase {
         let toggle = ExactSwitch(), check = ExactCheckbox(frame: CGRect(x: 10, y: 60, width: 30, height: 30))
         toggle.frame.origin = CGPoint(x: 10, y: 10)
         let stepper = FieldStepper(), segments = LabelledSegmentedControl(items: ["One", "Two"])
+        stepper.sizeToFit(); segments.sizeToFit()
         stepper.frame.origin = CGPoint(x: 10, y: 110)
         segments.frame.origin = CGPoint(x: 10, y: 160)
         let field = TextField(frame: CGRect(x: 10, y: 210, width: 200, height: 30))
         field.placeholder = "Name"
-        for control in [toggle, check, stepper, segments, field] as [UIView] { card.addSubview(control) }
+        for control in [toggle, check, stepper, segments, field] as [UIView] { card.addSubview(control); control.layoutIfNeeded() }
         d.frame()
         XCTAssertNil(card.placement)
         let unplaced = try voiceOver(d.window).map(\.accessibilityFrame)
@@ -103,6 +104,8 @@ final class CanvasPlacedControlsIOSTests: XCTestCase {
         for (leaf, before) in zip(leaves, unplaced) {
             XCTAssertEqual(leaf.accessibilityFrame.minX, before.minX + shift, accuracy: 0.5, "\(leaf) at its placed frame")
             XCTAssertEqual(leaf.accessibilityFrame.minY, before.minY, accuracy: 0.5)
+            // VoiceOver's double tap lands where the leaf is drawn, which the canvas maps back to it.
+            XCTAssertTrue(leaf.accessibilityFrame.contains(leaf.accessibilityActivationPoint), "\(leaf) is activated where it is drawn")
         }
         let parts = leaves.compactMap { $0 as? PlacedElement }
         XCTAssertEqual(parts.count, 4, "a stepper's two buttons and the two segments stand in: \(leaves)")
@@ -113,6 +116,37 @@ final class CanvasPlacedControlsIOSTests: XCTestCase {
         XCTAssertNil(card.placement)
         XCTAssertEqual(try voiceOver(d.window).map(\.accessibilityFrame), unplaced, "left in place again, UIKit's own frames and elements")
         XCTAssertNil(try voiceOver(d.window).first { $0 is PlacedElement })
+    }
+
+    /// An empty date picker's own elements (`EmptyDateElement`) stand in for
+    /// UIKit's at the frame the surface draws them at, and VoiceOver's tap
+    /// lands there too, which the canvas maps back to the picker.
+    func testAnEmptyDatePickerInsideAPlacedChildIsActivatedWhereItIsDrawn() throws {
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's VoiceOver traversal needs its accessibility runtime") }
+        let d = try deck("canvas-placed-empty-date")
+        defer { d.session.destroy() }
+        let p = d.session.presenter
+        let card = node(101, p, CGRect(x: 0, y: 0, width: 300, height: 300), in: d.overlay)
+        let picker = BoundDatePicker()
+        picker.preferredDatePickerStyle = .compact
+        picker.datePickerMode = .date
+        picker.frame = CGRect(x: 10, y: 10, width: 200, height: 40)
+        card.addSubview(picker)
+        picker.empty = true
+        picker.layoutIfNeeded()
+        d.frame()
+        let before = try voiceOver(d.window).compactMap { $0 as? EmptyDateElement }
+        XCTAssertFalse(before.isEmpty, "the empty picker's own elements")
+        let unplaced = before.map(\.accessibilityActivationPoint)
+        placesFirst = true
+        d.frame()
+        let after = try voiceOver(d.window).compactMap { $0 as? EmptyDateElement }
+        XCTAssertEqual(after.count, before.count)
+        for (element, was) in zip(after, unplaced) {
+            XCTAssertEqual(element.accessibilityActivationPoint.x, was.x + CGFloat(controlsShift), accuracy: 0.5, "tapped where it is drawn")
+            XCTAssertEqual(element.accessibilityActivationPoint.y, was.y, accuracy: 0.5)
+            XCTAssertTrue(element.accessibilityFrame.contains(element.accessibilityActivationPoint))
+        }
     }
 
     /// A long press inside a placed child lifts a picture of the screen
