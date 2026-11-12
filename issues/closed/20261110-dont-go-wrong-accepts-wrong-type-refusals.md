@@ -1,6 +1,7 @@
 # `dont_go_wrong` counts the runtime's own wrong-type refusals as legitimate
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The checks at a derive, a slot written and a slot initialized report a value that is not even `typed` as `Err.type` (`unfit`), so `dont_go_wrong` now proves, from the body's and initializer's typing, that for a checked program they refuse only a number that is not finite; the docstring's `unsupported` list names what the semantics leaves out today.
 **Systems:** semantics/Contract/StepSound.lean, semantics/Contract/BootSound.lean, semantics/README.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
