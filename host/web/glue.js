@@ -2,7 +2,7 @@ import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popove
 import { send, applyBatch } from "./wasm/commit.js";
 import { positionContexts, contextPanel } from "./wasm/context.js";
 import { syncViewportFit } from "./wasm/views.js";
-import { boot, loadRust, main } from "./wasm/boot.js";
+import { boot, loadRust, main, reportColors } from "./wasm/boot.js";
 import { agentInputReady, agent, agentSettled } from "./wasm/agent.js";
 // @ref LLP 1007 §3: the wasm DOM host and its live session state.
 export const host = {};
@@ -484,7 +484,8 @@ const resizeRunner = () => {
   }
 };
 // The window's `resize` comes here alone: the page's facts follow the size, never before it.
-const mediaChanged = () => {
+const mediaChanged = (event) => {
+  if (event?.media?.startsWith("(prefers-contrast:")) reportColors();
   resizeRunner();
   pageChanged();
   requestAnimationFrame(positionContexts);
