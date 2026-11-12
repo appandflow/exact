@@ -3477,7 +3477,10 @@ it as unsupported); the agent lists the items as
 
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+`Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`.
+The id is an element's `id`, not its `testId`: a literal id no element in the view
+has answers `unavailable` on every host, and the build warns (`lower-geometry-id`).
+`frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, through
 every `translate`, `rotate` and `scale` on it and above it (the bounding box of a
 turned box), with every scroll offset above it (the page's too) applied, so a drop
