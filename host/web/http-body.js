@@ -229,6 +229,25 @@ export function longPollRefusal(op, method, body) {
   if (typeof sameCursorEvent !== 'boolean') return 'exactLongPoll.sameCursor is "heartbeat" or "event"';
   return null;
 }
+// `url` with query parameter `name` set to `value`, where it is or else appended, every other
+// pair kept byte for byte, as the native hosts' `with_query_value` does
+// (host/apple/src/executor_longpoll.rs). `URLSearchParams.set` would re-serialise the whole
+// query as a form: `/` as `%2F`, `%20` as `+`, a bare `flag` as `flag=`.
+const unreserved = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+// A pair's name decoded as a form's is (`+` a space); a serialised URL's query is ASCII.
+const pairName = (pair) => new TextDecoder().decode(Uint8Array.from(pair.split('=', 1)[0].matchAll(/%[0-9A-Fa-f]{2}|[^]/g), ([c]) => c.length === 3 ? parseInt(c.slice(1), 16) : c === '+' ? 32 : c.charCodeAt(0)));
+function setQueryValue(url, name, value) {
+  const pair = `${unreserved(name)}=${unreserved(value)}`;
+  let found = false;
+  const parts = url.search.slice(1).split('&').filter(Boolean).flatMap((p) => {
+    if (pairName(p) !== name) return [p];
+    if (found) return [];
+    found = true;
+    return [pair];
+  });
+  if (!found) parts.push(pair);
+  url.search = parts.join('&');
+}
 export async function readLongPoll(op, init, limit, message, controller, admits) {
   const encoder = new TextEncoder(), { cursor, from, sameCursorEvent } = op.longPoll;
   const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
@@ -290,7 +309,7 @@ export async function readLongPoll(op, init, limit, message, controller, admits)
             if (controller.signal.aborted) return aborted();
             replied();
             message({ event: '', id: next, data: text, coalesced: 0, received: performance.now() });
-            url.searchParams.set(cursor, next);
+            setQueryValue(url, cursor, next);
             continue;
           }
         }
