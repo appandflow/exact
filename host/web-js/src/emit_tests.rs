@@ -45,6 +45,18 @@ fn keep_mounted_is_a_list_option_read_again() {
     assert!(js.contains("keep:()=>"), "{js}");
 }
 
+/// LLP 1070 as amended for #226 — a row list's estimate and gap are list
+/// options read again as they change, and its height may be computed.
+#[test]
+fn a_row_lists_estimate_and_gap_are_list_options_read_again() {
+    let source = "component App\n  state w = 100\n  state g = 14\n  view\n    list virtualized=true display=\"flex\" height=(w * 1.3) overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=w gap=g\n      for x in [1, 2] key=x\n        text `${x}` width=w\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("est:()=>s_0()"), "{js}");
+    assert!(js.contains("gap:()=>s_1()"), "{js}");
+}
+
 #[test]
 fn list_measurements_read_parent_body_inputs_and_outer_frames() {
     let source = "component App\n  state ids = [1, 2]\n  state h = 32\n  view\n    list virtualized=true height=200\n      for x in ids key=x\n        text `${x}` height=(h + ids.length)\n";

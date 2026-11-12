@@ -453,8 +453,9 @@ none of it.
 A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
-a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap` and `justify-content` other than `flex-start`. Padding along the list's
+a positive `height` in points, literal or computed, takes `estimated-item-width`
+(literal or computed) and CSS's `gap` between its cards, and refuses
+`justify-content` other than `flex-start`. Padding along the list's
 axis is room before the first row and after the last, as in CSS: a length or an
 `env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
 below its `padding-top`, so a header laid over that padding does not hide it. A

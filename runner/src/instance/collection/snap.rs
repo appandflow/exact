@@ -110,7 +110,7 @@ impl Tree {
                 continue;
             }
             let start = origin + list.index.prefix(position).unwrap();
-            let size = list.index.height(position).unwrap();
+            let size = list.index.height(position).unwrap() - list.index.item_gap();
             // Only the row root contributes an unmounted target. Descendant
             // snap areas and layout-dependent displacement require row layout,
             // which this bounded read does not perform.
