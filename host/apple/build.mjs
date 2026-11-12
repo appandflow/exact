@@ -332,7 +332,7 @@ export const SIMULATOR_PREFIX = 'SIMULATORX';
 
 /** The App Clip `host.ios.appClip` declares, or null: its bundle id (`<app id>.Clip`, as Xcode names one), its
  * name (the app's) and the executable's name. An App Clip is an app (LLP 1126 D12): the clip bundle runs the whole
- * app's executable under this second identity, so nothing here is a target of its own. */
+ * app under this second identity, using the same executable target. */
 export const appClip = (app) => {
   const clip = app.manifest.host?.ios?.appClip;
   if (!clip) return null;
@@ -977,6 +977,8 @@ async function main(args, lockHeld = false) {
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
   const product = products[0];
+  const simulatorClip = ios && !device && !tv ? appClip(app) : null;
+  if (simulatorClip) products.push('ExactClip');
   // The scratch is shared by every app of this destination (appleArtifacts);
   // `linkRoot` is this app's own, for what names it.
   const linkRoot = paths.scratch;
@@ -986,6 +988,8 @@ async function main(args, lockHeld = false) {
   if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-')); cleanup.push(binDir);
+  // A Clip's executable name may also be its parent's or a sample host's.
+  const clipBin = simulatorClip ? resolve(mkdtempSync(resolve(binDir, '.clip-')), simulatorClip.executable) : null;
   const intents = tv ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
@@ -1216,7 +1220,8 @@ async function main(args, lockHeld = false) {
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        entitled = entitlements({...app, widgetTV: tv, widgetHost: p === 'ExactHostIOS', id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true, distributed: distribution });
+        const owner = p === 'ExactClip' ? { id: simulatorClip.id, clipParent: app.id } : { id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id };
+        entitled = entitlements({...app, ...owner, widgetTV: tv, widgetHost: p === 'ExactHostIOS'}, null, true, appleReach, { simulator: true, distributed: distribution });
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         // Written only when it differs: the early build may be reading it.
         if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);
@@ -1230,7 +1235,7 @@ async function main(args, lockHeld = false) {
       // The early build was this one's when nothing it linked from has changed.
       if (!(same && linkedEarly && p === sole)) runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
       writeFileSync(linked, from);
-      const executable = resolve(binDir, p === product ? paths.executable : p);
+      const executable = p === 'ExactClip' ? clipBin : resolve(binDir, p === product ? paths.executable : p);
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id, shared && resolve(shared.framework, 'ExactCore'));
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
@@ -1238,7 +1243,7 @@ async function main(args, lockHeld = false) {
       const launchCapabilities = ios ? swiftCapabilities : swiftCapabilities.filter(name => name !== 'ExactNumerals');
       assertCapabilityFrameworks(executable, gallery ? [...launchCapabilities, 'ExactSnapshot'] : launchCapabilities, [...appleLaunchFrameworks(destination, p), ...(gallery ? ['SwiftUI', 'WidgetKit'] : [])]);
       stripped = stripProductionExecutable(executable, { production, ipa });
-      if (stripped && !ipa) console.log(`host/apple: symbols: ${p === product ? resolve(paths.products, basename(stripped.dsym)) : `${basename(stripped.dsym)}, beside the host product`} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
+      if (stripped && !ipa) console.log(`host/apple: symbols: ${p === 'ExactClip' ? resolve(paths.products, relative(binDir, stripped.dsym)) : p === product ? resolve(paths.products, basename(stripped.dsym)) : `${basename(stripped.dsym)}, beside the host product`} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
     }
     if (launchPartsDir) { auditLaunchParts(resolve(swiftBinDir, 'ExactLaunchParts.o'), launchModules(app.dir, app.manifest), read); }
   } finally { releaseSwift(); }
@@ -1333,7 +1338,7 @@ async function main(args, lockHeld = false) {
     return;
   }
 
-  const { bundles, frameworkSymbols } = assembleIOS({intents, shared, library, serviceDylibs, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
+  const { bundles, frameworkSymbols } = assembleIOS({intents, shared, library, serviceDylibs, triple: iosTripleFor(app, device, tv), app, paths, binDir, bin, clipBin, device, development, appleReach, tv, bakedCompat, bakedPlan, ipa, linkRoot, swiftc, buildReceipt, rosterKeys, sdkName, production, distribution, stampSdk, libDir, gpuArtifacts, looseArms, modulesBuilt, modulesLoadName, hasSvg, svgBuilt, svgLoadName, svgFilterBuilt, svgFilterLibraryName, canvasGpuBuilt, canvasGpuLoadName, args, unsigned, prof, ph, sha1, composition, destination, target, sdk, hasGpu, dylib, alarm: ios && !tv ? alarmActivity(packages) : null}, bundleTools);
   publishProducts();
   release();
   if (!ipa && frameworkSymbols.count) console.log(`host/apple: framework symbols: ${resolve(paths.products, basename(frameworkSymbols.dir))} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)`);
