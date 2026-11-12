@@ -4680,11 +4680,14 @@ For a plain text field on the **web, macOS, iOS and Linux**, `setRangeText(id, t
 end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
 is preserved by default (`select`, `start`, `end` are the other modes).
 Exact deliberately fires one `input` so its action can update the bound
-value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
-step. That input type also covers hatch replacements and browser spelling
+value, with `InputEvent.inputType="insertReplacementText"`. On macOS and focused
+iOS fields, a changed value is one undo step; web and Linux add none. That input
+type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
-whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and
+whitespace. Markdown editors on web and Apple use source offsets and add one
+undo step. Windows, Android and terminal do not support it yet. Field
+`selectionchange` reports caret moves through `InputEvent`, and
 `beforeinput` reports the proposed edit's `inputType` and optional `data`.
 Call `preventDefault()` to reject a cancelable edit; composition events
 are noncancelable. See the [form controls](contract-grammar.md#form-controls)

@@ -2322,14 +2322,14 @@ On **web (JS and wasm), macOS, iOS and Linux**, `setRangeText(id, text)` replace
 current selection; `setRangeText(id, text, start, end[, selectionMode])`
 replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
 or `select`, `start`, `end`, following HTML. It does not focus the field or
-apply `maxlength`. On macOS it is one undo step that restores the text before
-it, as on the Markdown editor, wherever the field has an editor (a textarea, or
-an input being edited); without one, or while an input method composes, the
-value is written as the app's own is. On iOS it is no undo step. Both Apple
-hosts clear the edited field's undo history when a value is written. On the web
-it is HTML's, which Chrome makes no undo step, and Linux keeps no field undo
-history. Invalid ranges, modes, unsupported
-input types and missing ids log a refusal without editing. On the Markdown
+apply `maxlength`. On macOS, wherever the field has an editor (a textarea, or
+an input being edited), and on iOS while the field is focused, a changed value
+is one undo step that restores the text and selection before it. On iOS, redo
+also restores the replacement and its selection. Without an editor, without
+focus on iOS, or while an input method composes, the value is written as the
+app's own is, clearing only that field's undo history. On the web it is HTML's,
+which Chrome makes no undo step, and Linux keeps no field undo history. Invalid
+ranges, modes, unsupported input types and missing ids log a refusal without editing. On the Markdown
 editor (web, macOS and iOS) the offsets are the source's and each call is one
 undo step ([Markdown](#markdown-markup-format-select)); Linux refuses it there.
 Windows, Android and terminal do not support this command yet.
@@ -2768,7 +2768,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
-| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; one undo step on macOS and on the Markdown editor, none on a plain field elsewhere ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; one undo step on macOS, focused iOS fields and the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `startTrace_EXPERIMENTAL()`, `stopTrace_EXPERIMENTAL()`: experimental, so named while the trace's fields may still change; a recording of each UI update UIKit makes, observed without asking for one or for a frame rate (iOS and tvOS 18 and later), elsewhere of each display-link callback, from which it estimates the frames the display showed again, from an app's own control and in any build, a production one included; `stopTrace_EXPERIMENTAL()` puts the trace on the clipboard as compact JSON and in a `trace-recording-*.json` file in the app's temporary directory; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes (its totals and scroll segments as rows, then the frames late the longest first, as many as fit), for a conversation that limits a message (a budget too small for its totals gets a note naming the size that fits them; that note can exceed the requested budget), and still saves the whole trace. On iOS it splits each scroll a person makes of an element's scroller, a route's page or the document into its drag and its glide, with its frame rate and delay relative to the display’s fastest rate; a Mac recording follows no scroller. It lists each late frame with its cause, its scroll offset, its update's phases, the main thread's busy time, its overrun and commit time, batches and host phases; [Frame trace fields](#frame-trace-fields) says what each field means. Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal | [`TraceRecording.swift`](../host/apple/Sources/ExactKit/TraceRecording.swift) |
 | `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). `openURL(url, id)` also says whether it opened, as Electron's `shell.openExternal` does: `change` at the element `id` names hears `opened` when the system took the URL, or `failed` when it was refused or nothing could open it (no app registered for its scheme, a host with no browser). The web hears `opened` for any URL it hands the browser, which does not say what opened it. Where the agent's drive journals an open instead, macOS answers whether an app is registered for the URL and the other hosts answer `opened` A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal (LLP 1133.000 §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
