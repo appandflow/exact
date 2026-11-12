@@ -563,11 +563,12 @@ export function receipt(app, fields) {
 }
 
 /** The receipt a distributed bundle carries: the same, without the list of every file the binary was
- * compiled from (3,600 rows with this machine's paths, 1.4 of the receipt's 1.9 MB) or where its plan was
- * baked, which are the driver's evidence and nothing an installed app reads, and with each Cargo product
- * by its name alone. The whole receipt is written beside the artifact. */
+ * compiled from (3,600 rows with this machine's paths, 1.4 of the receipt's 1.9 MB), where its plan was
+ * baked or what its bake read, which are the driver's evidence and nothing an installed app reads, and with
+ * each Cargo product by its name alone. The whole receipt is written beside the artifact. */
 export const shippedReceipt = (text) => {
-  const whole = JSON.parse(text), { linkedPlan: _, ...build } = whole.build ?? {};
+  const whole = JSON.parse(text), evidence = ['linkedPlan', 'linkedInputs', 'watchedDirectories', 'optionalInputs'];
+  const build = Object.fromEntries(Object.entries(whole.build ?? {}).filter(([key]) => !evidence.includes(key)));
   return JSON.stringify({ ...whole, build: { ...build, binary: { sha256: build.binary?.sha256 },
     products: (build.products ?? []).map((product) => ({ ...product, path: basename(product.path) })) } }, null, 2) + '\n';
 };

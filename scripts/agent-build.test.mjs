@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test, expect } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
@@ -974,4 +974,254 @@ else if (args[0] === 'metadata') {
     }
     if (failure !== 'stale lock') expect(commands[1]).toEqual(['fetch', '--locked', '--target', 'aarch64-linux-android']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('package directory freshness ignores tests and keeps production entries and explicit inputs', async () => {
+  const {receiptChanges, watchedNewer} = await import('./agent-launch.mjs');
+  const {linkedInputs} = await import('./linked-plan.mjs');
+  const scratch = resolve(import.meta.dir, '../target');
+  mkdirSync(scratch, {recursive:true});
+  const dir = mkdtempSync(resolve(scratch, 'package-freshness-'));
+  try {
+    const app = resolve(dir, 'app'), pkg = resolve(dir, 'packages/photos');
+    const old = new Date(0), built = new Date(Date.now() + 60_000), edited = new Date(+built + 60_000);
+    const write = (path, text = '') => { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, text); utimesSync(path, old, old); };
+    const source = resolve(pkg, 'src/index.ts'), manifest = resolve(pkg, 'package.json'), drive = resolve(pkg, 'test/drives.mjs');
+    write(source); write(manifest, '{}'); write(drive); write(resolve(app, 'app.json'), '{}');
+    const fixture = {dir:app, workspace:dir, target:resolve(app, 'target'), manifest:{}, crate:()=>'native-apple'};
+    const changed = () => receiptChanges(receipt, fixture).map(path => resolve(import.meta.dir, '..', path));
+    const watched = paths => watchedNewer(+built, paths).map(path => resolve(import.meta.dir, '..', path));
+    const info = resolve(fixture.target, 'aarch64-apple-darwin/debug/libnative_apple.d');
+    write(info, `archive: ${pkg}\n`);
+    const receipt = resolve(fixture.target, 'receipt.json');
+    write(receipt, JSON.stringify({target:'aarch64-apple-darwin', started:built.toISOString()}));
+    utimesSync(receipt, built, built);
+    for (const at of [app, pkg, dirname(pkg), dirname(source), dirname(drive)]) utimesSync(at, old, old);
+    expect(changed()).toEqual([]);
+    utimesSync(drive, edited, edited);
+    expect(changed()).toEqual([]);
+    write(resolve(pkg, 'test/another.mjs'));
+    utimesSync(dirname(drive), edited, edited);
+    expect(changed()).toEqual([]);
+    rmSync(resolve(pkg, 'test/another.mjs'));
+    utimesSync(dirname(drive), edited, edited);
+    expect(changed()).toEqual([]);
+    expect(watched([drive])).toEqual([drive]);
+    for (const input of [source, manifest]) {
+      utimesSync(input, edited, edited);
+      expect(changed()).toContain(input);
+      utimesSync(input, old, old);
+    }
+    // An old file moved into production still changes the directory's entries.
+    write(resolve(pkg, 'src/added.ts'));
+    utimesSync(dirname(source), edited, edited);
+    expect(changed()).toContain(dirname(source));
+    rmSync(source);
+    utimesSync(dirname(source), edited, edited);
+    expect(changed()).toContain(dirname(source));
+    expect(watched([source])).toEqual([source]);
+    utimesSync(dirname(source), old, old);
+    const design = resolve(pkg, 'photos.tamber');
+    expect(watched([design])).toEqual([design]);
+    write(design);
+    utimesSync(pkg, edited, edited);
+    expect(changed()).toContain(pkg);
+    const linked = resolve(fixture.target, 'linked');
+    write(resolve(linked, 'inputs.json'), JSON.stringify({paths:[source, manifest, design], missing:[design]}));
+    write(info, `archive: ${manifest}\n`);
+    write(receipt, JSON.stringify({target:'aarch64-apple-darwin', started:built.toISOString(), build:{linkedPlan:linked, linkedInputs:linkedInputs(linked)}}));
+    utimesSync(receipt, built, built);
+    rmSync(design);
+    // The source was present at build; a missing optional design is recorded separately.
+    expect(changed()).toEqual([source]);
+    write(source);
+    expect(changed()).toEqual([]);
+    write(design);
+    expect(changed()).toEqual([design]);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test.each(['create tests', 'remove tests', 'edit tests', 'add test file', 'remove test file', 'move production then create tests', 'remove production then create tests',
+  'remove explicit extensionless input', 'replace production', 'edit production at an old mtime']
+  .flatMap(mode => ['receipt', 'linked bake'].map(record => [mode, record])))(
+  'package freshness inventories detect %s in a %s', async (mode, record) => {
+    const {receiptChanges} = await import('./agent-launch.mjs');
+    const {packageDirectories} = await import('./cargo-dep-info.mjs');
+    const {linkedInputs} = await import('./linked-plan.mjs');
+    const dir = mkdtempSync(resolve(import.meta.dir, '../target/package-entries-'));
+    try {
+      const app = resolve(dir, 'app'), pkg = resolve(dir, 'packages/photos');
+      const source = resolve(pkg, 'index.contract'), make = resolve(pkg, 'Makefile');
+      const old = new Date(0), built = new Date(Date.now() - 60_000);
+      mkdirSync(pkg, {recursive:true}); mkdirSync(app);
+      for (const path of [source, make, resolve(pkg, 'package.json'), resolve(app, 'app.json')]) {
+        writeFileSync(path, '{}'); utimesSync(path, old, old);
+      }
+      if (mode === 'remove tests') mkdirSync(resolve(pkg, 'test'));
+      if (['edit tests', 'add test file', 'remove test file'].includes(mode)) {
+        mkdirSync(resolve(pkg, 'test')); writeFileSync(resolve(pkg, 'test/drives.mjs'), 'test');
+      }
+      const fixture = {dir:app, workspace:dir, target:resolve(app, 'target'), manifest:{}, crate:()=>'native-apple'};
+      const info = resolve(fixture.target, 'aarch64-apple-darwin/debug/libnative_apple.d');
+      mkdirSync(dirname(info), {recursive:true}); writeFileSync(info, `archive: ${pkg} ${make}\n`);
+      const receipt = resolve(fixture.target, 'receipt.json');
+      const watchedDirectories = packageDirectories([pkg]);
+      let build = {watchedDirectories};
+      if (record === 'linked bake') {
+        const linkedPlan = resolve(fixture.target, 'linked'); mkdirSync(linkedPlan);
+        writeFileSync(resolve(linkedPlan, 'inputs.json'), JSON.stringify({paths:[pkg], watchedDirectories}));
+        build = {linkedPlan, linkedInputs:linkedInputs(linkedPlan)};
+      }
+      writeFileSync(receipt, JSON.stringify({target:'aarch64-apple-darwin', started:built.toISOString(), build}));
+      utimesSync(pkg, old, old);
+      const changed = () => receiptChanges(receipt, fixture).map(path => resolve(import.meta.dir, '..', path));
+      expect(changed()).toEqual([]);
+      if (mode === 'create tests') {
+        mkdirSync(resolve(pkg, 'test'));
+        expect(changed()).toEqual([]);
+      } else if (mode === 'remove tests') {
+        rmSync(resolve(pkg, 'test'), {recursive:true});
+        expect(changed()).toEqual([]);
+      } else if (mode === 'edit tests' || mode === 'add test file') {
+        writeFileSync(resolve(pkg, 'test', mode === 'edit tests' ? 'drives.mjs' : 'another.mjs'), 'new test');
+        expect(changed()).toEqual([]);
+      } else if (mode === 'remove test file') {
+        rmSync(resolve(pkg, 'test/drives.mjs'));
+        expect(changed()).toEqual([]);
+      } else if (mode.endsWith('then create tests')) {
+        if (mode.startsWith('move')) {
+          const moved = resolve(dir, 'older.contract'); writeFileSync(moved, 'production'); utimesSync(moved, old, old);
+          renameSync(moved, resolve(pkg, 'added.contract'));
+        } else rmSync(source);
+        mkdirSync(resolve(pkg, 'test'));
+        expect(changed()).toContain(pkg);
+      } else if (mode === 'remove explicit extensionless input') {
+        rmSync(make);
+        expect(changed()).toContain(make);
+      } else {
+        const replacement = mode === 'replace production' ? resolve(dir, 'older.contract') : source;
+        writeFileSync(replacement, 'new production bytes'); utimesSync(replacement, old, old);
+        if (replacement !== source) renameSync(replacement, source);
+        expect(changed()).toContain(pkg);
+      }
+    } finally { rmSync(dir, {recursive:true, force:true}); }
+  });
+
+test('a linked build is checked against what the bake it links read, not a later bake\'s record', async () => {
+  const {receiptChanges} = await import('./agent-launch.mjs');
+  const {packageDirectories} = await import('./cargo-dep-info.mjs');
+  const {linkedInputs} = await import('./linked-plan.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/linked-receipt-'));
+  try {
+    const app = resolve(dir, 'app'), pkg = resolve(dir, 'packages/photos'), linked = resolve(app, 'target/linked');
+    const source = resolve(pkg, 'index.contract'), design = resolve(pkg, 'photos.tamber');
+    const old = new Date(0), built = new Date(Date.now() - 60_000);
+    mkdirSync(pkg, {recursive:true}); mkdirSync(linked, {recursive:true});
+    for (const path of [source, resolve(pkg, 'package.json'), resolve(app, 'app.json')]) { writeFileSync(path, '{}'); utimesSync(path, old, old); }
+    const fixture = {dir:app, workspace:dir, target:resolve(app, 'target'), manifest:{}, crate:()=>'native-apple'};
+    const info = resolve(fixture.target, 'aarch64-apple-darwin/debug/libnative_apple.d');
+    mkdirSync(dirname(info), {recursive:true}); writeFileSync(info, `archive: ${source}\n`);
+    const bake = () => writeFileSync(resolve(linked, 'inputs.json'), JSON.stringify({paths:[pkg, design],
+      missing:existsSync(design) ? [] : [design], watchedDirectories:packageDirectories([pkg])}));
+    bake();
+    const receipt = resolve(fixture.target, 'receipt.json');
+    writeFileSync(receipt, JSON.stringify({target:'aarch64-apple-darwin', started:built.toISOString(), build:{linkedPlan:linked, linkedInputs:linkedInputs(linked)}}));
+    utimesSync(pkg, old, old);
+    const changed = () => receiptChanges(receipt, fixture).map(path => resolve(import.meta.dir, '..', path));
+    expect(changed()).toEqual([]);
+    // The next build's bake reads a production file moved in and a design made, both at old mtimes; that build then
+    // fails before replacing this receipt's bundle.
+    const moved = resolve(dir, 'older.contract'); writeFileSync(moved, 'production'); utimesSync(moved, old, old);
+    renameSync(moved, resolve(pkg, 'added.contract'));
+    writeFileSync(design, 'design'); utimesSync(design, old, old);
+    bake(); utimesSync(pkg, old, old);
+    expect(changed()).toEqual(expect.arrayContaining([pkg, design]));
+    // A receipt without the copy cannot say what its bake read.
+    writeFileSync(receipt, JSON.stringify({target:'aarch64-apple-darwin', started:built.toISOString(), build:{linkedPlan:linked}}));
+    expect(changed()).toEqual([resolve(linked, 'inputs.json')]);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('package inventories tolerate unreadable production directories and track readability', async () => {
+  const {watchedNewer} = await import('./agent-launch.mjs');
+  const {packageDirectories} = await import('./cargo-dep-info.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/package-unreadable-'));
+  const blocked = resolve(dir, 'private');
+  try {
+    writeFileSync(resolve(dir, 'package.json'), '{}'); mkdirSync(blocked);
+    writeFileSync(resolve(blocked, 'payload'), 'unused'); chmodSync(blocked, 0);
+    expect(() => readdirSync(blocked)).toThrow();
+    const snapshot = packageDirectories([dir]);
+    const changed = () => watchedNewer(Date.now() + 60_000, [dir], snapshot);
+    expect(changed()).toEqual([]);
+    chmodSync(blocked, 0o700);
+    expect(changed().map(path => resolve(import.meta.dir, '..', path))).toContain(blocked);
+  } finally { chmodSync(blocked, 0o700); rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('bare dep-info keeps an absent optional directory fresh', async () => {
+  const {depInfoNewer} = await import('./agent-launch.mjs');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../target/optional-directory-'));
+  try {
+    const info = resolve(dir, 'archive.d');
+    writeFileSync(info, `archive: ${resolve(dir, 'assets')}\n`);
+    expect(depInfoNewer(Date.now(), null, info, dir)).toEqual([]);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('optional package inputs keep the bake revision through test edits and change on creation or deletion', async () => {
+  const {cargoBakeInputs} = await import('./cargo-dep-info.mjs');
+  const scratch = resolve(import.meta.dir, '../target');
+  mkdirSync(scratch, {recursive:true});
+  const dir = mkdtempSync(resolve(scratch, 'optional-package-'));
+  try {
+    const out = resolve(dir, 'out'), pkg = resolve(dir, 'packages/photos'), design = resolve(pkg, 'photos.tamber');
+    mkdirSync(out); mkdirSync(resolve(pkg, 'test'), {recursive:true});
+    const source = resolve(pkg, 'index.contract'), manifest = resolve(pkg, 'package.json'), drive = resolve(pkg, 'test/drives.mjs');
+    for (const path of [source, manifest, drive]) writeFileSync(path, 'before');
+    writeFileSync(resolve(out, '../output'), `cargo:rerun-if-changed=${source}\ncargo:rerun-if-changed=${manifest}\ncargo:metadata=exact-optional-input=${design}\n`);
+    const unit = {id:'fixture', manifest_path:resolve(dir, 'Cargo.toml'), targets:[{kind:['custom-build']}]};
+    const env = {CARGO_TARGET_DIR:resolve(dir, 'target')};
+    const prepare = () => cargoBakeInputs(unit, 'target', 'dev', env);
+    const messages = [{reason:'build-script-executed', package_id:unit.id, out_dir:out}];
+    prepare()(messages);
+    const first = env.EXACT_BAKE_INPUTS;
+    writeFileSync(drive, 'edited'); writeFileSync(resolve(pkg, 'test/new.mjs'), 'new');
+    prepare(); expect(env.EXACT_BAKE_INPUTS).toBe(first);
+    rmSync(drive); prepare(); expect(env.EXACT_BAKE_INPUTS).toBe(first);
+    writeFileSync(design, 'design'); utimesSync(design, new Date(0), new Date(0));
+    prepare()(messages); expect(env.EXACT_BAKE_INPUTS).not.toBe(first);
+    const created = env.EXACT_BAKE_INPUTS;
+    prepare(); expect(env.EXACT_BAKE_INPUTS).toBe(created);
+    rmSync(source); prepare(); expect(env.EXACT_BAKE_INPUTS).not.toBe(created);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test.skipIf(process.platform === 'win32')('a linked bake reuses an absent package design and rebakes when it appears at an old mtime', async () => {
+  const {bakeOutside, recordRustBake} = await import('./linked-plan.mjs');
+  const scratch = resolve(import.meta.dir, '../target');
+  mkdirSync(scratch, {recursive:true});
+  const dir = mkdtempSync(resolve(scratch, 'linked-package-'));
+  try {
+    const baked = resolve(dir, 'bakes/macos-target.baked'), executable = resolve(dir, 'baker');
+    const design = resolve(dir, 'photos.tamber');
+    mkdirSync(baked, {recursive:true}); mkdirSync(resolve(dir, 'data'));
+    writeFileSync(resolve(dir, 'data/Cargo.toml'), '');
+    writeFileSync(resolve(baked, 'app.plan'), 'plan'); writeFileSync(resolve(baked, 'compat.json'), '{}');
+    // The script only reports its reads; no Apple compiler or app is involved.
+    writeFileSync(executable, `#!/bin/sh\necho baked >> "$OUT_DIR/runs"\necho 'cargo:metadata=exact-optional-input=${design}'\n`, {mode:0o755});
+    const started = Date.now() + 60_000;
+    writeFileSync(resolve(baked, 'rust-baker.json'), JSON.stringify({executable, cwd:dir, env:{}, started}));
+    writeFileSync(resolve(baked, 'rust-output.txt'), `cargo:metadata=exact-optional-input=${design}\n`);
+    const env = {EXACT_BAKED:baked, EXACT_BAKE_OUTPUT:resolve(dir, 'bakes')};
+    recordRustBake(env);
+    const bake = () => bakeOutside({dir, name:'fixture'}, 'macos', 'target', env);
+    bake(); expect(existsSync(resolve(baked, 'runs'))).toBe(false);
+    writeFileSync(design, 'design'); utimesSync(design, new Date(0), new Date(0));
+    bake(); expect(readFileSync(resolve(baked, 'runs'), 'utf8')).toBe('baked\n');
+    bake(); expect(readFileSync(resolve(baked, 'runs'), 'utf8')).toBe('baked\n');
+    rmSync(design);
+    bake(); expect(readFileSync(resolve(baked, 'runs'), 'utf8')).toBe('baked\nbaked\n');
+    bake(); expect(readFileSync(resolve(baked, 'runs'), 'utf8')).toBe('baked\nbaked\n');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

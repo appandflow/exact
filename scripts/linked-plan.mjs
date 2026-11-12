@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, developmentBuildEnv } from './app.mjs';
 import { webOnly } from './app-cli.mjs';
+import { cargoInputPaths, packageDirectories } from './cargo-dep-info.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(ROOT, 'target');
@@ -83,6 +84,16 @@ export function linkable(app, pkg) {
 /** Where an Apple build for `target` keeps the bake it links. */
 export const linkedBakeDir = (env, platform, target) => resolve(env.EXACT_BAKE_OUTPUT, `${platform}-${target}.baked`);
 
+/** What the bake in `dir` read (its watched paths, those absent and its package directories' entries), or null
+ * without a readable record. The build that links the bake keeps a copy: the next bake rewrites `inputs.json`
+ * before its own build has replaced this one. */
+export function linkedInputs(dir) {
+  try {
+    const {paths, missing = [], watchedDirectories = []} = JSON.parse(readFileSync(resolve(dir, 'inputs.json'), 'utf8'));
+    return [paths, missing, watchedDirectories].every(Array.isArray) ? {paths, missing, watchedDirectories} : null;
+  } catch { return null; }
+}
+
 /** The linker arguments that put a linked bake's plan, compat.json and module bytecode in the executable; the
  * bytecode 16-byte aligned, which Hermes needs to read it in place (js/src/shim.cc). */
 export const linkedPlanArgs = (dir) => !dir ? [] : [...[['__exact_plan', 'app.plan'], ['__exact_compat', 'compat.json'], ['__exact_hbc', 'app.hbc']]
@@ -110,7 +121,7 @@ function pairOf(dir) {
 function fresh(record, dir, env, tool) {
   if (record?.version !== 1 || record.tool !== tool || !record.pair || record.pair !== pairOf(dir)) return false;
   if (Object.entries(record.env).some(([name, value]) => (env[name] ?? null) !== value)) return false;
-  return record.paths.every(path => { const at = newest(path); return at !== null && at < record.at; });
+  return record.paths.every(path => { const at = newest(path); return record.missing?.includes(path) ? at === null : at !== null && at < record.at; });
 }
 
 /** Bakes `app` for `platform` and `target` into its linked bake directory,
@@ -154,7 +165,8 @@ export function bakeOutside(app, platform, target, env, prepareRust) {
     throw error;
   }
   if (rust) writeFileSync(resolve(dir, 'rust-output.txt'), r.stdout ?? '');
-  record = { version: 1, at: started, tool, pair: pairOf(dir), warnings: said('warning'), env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])), paths: said('rerun-if-changed').map(path => resolve(cwd, path)) };
+  const paths = cargoInputPaths(r.stdout ?? '', cwd);
+  record = { version: 1, at: started, tool, pair: pairOf(dir), warnings: said('warning'), env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])), paths, missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
   mkdirSync(dir, { recursive: true });
   writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
   renameSync(`${at}.${process.pid}.tmp`, at);
@@ -173,9 +185,10 @@ export function recordRustBake(env) {
   const runEnv = { ...cargoEnvironment(env), ...baker.env, OUT_DIR: dir, EXACT_BAKED: dir, EXACT_RUST_BAKE: '1' };
   const lines = readFileSync(resolve(dir, 'rust-output.txt'), 'utf8').split('\n');
   const said = key => lines.map(line => new RegExp(`^cargo::?${key}=(.*)$`).exec(line)?.[1]).filter(value => value !== undefined);
+  const paths = cargoInputPaths(lines.join('\n'), baker.cwd);
   const record = { version: 1, at: baker.started, tool, pair, warnings: said('warning'),
     env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])),
-    paths: said('rerun-if-changed').map(path => resolve(baker.cwd, path)) };
+    paths, missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
   writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
   renameSync(`${at}.${process.pid}.tmp`, at);
 }
