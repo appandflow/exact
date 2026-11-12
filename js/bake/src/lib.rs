@@ -997,7 +997,7 @@ fn bake_in(
     if [
         "__exact_entry.ts",
         "__exact_backend_source.json",
-        "__exact_backend_warning.json",
+        "__exact_backend.json",
         "__exact_code_warnings.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
@@ -1127,12 +1127,12 @@ fn bake_in(
         compile_once(stage, tools)?;
         compile_bytecode(stage, &tools.hermesc)?;
     }
-    if let Ok(bytes) = std::fs::read(stage.join("__exact_backend_warning.json")) {
-        if let Some(warning) =
-            serde_json::from_slice::<Option<String>>(&bytes).map_err(|e| e.to_string())?
-        {
-            warnings.push(warning);
-        }
+    let backend: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(stage.join("__exact_backend.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(warning) = backend["warning"].as_str() {
+        warnings.push(warning.to_string());
     }
     // Each site that runs code from a string, which throws on every host
     // (`typescript.mjs` `CODE_WARNINGS`).
@@ -1194,6 +1194,7 @@ fn bake_in(
     let packages = package_code(stage)?.packages;
     let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": abi,
+        "backendOrigin": backend["origin"],
         // The prelude runtime it needs, which a push to an older binary checks (LLP 1016.000 D10).
         "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script, &grants),
         "surfaces": surfaces,
