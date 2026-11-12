@@ -1,6 +1,7 @@
 # Native select labels omit the text of an option’s descendants
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A select's option label reads the text of the option and its descendants, as its value does, each node's text as its `text-transform` shows it, whitespace collapsed.
 **Systems:** kernel/src/control.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
