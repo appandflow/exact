@@ -1,6 +1,7 @@
 # A Mac bar item's badge draws an icon token's path in black, not in the author's colour
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A Mac badge draws an icon path's template image in its ink with `FaceSymbol.tinted`, and keeps the palette colour for a named SF Symbol.
 **Systems:** host/apple/Sources/ExactKit/BadgeFace.swift, host/apple/Sources/ExactKit/FaceSymbol.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

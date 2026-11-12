@@ -107,6 +107,22 @@ final class FaceSymbolTests: XCTestCase {
         return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
     }
 
+    /// A bar item's badge draws a path's glyph in its ink, the colour on its
+    /// image node, as a palette colour draws an SF Symbol's.
+    func testABadgesPathIsDrawnInItsInk() throws {
+        for symbol in [["symbolName": "square.fill"], ["symbolName": "", "symbolPath": Self.square, "symbolViewBox": "0 0 24 24"]] {
+            let p = Presenter()
+            p.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [0, 0, 255, 255]]],
+                ["op": "create", "id": 2, "kind": "image", "props": symbol, "style": ["text_color": [255, 255, 255, 255]]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ]))
+            let face = try XCTUnwrap(BadgeFace(box: try XCTUnwrap(p.views[1])))
+            let ink = try middle(face.image)
+            for (channel, want) in zip(ink, [1.0, 1.0, 1.0, 1.0]) { XCTAssertEqual(channel, want, accuracy: 0.02, "\(symbol): \(ink)") }
+        }
+    }
+
     @MainActor func testAToolbarItemsPathIsItsInstalledTemplateImage() throws {
         let p = presenter(view(1, "view", ["accessibilityRole": "toolbar", "toolbarPlacement": "window"], w: 300)
                           + view(2, "button", ["accessibilityLabel": "Reply"], handlers: ["press"]) + view(3, "image", Self.svgProps)
