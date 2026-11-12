@@ -648,7 +648,7 @@ for (const [name, html, files, expectCode, expect] of [
   const table = await classify({ app, opts: {}, origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: {}, compat: {}, platforms: [], wantOrigin: true });
   whole &&= table.rows[0].files.removed.join(',') === '.well-known/apple-app-site-association,assets/removed.txt';
-  const directHeadRefused = await rejects(async () => await origin.put(`.exact/web/${'b'.repeat(64)}/exact.json`, Buffer.from('unguarded'), { immutable: true }), error => error.message.includes('stream heads require putHead'));
+  const directHeadRefused = await rejects(async () => await origin.put(`.exact/web/${'b'.repeat(64)}/exact.json`, Buffer.from('unguarded'), { immutable: true }), error => error.message.includes('stream heads and locks require the held stream lock'));
   whole &&= directHeadRefused;
   const rootChannel = await classify({ app, opts: {}, origin, channel: 'root', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [] }, release: 'test', web: newWeb,
     bundle: { plan: { sha256: '0'.repeat(64), bytes: 3 }, assets: [] }, compat: { linux: { id: 'c'.repeat(32), inputs: { store: { L: 'A' }, executors: [] } } }, platforms: ['linux'], wantOrigin: false });

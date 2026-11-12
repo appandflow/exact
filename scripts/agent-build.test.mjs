@@ -752,7 +752,7 @@ test('a long build says how long it has run and its last step, then a lock it wa
     assert.ok(said.some(line => /Blocking waiting for file lock on package cache, (held by|cargo running|its holder)/.test(line)), said.join('\n'));
     assert.match(readFileSync(resolve(dir, 'build.log'), 'utf8'), /Compiling exact-kernel/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000); // Naming the lock's holder runs `lsof`, which takes seconds on a Mac running many processes.
 
 test("a package-cache lock's holder is named by the process that has the file open", () => {
   const calls = [];

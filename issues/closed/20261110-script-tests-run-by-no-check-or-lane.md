@@ -1,6 +1,7 @@
 # 68 of the 125 `scripts/*.test.mjs` files are on no async-lane list, and two of them fail
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `glueTests` globs `scripts/*.test.mjs` as it does the hosts' test files, so every script test runs in the glue step unless `LEFT_OUT` names it, and the tests that joined it no longer fail on assertions, fixtures or timeouts the code has moved past.
 **Systems:** scripts/async.mjs (glueTests), scripts/caps.test.mjs, scripts/agent-test.test.mjs, .github/workflows/tests.yml
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

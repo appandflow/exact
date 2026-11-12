@@ -513,8 +513,8 @@ test "a failure does not stop the next test"
     } });
     expect(r.results.map(t => t.end?.error)).toEqual(Array(7).fill(undefined));
     expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 1, 0]);
-    for (const [index, line, name, value] of [[2, 24, 'prefers-color-scheme', 'banana'], [3, 28, 'unknown', 'dark'], [4, 33, 'prefers-color-scheme', 'banana']]) {
-      expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: expected`);
+    for (const [index, line, said] of [[2, 24, 'prefers-color-scheme banana: expected'], [3, 28, 'unknown dark: did you mean `prefer prefers-color-scheme dark`? expected'], [4, 33, 'prefers-color-scheme banana: expected']]) {
+      expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${said}`);
     }
     expect(r.results[5].failures[0]).toContain('test prefer: expected a CSS media feature');
     expect(ends).toEqual([
