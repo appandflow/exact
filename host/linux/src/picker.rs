@@ -5,6 +5,7 @@
 //! and a picked image's pixel size read from its header (D3).
 
 use exact_runner::DataError;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -41,6 +42,26 @@ fn leaf(name: &str) -> bool {
 /// production bake has already dropped (LLP 1069.007 D2).
 pub fn agent() -> bool {
     std::env::var("EXACT_AGENT").as_deref() == Ok("1") || cfg!(test)
+}
+
+/// An XDG base directory: `variable` when it holds an absolute path, else
+/// `$HOME/<fallback>` when `HOME` does. A relative path in either is
+/// invalid and ignored, as the XDG Base Directory Specification says
+/// (<https://specifications.freedesktop.org/basedir-spec/latest/>); `None`
+/// when neither gives one.
+pub fn xdg_base(variable: &str, fallback: &str) -> Option<PathBuf> {
+    base_from(
+        std::env::var_os(variable),
+        std::env::var_os("HOME"),
+        fallback,
+    )
+}
+
+fn base_from(value: Option<OsString>, home: Option<OsString>, fallback: &str) -> Option<PathBuf> {
+    let absolute = |v: OsString| Some(PathBuf::from(v)).filter(|p| p.is_absolute());
+    value
+        .and_then(absolute)
+        .or_else(|| home.and_then(absolute).map(|home| home.join(fallback)))
 }
 
 /// `app:/data`, `app:/cache`, `app:/tmp`, once storage is configured.
@@ -80,21 +101,14 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     let (mut data, mut cache) = windows::bases(&windows::local_app_data()?, app_id)?;
     #[cfg(not(windows))]
     let (mut data, mut cache) = {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
         let base = |variable: &str, fallback: &str| {
-            std::env::var_os(variable)
-                .map(PathBuf::from)
-                .filter(|p| p.is_absolute())
-                .unwrap_or_else(|| home.join(fallback))
-                .join("exact")
-                .join(app_id)
+            xdg_base(variable, fallback)
+                .map(|base| base.join("exact").join(app_id))
+                .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))
         };
         (
-            base("XDG_DATA_HOME", ".local/share").join("data"),
-            base("XDG_CACHE_HOME", ".cache"),
+            base("XDG_DATA_HOME", ".local/share")?.join("data"),
+            base("XDG_CACHE_HOME", ".cache")?,
         )
     };
     let mut fresh = None;
@@ -551,6 +565,24 @@ pub(crate) fn shared_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn an_xdg_base_ignores_a_relative_path_and_has_none_without_home() {
+        let some = |s: &str| Some(OsString::from(s));
+        let share = ".local/share";
+        assert_eq!(
+            base_from(some("/x/data"), some("/home/a"), share),
+            Some(PathBuf::from("/x/data"))
+        );
+        assert_eq!(
+            base_from(some("updates"), some("/home/a"), share),
+            Some(PathBuf::from("/home/a/.local/share"))
+        );
+        assert_eq!(base_from(some("updates"), None, share), None);
+        assert_eq!(base_from(None, None, share), None);
+        assert_eq!(base_from(None, some("home"), share), None);
+    }
 
     /// A reset refuses a scratch tree reached through a symbolic link above it
     /// (an `agent` directory linked to the app's real data, say), leaving
