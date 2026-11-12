@@ -3154,7 +3154,16 @@ JSON-LD. A page's own title and metas stay its `head` element's.
 - A report-only policy reports to a `report-uri`. `report-to` needs a `Reporting-Endpoints`
   header, which the server does not send, so its reports reach only the console.
 - A static host sends no CSP. A page that wants one there says it in `host.web.head` as
-  `{"meta": {"http-equiv": "Content-Security-Policy", "content": "…"}}`.
+  `{"meta": {"http-equiv": "Content-Security-Policy", "content": "…"}}`, or the host sends
+  it as a header. The runtime and the page module (`modules/web/index.js`) load from the
+  page's origin and inject no inline script, so `script-src 'self'` admits them. The
+  policy must still admit what the render server's does: `'unsafe-inline'` in
+  `style-src` (without it the runtime's style sheets are refused and the app does not
+  start), `data:` and `blob:` in `img-src`, and `'wasm-unsafe-eval'` in `script-src` when
+  the page runs WebAssembly (a Rust data module, Markdown, text flow and motion do). A
+  page rendered at build carries inline scripts, the one that activates it among them:
+  under `script-src 'self'` add each one's hash, which the browser's refusal names
+  (`'sha256-…'`), or the page stays as rendered.
 
 ## Time, motion, graphics, and platform facts
 
