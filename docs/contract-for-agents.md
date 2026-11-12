@@ -2210,7 +2210,16 @@ name) moves pitch and length together, as tape does: at 2 a voice is an octave u
 lasts half as long. `pan=` places it from −1 (left) to 1 (right) by Web Audio's
 equal-power law (LLP 1125
 D10). `stopSounds()` (or `stopSounds(group=…)`) ends what
-sounds and cancels what waits. The web plays the first sound after the page's first
+sounds and cancels what waits. `setSounds(group=, gain=, playbackRate=, pan=, ramp=)`
+changes what sounds and waits, in the group when one is given, without starting it again:
+each value given moves in a straight line from where it is to the new one over `ramp=`
+milliseconds (20 if left out, so a value set at every `pointermove` glides; 0 is a step),
+and a voice not yet started takes it outright (LLP 1096 D14). A sound that follows a
+drag starts with `playSound(…, group="drag")` on `pointerdown` and changes with
+`setSounds(group="drag", …)` on each move. A rate change moves the voice's end by
+what is left of its file, and a voice that had no `pan=` is panned from then on,
+so give one that will pan its starting pan in `playSound` (a mono sound is 3 dB
+quieter once panned, even centred). The web plays the first sound after the page's first
 tap or key; Linux, Windows and Android keep the record and play nothing.
 
 ```contract

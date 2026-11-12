@@ -703,6 +703,31 @@ impl Batch {
                     }
                     write!(s, "}}")
                 }
+                // LLP 1096 D14: only the values the call gave.
+                SoundOp::Set {
+                    id,
+                    at,
+                    gain,
+                    playback_rate,
+                    pan,
+                    ramp,
+                } => {
+                    let _ = write!(
+                        s,
+                        "{{\"op\":\"set\",\"id\":{id},\"at\":{}",
+                        exact_runner::agent::num(*at)
+                    );
+                    for (name, v) in [
+                        ("gain", gain),
+                        ("playbackRate", playback_rate),
+                        ("pan", pan),
+                    ] {
+                        if let Some(v) = v {
+                            let _ = write!(s, ",\"{name}\":{}", exact_runner::agent::num(*v));
+                        }
+                    }
+                    write!(s, ",\"ramp\":{}}}", exact_runner::agent::num(*ramp))
+                }
                 SoundOp::End { id, at } => write!(
                     s,
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",

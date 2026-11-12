@@ -577,7 +577,10 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
 pub fn runs_sounds(plan: &Plan) -> bool {
     !plan.sounds.is_empty()
         || !plan.sequences.is_empty()
-        || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+        || runs_command(
+            plan,
+            &["playSound", "playSounds", "stopSounds", "setSounds"],
+        )
 }
 
 /// Whether `plan` asks for MIDI ports or hears an input (LLP 1125 D6–D8):
