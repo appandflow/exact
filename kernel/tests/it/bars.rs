@@ -831,3 +831,66 @@ fn a_roots_tabs_are_the_panels_its_own_tablist_names() {
     assert_eq!(kernel.root_tabs(5), None);
     assert_eq!(kernel.root_tabs(99), None);
 }
+
+/// LLP 1141.002 D1: the first root tab whose `rel` holds the token
+/// `search`, ASCII case-insensitively, is the app's search tab, known
+/// before its panel holds anything; a `rel` without the token is not.
+#[test]
+fn a_root_tab_with_rel_search_is_the_search_tab() {
+    let tab = |id: u32, props: &'static [(PropId, &'static str)]| {
+        Node(id, NodeType::Pressable, props, vec![])
+    };
+    const TABLIST: &[(PropId, &str)] = &[(PropId::AccessibilityRole, "tablist")];
+    const PLAIN: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tab"),
+        (PropId::AccessibilityControls, "panel-a"),
+        (PropId::Rel, "nofollow"),
+    ];
+    const SEARCH: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tab"),
+        (PropId::AccessibilityControls, "panel-b"),
+        (PropId::Rel, "help  SEARCH"),
+    ];
+    const SECOND: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tab"),
+        (PropId::AccessibilityControls, "panel-c"),
+        (PropId::Rel, "search"),
+    ];
+    let panel =
+        |id: u32, name: &'static [(PropId, &'static str)]| Node(id, NodeType::View, name, vec![]);
+    const PANEL_A: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tabpanel"),
+        (PropId::Id, "panel-a"),
+    ];
+    const PANEL_B: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tabpanel"),
+        (PropId::Id, "panel-b"),
+    ];
+    const PANEL_C: &[(PropId, &str)] = &[
+        (PropId::AccessibilityRole, "tabpanel"),
+        (PropId::Id, "panel-c"),
+    ];
+    let kernel = kernel(view(
+        1,
+        vec![
+            panel(2, PANEL_A),
+            panel(3, PANEL_B),
+            panel(4, PANEL_C),
+            Node(
+                5,
+                NodeType::View,
+                TABLIST,
+                vec![tab(6, PLAIN), tab(7, SEARCH), tab(8, SECOND)],
+            ),
+        ],
+    ));
+    let tabs = kernel.root_tabs(1).unwrap();
+    assert_eq!(tabs.tabs, vec![6, 7, 8]);
+    assert_eq!(
+        tabs.search,
+        Some(1),
+        "the first tab whose rel holds `search`"
+    );
+    assert!(bars::rel_has("noopener Search", "search"));
+    assert!(!bars::rel_has("searching", "search"));
+}

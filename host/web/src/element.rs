@@ -930,6 +930,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
             PropId::NavigationSplit => "navigationSplit",
+            // @ref LLP 1141.002 D1 — HTML's `rel` on a link or form; a tab's
+            // button has none (a search tab is the platform's to present).
+            PropId::Rel if node.props.str(PropId::AccessibilityRole) == Some("tab") => continue,
+            PropId::Rel => "rel",
             PropId::EstimatedItemWidth => "data-exact-estimated-item-width",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.

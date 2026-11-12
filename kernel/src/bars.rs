@@ -513,6 +513,18 @@ pub struct RootTabs {
     pub tabs: Vec<ViewId>,
     /// The panel each names: one tab's stack.
     pub panels: Vec<ViewId>,
+    /// The app's search tab, as an index into `tabs` (LLP 1141.002 D1): the
+    /// first whose `rel` holds the token `search`, as SwiftUI takes the first
+    /// tab with the search role. Known from the first frame, before the tab's
+    /// panel is built.
+    pub search: Option<usize>,
+}
+
+/// Whether a `rel` value holds `token`: HTML's set of space-separated
+/// tokens, compared ASCII case-insensitively.
+pub fn rel_has(rel: &str, token: &str) -> bool {
+    rel.split(|c: char| c.is_ascii_whitespace())
+        .any(|t| t.eq_ignore_ascii_case(token))
 }
 
 impl Kernel {
@@ -583,10 +595,16 @@ impl Kernel {
                     Some((tab, panel))
                 })
                 .unzip();
+            let search = tabs.iter().position(|tab| {
+                self.node(*tab)
+                    .and_then(|n| n.props.str(PropId::Rel).map(|rel| rel_has(rel, "search")))
+                    .unwrap_or(false)
+            });
             (!named.is_empty()).then_some(RootTabs {
                 tablist,
                 tabs,
                 panels: named,
+                search,
             })
         })
     }

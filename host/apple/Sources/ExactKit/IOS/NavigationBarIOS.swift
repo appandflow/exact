@@ -378,7 +378,8 @@ extension NavigationHost {
                 }
                 if reselect { (controller as? UINavigationController)?.popToRootViewController(animated: !ExactEnv.agentFreezes) }
                 else { tabsController.selectedViewController = controller }
-                tabProxy.tabBarController(tabsController, didSelect: controller)
+                // A container built from `UITab`s sends `didSelectTab` for the selection itself, not for a reselect
+                if builtTabs.isEmpty { tabProxy.tabBarController(tabsController, didSelect: controller) } else if reselect { followUIKit(tabsController) }
                 return reply
             }
             // Press a row of More's list's tab: the router selects it, which UIKit shows under More
@@ -817,6 +818,8 @@ extension NavigationHost {
             c.definesPresentationContext = true
         }
         search.field = field
+        // The search tab's root field says how the tab presents (TabsIOS.swift)
+        if !builtTabs.isEmpty { followSearchTab() }
         search.scope(c.scoped)
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""

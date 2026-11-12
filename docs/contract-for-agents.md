@@ -3012,6 +3012,22 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   paints (on iOS only when `scripts/agent.mjs` runs alone: `exact.mjs` shows UIKit's
   bars); `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
   presses its row (`native: "sidebar-row"`).
+- **The search tab**: the root tab that says `rel="search"` (HTML's link type for "an
+  interface for searching"; keep `role="tab"`) is the app's search tab, and is written
+  last. On iOS 18 and later, in a bar of five tabs or fewer, it is a `UISearchTab` with
+  the tab's own symbol and label (none: UIKit's magnifying glass and "Search"); the first `input type="search"` in its
+  root route's header is its field, which UIKit moves into the bar when the tab is
+  selected. `autofocus` on that field is `automaticallyActivatesSearch`: iOS 26 sets the
+  tab apart at the trailing end of the bar and opens the field on every selection;
+  without it the tab is one among the others. The web, the Mac's sidebar, Android and
+  the other hosts keep it where it is written. A header field on a list is that list's
+  filter; a search tab searches the app. `contract vocab search` has the details;
+  Expo's `role="search"` trigger and SwiftUI's `Tab(role: .search)` are `rel="search"`.
+- A tab bar that minimizes as content scrolls (`tabBarMinimizeBehavior`) and an accessory
+  view above it (`bottomAccessory`, iOS 26) are not Contract words: unsaid, the bar is
+  UIKit's default, and an app that wants them sets them from the `tabs` hatch, which
+  hands it the `UITabBarController` (docs/reference.md, "Access hatches"). The routes
+  follow the safe area a minimizing bar changes.
 - On the Mac a route's `header` is the window's title bar and toolbar: its heading the
   window's title (under a `head title`, over the app's name; there is no large title),
   the first text after the heading the window's subtitle, its buttons toolbar items, a
