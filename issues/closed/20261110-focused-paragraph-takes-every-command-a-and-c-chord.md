@@ -1,6 +1,7 @@
 # A focused paragraph takes every ⌘ chord on A or C as Select All or Copy
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A focused paragraph's Select All and Copy, and a text region's Copy, take ⌘A and ⌘C only with Command the one modifier held (`NodeView.isCommandAlone`, the test `isCommandA` already made), so ⇧⌘C, ⌥⌘A and the rest reach the menu item that owns them.
 **Systems:** host/apple/Sources/ExactKit/Mac/NodeViewMac.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
