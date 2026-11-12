@@ -1230,7 +1230,7 @@ component App
       text `${n}`
 ```
 
-## status-bar: the phone's status bar icons, and hiding them on iOS
+## status-bar: the phone's status bar icons, and hiding the system bars
 names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar, system-bars-hidden, statusBarHidden, prefersStatusBarHidden, prefersHomeIndicatorAutoHidden, autoHideHomeIndicator, immersive
 
 `status-bar-style="light-content"` (light text, for a dark surface), `"dark-content"` or
@@ -1242,10 +1242,11 @@ pages, with no native sheet detent or transition completion; see host/android/RE
 Edge to edge. `status-bar-animation="fade"` fades a change on iOS alone. Other hosts ignore
 both properties.
 
-On iOS, `system-bars-hidden=true` (or `=toyOpen`) hides the status bar and auto-hides the home
-indicator while that node's screen is under them, resolved the same way: a `fullscreen`
-route's wins over the stack, a `medium` sheet's does not, and a descendant's `false` shows
-them again.
+`system-bars-hidden=true` (or `=toyOpen`) hides the status bar and auto-hides the home
+indicator on iOS, and hides the status and navigation bars on Android (a swipe from the edge
+shows them for a moment), while that node's screen is under them, resolved the same way: a
+`fullscreen` route's wins over the stack, a `medium` sheet's does not (iOS), and a
+descendant's `false` shows them again.
 
 More: docs/contract-for-agents.md (`status-bar-style`, `system-bars-hidden`)
 
