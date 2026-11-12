@@ -679,7 +679,7 @@ fn is_name(part: &str) -> bool {
 }
 
 fn length(value: &str) -> Option<f64> {
-    let n = value.strip_suffix("px").unwrap_or(value);
+    let n = word::strip_unit(value, "px").unwrap_or(value);
     exact_num::parse_f64(n.trim()).ok()
 }
 
@@ -723,7 +723,7 @@ fn keyframe_values(
             .collect(),
         // `none` is CSS's transparent, zero-length shadow, which a shadow
         // interpolates from and to.
-        Property::BoxShadow if value.trim() == "none" => vec![
+        Property::BoxShadow if value.trim().eq_ignore_ascii_case("none") => vec![
             (Property::BoxShadow, Value::ZERO, None),
             (Property::ShadowColor, Value::ZERO, None),
         ],
@@ -780,7 +780,7 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
             Value::four(x, y, px, py)
         }
         Property::Rotate => {
-            let n = value.strip_suffix("deg").unwrap_or(value);
+            let n = word::strip_unit(value, "deg").unwrap_or(value);
             Value::scalar(exact_num::parse_f64(n.trim()).map_err(|_| bad())?)
         }
         Property::Scale | Property::Opacity => {
@@ -802,10 +802,10 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
         p if p.is_color() => crate::color::parse(value).ok_or_else(bad)?,
         // CSS Fonts 4 §2.2: a number in [1, 1000] or an absolute keyword;
         // `bolder` and `lighter` are relative to a parent no keyframe has.
-        Property::FontWeight => Value::scalar(match value {
-            "normal" => 400.0,
-            "bold" => 700.0,
-            n => exact_num::parse_f64(n)
+        Property::FontWeight => Value::scalar(match word::keyword(value, &["normal", "bold"]) {
+            Some("normal") => 400.0,
+            Some(_) => 700.0,
+            None => exact_num::parse_f64(value)
                 .ok()
                 .filter(|n| (1.0..=1000.0).contains(n))
                 .ok_or_else(bad)?,
@@ -823,7 +823,7 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
                 ("extra-expanded", 150.0),
                 ("ultra-expanded", 200.0),
             ];
-            let n = match keyword.iter().find(|(k, _)| *k == value) {
+            let n = match keyword.iter().find(|(k, _)| value.eq_ignore_ascii_case(k)) {
                 Some((_, n)) => *n,
                 None => value
                     .strip_suffix('%')
@@ -847,7 +847,7 @@ fn variation_axes(
     value: &str,
     malformed: impl Fn() -> ParseError,
 ) -> Result<Vec<(u32, f64)>, ParseError> {
-    if value == "normal" {
+    if value.eq_ignore_ascii_case("normal") {
         return Err(ParseError::BadValue("`normal` names no axes, and a keyframe's `font-variation-settings` names the axes it animates: `\"wght\" 400`".into()));
     }
     let axis = |item: &str| -> Option<(u32, f64)> {

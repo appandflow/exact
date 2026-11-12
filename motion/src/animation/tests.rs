@@ -428,6 +428,15 @@ fn the_shorthand_and_longhands_read_in_any_ascii_case() {
         Keyframes::parse("FROM{opacity:0}To{opacity:1}").unwrap(),
         Keyframes::parse("from{opacity:0}to{opacity:1}").unwrap()
     );
+    // And a keyframe value's units and keywords.
+    assert_eq!(
+        Keyframes::parse("from{translate:10PX 50%;rotate:45DEG;r:2Px;font-weight:BOLD;font-stretch:Condensed;box-shadow:NONE}to{font-weight:Normal;box-shadow:0px 2PX 4Px Red}").unwrap(),
+        Keyframes::parse("from{translate:10px 50%;rotate:45deg;r:2px;font-weight:bold;font-stretch:condensed;box-shadow:none}to{font-weight:normal;box-shadow:0px 2px 4px red}").unwrap()
+    );
+    assert!(Keyframes::parse("from{font-variation-settings:NORMAL}")
+        .unwrap_err()
+        .to_string()
+        .contains("names no axes"));
 }
 
 /// The shorthand's grammar and the module-scope pass read a word through

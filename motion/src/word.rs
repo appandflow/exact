@@ -40,7 +40,7 @@ pub fn number(word: &str) -> Option<f64> {
 }
 
 /// `word` without its unit `unit` (lower case), in any ASCII case.
-fn strip_unit<'a>(word: &'a str, unit: &str) -> Option<&'a str> {
+pub fn strip_unit<'a>(word: &'a str, unit: &str) -> Option<&'a str> {
     let at = word.len().checked_sub(unit.len())?;
     (word.is_char_boundary(at) && word[at..].eq_ignore_ascii_case(unit)).then(|| &word[..at])
 }
