@@ -192,6 +192,29 @@ final class DialogTopLayerIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scroller.contentSize.height, reach - 0.5, "and within the scroll range")
         scroller.setContentOffset(CGPoint(x: 0, y: scroller.contentSize.height - scroller.bounds.height), animated: false)
         XCTAssertLessThanOrEqual(dialog.convert(close.frame, to: scroller).maxY, scroller.bounds.maxY + 0.5, "scrolled to, it shows")
+        // `closedby="any"`: a tap on the control below the dialog's box is the
+        // dialog's, never the backdrop's; one beside the dialog is.
+        let tap = UITapGestureRecognizer()
+        XCTAssertFalse(top.gestureRecognizer(tap, shouldReceive: At(CGPoint(x: close.bounds.midX, y: close.bounds.midY), on: close)), "the revealed Close is no backdrop")
+        XCTAssertTrue(top.gestureRecognizer(tap, shouldReceive: At(CGPoint(x: scroller.bounds.maxX - 4, y: scroller.bounds.midY), on: scroller)), "beside the dialog is")
+    }
+
+    /// A child 100 points tall whose content shows 2,000 points past it
+    /// (visible overflow) reaches the scroll range too, its Close included.
+    func testADescendantsVisibleOverflowIsInTheScrollRange() throws {
+        guard let scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let p = try boot(scene).presenter
+        p.dialogCommand("showModal", "painted-deep")
+        spin { !p.menus.inTransition }
+        let top = try XCTUnwrap(window?.rootViewController?.presentedViewController as? DialogSheetController)
+        top.view.layoutIfNeeded()
+        let scroller = top.scroller
+        let close = try XCTUnwrap(p.views.values.first { $0.props["id"] == "painted-deep-close" })
+        let parent = try XCTUnwrap(close.superview as? NodeView)
+        XCTAssertEqual(parent.bounds.height, 100, accuracy: 0.5, "a 100-point child")
+        let reach = close.convert(close.bounds, to: scroller).maxY
+        XCTAssertGreaterThan(reach, 2000, "its Close shows 2,000 points below it")
+        XCTAssertGreaterThanOrEqual(scroller.contentSize.height, reach - 0.5, "within the scroll range")
     }
 
     /// The top layer resolves its presenter's theme, not the last one to

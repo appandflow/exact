@@ -186,6 +186,9 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         if topLayer {
             guard host?.closesOnBackdrop(self) == true,
                   let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return false }
+            // A control the scroll range reaches below the dialog's box (its
+            // overflow) is the dialog's, not the backdrop.
+            if let view = touch.view, view === dialog || view.isDescendant(of: dialog) { return false }
             return !dialog.bounds.contains(touch.location(in: dialog))
         }
         guard let container = presentationController?.containerView, let presented = presentationController?.presentedView,
@@ -194,18 +197,22 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     }
     @objc private func tappedBackdrop() { host?.closeRequest(self) }
 
-    /// How far the dialog's children reach below its top: a dialog its
+    /// How far the dialog's content reaches below its top: a dialog its
     /// height caps (`HostBlock.Axis.fit`) overflows its box, and its
     /// presentation scrolls the overflow, as the web's modal dialog
-    /// (`overflow: auto` under its `max-height`) scrolls itself. Flat
-    /// children have no view, but their layout extends that range too (LLP
-    /// 1068 §6.1). None for a dialog that scrolls itself.
+    /// (`overflow: auto` under its `max-height`) scrolls itself. Its
+    /// children's boxes, flat ones included (LLP 1068 §6.1), and what their
+    /// descendants show past them, to each clipping box or scroller
+    /// (`documentOverflow`). None for a dialog that scrolls itself.
     static func overflow(of dialog: NodeView) -> CGFloat {
         guard dialog.scrollView == nil else { return 0 }
         let views = dialog.container.subviews.lazy.compactMap { $0 as? NodeView }.map(\.laidOutFrame.maxY).max() ?? 0
         let flats = dialog.presenter?.flats
         let leaves = (flats?.children(of: dialog.id) ?? []).compactMap { flats?.leaves[$0]?.layout.maxY }.max() ?? 0
-        return max(views, leaves)
+        // From its children: the walk does not enter a dialog, its own root included.
+        let shown = dialog.overflowClips ? 0 : dialog.container.subviews.lazy.compactMap { $0 as? NodeView }
+            .map { $0.documentOverflow(in: dialog).maxY }.filter(\.isFinite).max() ?? 0
+        return max(views, leaves, shown)
     }
 
     /// The dialog's box is `size` now: the sheet follows it, in UIKit's own
