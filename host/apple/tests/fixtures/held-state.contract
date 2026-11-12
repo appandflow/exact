@@ -1,11 +1,18 @@
 // HeldStateTests (LLP 1121 stage 8 E2): a card that presses, its `:active`
 // the press paint, with a child that is a flat leaf on iOS (a box with only a
 // fill and its size: no props, no handlers), and the count of its presses.
+keyframes rangeIn
+  from opacity=0 translate="0px 8px"
+
 component App
   state n = 0
   state expanded = false
+  state entering = false
   action go
     n = n + 1
+  action revealEntering
+    entering = true
+    expanded = true
   action reveal
     expanded = not expanded
   view
@@ -20,9 +27,10 @@ component App
           scale=1.2
       button testId="reveal-range" press=reveal
         text "Reveal range"
+      button "Reveal entering" testId="reveal-entering-range" press=revealEntering position="absolute" left=300 top=260 width=80 height=30
       column testId="range-section" width=240 overflow="hidden" -exact-layout-transition="220ms linear"
         if expanded
-          column testId="inserted-range" padding="12px 0px"
+          column testId="inserted-range" padding="12px 0px" animation=(entering ? "rangeIn 160ms linear both" : "none")
             text "Volume" color="#ff0000"
             input testId="inserted-slider" type="range" value=0.3 min=0 max=1 step=0.01 width="100%" margin-top=8
         column testId="range-following" height=90 background-color="#0000ff" z-index=1 -exact-layout-transition="220ms linear"

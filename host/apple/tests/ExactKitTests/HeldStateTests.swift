@@ -442,11 +442,18 @@ final class HeldStateTests: XCTestCase {
     }
     @MainActor func testInsertedNativeRangePaintsBelowTheMovingPositiveZSibling() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "window pixels require a hosted scene") }
+        try assertRangePaintsBelowMovingSibling(reveal: "reveal-range")
+    }
+    @MainActor func testEnteringNativeRangePaintsBelowTheMovingPositiveZSibling() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "window pixels require a hosted scene") }
+        try assertRangePaintsBelowMovingSibling(reveal: "reveal-entering-range")
+    }
+    @MainActor private func assertRangePaintsBelowMovingSibling(reveal revealId: String) throws {
         let (session, p, _, _) = try booted("inserted-range-order", hosted: true)
         defer { session.destroy() }
         session.clock = session.now()
         waitForMainQueue()
-        let reveal = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "reveal-range" })
+        let reveal = try XCTUnwrap(p.views.values.first { $0.props["testId"] == revealId })
         session.apply(session.runtime.press(reveal.id, now: session.now()))
         waitForMainQueue()
         let following = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "range-following" })
@@ -456,6 +463,10 @@ final class HeldStateTests: XCTestCase {
         for elapsed in [0.0, 20.0, 80.0] {
             session.clock = start + elapsed
             session.apply(session.runtime.tick(now: session.now()))
+            if revealId == "reveal-entering-range", elapsed > 0 {
+                XCTAssertGreaterThan(inserted.layer.opacity, 0)
+                XCTAssertLessThan(inserted.layer.opacity, 1)
+            }
             let overlap = following.convert(following.bounds, to: p.viewport)
                 .intersection(inserted.convert(inserted.bounds, to: p.viewport))
                 .intersection(p.viewport.bounds).offsetBy(dx: -p.viewport.bounds.minX, dy: -p.viewport.bounds.minY).insetBy(dx: 2, dy: 2)
