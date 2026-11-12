@@ -203,6 +203,14 @@ mod tests {
             c("color(display-p3 1 0 0)"),
             "color(display-p3 1 0 0) #ff0000"
         );
+        // A component written `none`: 0 in the pixels, `none` in the text
+        // (Chrome 156); hwb() bounds no whiteness or blackness above 100%.
+        assert_eq!(c("oklch(0.7 0 none)"), "oklch(0.7 0 none) #9e9e9e");
+        assert_eq!(
+            c("oklch(0.7 0.1 120 / none)"),
+            "oklch(0.7 0.1 120 / none) rgba(150, 168, 94, 0)"
+        );
+        assert_eq!(c("hwb(0 200% 100%)"), "#aaaaaa");
         for bad in [
             "",
             "#12",

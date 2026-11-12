@@ -99,6 +99,7 @@ impl Half {
                 space: Space::Srgb,
                 c: [c.r, c.g, c.b].map(|v| f64::from(v) / 255.0),
                 alpha: c.a,
+                missing: [false; 4],
             },
         )
     }

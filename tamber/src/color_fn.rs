@@ -312,6 +312,7 @@ fn wide_from(space: MixSpace, c: [f64; 3], alpha: f64) -> Wide {
         space: space_of(space),
         c,
         alpha: alpha.clamp(0.0, 1.0),
+        missing: [false; 4],
     }
 }
 
@@ -446,9 +447,17 @@ pub(crate) fn absolute(
                     space: Space::Srgb,
                     c: c.map(|v| (v / 255.0).clamp(0.0, 1.0)),
                     alpha: a.clamp(0.0, 1.0),
+                    missing: [false; 4],
                 },
+                // hsl() clamps its saturation and lightness to 100%; hwb()'s
+                // whiteness and blackness have no upper bound (CSS Color 4 §7, §8).
                 _ => {
-                    let s = [c[1].clamp(0.0, 100.0), c[2].clamp(0.0, 100.0)];
+                    let top = if space == MixSpace::Hwb {
+                        f64::INFINITY
+                    } else {
+                        100.0
+                    };
+                    let s = [c[1].clamp(0.0, top), c[2].clamp(0.0, top)];
                     wide_from(space, [c[0].rem_euclid(360.0), s[0], s[1]], a)
                 }
             };
@@ -514,14 +523,16 @@ pub(crate) fn relative(
         ];
         let rgb = components(src, MixSpace::Srgb);
         // CSS Color 4's thresholds: an hsl or hwb grey, a chroma under
-        // 0.0015 in lch, under 0.000004 in oklch (§9.3, §9.5).
-        let gray = match space {
-            MixSpace::Hsl | MixSpace::Hwb => {
-                rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
-            }
-            MixSpace::Lch => values[1].abs() < 0.0015,
-            _ => values[1].abs() < 0.000_004,
-        };
+        // 0.0015 in lch, under 0.000004 in oklch (§9.3, §9.5). A hue
+        // written in the space is the source's own, gray or not (§4.4.1).
+        let gray = !in_own_space(src, space)
+            && match space {
+                MixSpace::Hsl | MixSpace::Hwb => {
+                    rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
+                }
+                MixSpace::Lch => values[1].abs() < 0.0015,
+                _ => values[1].abs() < 0.000_004,
+            };
         let ch = Channels {
             names: keys,
             values,
@@ -588,6 +599,7 @@ fn relative_hdr(
             space,
             c,
             alpha: a.clamp(0.0, 1.0),
+            missing: [false; 4],
         }))
     })
 }
@@ -715,19 +727,23 @@ fn polar(space: MixSpace) -> Option<usize> {
 
 fn end(w: Wide, space: MixSpace) -> End {
     let c = components(w, space);
-    let gray = match space {
-        MixSpace::Hsl | MixSpace::Hwb => {
-            let rgb = components(w, MixSpace::Srgb);
-            rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
-        }
-        MixSpace::Lch | MixSpace::Oklch => c[1].abs() < 1e-6,
-        _ => false,
-    };
+    // A written hue acts as normal even on a gray (CSS Color 4 §4.4.1): only
+    // the hue a conversion gives an achromatic colour is powerless.
+    let written = in_own_space(w, space);
+    let gray = !written
+        && match space {
+            MixSpace::Hsl | MixSpace::Hwb => {
+                let rgb = components(w, MixSpace::Srgb);
+                rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
+            }
+            MixSpace::Lch | MixSpace::Oklch => c[1].abs() < 1e-6,
+            _ => false,
+        };
     End {
         c,
         alpha: w.alpha,
         gray,
-        written: in_own_space(w, space),
+        written,
     }
 }
 

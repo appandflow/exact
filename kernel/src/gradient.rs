@@ -508,6 +508,7 @@ impl Gradient {
                     space: exact_color::Space::Srgb,
                     c: [c.r(), c.g(), c.b()].map(|v| f64::from(v) / 255.0),
                     alpha: f64::from(c.a()) / 255.0,
+                    missing: [false; 4],
                 })
             }
         };

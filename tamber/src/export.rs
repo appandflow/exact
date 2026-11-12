@@ -191,6 +191,7 @@ fn colour_json(h: Half) -> (Value, bool) {
             space: Space::Oklab,
             c: [l.clamp(0.0, 1.0), a, b],
             alpha: w.alpha,
+            missing: [false; 4],
         };
     }
     if matches!(w.space, Space::Lch | Space::Oklch) {

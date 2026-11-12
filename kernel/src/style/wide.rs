@@ -114,6 +114,7 @@ fn half(text: &str) -> Option<Wide> {
             space: Space::Srgb,
             c: [c.r, c.g, c.b].map(|v| f64::from(v) / 255.0),
             alpha: c.a,
+            missing: [false; 4],
         }),
         exact_color::Parsed::Current => None,
     }

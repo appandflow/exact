@@ -119,6 +119,10 @@ pub struct Wide {
     pub c: [f64; 3],
     /// Alpha, 0–1.
     pub alpha: f64,
+    /// The components, then the alpha, written `none` (CSS Color 4 §4.4):
+    /// each is 0 in `c` or `alpha`, as a missing component acts everywhere
+    /// but in an interpolation, which takes the other colour's (§12.4).
+    pub missing: [bool; 4],
 }
 
 /// What a colour string parsed to.
@@ -448,9 +452,13 @@ fn legacy(name: &str, body: &str) -> Option<Rgba8> {
             let (Arg::Num(h) | Arg::Angle(h)) = c[0] else {
                 return None;
             };
+            // hsl() clamps its saturation and lightness to 100%; hwb()'s
+            // whiteness and blackness have no upper bound, `hwb()` scaling a
+            // sum over 100% down (CSS Color 4 §7, §8).
+            let top = if name == "hwb" { f64::INFINITY } else { 1.0 };
             let frac = |x: Arg| match x {
-                Arg::Pct(p) => Some((p / 100.0).clamp(0.0, 1.0)),
-                Arg::Num(n) if !legacy => Some((n / 100.0).clamp(0.0, 1.0)),
+                Arg::Pct(p) => Some((p / 100.0).clamp(0.0, top)),
+                Arg::Num(n) if !legacy => Some((n / 100.0).clamp(0.0, top)),
                 Arg::Num(_) | Arg::Angle(_) => None,
             };
             let (s, l) = (frac(c[1])?, frac(c[2])?);
@@ -532,37 +540,49 @@ fn wide(name: &str, body: &str) -> Option<Wide> {
         v[1] = v[1].max(0.0);
         v[2] = v[2].rem_euclid(360.0);
     }
+    let mut missing = [false; 4];
+    for (i, part) in parts.iter().enumerate() {
+        missing[i] = *part == "none";
+    }
+    missing[3] = a == Some("none");
     Some(Wide {
         space,
         c: v,
         alpha: alpha_value(a)?,
+        missing,
     })
 }
 
 impl Wide {
-    /// CSS's serialisation: `oklch(0.7 0.1 200 / 0.5)`.
+    /// A colour with every component given.
+    pub const fn new(space: Space, c: [f64; 3], alpha: f64) -> Wide {
+        Wide {
+            space,
+            c,
+            alpha,
+            missing: [false; 4],
+        }
+    }
+
+    /// CSS's serialisation: `oklch(0.7 0.1 200 / 0.5)`, a missing
+    /// component as `none`.
     pub fn css(&self) -> String {
-        let n = number_text;
-        let mut text = if self.space.is_function() {
-            format!(
-                "{}({} {} {}",
-                self.space.name(),
-                n(self.c[0]),
-                n(self.c[1]),
-                n(self.c[2])
-            )
-        } else {
-            format!(
-                "color({} {} {} {}",
-                self.space.name(),
-                n(self.c[0]),
-                n(self.c[1]),
-                n(self.c[2])
-            )
+        let n = |i: usize, v: f64| {
+            if self.missing[i] {
+                "none".to_string()
+            } else {
+                number_text(v)
+            }
         };
-        if self.alpha < 1.0 {
+        let [a, b, c] = [0, 1, 2].map(|i| n(i, self.c[i]));
+        let mut text = if self.space.is_function() {
+            format!("{}({a} {b} {c}", self.space.name())
+        } else {
+            format!("color({} {a} {b} {c}", self.space.name())
+        };
+        if self.alpha < 1.0 || self.missing[3] {
             text.push_str(" / ");
-            text.push_str(&n(self.alpha));
+            text.push_str(&n(3, self.alpha));
         }
         text.push(')');
         text
