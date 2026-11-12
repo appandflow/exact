@@ -1,6 +1,7 @@
 # iOS: a long press on a segmented control whose segments are sized by content can send `contextmenu` to the neighbouring tab
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A long press and inspect mode find the segment under a point from the segment views' own boxes (`UISegmentedControl.segment(at:)`), with equal shares only when the views are not found.
 **Systems:** host/apple/Sources/ExactKit/IOS/SegmentsIOS.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
