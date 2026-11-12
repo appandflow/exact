@@ -1,5 +1,7 @@
 # Queue
 
+- **`difftest explore … --js-only` drives every program and 18 diverge** (2026-11-12). Run over `contract/corpus apps/*/app.contract`, these remain undiagnosed. A module call is refused for a missing grant, which the runner answers as `prompt` (`contacts-calendar-fixture`, `geofence-fixture`, `photo-editor`, `photos-fixture`, `recorder`). The oracle has no answer for a source the runner never called (`bench` `portList`, `lights` `lights`). The driver's DOM has no `getBoundingClientRect` (`native-fixture`). The rest have no diagnosis yet: `agents`, `auth-fixture`, `expose`, `metronome`, `orientation-fixture`, `shelf`, `unsaid`, `grouped-touch`, `inline-image` and `share`. Each is either the driver's gap or the JS target's defect; tell which before fixing.
+
 - **The photo-upload executor test can miss the uploads it must feed** (2026-11-11). `a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places` gathers open uploads before feeding them; uploads that open after that gather get no feed, and the test waits five seconds for an outcome that needs one. It failed 7 of 12 runs of the unchanged executor on a 96-core Linux machine.
 - **The executor's quit test fails under a parallel run** (2026-11-11). `a_quit_ends_every_group` fails intermittently on the 96-core Linux machine.
 - **The incremental runner test fails for geofence-fixture on Linux** (2026-11-11). `runner/tests/it/incremental.rs` fails for `geofence-fixture` at `18b358e0`.

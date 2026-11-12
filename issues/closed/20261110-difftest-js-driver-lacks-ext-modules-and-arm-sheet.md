@@ -1,6 +1,7 @@
 # The difftest JS driver writes no `ext-*.js` and has no arms sheet, so `explore --js-only` cannot compare 21 of its 111 programs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The driver writes an `ext-<name>.js` without a web implementation for each extension in `modules.flag`, gives a `<style>` the sheet the arms rules need, and puts `structuredClone` in its context, so `explore --js-only` drives every program.
 **Systems:** semantics/difftest/js/drive.mjs, host/web-js/dom.js, scripts/async.mjs (the `difftest-js` check)
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
