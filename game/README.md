@@ -118,7 +118,7 @@ A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path ch
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
 A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
 one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
-`bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
+`bun exact.mjs test-rust` (Rust tests), `web`, `web-build`, `test web`
 (each `*.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation resolves the generated workspace offline against the current SDK lock, so
@@ -139,7 +139,10 @@ The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the ti
 follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
 no environment variables. It generates `.shells/`, resolves offline and locked, runs
-the determinism lints and then `cargo test` on the game's crates.
+the determinism lints and then `cargo test` on the game's crates. Tests in
+`linux/tests/*.rs` are copied beside the generated Linux shell and run as Cargo
+integration tests after building the game's GPU module. They can drive the
+production presenter and the game's surface without a window or a GPU device.
 The generated workspace carries the SDK's Rust toolchain pin, including for games
 outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
 apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
@@ -1160,7 +1163,7 @@ bun app/shells.mjs --test
 ```
 
 The last command checks the SDK lock, then lints and tests every in-tree game's
-crates in its own workspace. Generated adapters are products, not empty test harnesses.
+crates in its own workspace, including any `linux/tests/*.rs`.
 Pass an app directory to test only that app: `bun app/shells.mjs /path/to/my-game --test`.
 Run the affected game's real-host proof too. Device lifecycle tests are opt-in:
 `cargo test -p exact-game-render surface_lifecycle -- --ignored` on a GPU host.
