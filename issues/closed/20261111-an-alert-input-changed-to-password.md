@@ -1,6 +1,7 @@
 # An alert input changed to password keeps its plain text field
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A prompt input whose type changes to or from `password` while its alert shows gets a field of the new class in the accessory view, keeping its value, editing, selection, width and first responder.
 **Systems:** host/apple/Sources/ExactKit/Mac/NativeFieldsMac.swift, host/apple/Sources/ExactKit/Mac/AlertsMac.swift
 **Severity:** P2
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
