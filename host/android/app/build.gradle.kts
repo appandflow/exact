@@ -177,7 +177,7 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
-// The Maven libraries the bound modules' implementations name (`-Pmaven`, LLP 1133.008 D8 item 5), resolved with the
+// The Maven libraries the app and bound implementations name (`-Pmaven`, LLP 1133.008 D8 item 5), resolved with the
 // reader's own AndroidX in this one graph. The graph is locked to the app's lock file (`-PmavenLock`, beside its other
 // locks) and verified against its checksums (`agent-android.mjs` puts the app's verification file in place and passes
 // `--dependency-verification=strict`); `--write-locks` there writes both. An app with none resolves as before.

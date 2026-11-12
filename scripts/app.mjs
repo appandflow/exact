@@ -696,6 +696,10 @@ let cachedSchema = null;
 function schema() {
   return cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));
 }
+/** Apps and package implementations share the Maven grammar (LLP 1133.008 D8 item 5). */
+export function mavenProblems(value, at) {
+  return value === undefined ? [] : validate(value, schema().properties.host.properties.android.properties.maven, at, schema());
+}
 /** The subset of JSON Schema the manifest's schema uses — type, required, properties, additionalProperties, items, minItems, enum, pattern, minLength, oneOf, $ref into $defs — checked by hand so the reader needs no dependency. Every problem in one pass. */
 export function validate(value, node, at, root) {
   const problems = [];
