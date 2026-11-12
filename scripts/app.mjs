@@ -1,6 +1,6 @@
 import { webHostFiles, hostModuleSources } from '../host/web-js/glue.mjs';
 export { webHostFiles } from '../host/web-js/glue.mjs';
-import { compilerPaths, unitDepInfo, cargoBakeInputs, inputHashes, sourcePath } from './cargo-dep-info.mjs';
+import { compilerPaths, unitDepInfo, cargoBakeInputs, bakeSourceInputs, pendingSourceInputs, inputHashes, sourcePath } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
@@ -1014,6 +1014,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
   const inputs = new Map(), absent = new Map(), directories = new Map(), hashes = inputHashes(app, env);
+  const sourceInputs = new Set(['assets', 'deck'].map(path => resolve(app.dir, path)).concat(shaderRoots(app)));
   const add = (path, optional = false, declarer = null) => {
     path = resolve(path); if (replaced.has(path)) return;
     if (!existsSync(path)) { if (optional) { absent.set(nameOf(path, declarer), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
@@ -1039,15 +1040,23 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   for (const m of scripts) {
     if(!usedPackages.has(m.package_id))continue;
     const role = roleOf(m.out_dir); if (!graph.roles.get(m.package_id).has(role)) continue;
-    const pkg = graph.packages.get(m.package_id), source = pkg.targets.find((t) => t.kind.includes('custom-build'));
-    if (source) add(source.src_path);
+    const pkg = graph.packages.get(m.package_id);
+    const compilers = messages.filter(unit => unit.reason === 'compiler-artifact' && unit.package_id === pkg.id && unit.target.kind.includes('custom-build'));
+    if (!compilers.length) throw new Error(`Cargo did not report compiler inputs for ${pkg.name}'s build script`);
+    for (const compiler of compilers) {
+      const dep = readFileSync(unitDepInfo(compiler,graph.metadata.workspace_root,graph.metadata), 'utf8');
+      for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, false, pkg);
+    }
     // The script's stdout: `output` beside `out`, or `run/stdout` in Cargo's new build-dir layout (the web toolchain's).
     const output = readFileSync([resolve(m.out_dir,'../output'), resolve(m.out_dir,'../run/stdout')].find(existsSync) ?? resolve(m.out_dir,'../output'),'utf8'); const environment = [];
     for (const line of output.split('\n')) {
       const changed = /^cargo::?rerun-if-changed=(.*)$/.exec(line);
       // The app's plan/manifest/static watches are inputs of replaceable
       // artifacts. Its generated entry and typed metadata are binary inputs.
-      if (changed && pkg.id !== graph.root.id) {
+      // Windows freshness also needs the replaceable sources, outside the binary fingerprint.
+      if (changed && pkg.id === graph.root.id && platform === 'windows') {
+        sourceInputs.add(resolve(dirname(pkg.manifest_path), changed[1]));
+      } else if (changed && pkg.id !== graph.root.id) {
         const path = resolve(dirname(pkg.manifest_path), changed[1]);
         if (!shaderRoots(app).some(root => under(root, path))) add(path, true, pkg);
       }
@@ -1125,7 +1134,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
   hashes.save();
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest,platform}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  const sourceRecord = platform === 'windows' ? {sourceInputs:bakeSourceInputs(app, sourceInputs, [
+    app.target, graph.metadata.build_directory, env.EXACT_BAKE_OUTPUT, env.OUT_DIR, ...scripts.map(script => script.out_dir),
+  ])} : {};
+  return {version:1,...sourceRecord,...(env.EXACT_RUST_BUNDLE?{rust:resolve(baked,'rust')}:{}),...(baked!==rootOutput?{linkedPlan:baked}:{}),...bakedSettings(baked,app.dir),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest,platform}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 // The permanent companion inode owns exclusion; the JSON claim is only its diagnostic record.
@@ -1268,7 +1280,7 @@ export function buildBake(app, platform, target, options = {}) {
         buildCommand('cargo',['build',...args.slice(3)],app,{...env,EXACT_BAKED:dir},'inherit');
       });
     } else delete env.EXACT_BAKED;
-    const recordInputs = pkg.id === graph.root.id ? cargoBakeInputs(pkg,target,profile,env) : () => {};
+    const recordInputs = pkg.id === graph.root.id ? cargoBakeInputs(pkg,target,profile,env,platform === 'windows' ? app : null) : () => {};
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     recordInputs(output);
@@ -1357,8 +1369,9 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 }
 
 /** Source staleness is provisional until the next actual bake. These paths
- * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build) {
+ * came from the previous compiler receipt, including absent watched inputs.
+ * `includeSources` also checks replaceable artifacts for a packaged Windows drive. */
+export function pendingBuildInputs(build, { includeSources = false } = {}) {
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
   const resources=build.binary.nativeResourceApp, resourceKey=`host.${resources?.platform ?? 'macos'}.resources`; try {if(resources && canonicalBuild(nativeResourceInventory(resources, null, resources.platform)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push(resourceKey);} catch {changed.push(resourceKey);}
@@ -1372,6 +1385,7 @@ export function pendingBuildInputs(build) {
     try {if(!statSync(path).isDirectory()||canonicalBuild(readdirSync(path).sort())!==canonicalBuild(names))changed.push(path);}
     catch {changed.push(path);}
   }
+  if (includeSources) changed.push(...pendingSourceInputs(build.sourceInputs));
   return changed;
 }
 

@@ -409,14 +409,11 @@ export async function buildFirst(host, app, { say = line => console.error(line),
 }
 
 /** What a Windows drive of `app` launches, `dist-windows/<name>.exe`, and its changes since the build that packaged it
- * (`changed`, null when there is none): what the build's receipt records (agent-launch.mjs `packagedBuildChanges`, on
- * which the driver refuses it), and the app's own files edited since, which that receipt does not name (the plan's
- * sources and the crate's), other hosts' crates aside. */
+ * (`changed`, null when there is none), from the same receipt check the driver uses. */
 export function windowsBuild(app) {
   const bin = resolve(app.dir, 'dist-windows', `${executableName(app)}.exe`);
   if (!existsSync(bin)) return { bin, changed: null };
-  const own = newerThan(statSync(bin).mtimeMs, [app.dir], path => /[\\/](apple|ios|macos|linux|web|android)$/.test(path) && dirname(path) === app.dir);
-  return { bin, changed: [...packagedBuildChanges(resolve(bakeOutput(app), `windows-${bakeTarget('windows')}.build.json`), dirname(bin), app), ...own] };
+  return { bin, changed: packagedBuildChanges(resolve(bakeOutput(app), `windows-${bakeTarget('windows')}.build.json`), dirname(bin), app) };
 }
 
 /** `buildFirst` for Windows: host/windows/build.mjs when the packaged build is missing or stale, said in one line, its
