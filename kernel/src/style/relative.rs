@@ -26,6 +26,7 @@
 
 use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId, StyleProps};
+use crate::style::calc::nonnegative_row;
 use crate::style::StyleValue;
 
 /// CSS's initial root font size: `medium`, 16 px.
@@ -280,45 +281,25 @@ impl Relative {
 }
 
 /// Whether CSS admits a length on this row, and so `rem` and `em`: every
-/// dimension row, `line-height`, and the pixel rows below. The rows CSS
-/// refuses a negative length on say so.
+/// dimension row, `line-height`, and the pixel rows below. Which of them
+/// refuse a negative length is [`nonnegative_row`]'s to say.
 pub fn admits_relative(id: StyleId) -> bool {
-    matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight)
-        || id == StyleId::LetterSpacing
-        || id == StyleId::TextIndent
-        || nonnegative(id)
-}
-
-fn nonnegative(id: StyleId) -> bool {
     use StyleId::*;
-    matches!(
-        id,
-        FontSize
-            | LineHeight
-            | RowGap
-            | ColumnGap
-            | BorderWidthTop
-            | BorderWidthRight
-            | BorderWidthBottom
-            | BorderWidthLeft
-            | BorderRadiusTopLeft
-            | BorderRadiusTopRight
-            | BorderRadiusBottomRight
-            | BorderRadiusBottomLeft
-            | ShapeMargin
-            | BorderSpacing
-            | HitSlopTop
-            | HitSlopRight
-            | HitSlopBottom
-            | HitSlopLeft
-            | ScrollPaddingTop
-            | ScrollPaddingRight
-            | ScrollPaddingBottom
-            | ScrollPaddingLeft
-            | R
-            | Rx
-            | Ry
-    )
+    matches!(id.codec(), StyleCodec::Dimension | StyleCodec::LineHeight)
+        || matches!(
+            id,
+            FontSize
+                | LetterSpacing
+                | TextIndent
+                | RowGap
+                | ColumnGap
+                | BorderWidthTop
+                | BorderWidthRight
+                | BorderWidthBottom
+                | BorderWidthLeft
+                | ShapeMargin
+                | BorderSpacing
+        )
 }
 
 /// A length row that takes `px` and no relative unit yet (QUEUE.md, "`rem`/`em`
@@ -409,7 +390,7 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
             },
         });
     }
-    if n < 0.0 && nonnegative(id) {
+    if n < 0.0 && nonnegative_row(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a nonnegative length",
@@ -444,7 +425,7 @@ pub(crate) fn pixels_text(
     let Some(n) = super::parse_pixel_length(t).filter(|_| px) else {
         return Ok(None);
     };
-    if n < 0.0 && (nonnegative(id) || id == StyleId::StrokeWidth) {
+    if n < 0.0 && nonnegative_row(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a nonnegative length",
@@ -880,6 +861,52 @@ mod tests {
                 "{row:?} {text}: {error:?}"
             );
         }
+    }
+
+    /// A row CSS gives no negative value refuses one however it is spelled,
+    /// and clamps a math function's negative result to 0 (CSS Values 4
+    /// §10.12): `font-size` (CSS Fonts 4 §2.5), `border-spacing` (CSS 2.1
+    /// §17.6.1), `scroll-padding` (CSS Scroll Snap 1 §4.2), and SVG 2's
+    /// `stroke-width` and `r`.
+    #[test]
+    fn a_row_with_no_negative_value_refuses_one_in_every_spelling() {
+        let rows = [
+            StyleId::FontSize,
+            StyleId::StrokeWidth,
+            StyleId::BorderSpacing,
+            StyleId::ScrollPaddingTop,
+            StyleId::R,
+            StyleId::BorderRadiusTopLeft,
+            StyleId::RowGap,
+        ];
+        for row in rows {
+            let mut s = StyleProps::default();
+            let mut spellings = vec![StyleValue::Number(-5.0), StyleValue::Text("-5px".into())];
+            if admits_relative(row) {
+                spellings
+                    .extend(["-1rem", "-1em", "-1ch", "-1lh"].map(|t| StyleValue::Text(t.into())));
+            }
+            for value in spellings {
+                assert!(s.set_dynamic(row, &value).is_err(), "{row:?} {value:?}");
+            }
+            if row.codec() == StyleCodec::Dimension {
+                s.set_dynamic(row, &StyleValue::Text("calc(-5px)".into()))
+                    .unwrap();
+                assert_eq!(
+                    s.get(row),
+                    crate::RowValue::Dimension(crate::Dimension::Points(0.0)),
+                    "{row:?}"
+                );
+            }
+        }
+        // A row with negative values takes one in every spelling.
+        let mut s = StyleProps::default();
+        for value in ["-1px", "-1rem", "-1ch"] {
+            s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Text(value.into()))
+                .unwrap();
+        }
+        s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Number(-1.0))
+            .unwrap();
     }
 
     #[test]

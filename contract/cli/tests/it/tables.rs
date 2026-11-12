@@ -406,7 +406,7 @@ fn border_spacing_takes_css_lengths_and_cells_in_a_terminal() {
     for v in ["\"1ch\"", "\"1lh\"", "0"] {
         contract::compile_terminal(&table(v)).unwrap_or_else(|e| panic!("{v}: {e}"));
     }
-    for v in ["\"-2px\"", "\"-1rem\""] {
+    for v in ["-2", "\"-2px\"", "\"-1rem\"", "\"-1ch\""] {
         assert!(contract::compile(&table(v)).is_err(), "{v}");
     }
 }

@@ -1,6 +1,7 @@
 # `font-size=-4` is accepted where `font-size="-4px"` is refused: three lists of rows with no negative values disagree
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `calc::nonnegative_row` is the one list of rows CSS gives no negative value, now with `font-size`, `line-height`, the radii, `border-spacing`, `shape-margin` and `stroke-width`, and a number, a `px`, `rem`, `em`, `ch` or `lh` text and a math function's clamp all read it, so `font-size=-4` is refused as `font-size="-4px"` is.
 **Systems:** kernel/src/style/relative.rs, kernel/src/style/calc/parse.rs, kernel/src/style/calc/mod.rs, kernel/src/style.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

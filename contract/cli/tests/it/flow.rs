@@ -17,7 +17,7 @@ fn auto_values_follow_each_rows_codec_and_vocabulary() {
     // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
     for (property, reason) in [
         ("display", "one of \"block\", \"flex\", \"grid\", \"none\""),
-        ("font-size", "number"),
+        ("font-size", "nonnegative number"),
         ("opacity", "number"),
     ] {
         let error = contract::compile(&source(&format!("{property}=\"auto\""))).unwrap_err();
