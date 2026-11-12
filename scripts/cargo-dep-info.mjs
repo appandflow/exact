@@ -74,21 +74,27 @@ function outputPath(path) {
 
 // Cargo follows directory links. Track their contents without reading outputs
 // through an alias or opening special files the baker may never use.
-function watchedDigest(paths, outputs, { inventory = false } = {}) {
+// With no pre-bake snapshot, `since` rejects inputs whose change time cannot precede the bake.
+export function watchedDigest(paths, outputs, { inventory = false, since = Infinity } = {}) {
   const hash = createHash('sha256');
   const excluded = outputs.map(outputPath), ancestors = new Set();
+  let stable = true;
+  const changed = info => { if (info.ctimeMs >= since) stable = false; };
   const row = (...values) => hash.update(JSON.stringify(values) + '\n');
   const visit = (path, top = false, atRoot = false) => {
-    let info;
+    let info, link;
     try {
       info = lstatSync(path);
       if (info.isSymbolicLink()) {
+        link = info;
         row(path, 'link', readlinkSync(path));
         info = statSync(path);
       }
       if (inventory && atRoot && basename(path).startsWith('.') && info.isDirectory()) return;
       const real = realpathSync(path);
       if (excluded.some(root => under(root, real))) { if (!inventory) row(path, 'output'); return; }
+      changed(info);
+      if (link) changed(link);
       if (info.isDirectory()) {
         if (ancestors.has(real)) { row(path, 'cycle'); return; }
         const names = readdirSync(path).sort();
@@ -109,9 +115,23 @@ function watchedDigest(paths, outputs, { inventory = false } = {}) {
       } else if (info.isFile()) row(path, 'file', createHash('sha256').update(readFileSync(path)).digest('hex'));
       else row(path, info.isSocket() ? 'socket' : info.isFIFO() ? 'fifo'
         : info.isBlockDevice() ? 'block-device' : info.isCharacterDevice() ? 'character-device' : 'other');
+      if (since !== Infinity) {
+        changed(lstatSync(path));
+        if (link) changed(statSync(path));
+      }
     } catch (error) {
+      if (info) changed(info);
+      if (link) changed(link);
       if (error.code === 'ELOOP') row(path, 'cycle');
-      else if (error.code === 'ENOENT' || error.code === 'ENOTDIR') row(path, 'missing');
+      else if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        row(path, 'missing');
+        // A missing watch has no change time; its nearest existing parent records entry removal.
+        if (since !== Infinity) {
+          let parent = path;
+          do { parent = dirname(parent); } while (!existsSync(parent) && dirname(parent) !== parent);
+          changed(statSync(parent));
+        }
+      }
       // Directory watches include unused files. The baker decides which must be readable.
       else if (error.code === 'EACCES' || error.code === 'EPERM')
         row(path, 'unreadable', info?.mode, info?.size, info?.mtimeMs, info?.ctimeMs);
@@ -119,7 +139,7 @@ function watchedDigest(paths, outputs, { inventory = false } = {}) {
     }
   };
   for (const path of paths) visit(path, true);
-  return hash.digest('hex');
+  return stable ? hash.digest('hex') : null;
 }
 
 function sourceInventory(app, outputs) {

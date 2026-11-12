@@ -1328,6 +1328,16 @@ test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its p
     const unchanged=cargo(true);
     assert.equal(unchanged.fresh,true,unchanged.diagnostic);
     assert.equal(statSync(library,{bigint:true}).mtimeNs,initial);
+    write('app.contract','first');
+    const restored = new Date(0), source = resolve(dir, 'app.contract');
+    utimesSync(source, restored, restored);
+    bake();
+    assert.equal(readFileSync(resolve(env.EXACT_BAKED,'app.plan'),'utf8'),'first');
+    assert.equal(statSync(source).mtimeMs,restored.getTime(),'rebaking must preserve the restored source mtime');
+    assert.equal(cargo(true).fresh,true,'restoring a plan must keep the compiled archive');
+    const inputs = readFileSync(resolve(env.EXACT_BAKED,'inputs.json'),'utf8');
+    bake();
+    assert.equal(readFileSync(resolve(env.EXACT_BAKED,'inputs.json'),'utf8'),inputs,'an unchanged linked bake must keep its record');
     env.FIXTURE_BINARY='two';
     bake();
     assert.equal(cargo(true).fresh,false,'a generated Rust change must still compile');

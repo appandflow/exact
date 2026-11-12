@@ -10,13 +10,13 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, developmentBuildEnv } from './app.mjs';
 import { webOnly } from './app-cli.mjs';
 import { appleCargo } from './cargo-check.mjs';
-import { cargoInputPaths, packageDirectories } from './cargo-dep-info.mjs';
+import { cargoInputPaths, packageDirectories, watchedDigest } from './cargo-dep-info.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(ROOT, 'target');
@@ -156,16 +156,17 @@ export const linkedPlanArgs = (dir) => !dir ? [] : [...[['__exact_plan', 'app.pl
   .flatMap(([section, file]) => ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', section, '-Xlinker', resolve(dir, file)]),
   '-Xlinker', '-sectalign', '-Xlinker', '__TEXT', '-Xlinker', '__exact_hbc', '-Xlinker', '0x10'];
 
-/** The time of the newest change at `path`: its own, a link's target's, and
- * for a directory every entry's under it (a link in it is not followed);
- * null when it is missing. */
-function newest(path, watched = true) {
-  let own; try { own = lstatSync(path); } catch { return null; }
-  let at = own.mtimeMs, info = own;
-  if (own.isSymbolicLink()) { try { info = statSync(path); at = Math.max(at, info.mtimeMs); } catch { return at; } }
-  if (info.isDirectory() && (watched || !own.isSymbolicLink())) for (const name of readdirSync(path)) at = Math.max(at, newest(resolve(path, name), false) ?? at);
-  return at;
+/** Explicit producer files (a signed GPU library) remain inputs under output roots.
+ * The bake's own directory is always excluded, including through aliases. */
+function inputDigests(paths, dir, env, {since = Infinity, known = new Set()} = {}) {
+  const outputs = [dir, env.CARGO_TARGET_DIR, env.CARGO_BUILD_BUILD_DIR, env.EXACT_BAKE_OUTPUT].filter(Boolean).map(path => resolve(path));
+  return new Map(paths.map(path => {
+    let file = false; try { file = statSync(path).isFile(); } catch { /* missing watch */ }
+    return [path, watchedDigest([path], file ? [dir] : outputs, {since:known.has(path) ? Infinity : since})];
+  }));
 }
+const digestOf = inputs => [...inputs.values()].includes(null) ? null : createHash('sha256').update(JSON.stringify([...inputs])).digest('hex');
+const inputDigest = (paths, dir, env, options) => digestOf(inputDigests(paths, dir, env, options));
 
 /** The digest of a bake's plan and compat.json together, or null when either is missing. */
 function pairOf(dir) {
@@ -175,9 +176,9 @@ function pairOf(dir) {
 /** Whether the bake `record` describes is the one its inputs would make now,
  * and the plan and compat.json beside it are the pair it made. */
 function fresh(record, dir, env, tool) {
-  if (record?.version !== 1 || record.tool !== tool || !record.pair || record.pair !== pairOf(dir)) return false;
+  if (record?.version !== 2 || record.tool !== tool || !record.pair || record.pair !== pairOf(dir)) return false;
   if (Object.entries(record.env).some(([name, value]) => (env[name] ?? null) !== value)) return false;
-  return record.paths.every(path => { const at = newest(path); return record.missing?.includes(path) ? at === null : at !== null && at < record.at; });
+  return record.digest != null && record.digest === inputDigest(record.paths, dir, env);
 }
 
 /** Bakes `app` for `platform` and `target` into its linked bake directory,
@@ -209,6 +210,8 @@ export function bakeOutside(app, platform, target, env, prepareRust, { cargoArgs
   const warn = (warnings) => { for (const line of bakeWarnings(app.name, warnings ?? [])) console.error(line); };
   let record = null; try { record = JSON.parse(readFileSync(at, 'utf8')); } catch { /* none yet */ }
   if (fresh(record, dir, runEnv, tool)) { warn(record.warnings); return dir; }
+  const watched = record?.paths ?? (rust ? cargoInputPaths(readFileSync(resolve(dir, 'rust-output.txt'), 'utf8'), cwd) : []);
+  const before = inputDigests(watched, dir, runEnv);
   rmSync(at, { force: true });
   const started = Date.now();
   const r = spawnSync(executable, args, { cwd, env: runEnv, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -221,7 +224,11 @@ export function bakeOutside(app, platform, target, env, prepareRust, { cargoArgs
   }
   if (rust) writeFileSync(resolve(dir, 'rust-output.txt'), r.stdout ?? '');
   const paths = cargoInputPaths(r.stdout ?? '', cwd);
-  record = { version: 1, at: started, tool, pair: pairOf(dir), warnings: said('warning'), env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])), paths, missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
+  // New watches have no pre-bake digest. Their change times must precede the read;
+  // known watches compare bytes so touching an unchanged input does not invalidate it.
+  const after = inputDigests(paths, dir, runEnv, {since:started, known:new Set(watched)});
+  const stable = [...after].every(([path, digest]) => !before.has(path) || before.get(path) === digest);
+  record = { version: 2, at: started, tool, pair: pairOf(dir), warnings: said('warning'), env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])), paths, digest:stable ? digestOf(after) : null, missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
   mkdirSync(dir, { recursive: true });
   writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
   renameSync(`${at}.${process.pid}.tmp`, at);
@@ -236,14 +243,15 @@ export function recordRustBake(env) {
   const baker = JSON.parse(readFileSync(resolve(dir, 'rust-baker.json'), 'utf8'));
   const at = resolve(dir, 'inputs.json'), tool = `${baker.executable} ${statSync(baker.executable).mtimeMs}`, pair = pairOf(dir);
   let previous; try { previous = JSON.parse(readFileSync(at, 'utf8')); } catch { /* bootstrap */ }
-  if (previous?.tool === tool && previous.pair === pair && previous.at >= baker.started) return;
+  if (previous?.version === 2 && previous.tool === tool && previous.pair === pair && previous.at >= baker.started) return;
   const runEnv = { ...cargoEnvironment(env), ...baker.env, OUT_DIR: dir, EXACT_BAKED: dir, EXACT_RUST_BAKE: '1' };
   const lines = readFileSync(resolve(dir, 'rust-output.txt'), 'utf8').split('\n');
   const said = key => lines.map(line => new RegExp(`^cargo::?${key}=(.*)$`).exec(line)?.[1]).filter(value => value !== undefined);
   const paths = cargoInputPaths(lines.join('\n'), baker.cwd);
-  const record = { version: 1, at: baker.started, tool, pair, warnings: said('warning'),
+  const record = { version: 2, at: baker.started, tool, pair, warnings: said('warning'),
     env: Object.fromEntries(said('rerun-if-env-changed').map(name => [name, runEnv[name] ?? null])),
-    paths, missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
+    // Cargo's bootstrap predates this call: never certify inputs changed since its read.
+    paths, digest:inputDigest(paths, dir, runEnv, {since:baker.started}), missing: paths.filter(path => !existsSync(path)), watchedDirectories:packageDirectories(paths) };
   writeFileSync(`${at}.${process.pid}.tmp`, JSON.stringify(record));
   renameSync(`${at}.${process.pid}.tmp`, at);
 }
