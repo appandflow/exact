@@ -19,7 +19,7 @@ test.each([
   ['host/windows/build.mjs', "  for (const name of ['assets','deck'])", '\n  copyShaders', '', ['assets', 'deck'], true],
   ['host/apple/watch.mjs', '    for (const entry of entries) copyFileSync', '\n    const appInfo', '', ['assets', 'deck'], false],
   ['host/apple-painted/build.mjs', "  writeFileSync(resolve(bundle, 'Contents/Info.plist')", "\n  run('codesign'", 'Contents/Resources', ['assets'], true],
-  ['scripts/agent-android.mjs', "  // The host opens the module", "\n  // The module's shader text", 'assets/app', ['assets'], false],
+  ['scripts/agent-android.mjs', "  copyStaticTreeIfPresent(resolve(app.dir, 'assets')", "\n  // The modules' shader text", 'assets/app', ['assets'], false],
 ])('%s packages static files without Finder metadata', async (file, start, end, prefix, folders, reused) => {
   const root = mkdtempSync(resolve(import.meta.dir, '../target/static-package-'));
   const appDir = resolve(root, 'app'), output = resolve(root, 'output');
