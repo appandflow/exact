@@ -526,6 +526,39 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(screen["selection"] as? String, "one-source; the card's Share gives \(health.source) as a report of its own")
     }
 
+    /// The face draws each band as a picture of its own, and a read draws again only the bands whose figures changed, so
+    /// the card's drawing within the app's frames stays small (LLP 1079.000 §7.4)
+    func testAReadDrawsOnlyTheBandsWhoseFiguresChanged() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        _ = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852))
+        overlay.setVisible(true)
+        defer { overlay.setVisible(false) }
+        let card = overlay.card
+        card.drawNow()
+        let content = try XCTUnwrap(card.subviews.first)
+        let bands = content.subviews.filter { $0.layer is FrameHealthCardView.Pictured.Picture && !($0 is FrameHealthCardView.DetailsView) }
+        XCTAssertEqual(bands.map { $0.frame.minY / card.scale }, [0, 44, 82, 126, 170, 206], "header, context, figures, pacing, toolbar, charts")
+        func drawn(_ change: (inout FrameHealthCardPresentation) -> Void) -> [Bool] {
+            let before = bands.map { $0.layer.contents as AnyObject? }
+            var next = card.presentation
+            change(&next)
+            card.update(next)
+            card.drawNow()
+            return zip(before, bands.map { $0.layer.contents as AnyObject? }).map { $0 !== $1 }
+        }
+        XCTAssertTrue(bands.allSatisfy { $0.layer.contents != nil })
+        XCTAssertEqual(drawn { $0.rows = [("Last 0.5s", "59", "1"), ("Last 5s", "60", "2")] }, [false, false, true, false, false, false],
+            "new figures draw their band alone")
+        XCTAssertEqual(drawn { $0.pacing = ("Even", "300 frames at 16.7ms") }, [false, false, false, true, false, false])
+        XCTAssertEqual(drawn { $0.status = .paused }, [true, false, false, false, false, false])
+        XCTAssertEqual(drawn { _ in }, [false, false, false, false, false, false], "the same figures draw nothing")
+    }
+
     /// A card measuring the screen holds two readers' places; with one free, it shows Exact's frames until a second is
     func testACardWithOnePlaceFreeShowsExactsFramesUntilASecondIs() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
