@@ -1,6 +1,7 @@
 # `contract vocab` lists `wrap-flow` and `user-select` values the compiler refuses, and its `--json` form gives `buttonStyle` no names
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The schema marks the enum keywords the wire keeps and authoring refuses (`refused`, read by the compiler and `contract vocab` alike), so `vocab` lists `wrap-flow` and `user-select` as the compiler admits them and names the refused ones, and `--json buttonStyle` lists its twelve names.
 **Systems:** contract/cli/src/vocab.rs, contract/lower/src/values.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
