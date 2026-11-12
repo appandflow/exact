@@ -598,6 +598,15 @@ named, with its size and the limit, in the app's log and the agent's
 `state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
+The record also carries `presented: bool`, which the host adds and the game cannot
+publish (`publish("presented", …)` panics): true once a complete frame of the
+current world has been handed to the compositor, on every host. It is false at
+launch, and again after a restore, a restart or a lost GPU device, until the next
+such frame; a loading cover over the canvas waits on it, since a value published
+from `setup` means only that the declared assets loaded, not that a frame drew
+(`if !hud.presented` in the view). It changes only at those moments, never per
+frame.
+
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
 

@@ -563,6 +563,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn frame_ready(&self) -> bool {
         self.frame_ready
     }
+    // A restarted or restored world is a new picture: its canvas's
+    // `presented` waits for a frame of it.
+    fn generation(&self) -> u64 {
+        self.sim.as_ref().map_or(0, Sim::generation)
+    }
     fn submitted(&mut self) {
         self.frame_submitted();
     }

@@ -298,6 +298,22 @@ extension CanvasesHost {
         return true
     }
 
+    /// The canvas's record, when the module has a new one, to the app.
+    func publishRecord(_ e: Entry) {
+        guard live(e.view.id) === e, publishers[e.name] === e, let m = e.module, let take = m.published else { return }
+        let length = take(e.id)
+        if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
+            surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
+        }
+    }
+
+    /// A frame went to the compositor (`gpu_on_presented`): the records whose
+    /// `presented` changed reach the app now, since a canvas that wants no
+    /// further frame is not serviced again (LLP 1009).
+    func publishPresented() {
+        for e in Array(entries.values) { publishRecord(e) }
+    }
+
     func claimPublisher(_ e: Entry) {
         if publishers[e.name] == nil { publishers[e.name] = e }
         else { fputs("exact gpu: surface \(e.name): duplicate live publisher ignored\n", stderr) }
@@ -386,12 +402,7 @@ extension CanvasesHost {
             }
         }
         if let m = e.module { finishRestore(m, e) }
-        if live(e.view.id) === e, publishers[e.name] === e, let m = e.module, let take = m.published {
-            let length = take(e.id)
-            if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
-                surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
-            }
-        }
+        publishRecord(e)
         performanceRecord(e)
         guard live(e.view.id) === e, let m = e.module, let take = m.messages else { return }
         let length = take(e.id)

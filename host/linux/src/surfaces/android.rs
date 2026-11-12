@@ -545,6 +545,8 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         let owed = self.surfaces.publish_buffers(retry.then_some(&recorded));
-        wants || owed
+        // A frame just flushed may be its canvas's first presented one.
+        self.surfaces.owe_records(recorded.iter().copied());
+        wants || owed || self.surfaces.owes_records()
     }
 }

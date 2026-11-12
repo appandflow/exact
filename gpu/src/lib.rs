@@ -360,8 +360,10 @@ pub trait Surface {
         Vec::new()
     }
     /// The surface's public record — one JSON object — when it changed since last
-    /// asked. The host offers it to the app as `exactSurface("<name>")`.
-    /// The first live instance owns a surface name; other instances cannot publish or clear its record.
+    /// asked. The host offers it to the app as `exactSurface("<name>")`, with the
+    /// module's `presented` member added (LLP 1009), a name the record
+    /// cannot use. The first live instance owns a surface name; other
+    /// instances cannot publish or clear its record.
     fn published(&mut self) -> Option<String> {
         None
     }
@@ -373,6 +375,12 @@ pub trait Surface {
     /// `now_ms` is the host's monotonic clock, including polls while rendering is idle.
     fn take_performance(&mut self, _now_ms: f64) -> Option<String> {
         None
+    }
+    /// Which picture the surface draws (a world restarted or restored draws a
+    /// new one): a change makes the canvas's `presented` false until a frame
+    /// of the new picture is presented.
+    fn generation(&self) -> u64 {
+        0
     }
     /// An agent request and reply as JSON objects; the host adds clock and size (S3).
     fn agent(&mut self, _request: &str) -> Option<String> {
@@ -500,6 +508,7 @@ pub(crate) fn swapchains<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
+mod presented;
 mod recovery;
 
 /// Frames a presented canvas may have queued for the compositor. Android
@@ -545,6 +554,8 @@ struct Instance {
     /// Its first frame has been handed to the compositor (`Module::seen`);
     /// shared with the callback that says so.
     seen: Arc<AtomicBool>,
+    /// Whether its current picture has been presented, for its record.
+    presented: presented::Presented,
     children: Option<Children>,
     children_generation: u32,
     /// Per-child textures (LLP 1014 D5), by index.
@@ -589,6 +600,7 @@ impl Instance {
         if let Some(record) = self.surface.published() {
             self.published = Some(record);
         }
+        self.presented.generation(self.surface.generation());
     }
 }
 
@@ -869,6 +881,7 @@ impl Module {
         inst.hdr = target::configure(&*inst.surface, &gpu.adapter, &caps, &mut config);
         swapchains(|| target.configure(&gpu.device, &config));
         inst.seen = Default::default();
+        inst.presented.reset();
         inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);
         inst.surface.device_ready(features);
@@ -989,6 +1002,7 @@ impl Module {
                 inputs: Vec::new(),
                 dirty: false,
                 seen: Default::default(),
+                presented: Default::default(),
                 children: None,
                 children_generation: 0,
                 each: Vec::new(),
@@ -1014,6 +1028,7 @@ impl Module {
         for inst in self.instances.values_mut() {
             self.retired.extend(inst.release());
             inst.surface.device_lost();
+            inst.presented.reset();
             inst.answered.clear();
             inst.outstanding.clear();
             inst.dirty = true;
@@ -1080,9 +1095,11 @@ impl Module {
             .unwrap_or_default()
     }
 
-    /// Take the latest changed public record exactly once.
+    /// Take the latest changed public record exactly once, with its
+    /// `presented` member; the last record again when only that changed.
     pub fn take_published(&mut self, id: u32) -> Option<String> {
-        self.instances.get_mut(&id).and_then(|i| i.published.take())
+        let inst = self.instances.get_mut(&id)?;
+        inst.presented.take(inst.published.take())
     }
 
     /// Ask this canvas an agent question; an answer or posted message marks it dirty.
@@ -1218,6 +1235,8 @@ impl Module {
                 // be delivered alongside the restored state. Refusals keep them.
                 inst.messages.clear();
                 inst.published = None;
+                inst.presented.forget_record();
+                inst.presented.reset();
                 inst.drain();
                 inst.dirty = true;
                 true

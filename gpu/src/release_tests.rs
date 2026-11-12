@@ -148,6 +148,13 @@ static REGISTRY: Registry = Registry {
             })
         }),
         ("alternating", 0, || Box::new(Alternating(0))),
+        ("presenting", 0, || {
+            Box::new(Clearing {
+                ready: LATE,
+                renders: 0,
+                record: false,
+            })
+        }),
         ("once", 0, || {
             Box::new(Clearing {
                 ready: 1,
@@ -321,6 +328,40 @@ fn retries_of_an_incomplete_frame_leave_its_drawable_alone() {
     assert!(inst.held.is_none(), "presented");
     within_two_seconds("the complete frame shown", || m.seen(id));
     drop((targets, m, layer));
+}
+
+/// A canvas's record says `presented` once a complete frame is with the
+/// compositor, and not for the incomplete ones before it; a lost device
+/// starts the picture over (LLP 1009 D9).
+#[test]
+fn the_record_says_presented_once_a_complete_frame_is_shown() {
+    let Some(mut m) = module() else {
+        return;
+    };
+    m.set_seekable(true);
+    let (layer, id) = canvas(&mut m, "presenting");
+    for _ in 0..LATE {
+        assert!(m.render(id, &frame()).is_some());
+        assert!(m.flush());
+    }
+    assert_eq!(m.take_published(id), None, "nothing drawn, nothing to say");
+    assert!(m.render(id, &frame()).is_some());
+    assert!(m.flush());
+    let mut record = None;
+    within_two_seconds("the record says presented", || {
+        record = m.take_published(id);
+        record.is_some()
+    });
+    assert_eq!(record.as_deref(), Some(r#"{"presented":true}"#));
+    assert!(m.render(id, &frame()).is_some());
+    assert!(m.flush());
+    assert_eq!(m.take_published(id), None, "a later frame changes nothing");
+    m.lose_device();
+    assert_eq!(
+        m.take_published(id).as_deref(),
+        Some(r#"{"presented":false}"#)
+    );
+    drop((m, layer));
 }
 
 /// A surface that holds every other drawable renders its retries into one

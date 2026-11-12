@@ -392,7 +392,7 @@ mod seams {
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
         assert_eq!(
             exact_gpu::native::published(id).as_deref(),
-            Some(r#"{"phase":"bind"}"#)
+            Some(r#"{"phase":"bind","presented":false}"#)
         );
         assert_eq!(gpu_published(id), u32::MAX);
         gpu_seekable(true);
@@ -419,7 +419,7 @@ mod seams {
         assert_ne!(n, u32::MAX);
         assert_eq!(
             unsafe { std::slice::from_raw_parts(gpu_out_ptr(), n as usize) },
-            br#"{"phase":"agent"}"#
+            br#"{"phase":"agent","presented":false}"#
         );
         assert_eq!(gpu_published(id), u32::MAX);
         assert_eq!(unsafe { gpu_agent(id, b"{}".as_ptr(), 2) }, 0);
@@ -465,7 +465,7 @@ mod seams {
         assert_eq!(gpu_dirty(id), 1);
         assert_eq!(
             exact_gpu::native::published(id).as_deref(),
-            Some(r#"{"phase":"restore"}"#)
+            Some(r#"{"phase":"restore","presented":false}"#)
         );
         assert_eq!(exact_gpu::native::carry(id).unwrap(), Some(vec![3, 4, 5]));
         assert_eq!(
@@ -719,11 +719,13 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert!(m.input(id, &InputEvent::Blur { at_ms: 23. }));
     assert!(!m.take_messages(id).is_empty());
     assert!(m.take_messages(id).is_empty());
-    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
+    // The module's `presented` rides in every record (LLP 1009 D9).
+    let unpresented = Some(r#"{"presented":false}"#);
+    assert_eq!(m.take_published(id).as_deref(), unpresented);
     assert!(m.take_published(id).is_none());
     assert!(m.restore(id, &[1, 2, 3], exact_gpu::Restore::Open));
     assert_eq!(m.carry(id).unwrap(), Some(vec![1, 2, 3]));
-    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
+    assert_eq!(m.take_published(id).as_deref(), unpresented);
     let f = Frame {
         width: 10.,
         height: 10.,

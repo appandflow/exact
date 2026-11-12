@@ -3881,6 +3881,28 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+A GPU canvas's record (`canvas surface=world()`, read as `exactSurface("world")`)
+carries one host fact beside what its module publishes: `presented`, true once a
+complete frame of the canvas's current picture has been handed to the compositor,
+on every host. It is false until then, and again after a restore, a restarted
+world, a lost GPU device or a new target, until the next such frame. It changes
+only at those moments, never per frame. Keep a loader over the canvas until it is
+true; a record that says the world is set up is not proof that a frame has
+drawn. A module cannot publish a field of that name.
+
+```contract
+shape Table
+  presented: bool
+
+component App
+  resource table = exactSurface("world") as shape Table
+  view
+    main width="100%" height="100%"
+      canvas surface=world() width="100%" height="100%" position="relative"
+        if !table.presented
+          text "Setting the table" position="absolute" inset=0 aria-busy=true
+```
+
 The terminal's `colors` is the selected output bit depth: `0` (monochrome),
 `4` (16 ANSI colours), `8` (256 colours), or `24` (RGB). The host reduces
 authored colours to that palette; at zero it emits no foreground/background
