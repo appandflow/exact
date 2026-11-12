@@ -3194,6 +3194,7 @@ dependencies = [
  "exact-apple-update",
  "exact-bake",
  "exact-logic",
+ "ibex2-sqlite",
  "library-gate-data",
 ]
 
@@ -5177,6 +5178,7 @@ dependencies = [
  "exact-apple-update",
  "exact-bake",
  "exact-logic",
+ "ibex2-sqlite",
  "select-walk-fixture-data",
 ]
 
