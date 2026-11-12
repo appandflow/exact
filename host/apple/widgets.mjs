@@ -9,7 +9,7 @@ import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
 import { appleLinkArgs } from '../../scripts/package-libraries.mjs';
 import { constValueArgs, intentsMetadata } from './intents.mjs';
 import { appexArgs, keepMain, extensionModuleCache } from './extensions.mjs';
-import { coveringProfiles, missingDevelopmentProfile, installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile, allowsEntitlement } from './devices.mjs';
+import { coveringProfiles, missingDevelopmentProfile, installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile, allowsEntitlement, macHardwareID } from './devices.mjs';
 import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url))), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
@@ -45,15 +45,7 @@ export function widgetSigningTeam(identity, { distribution = false, certificates
   }
   throw new Error(`host/apple: Mac widgets need an ${kind} identity; name its SHA-1 or certificate name with EXACT_IDENTITY (security find-identity -v -p codesigning)`);
 }
-/** The Provisioning UDID is distinct from the hardware UUID on Apple silicon. */
-export function macHardwareID(read = (command, args) => spawnSync(command, args, { encoding: 'utf8' }).stdout ?? '') {
-  try {
-    const hardware = JSON.parse(read('system_profiler', ['SPHardwareDataType', '-json']));
-    const id = hardware.SPHardwareDataType?.find(row => row.provisioning_UDID)?.provisioning_UDID;
-    if (id) return id;
-  } catch { /* Older system_profiler versions may supply only IOPlatformUUID. */ }
-  return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(read('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']))?.[1] ?? null;
-}
+export { macHardwareID };
 export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log }) {
   if (named && !named.platforms?.includes('OSX')) {
     log(`Mac widgets: ignoring EXACT_PROFILE (${named.name}) for ${named.platforms?.join(', ') || 'another platform'}; shared secrets need macOS profiles (LLP 1126.001 §5 Q5).`);
@@ -82,12 +74,14 @@ export function macWidgetSigning(app, identity, { distribution = false, log = co
   }
   return { team, profiles: macWidgetProfiles({ app, team, distribution, log, ...profiles }) };
 }
-export function macWidgetEntitlements({ app, team, profiles = null, extension = false }) {
+/** `extra`: the app's own profile entitlements (presence.mjs `macProvisioning`), signed under the same profile. */
+export function macWidgetEntitlements({ app, team, profiles = null, extension = false, extra = {} }) {
   const id = extension ? widgetId(app) : app.id;
   return plistFile({
     'com.apple.security.application-groups': [macWidgetGroup(app, team)],
     ...(extension ? { 'com.apple.security.app-sandbox': true, 'com.apple.security.network.client': true } : {}),
     ...(profiles ? { 'com.apple.application-identifier': `${profiles.app.prefix}.${id}`, 'com.apple.developer.team-identifier': team, 'keychain-access-groups': [profiles.keychain] } : {}),
+    ...(extension ? {} : extra),
   });
 }
 

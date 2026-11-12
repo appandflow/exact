@@ -1019,6 +1019,34 @@ receipt, and signed GPU frameworks (primary and named modules). Copy those
 frameworks intact into the embedding app's `Frameworks/`; their binaries must
 retain the baked digests.
 
+### Mac provisioning profiles
+
+Some entitlements hold on a Mac only under a provisioning profile that
+authorizes them (Apple TN3125), and the Mac build signs them from one (LLP
+1133.010 D7): push's `com.apple.developer.aps-environment` (`device.push`), App
+Attest's environment (`device.attestation`), the Declared Age Range
+(`device.age-range`), the keychain group a locked secret is kept in
+(`secret.keep` with a presence policy), and a passkey's associated domains
+(`auth.passkey`). An app whose grants need any of them is built from the
+newest installed macOS profile for its id (or the team's wildcard) that allows
+them all: a development profile that names this Mac for a development build, a
+Developer ID one for `exact release`. `EXACT_MAC_PROFILE=<path>` names one, and
+the build says why a named one does not fit. The build signs with that
+profile's team's identity (Apple Development, or `EXACT_DEVELOPER_ID` for a
+release, which must be of the same team), writes the application identifier,
+the team and each entitlement (an environment `development` under a
+development profile, `production` otherwise), embeds the profile as
+`Contents/embedded.provisionprofile`, and always assembles the `.app`, where
+the profile holds.
+
+With no profile that fits, a development build signs none of them and says,
+for each grant, what the app then reports (`available: false`,
+`NotSupportedError`). A release build is refused (`grant-needs-profile`) for
+App Attest, the age range, a passkey or a locked secret that is not
+`optional`; one granting push ships without it, reporting push unavailable.
+The Mac widgets' profile, when the app has widgets with shared secrets, must
+be the same profile.
+
 ### Native CI preparation
 
 The [EAS iOS](recipes/eas-ios.md) and [EAS Android](recipes/eas-android.md)
@@ -2313,7 +2341,7 @@ reminder posts the next one when the app runs.
 ### Push
 
 `@exact/push` (LLP 1133.004 §9) is a visible push from the app's own server,
-on iOS and iPadOS, by the Push API's names. Exact sends nothing and relays
+on iOS, iPadOS and macOS, by the Push API's names. Exact sends nothing and relays
 nothing: the app sends its device token to its own server, and the server
 sends to APNs.
 
@@ -2339,8 +2367,11 @@ signs `aps-environment` into an iOS or iPadOS build: `development` on a
 simulator and under a development profile, `production` under an Ad Hoc,
 enterprise or App Store one, the value a Live Activity that takes pushes signs
 too. A device build is refused unless its profile has Push Notifications with
-that value. A Mac or tvOS build writes nothing for it and is not refused. An
-app with Live Activities may register beside them under this grant.
+that value. A Mac build signs `com.apple.developer.aps-environment` only under
+a macOS provisioning profile that allows it (see "Mac provisioning profiles"),
+with the same values; without one it signs nothing, says so, and is not
+refused. A tvOS build writes nothing for it. An app with Live Activities may
+register beside them under this grant.
 
 - `subscribePush()` is the one call that asks: while notifications'
   permission is `prompt` it shows the system's prompt; while `denied` it is
@@ -2357,9 +2388,10 @@ app with Live Activities may register beside them under this grant.
   permission in Settings is read again when the app comes back to the front.
 - `pushPermissionState()` reads `{available, state}`, notifications'
   permission, which the two modules share.
-- On macOS, tvOS, Android, the web, Linux, Windows and the terminal each call
-  is refused `NotSupportedError`, `pushSubscription()` reads null and the
-  state `available: false`.
+- On a Mac build signed without the entitlement, and on tvOS, Android, the
+  web, Linux, Windows and the terminal, each call is refused
+  `NotSupportedError`, `pushSubscription()` reads null and the state
+  `available: false`.
 
 The server sends APNs an alert (`apns-push-type: alert`, `apns-topic` the
 bundle id), APNs's own `aps` dictionary and one key of Exact's:
