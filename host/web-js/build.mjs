@@ -165,7 +165,6 @@ function mounted(spec, importer) {
   const base = physical(target);
   return [base, `${base}.ts`, `${base}.js`, resolve(base, 'index.ts')].find(path => statSync(path, { throwIfNoEntry: false })?.isFile()) ?? null;
 }
-const mountResolver = build => build.onResolve({ filter: /^\.\.?\// }, args => { const path = mounted(args.path, args.importer); return path ? { path } : undefined; });
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
@@ -739,10 +738,9 @@ if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))
   const code = readFileSync(resolve(gen, f), 'utf8'), scoped = developmentStore(code, realpathSync(appDir));
   if (scoped !== code) writeFileSync(resolve(gen, f), scoped);
 }
-// Bun's bundler, in this process, for the server bundle. A build that
-// renders nothing (the dev loop's) makes no server bundle. Pages render with
-// the app's native render entry where it has one (`<app>-render`, in an
-// authored crate), else under Bun (LLP 1153 D3.5).
+// A build that renders nothing (the dev loop's) makes no server bundle. Pages render
+// with the app's native render entry where it has one (`<app>-render`, in an authored
+// crate), else under Bun (LLP 1153 D3.5).
 const renderBin = `${app}-render`;
 const renderAt = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${renderBin}.rs`)));
 const how = opt('--render') ?? (renderAt ? 'rust' : 'js');
@@ -751,12 +749,11 @@ const how = opt('--render') ?? (renderAt ? 'rust' : 'js');
 // local `fetch` stays local.
 const generatedRoots = [gen, realpathSync(gen)];
 const inside = (path, root) => { const child = relative(root, path); return child === '' || !isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep); };
-// `lower`: the page's bundle lowers `async` so an answer's context survives
-// its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
-// runs at build with no device to call, does not.
+// Both bundles lower `async` so an answer's context survives its awaits
+// (`asyncContext`, LLP 1133.002 D14). Rolldown supplies every helper the lowering emits.
 // A native module's web implementation is the page's, as an app's own page module is.
 const implementationRoots = [...webImplementations(appDir, moduleFlag.extensions).values()].map(at => dirname(realpathSync(at)));
-const scopedModule = (code, id, lower = false) => {
+const scopedModule = (code, id) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
   if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
@@ -774,7 +771,7 @@ const scopedModule = (code, id, lower = false) => {
   // The stage's normalized configuration, never one found beside the file: a
   // mount's own `tsconfig.json` may extend a file outside the mount.
   const transformed = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'),
-    ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}) });
+    ...lowered, helpers: { mode: 'Runtime' } });
   if (transformed.errors.length) throw new Error(transformed.errors.map(e => e.message).join('\n'));
   // Choose the alias after JSX lowering, which turns tags and pragma references into identifiers.
   const names = new Set();
@@ -798,30 +795,30 @@ const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).
 // but suppress missing-export warnings only at the generated glue's path.
 const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
   && /Import ["`](?:kept|overlay|tools)["`] will always be undefined because there is no matching export/.test(message);
-const bundle = async (options) => {
-  const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
-    build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
-  } }] });
-  for (const m of r.logs) {
-    if (m.level === 'warn' && optionalHookWarning(m.position?.file, m.message)) continue;
-    console.error(String(m));
-  }
-  if (!r.success) process.exit(1);
+const { rolldown } = await import('rolldown');
+const scopedPlugins = () => [...(replay ? [replay.rolldown] : []),
+  { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) },
+  { name: 'source-grants', transform: scopedModule }, asyncContext()];
+const onLog = (level, log) => {
+  if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
+  console.error(log.message);
 };
-// The renderer uses vm.Script, which cannot parse import.meta.
+// The renderer uses vm.Script, which cannot parse import.meta. Inline dynamic imports into its single script.
 const markdownReaders = existsSync(resolve(gen, 'markdown.flag'));
-if (how !== 'none' || markdownReaders) await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js',
-  define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'true', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } });
+if (how !== 'none' || markdownReaders) {
+  const b = await rolldown({ input: resolve(gen, 'main-server.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}),
+    transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'true', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } },
+    plugins: scopedPlugins(), logLevel: 'warn', onLog });
+  try { await b.write({ file: resolve(gen, 'server.js'), format: 'iife', codeSplitting: false }); }
+  finally { await b.close(); }
+}
 // The page's module and its chunks: Rolldown, the repo's app bundler, whose
 // minifier leaves the entry 6–10% smaller than Bun's after brotli (RealWorld
 // 25.8 → 23.6 KB, the feed bench's 30.9 → 27.9, the grid's 19.3 → 18.1),
 // bytes a page downloads before its runtime is up.
 {
-  const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'false' } }, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: (code, id) => scopedModule(code, id, true) }, asyncContext()], logLevel: 'warn', onLog: (level, log) => {
-    if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
-    console.error(log.message);
-  } });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), ...(ts ? { tsconfig: resolve(tsStage, '__exact_tsconfig.json') } : {}), transform: { ...bundleOptions.transform, define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'false' } },
+    plugins: scopedPlugins(), logLevel: 'warn', onLog });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

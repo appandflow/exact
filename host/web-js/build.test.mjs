@@ -261,12 +261,11 @@ export const answer = () => value as never;
     const stderr = result.stderr.replace(/\x1b\[[0-9;]*m/g, '');
     if (authored) {
       for (const name of ['kept', 'overlay', 'other']) {
-        expect(stderr).toContain(`BuildMessage: Import "${name}" will always be undefined`);
         expect(stderr).toContain(`[IMPORT_IS_UNDEFINED] Import \`${name}\` will always be undefined`);
       }
       expect(stderr).toContain('.gen/typescript/ts-data.js:');
       expect(stderr).not.toContain('.gen/ts-data.js:');
-      expect(stderr.match(/BuildMessage: Import /g)).toHaveLength(3);
+      expect(stderr.match(/\[IMPORT_IS_UNDEFINED\] Import /g)).toHaveLength(6);
     } else {
       expect(stderr).not.toContain('IMPORT_IS_UNDEFINED');
       expect(stderr).not.toContain('will always be undefined');

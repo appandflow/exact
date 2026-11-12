@@ -355,9 +355,9 @@ const DIRECTORIES = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temp
 // refused here, before any adapter loads, and never answers, so the answer that
 // made it stays pending and keeps its placeholder, as the render host holds a
 // storage request. The render does not wait for it, and the reader's page asks
-// it again once it adopts the page (render.mjs). Each answer is handed its own
-// facade, `owner` its call: the server bundle does not carry the answer across
-// an await or into a `.then`, where `answering.call` is null.
+// it again once it adopts the page (render.mjs). The lowered bundles restore the
+// answer across `await`. Each answer has its own facade; its `owner` names
+// refusals when no answer is current, as in a plain `.then`.
 // `compressImage` and `transformImage` options, checked as the native prelude checks them (binary.js
 // `imageOptions`) before anything is asked of storage: the options to run with, or the TypeError a call rejects with.
 function imageOptions(method, from, to, options, limits) {

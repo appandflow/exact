@@ -363,6 +363,10 @@ test('a render holds streams and uploads beside a refused call, and refuses file
   watch "/watch" render=request
   watchBad "/watch-bad" render=request
   watchThen "/watch-then" render=request
+  watchAwait "/watch-await" render=request
+  watchHelpers "/watch-helpers" render=request
+  bodyFromAwait "/body-from-await" render=request
+  bodyToAwait "/body-to-await" render=request
   timeout "/timeout" render=request
   aborted "/aborted" render=request
   streamVoid "/stream-void" render=request
@@ -378,7 +382,20 @@ component App
       text prefs testId="prefs"
       text live testId="live"
 `);
-    writeFileSync(resolve(dir, 'app.ts'), `export const grants = 'fs.read app:/data\\nfs.write app:/data\\nnet.fetch ${api.url.origin}';
+    writeFileSync(resolve(dir, 'watch.ts'), `class Document {
+  #path = 'doc:/notes';
+  get path() { return this.#path; }
+}
+async function* paths() { yield new Document().path; }
+export async function watch(storage: any): Promise<string> {
+  await Promise.resolve();
+  const { ignored, ...options } = { ...{ recursive: true }, ignored: 0 };
+  for await (const path of paths()) storage.fs.watch(path, options);
+  return options.recursive ? 'watched' : 'missing';
+}
+`);
+    writeFileSync(resolve(dir, 'app.ts'), `import { watch } from './watch';
+export const grants = 'fs.read app:/data\\nfs.write app:/data\\nnet.fetch ${api.url.origin}';
 const API = '${api.url.origin}';
 const stop = new AbortController();
 export const answer = async (name: string, [route]: string[], _store: unknown, storage: any): Promise<any> => {
@@ -391,6 +408,10 @@ export const answer = async (name: string, [route]: string[], _store: unknown, s
   if (route === 'aborted') return (await fetch(API + '/upload', { method: 'POST', exactBodyFrom: 'app:/data/b', signal: stop.signal } as RequestInit)).text();
   if (route === 'expectBad') { try { await storage.fs.writeFile('app:/data/b', 'x', { expect: { modified: 0 } }); return 'written'; } catch (e: any) { return 'rejected ' + e.name; } }
   if (route === 'watchThen') return Promise.resolve().then(() => { storage.fs.watch('doc:/notes'); return 'watched'; });
+  if (route === 'watchAwait') { await Promise.resolve(); storage.fs.watch('doc:/notes'); return 'watched'; }
+  if (route === 'watchHelpers') return watch(storage);
+  if (route === 'bodyFromAwait') { await Promise.resolve(); return (await fetch(API + '/upload', { method: 'POST', exactBodyFrom: 'app:/data/b' } as RequestInit)).text(); }
+  if (route === 'bodyToAwait') { await Promise.resolve(); await fetch(API + '/upload', { exactBodyTo: 'app:/data/b' } as RequestInit); return 'saved'; }
   if (route === 'streamVoid') { void Promise.resolve().then(() => storage.fs.readFile('app:/data/p')); return fetch(API + '/events', { exactStream: (e: any) => e.data } as RequestInit); }
   if (route === 'abortedFrom' || route === 'abortedTo') {
     const gone = new AbortController();
@@ -426,15 +447,23 @@ export const answer = async (name: string, [route]: string[], _store: unknown, s
       seen[path] = await page(path);
     }
     const refused = api => ({ status: 200, settled: true, live: '', pending: ['live'], open: [], refused: [['live', api]], failed: [], quick: true });
-    for (const [path, api] of [['/body-from', 'exactBodyFrom app:/data/b'], ['/body-to', 'exactBodyTo app:/data/b'], ['/upload-from', 'exactBodyFrom app:/data/b']]) {
+    for (const [path, api] of [
+      ['/body-from', 'exactBodyFrom app:/data/b'], ['/body-from-await', 'exactBodyFrom app:/data/b'],
+      ['/body-to', 'exactBodyTo app:/data/b'], ['/body-to-await', 'exactBodyTo app:/data/b'],
+      ['/upload-from', 'exactBodyFrom app:/data/b'],
+    ]) {
       wanted[path] = refused(api);
       seen[path] = await page(path);
     }
     wanted['/watch'] = { status: 200, settled: true, live: 'watched', pending: [], open: ['live'], refused: [], failed: [], quick: true };
     seen['/watch'] = await page('/watch');
+    for (const path of ['/watch-await', '/watch-helpers']) {
+      wanted[path] = wanted['/watch'];
+      seen[path] = await page(path);
+    }
     wanted['/watch-bad'] = { status: 200, settled: true, live: '', pending: [], open: [], refused: [], failed: ['live'], quick: true };
     seen['/watch-bad'] = await page('/watch-bad');
-    // A plain `.then` runs outside its answer, on the device as here: the watch throws there, so it throws here.
+    // A plain `.then` runs outside its answer in the reader's page too, so the watch throws in both.
     wanted['/watch-then'] = wanted['/watch-bad'];
     seen['/watch-then'] = await page('/watch-then');
     // A file body's refusal is no request in flight: neither the fetch's timeout nor its abort ends it, though the
