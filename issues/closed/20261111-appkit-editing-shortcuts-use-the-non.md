@@ -1,6 +1,7 @@
 # AppKit editing shortcuts use the wrong keyboard layout with Command
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A paragraph's, a reading region's and an editor's own Command chords read the key through `NodeView.commandKey`, which keeps the layout Command selects, as the menu bar and authored shortcuts do.
 **Systems:** host/apple/Sources/ExactKit/Mac/NodeViewMac.swift, host/apple/Sources/ExactKit/Mac/TextAreaMac.swift, host/apple/Sources/ExactKit/Mac/RegionSurfaceMac.swift
 **Severity:** P2
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
