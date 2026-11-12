@@ -2784,8 +2784,8 @@ or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`
 ran out with nothing written) or `unsupported`. macOS and iOS encode with
 ImageIO (an HDR photo is tone-mapped), the web with a canvas (in the page or the
 module's worker; JPEG, PNG, GIF, WebP and BMP, never HEIF or AVIF, whose size it
-cannot read before decoding);
-Linux, Windows and Android have no image encoder and answer `unsupported`, so
+cannot read before decoding), and Android with `ImageDecoder` and `Bitmap`.
+Linux and Windows have no image encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
 
@@ -2834,8 +2834,15 @@ and HEIC; the web encodes PNG, and JPEG and WebP where the browser does, and a
 canvas keeps no metadata, colour space but sRGB or gain map, so there the
 record says `colorSpace: 'srgb'`, `hdr: false` and `metadata: 'none'` whatever
 was asked. The iOS simulator's ImageIO writes no gain map, so there an HDR
-photo is saved as SDR and says `hdr: false`. Linux, Windows and Android answer
-`unsupported`.
+photo is saved as SDR and says `hdr: false`. Android encodes JPEG, PNG and
+WebP. It copies source attributes readable by `ExifInterface`, including
+embedded EXIF XMP, and, for JPEG sources and output, IPTC and standard external
+XMP packets. `no-location` keeps only capture tags and IPTC rights. Unsupported
+preservation reports `metadata: 'none'`. This includes
+`keep` requests with external PNG/WebP metadata, extended XMP, qualified XMP
+orientation or dimensions, unsupported Photoshop resources or multi-picture
+JPEGs. Malformed metadata and conversions that cannot carry the retained
+segments also report `none`. Linux and Windows answer `unsupported`.
 
 ### Documents the person chose (`doc:`)
 
