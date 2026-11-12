@@ -1,6 +1,7 @@
 # Native call and later arguments round JavaScript numbers to a neighboring double
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `native.call` and `native.later` arguments are read with exact-js-value's correctly rounding JSON reader, as replies and overlays are, so each number arrives with the bits JavaScript held.
 **Systems:** js/src/door.rs, js/src/lib.rs
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
