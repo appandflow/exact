@@ -186,3 +186,14 @@ test.skipIf(process.platform !== 'darwin')('a first build through the app CLI ho
     }
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 300000);
+
+test('setup accepts the Bun range the builds accept', async () => {
+  const { sdkReport } = await import('./exact.mjs');
+  const descriptor = Object.getOwnPropertyDescriptor(process.versions, 'bun');
+  try {
+    for (const [version, ok] of [['1.4.2', true], ['1.5.0', true], ['1.4.1', false]]) {
+      Object.defineProperty(process.versions, 'bun', { ...descriptor, value: version });
+      assert.equal(sdkReport({ PATH: '' }, { only: 'web' }).find(row => row.name === 'Bun').ok, ok, version);
+    }
+  } finally { Object.defineProperty(process.versions, 'bun', descriptor); }
+});

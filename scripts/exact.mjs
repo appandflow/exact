@@ -558,8 +558,8 @@ export function sdkReport(env = process.env, { only = null, device = false, tv =
     const crates = sdkFetch({offline: true, env});
     rows.push(row('game SDK crates', crates.ok ? 'in Cargo cache' : (/no matching package named `[^`]+`/.exec(crates.message)?.[0] ?? 'not all fetched'), 'game/app/shells.lock', crates.ok, 'exact setup', 'games'));
   }
-  const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4);
-  if (want('Bun')) rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
+  const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).engines.bun;
+  if (want('Bun')) rows.push(row('Bun', process.versions.bun, bun, Bun.semver.satisfies(process.versions.bun, bun), `use Bun ${bun} (README, Quick start)`));
   if (want('wasm-bindgen')) {
     const bindgenHave = output('wasm-bindgen', ['--version']);
     rows.push(row('wasm-bindgen', bindgenHave, `wasm-bindgen ${bindgen}`, bindgenHave === `wasm-bindgen ${bindgen}`, 'exact setup'));
