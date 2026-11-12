@@ -1,6 +1,7 @@
 # The JS build writes the app's name into `<title>` unescaped, and a name holding `<` leaves every page rendered under Bun untitled
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by 6e97307a, which writes the name into the shell's title through `attr` (`&lt;3`), so the render server reads it back whole.
 **Systems:** host/web-js/build.mjs, host/web-js/render.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
