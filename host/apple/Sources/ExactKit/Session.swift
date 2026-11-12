@@ -461,7 +461,7 @@ public final class ExactSession {
     var ownerInFlight: Bool { fillInFlight || tickInFlight || advanceInFlight || canvasInFlight || noticesInFlight > 0 || repliesInFlight > 0 }
     /// Whether this generation's plan reads `onLine`, learned by a synchronous `tellPage`.
     var readsOnLineKnown: (generation: Int, value: Bool)?
-    private var canvasOwed = false
+    private(set) var canvasOwed = false
     private var canvasAsked = false
     private(set) var landing = false
     /// Landing slices ahead of a batch already made: their appearance
@@ -653,8 +653,9 @@ public final class ExactSession {
         guard !landing else { return }
         landing = true
         // A reply the slices released (`afterFill`) may have left a deadline
-        // due: it advances once they have landed, unless a batch waits on them
-        defer { landing = false; workEnded(); if !holdingReports { advanceIfDue() } }
+        // due: it advances once they have landed, unless a batch waits on them.
+        // Sizes measured as they applied are reported as it ends, whether its last batch applied or was skipped (`reportMeasured`).
+        defer { landing = false; if !applying { reportMeasured() }; workEnded(); if !holdingReports { advanceIfDue() } }
         while true {
             published.lock()
             let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
@@ -1035,17 +1036,6 @@ public final class ExactSession {
         apply(runtime.surfaceRecord(name, json))
     }
 
-    /// A batch that changes nothing: it shows nothing new (`showsNothing`), has no error to log and moves no hold, the
-    /// wake lock (LLP 1125 D11) or word on work the app must finish (`Holds.swift`). Its timer deadline is the caller's to compare.
-    func changesNothing(_ batch: Batch) -> Bool { showsNothing(batch) && batch.error == nil && batch.wakelock == nil && batch.mustFinish == nil }
-    /// A batch that changes nothing the presenter shows: it leaves the screen as it is (no ops, control's
-    /// viewless contents, LLP 1069.011 §9, page facts or orientation lock), asks for no canvas image, and
-    /// leaves the motion, spatial, frame-task, canvas and owed-draw state as they stand.
-    func showsNothing(_ batch: Batch) -> Bool {
-        !batch.changesScreen && batch.canvasImages.isEmpty && batch.motion == frames.motion && batch.spatial == frames.spatial
-            && batch.canvasOwed == canvasOwed && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
-    }
-
     /// A batch from a timer, a scroll event or a host's measurement: one that
     /// changes nothing only moves the clock. An app's timer that writes nothing
     /// (a poll that finds no news), a `scroll=` handler whose writes show
@@ -1078,10 +1068,17 @@ public final class ExactSession {
         advanceIfDue()
     }
 
-    /// The reports a landing holds back (`holdingReports`) until the batches made before them apply: the controls' measured sizes, so the frame shows them (#134),
-    /// then the appearance's. The sizes also wait for slices still to land, whose older layout would apply over theirs; a size is reported only once.
+    /// The controls' measured sizes (#134), laid out before the frame shows, and after every batch made before that layout: a size is reported once.
+    /// The layout follows the owner's work already posted, which publishes each batch as it makes it. Outside an apply and a landing, its batch lands
+    /// those first (T4); inside either, or with a slice in flight (`whenIdle` would run it in that landing), it waits for them, and the landing reports.
+    func reportMeasured() {
+        guard !holdingReports, !(applying || landing || fillInFlight) || !(ownerInFlight || hasPublished()) else { return }
+        presenter.controls.reportMeasured()
+    }
+
+    /// The reports a landing holds back (`holdingReports`) until the batches made before them apply: the measured sizes, then the appearance's.
     private func drainReports() {
-        if !holdingReports, !(landing && hasPublished()) { presenter.controls.reportMeasured() }
+        reportMeasured()
         if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
         while !holdingReports, !pendingViewDark.isEmpty {
             let (id, dark) = pendingViewDark.removeFirst()

@@ -105,23 +105,53 @@ final class LayoutInsertIOSTests: XCTestCase {
     /// them, its layout came from the runtime after the input, and the input batch's
     /// older frames then put the slider back at the default height for good.
     func testASliderMeasuredInALandedSliceIsLaidOutAfterTheBatchMadeAfterTheSlice() throws {
-        try measuredAfterTheNudge { session, nudge in session.apply(nudge) }
+        try measuredAfterTheSlice { session, nudge in session.apply(session.runtime.press(nudge, now: session.now())) }
     }
 
     /// The same with the input batch published behind the slice, both landing in one
     /// `landFill` that no other batch's apply holds.
     func testASliderMeasuredInALandedSliceIsLaidOutAfterTheSliceBehindIt() throws {
-        try measuredAfterTheNudge { session, nudge in
-            session.publishTickForTests(nudge)
+        try measuredAfterTheSlice { session, nudge in
+            session.publishTickForTests(session.runtime.press(nudge, now: session.now()))
             session.landFill()
         }
     }
 
-    private func measuredAfterTheNudge(_ land: (ExactSession, Batch) -> Void) throws {
+    /// The same with the input batch still being made on the owner as the slice
+    /// lands: a notice the owner makes only once a size is reported, so the runtime
+    /// makes the size's layout after it. Nothing else in the slice's apply waits on
+    /// the owner (the nudge button stands above the insert, so its face is not asked).
+    func testASliderMeasuredInALandedSliceIsLaidOutAfterTheBatchStillOnTheOwner() throws {
+        try measuredAfterTheSlice { session, nudge in
+            let reported = DispatchSemaphore(value: 0), madeAfter = DispatchSemaphore(value: 0)
+            let report = session.presenter.onIntrinsic, now = session.now()
+            session.presenter.onIntrinsic = { reported.signal(); report?($0) }
+            session.tellSoon([{
+                if reported.wait(timeout: .now() + 5) == .success { madeAfter.signal() }
+                return $0.press(nudge, now: now)
+            }])
+            session.landFill()
+            XCTAssertEqual(madeAfter.wait(timeout: .now()), .success, "the owner made the nudge once a size was reported, not before")
+        }
+    }
+
+    /// The slice lands with a cancelled reply behind it, which the landing skips: the
+    /// size is reported as the landing ends, before the frame shows.
+    func testASliderMeasuredInALandedSliceIsLaidOutWhenTheBatchBehindItIsSkipped() throws {
+        try measuredAfterTheSlice { session, _ in
+            session.publishCancelledReplyForTests()
+            session.landFill()
+        }
+    }
+
+    /// Publishes the insert as a tick's slice, lands it with `land` (given the
+    /// nudge's id), and checks the slider is laid out at its measured height then
+    /// and once the owner's work and the sizes' reports have all run.
+    private func measuredAfterTheSlice(_ land: (ExactSession, UInt32) -> Void) throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         let session = try boot()
         session.publishTickForTests(session.runtime.press(try XCTUnwrap(node(session, "toggle")).id, now: session.now()))
-        let nudge = session.runtime.press(try XCTUnwrap(node(session, "nudge")).id, now: session.now())
+        let nudge = try XCTUnwrap(node(session, "nudge")).id
         XCTAssertNil(node(session, "row"), "the insert has not landed")
         land(session, nudge)
         let row = try XCTUnwrap(node(session, "row")), box = try XCTUnwrap(node(session, "slider"))
@@ -130,7 +160,8 @@ final class LayoutInsertIOSTests: XCTestCase {
         XCTAssertGreaterThan(slider.frame.height, 16, "the platform's slider, taller than the default")
         XCTAssertEqual(box.bounds.height, slider.frame.height, accuracy: 0.5, "the input is laid out at the slider's own height")
         XCTAssertEqual(row.frame.maxY, laidY(below), accuracy: 0.5, "the sibling is laid out below the measured row")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        waitFor("the owner's batches land and the sizes are reported") { !session.ownerInFlight && !session.presenter.controls.owesSizes }
+        waitForMainQueue("the landings and reports queued for the next turn")
         XCTAssertEqual(box.bounds.height, slider.frame.height, accuracy: 0.5, "and stays so")
     }
     #endif

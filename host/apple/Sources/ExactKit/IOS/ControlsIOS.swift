@@ -382,15 +382,19 @@ final class ControlHost: NSObject {
         }
         if !sizes.isEmpty {
             measured += sizes
-            DispatchQueue.main.async { [weak self] in self?.reportMeasured() }
+            DispatchQueue.main.async { [weak self] in self?.presenter.session?.reportMeasured() }
         }
         syncProgress()
     }
 
-    /// Lays out with the sizes measured since the last report: once the batch
-    /// being applied is (`ExactSession.apply`), before its frame shows, so a
-    /// box under a layout transition never shows where the default size put
-    /// it (#134); else on the next turn, for a sync outside a batch. A control
+    /// Sizes measured and not yet reported.
+    var owesSizes: Bool { !measured.isEmpty }
+
+    /// Lays out with the sizes measured since the last report, when the session
+    /// says (`ExactSession.reportMeasured`): once the batch being applied is,
+    /// before its frame shows, so a box under a layout transition never shows
+    /// where the default size put it (#134); else, for a sync outside a batch,
+    /// on the next turn or once the owner's earlier batches land. A control
     /// destroyed before then reports nothing. A layout can size a control
     /// again (a select's wrapped title): a few rounds, as it settles.
     func reportMeasured() {
