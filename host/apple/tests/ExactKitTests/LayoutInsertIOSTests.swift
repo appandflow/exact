@@ -105,12 +105,14 @@ final class LayoutInsertIOSTests: XCTestCase {
     /// them, its layout came from the runtime after the input, and the input batch's
     /// older frames then put the slider back at the default height for good.
     func testASliderMeasuredInALandedSliceIsLaidOutAfterTheBatchMadeAfterTheSlice() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         try measuredAfterTheSlice { session, nudge in session.apply(session.runtime.press(nudge, now: session.now())) }
     }
 
     /// The same with the input batch published behind the slice, both landing in one
     /// `landFill` that no other batch's apply holds.
     func testASliderMeasuredInALandedSliceIsLaidOutAfterTheSliceBehindIt() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         try measuredAfterTheSlice { session, nudge in
             session.publishTickForTests(session.runtime.press(nudge, now: session.now()))
             session.landFill()
@@ -122,6 +124,7 @@ final class LayoutInsertIOSTests: XCTestCase {
     /// makes the size's layout after it. Nothing else in the slice's apply waits on
     /// the owner (the nudge button stands above the insert, so its face is not asked).
     func testASliderMeasuredInALandedSliceIsLaidOutAfterTheBatchStillOnTheOwner() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         try measuredAfterTheSlice { session, nudge in
             let reported = DispatchSemaphore(value: 0), madeAfter = DispatchSemaphore(value: 0)
             let report = session.presenter.onIntrinsic, now = session.now()
@@ -138,6 +141,7 @@ final class LayoutInsertIOSTests: XCTestCase {
     /// The slice lands with a cancelled reply behind it, which the landing skips: the
     /// size is reported as the landing ends, before the frame shows.
     func testASliderMeasuredInALandedSliceIsLaidOutWhenTheBatchBehindItIsSkipped() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         try measuredAfterTheSlice { session, _ in
             session.publishCancelledReplyForTests()
             session.landFill()
@@ -148,7 +152,6 @@ final class LayoutInsertIOSTests: XCTestCase {
     /// nudge's id), and checks the slider is laid out at its measured height then
     /// and once the owner's work and the sizes' reports have all run.
     private func measuredAfterTheSlice(_ land: (ExactSession, UInt32) -> Void) throws {
-        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the slider is measured in a scene's window") }
         let session = try boot()
         session.publishTickForTests(session.runtime.press(try XCTUnwrap(node(session, "toggle")).id, now: session.now()))
         let nudge = try XCTUnwrap(node(session, "nudge")).id
