@@ -1,6 +1,7 @@
 # A `table` in a terminal entry draws stray blank lines: its UA spacing and cell padding skip the terminal's space rule
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Under the terminal's space rule a table's `border-spacing` (its own or the UA's), its own padding and a cell's UA padding are whole cells on each axis, in the table, its caption's inset and an anonymous table's grid, so the UA's 2 px and 1 px are none.
 **Systems:** kernel/src/style/table.rs, kernel/src/style/cells.rs, host/terminal
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
