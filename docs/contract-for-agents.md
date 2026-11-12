@@ -3476,7 +3476,10 @@ Windows included (its notification-area icon is not built), it is an
 ordinary button. An accessory app's status menu ends with the host's Quit,
 which `-exact-menu-remove="status-quit"` removes. Bare `focus()` brings the
 window forward on macOS, showing it if it was hidden (Windows and Linux log
-it as unsupported); the agent lists the items as
+it as unsupported); `hideWindow()` puts it away again with the app still
+running, as the person's ⌘W does while a status item is placed or under
+`keepRunning` (macOS only; refused in the journal elsewhere, and where the
+app would end without its window); the agent lists the items as
 `state.statusItems` and `state.dockMenu`.
 
 

@@ -929,6 +929,13 @@ pub(super) fn check_command(
             span,
         );
     }
+    if name == "hideWindow" && !args.is_empty() {
+        return err(
+            "type-hide-window",
+            "`hideWindow()` takes no arguments: the session's window is put away and the app keeps running, as when the person closes it under `keepRunning`; bare `focus()` shows it again",
+            span,
+        );
+    }
     if name == "close" && args.len() > 1 {
         return err(
             "type-close",

@@ -341,7 +341,12 @@ web's back/forward cache: `exactPage().persisted` is `true` from the close (a
 counts the reopens (each a `pageshow` with `persisted`). A minimize, ⌘H, a
 covering window or a locked screen changes neither. So an app that opens
 something new on a reopen, as a Mac app makes a new window there, keys a task
-on the count: `task fresh when page.restores > 0 key=page.restores`. ⌘Q quits as before, and the app's own
+on the count: `task fresh when page.restores > 0 key=page.restores`. The app
+puts its own window away the same way with `hideWindow()`, as a menu-bar
+utility does once its work is done; bare `focus()` or the status item's press
+shows it again, as a restore. Where the app would end without its window (no
+`keepRunning` and no status item placed), `hideWindow()` is refused in the
+journal and the window stays. ⌘Q quits as before, and the app's own
 `close()` still closes the window and ends the app. A `navigate-new` app
 (`launch_handler`) already outlives its last window, and the key changes
 nothing there. The agent's `state.documents.windows[].visible` says whether

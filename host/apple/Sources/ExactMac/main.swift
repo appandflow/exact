@@ -110,6 +110,12 @@ final class Adapter: ExactSessionDelegate {
         case "focus":
             if agentMode { session.log("focus window") }
             windows.first { $0.session === session }?.front()
+        // `hideWindow()` (LLP 1133.025 D4): what the person's close does to a
+        // window the app keeps, the app still running; refused where it ends.
+        case "hideWindow":
+            guard let window = windows.first(where: { $0.session === session }) else { return }
+            if agentMode { session.log("hideWindow") }
+            ExactWindowCommands.hide(window.window, keeps: window.keepsWindow, log: session.log)
         case "relaunch":
             guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
             delegate.relaunching = true
@@ -473,13 +479,16 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         return row
     }
 
+    /// Whether a close puts this window away rather than closing it: the
+    /// app keeps running without it, or its status item is placed (LLP
+    /// 1133.025 D4).
+    var keepsWindow: Bool { ExactDocuments.keepsWindow(only: windows.count == 1, placesStatusItems: session.placesStatusItems) }
+
     /// The red button, File ▸ Close Window and ⌘W ask the app first
     /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
     /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // A one-window app whose status item is placed keeps running (LLP 1133.025 D4).
-        let keeps = ExactDocuments.keepsRunning() || (ExactDocuments.launchMode != "navigate-new" && session.placesStatusItems)
-        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1, keepsRunning: keeps) { return false }
+        if !closing, ExactDocuments.hidesOnClose(window, only: true, keepsRunning: keepsWindow) { return false }
         return closing || session.beforeUnload()
     }
 

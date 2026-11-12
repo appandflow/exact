@@ -79,6 +79,8 @@ final class Adapter: ExactSessionDelegate {
         case "focus": session.log("focus window: unsupported: an iOS app is in front or not running")
         // A scene's full screen and opacity are the system's (LLP 1069.010).
         case "exitFullscreen", "setWindowOpacity": session.log("\(name): unsupported: iOS has no window an app fades or takes out of full screen")
+        // An app cannot put its own scene away and keep running (LLP 1133.025 D4).
+        case "hideWindow": session.log("hideWindow: unsupported: iOS has no window an app hides")
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }

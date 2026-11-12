@@ -774,6 +774,8 @@ function apply(batch) {
             }
           } else if (op.name === "setWindowOpacity") {
             log("setWindowOpacity refused: a page cannot change its window's opacity");
+          } else if (op.name === "hideWindow") {
+            log("hideWindow refused: a page cannot hide its window");
           } else if (!/^(playSound|playSounds|stopSounds|sendMIDI|requestMIDIAccess)$/.test(op.name)) {
             console.warn(`exact: unknown command ${op.name}`);
           }
