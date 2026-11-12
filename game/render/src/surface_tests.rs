@@ -3,6 +3,8 @@ use super::*;
 mod cosmetics;
 #[path = "surface_tests/frames.rs"]
 mod frames;
+#[path = "surface_tests/performance.rs"]
+mod performance;
 #[path = "surface_tests/prepare.rs"]
 mod prepare;
 #[path = "surface_tests/quality.rs"]

@@ -697,6 +697,19 @@ derivatives; baked models contain no tangent arrays. The shader reads a normal
 map's XY and rebuilds Z (`sqrt(1 − x² − y²)`), so RGBA8, BC5 and two-channel ASTC
 draw alike. Material UV transforms apply separately to every texture.
 
+### Contract performance
+
+Contract's opt-in `exactCanvasPerformance("surface")` read receives a bounded
+snapshot at most once per second. The renderer reports the last submitted frame's
+actual pixels, render scale, effective pixel ratio, MSAA and submitted work counts.
+Frame counts, late/missed frames, longest gap and CPU tick/feed/encode means and
+maxima cover the window since the previous snapshot. Enabling, restarting the scene
+or restoring a save starts a fresh window; disabling drops these counters.
+The cadence comparison honors the canvas frame cap and excludes virtual time and
+the first frame after rest. CPU encoding is distinct from queue submission and GPU
+execution; unsupported timing, memory and audio
+fields stay unavailable. No simulation state, save or hash contains these readings.
+
 ### Texture families
 
 A `.tex` record is RGBA8, BC4, BC5, BC7 or ASTC 4×4 (`TextureData.format`,

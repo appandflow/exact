@@ -482,6 +482,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);
+            if let Some(report) = &mut self.perf.reporting {
+                report.phases[2].push(ms);
+            }
             if let Some(trace) = &mut self.trace {
                 trace.times[2] = ms;
             }
@@ -582,6 +585,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return;
         };
         renderer.submitted();
+        if let Some(report) = &mut self.perf.reporting {
+            report.submitted();
+        }
         // `Game::PREPARE`'s pipelines, after the frame that sets their keys is
         // on its way: their time counts in the next frame's `pipelineMs`.
         if ASSETS && !G::PREPARE.is_empty() && self.ready_work.is_some() {
