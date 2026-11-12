@@ -1197,7 +1197,8 @@ surface of your own takes `backgroundMaterial`: `"glass"` or `"glass-clear"` is
 `"menu"`, `"popover"`, `"hud-window"` the Mac's. The web and Linux draw a blur that
 approximates each. A glass button is `buttonStyle="glass"` or
 `"prominent-glass"`, and `glassGroup=<points>` on a box merges the glass inside it as
-SwiftUI's `GlassEffectContainer` does.
+SwiftUI's `GlassEffectContainer` does. On iOS a glass a tap adds to a group grows out of the
+nearest glass within that spacing, and one it removes is drawn back into it.
 
 ```contract
 component App

@@ -975,6 +975,7 @@ package final class Presenter {
                 forgetFlight(id)
                 if flats.isFlat(id) { flats.destroy(id); return }
                 if endExit(id) { return }
+                if let view = views[id] { glassGroups.depart(view) }
                 // A collection's retired row parks for the next of its shape.
                 if let view = views[id], pool.retire(view) { return }
                 // Out of the map before out of the window: the editing-ended
