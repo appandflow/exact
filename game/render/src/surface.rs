@@ -549,14 +549,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             let scale = self.raster_scale();
             let samples = self.samples.map_or(1, exact_game::SceneSamples::count);
             let cap = self.max_fps();
-            self.perf.reporting.as_mut().unwrap().encoded(
-                frame,
-                &self.timing,
-                scale,
-                samples,
-                self.perf.stats,
-                cap,
-            );
+            if let Some(report) = &mut self.perf.reporting {
+                report.encoded(frame, &self.timing, scale, samples, self.perf.stats, cap);
+            }
         }
         drop(timing);
         self.perf.pipeline_pending += crate::perf::pipeline_ms();
