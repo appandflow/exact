@@ -2127,7 +2127,8 @@ other hosts show nothing (a declared deviation: the web has no unsaved mark).
 
 HTML's global `title` attribute, on any element but `head` (whose `title` is the
 document's), is advisory text: the browser's tooltip on the web, `toolTip` on
-macOS; touch hosts show none.
+macOS, and the system tooltip control on Windows (including its hover delay and
+dismissal). Linux and touch hosts show none.
 
 ### Clipboard
 

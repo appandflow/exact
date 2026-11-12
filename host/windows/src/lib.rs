@@ -39,6 +39,8 @@ mod placement;
 mod probe;
 #[cfg(windows)]
 mod timers;
+#[cfg(windows)]
+mod tooltip;
 #[cfg(any(windows, test))]
 mod touch;
 #[cfg(windows)]
