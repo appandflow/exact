@@ -1,6 +1,7 @@
 # The canvas seam's reply reader pairs a lone high surrogate with whatever `\u` escape follows it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The reader pairs a high surrogate only with a following `\u` escape in `DC00..=DFFF`; otherwise it writes U+FFFD and reads the next escape on its own.
 **Systems:** canvas/src/seam.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
