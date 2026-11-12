@@ -671,6 +671,11 @@ else here was admitted because a real app needed it.
   and iOS (LLP 1045), images including animated
   ones, video (LLP 1042), pickers for an app's declared file
   types, and share.
+- **Camera.** [`@exact/camera`](packages/camera/exact.json) shows a live viewfinder
+  (`exact-camera srcObject=`) and takes still photos (`takePhoto`) on the web, iOS,
+  macOS, and Android, behind the `device.camera` grant (LLP 1133.008). It does not
+  record video from the camera or hand its frames to code, and it has no Windows,
+  Linux, tvOS, or watchOS implementation.
 - **Data.** TypeScript or Rust sources, optionally on a worker. Grant-checked `fetch` and
   streams, files and SQLite (native and in the browser), Keychain secrets, and OAuth
   sign-in. A router keeps a stack per tab (LLP 1038).
@@ -718,8 +723,8 @@ else here was admitted because a real app needed it.
   it anyway.
 - **Linux editing.** The web and Apple hosts edit; Linux reads. Linux also has no
   word segmenter, so flowed Thai, Lao, Khmer, and Myanmar text breaks only at spaces.
-- **Out on purpose for v1.** Camera access, a gesture arena, general layout animation,
-  grid or masonry virtualization, a general webview beyond `iframe`, and a devtools UI.
+- **Out on purpose for v1.** A gesture arena, general layout animation, grid or
+  masonry virtualization, a general webview beyond `iframe`, and a devtools UI.
 - **No packaged CLI.** You work from a source checkout. `exact new` apps refer to it by
   path.
 
