@@ -1,6 +1,7 @@
 # Choosing a kept document again forgets it when the kept set cannot be written
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A choice of a kept document whose save fails puts the list back as it was, so the record the set on disk holds stays kept.
 **Systems:** data/src/documents/kept.rs (LLP 1069.010.000 D3, D4)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
