@@ -1,6 +1,7 @@
 # On the web a finger outside the scroller keeps its scroll drag open, so `scrolldragend` is lost and the next `scrolldragstart` with it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `scrollDrag` (now `host/web/navigation/scroll.js`, which both web targets use) counts and follows only the touches whose target is inside the scroller, so a finger elsewhere neither holds a drag open nor makes a later scroll one.
 **Systems:** host/web/navigation.js (`scrollDrag`), host/web/glue.js, host/web-js/rt.js
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
