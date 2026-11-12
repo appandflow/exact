@@ -681,6 +681,9 @@ public final class ExactSession {
             if case .advance = next.kind { applyUnlessEmpty(batch) } else if !(changesNothing(batch) && clockUnchanged(batch)) {
                 apply(batch)
             }
+            #if DEBUG
+            onLandForTests?(next.kind, batch)
+            #endif
             // A frame's owner work finishes when it lands, applied or skipped (LLP 1079.000 §4.6), and the card's charts show it
             if case .tick = next.kind { frameHealth.landed(FrameHealth.tick) } else if case .advance = next.kind { frameHealth.landed(FrameHealth.advance) }
             frameHealth.chart?.present()
@@ -1091,6 +1094,8 @@ public final class ExactSession {
     }
 
     #if DEBUG
+    var onLandForTests: ((Published, Batch) -> Void)?
+    var onApplyForTests: ((Batch) -> Void)?
     /// Tests: a tick's slice the owner published, not yet landed.
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
     func holdFillForTests() { fillInFlight = true }
@@ -1111,6 +1116,9 @@ public final class ExactSession {
             holdingReports = true; landFill(); holdingReports = false
             guard state != .destroyed else { return }
         }
+        #if DEBUG
+        onApplyForTests?(batch)
+        #endif
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
         defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
