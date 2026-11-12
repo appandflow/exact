@@ -1259,6 +1259,7 @@ package final class Presenter {
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
         paintCanvas(canvasColor())
+        insetScrollersFromChrome()
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }

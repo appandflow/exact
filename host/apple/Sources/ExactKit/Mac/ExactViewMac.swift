@@ -418,6 +418,7 @@ public final class ExactView: NSView {
             session.presenter.insets = next
             session.insets(top: next.top, right: next.right, bottom: next.bottom, left: next.left)
         }
+        session.presenter.insetScrollersFromChrome()
         guard session.booted else { return }
         let regions = LayoutRegionsMac.insets(of: self).map(css)
         if !regionsTold || regions != session.presenter.regions {
