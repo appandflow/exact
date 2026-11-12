@@ -265,13 +265,13 @@ const time = Object.hasOwn(sources, 'exactTime');
 // A native module's names and extensions (modules.js, LLP 1133.002 D13): each
 // extension's web implementation is a chunk of its own, `ext-<name>.js`, loaded
 // outside the agent on first use; an extension with none answers by name.
-const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: [], sources: [] };
-if (moduleFlag.extensions.length) {
-  const bound = webImplementations(appDir);
+const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: {}, sources: [] };
+if (Object.keys(moduleFlag.extensions).length) {
+  const bound = webImplementations(appDir, moduleFlag.extensions);
   // `app.json`'s package configuration (LLP 1133.021 §9 item 7): refused here when a required key is absent.
   let configs;
-  try { configs = packageConfig(appDir, 'web'); } catch (e) { console.error(`${app}: ${e.message}`); process.exit(1); }
-  for (const extension of moduleFlag.extensions) {
+  try { configs = packageConfig(appDir, 'web', { extensions: moduleFlag.extensions }); } catch (e) { console.error(`${app}: ${e.message}`); process.exit(1); }
+  for (const extension of Object.keys(moduleFlag.extensions)) {
     const at = bound.get(extension);
     // `roster`: the views it serves (views.js), where it exports one.
     const views = at && /\bexport\s+(const|let|var|function)\s+roster\b|\bexport\s*\{[^}]*\broster\b/.test(readFileSync(at, 'utf8'));
@@ -589,7 +589,7 @@ writeFileSync(resolve(gen, 'grant-network.js'), await bundleHostModule(root, 'na
 // does for the empty set the compiler normalized (`admission-data.js` holds the same one), and the parser is not
 // linked. A name admission exports that this table lacks fails the build, so a new check is answered here before a
 // page ships without it. Development pages keep the parser (LLP 1047 D7).
-const admitsNothing = production && !tsGrantSet.error && tsGrantSet.entries.length === 0 && !rust && !moduleFlag.extensions.length && !pageModules;
+const admitsNothing = production && !tsGrantSet.error && tsGrantSet.entries.length === 0 && !rust && !Object.keys(moduleFlag.extensions).length && !pageModules;
 // Whether any source holds a network grant (the kinds grant-admission.js's `networkGrants`, `schemeGrants` and `localGrants` name).
 const netGranted = [tsGrantSet, rustGrantSet].some(set => (set.entries ?? []).some(([, , grant]) => /^(fetch|websocket)(-|$)/.test(grant?.[0] ?? '')));
 const fetchRefused = production && ts && !netGranted;
@@ -755,7 +755,7 @@ const inside = (path, root) => { const child = relative(root, path); return chil
 // its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
 // runs at build with no device to call, does not.
 // A native module's web implementation is the page's, as an app's own page module is.
-const implementationRoots = [...webImplementations(appDir).values()].map(at => dirname(realpathSync(at)));
+const implementationRoots = [...webImplementations(appDir, moduleFlag.extensions).values()].map(at => dirname(realpathSync(at)));
 const scopedModule = (code, id, lower = false) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
@@ -980,7 +980,7 @@ if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringi
 // `app:/` image's file, symbols.js, or media element's, media.js; a module
 // implementation's files, modules.js; a module view's `app:/` file, native.js):
 // what host/web/build.mjs ships.
-const extensionFiles = moduleFlag.extensions.length > 0;
+const extensionFiles = Object.keys(moduleFlag.extensions).length > 0;
 if (files || moduleStorage || extensionFiles || pageModules || /^\s*(?:fs|sqlite)\./m.test(grants)) {
   const storageGrants = /^\s*(?:fs|sqlite)\./m.test(grants);
   const seeds = [resolve(gen, 'symbols.js'), files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js'),

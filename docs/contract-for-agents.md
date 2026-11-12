@@ -2488,6 +2488,10 @@ style only the box: `object-fit` in a class never configures the viewfinder, so 
 it on `exact-camera` for that. A renamed spelling (`fontSize`) is refused whatever is
 declared. `packages/fixtures/swatch` is a whole one.
 
+A view placed by a Contract library counts too, including through a re-export. The app
+still declares the view's package as a direct dependency. A component the app never
+instantiates does not link its views' implementations.
+
 ### A package's native module, library and web assets
 
 A package fills the data module's one native module (`native.call` in `app.ts`) from the

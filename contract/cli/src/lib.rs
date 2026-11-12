@@ -963,9 +963,10 @@ fn compile_loaded(
     if !surface.is_empty() {
         return Err(surface);
     }
-    for v in &views {
+    let placed = package_views::placed(&plan);
+    for v in views.iter().filter(|v| placed.contains(&v.tag)) {
         let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
-        plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
+        plan.add_view(&v.tag, (&v.extension, &v.package), v.displayed, &binds);
     }
     reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))

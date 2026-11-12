@@ -909,7 +909,7 @@ async function main(args, lockHeld = false) {
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
   // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
-  const appleReach = modulePlist(app, tv ? tvReach(bakedCompat.reach) : bakedCompat.reach, tv ? 'tvos' : ios ? 'ios' : 'macos');
+  const appleReach = modulePlist(app, tv ? tvReach(bakedCompat.reach) : bakedCompat.reach, tv ? 'tvos' : ios ? 'ios' : 'macos', buildReceipt.graph.extensions, buildReceipt.graph.contractSources);
   if (!ios) macPresence(app, bakedCompat.inputs?.grantCeiling, { release: production || distribution, distribution }); // LLP 1133.010 D7
   if (!ios) macPasskeys(app, bakedCompat.inputs?.grantCeiling, { release: production || distribution }); // LLP 1133.011 D6
   if (!ios) macProfileRows(app, bakedCompat.inputs?.grantCeiling, { release: production || distribution }); // LLP 1133.028 D17
@@ -1069,7 +1069,7 @@ async function main(args, lockHeld = false) {
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   // @ref LLP 1133.001 D4, D5 — the modules' Swift implementations the app names, each package compiled as a Swift
   // module of its own and composed into the app's one module by an adapter written here (never committed).
-  const packages = appleImplementations(app.dir, tv ? 'tvos' : ios ? 'ios' : 'macos'), composing = modules.apple.length > 0 || packages.length > 0;
+  const packages = appleImplementations(app.dir, tv ? 'tvos' : ios ? 'ios' : 'macos', buildReceipt.graph.extensions), composing = modules.apple.length > 0 || packages.length > 0;
   // A package that asks for AlarmKit's countdown compiles the host's metadata type into its own module, on iOS
   // only, as the extension compiles it (LLP 1133.030 D8 item 1).
   for (const p of packages) if (p.activity === 'alarmkit' && ios && !tv) p.sources = [...p.sources, resolve(root, 'host/apple/widget/AlarmAttributes.swift')];

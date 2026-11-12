@@ -588,15 +588,9 @@ export function runGradle(args, options, platform = process.platform, { studio, 
  * ships beside it and must reach the device byte for byte (the Gradle shell extracts it and keeps its symbols).
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
 export function buildApk(app, env, profile, writeLocks = false) {
-  const maven = mavenLibraries(app);
-  if (!writeLocks && !mavenLocksPresent(app, maven)) return null;
   const crate = app.crate('android');
   if (!app.manifest.game && !crateManifest(app, 'android')) throw new Error(`${app.dir} has no android/ crate, the app's library for the Canvas host: bun exact.mjs update adds one to an app that names android in app.json (apps/shelf/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
-  // The packages' configuration (LLP 1133.021 §9 item 7), before anything compiles: a required value that is absent
-  // refuses the build by its code (`maps-key-missing` for a release without the Maps key).
-  let config;
-  try { config = packageConfig(app.dir, 'android', { release: profile === 'release' }); } catch (error) { console.error(`${app.name}: ${error.message}`); return null; }
   let gpu = null, out = null;
   if (app.manifest.game || app.hasGpu) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
@@ -609,6 +603,12 @@ export function buildApk(app, env, profile, writeLocks = false) {
     if (cargo.status !== 0) return null;
     out = planOut(cargo.stdout.toString(), crate);
   }
+  const extensions = JSON.parse(readFileSync(resolve(out, 'artifacts.json'), 'utf8')).extensions;
+  const bound = androidImplementations(app.dir, extensions);
+  const maven = [...new Set(bound.flatMap(b => b.maven ?? []))].sort();
+  if (!writeLocks && !mavenLocksPresent(app, maven)) return null;
+  let config;
+  try { config = packageConfig(app.dir, 'android', { extensions, release: profile === 'release' }); } catch (error) { console.error(`${app.name}: ${error.message}`); return null; }
   const uses = planUses(out);
   // The page-size argument is in every rustflags source the build makes or Cargo was handed (`androidCargo`), but a
   // table in the app's Cargo configuration takes precedence over the build's own and can leave it out.
@@ -644,7 +644,7 @@ export function buildApk(app, env, profile, writeLocks = false) {
     assembled = runGradle(['--no-watch-fs', ':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
       `-PexactDevelopment=${development ? '1' : '0'}`,
       `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
-      ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env) } });
+      ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config, bound), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env) } });
     if (assembled) graph.kept();
   } finally {
     graph.done();
@@ -659,13 +659,6 @@ export function buildApk(app, env, profile, writeLocks = false) {
   recordBuiltSettings(apk, app, out);
   return apk;
 }
-
-/** The Maven libraries the bound modules name (LLP 1133.008 D8 item 5), as Gradle arguments: one graph with the
- * reader's own AndroidX, locked to the app's `gradle.lockfile` and verified against its `gradle-verification.xml`,
- * both beside its other locks. The verification file is Gradle's, which it reads only from the reader's `gradle/`:
- * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
- * (`kept` copies the verification back). Missing locks are refused before Rust compiles. */
-const mavenLibraries = app => [...new Set(androidImplementations(app.dir).flatMap(b => b.maven ?? []))].sort();
 
 /** Where to run the lock-writing command, through the app's launcher or this repository. */
 export function androidLockCommand(app) {
@@ -682,6 +675,11 @@ function mavenLocksPresent(app, maven) {
   return false;
 }
 
+/** The Maven libraries the bound modules name (LLP 1133.008 D8 item 5), as Gradle arguments: one graph with the
+ * reader's own AndroidX, locked to the app's `gradle.lockfile` and verified against its `gradle-verification.xml`,
+ * both beside its other locks. The verification file is Gradle's, which it reads only from the reader's `gradle/`:
+ * it is put there for this build (`done` takes it away). `writeLocks` writes both from the graph as it resolves
+ * (`kept` copies the verification back). Missing locks are refused before Gradle runs. */
 function mavenGraph(app, writeLocks, maven) {
   const placed = resolve(READER, 'gradle/verification-metadata.xml');
   const none = { args: [], kept() {}, done() {} };
@@ -701,8 +699,8 @@ function mavenGraph(app, writeLocks, maven) {
  * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, and the
  * components its packages' manifest fragments declare with the meta-data `config` (`packageConfig`'s) carries, as
  * Gradle properties. */
-function extensionArgs(app, out, config) {
-  const bound = androidImplementations(app.dir), generated = resolve(apkDirs(app).app, 'extensions');
+function extensionArgs(app, out, config, bound) {
+  const generated = resolve(apkDirs(app).app, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [], services = {}, features = [];
   try {

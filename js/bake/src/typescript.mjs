@@ -1145,14 +1145,14 @@ export function usedPackages(app) {
 }
 
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
- * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
- * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
+ * `macos`, `tvos`), of the `extensions` in the compiled plan (LLP 1133.001
+ * D4): each extension, its own Swift module's name,
  * its class, its source files, what it adds to Info.plist (`plist`,
  * `plistKeys`), and the system frameworks it needs from an OS version
  * (`frameworks`, LLP 1133.016 D15). */
-export function appleImplementations(app, target) {
-  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
-  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
+export function appleImplementations(app, target, extensions, contractSources = []) {
+  const { text } = usedPackages(app), named = `${text}\n${appText(app)}\n${contractSources.map(path => readFileSync(path, 'utf8')).join('\n')}`;
+  return moduleInterfaces(app).filter(i=>extensions[i.name.split('/').at(-1)] === i.name).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
     if (!impl || !files?.length || !impl.json.class) return [];
@@ -1184,18 +1184,11 @@ function packageViewTags(iface, impl) {
   return [...new Set([...tags(iface.declaration.views), ...tags(impl?.json.views)])].sort();
 }
 
-/** Whether `app` uses interface `i`: names it in a `use` or an import, or places a view it declares. */
-function usesInterface(i, named) {
-  if (named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)) return true;
-  return packageViewTags(i, null).some(tag => new RegExp(`(^|[^\\w-])${tag}([^\\w-]|$)`).test(named));
-}
-
-/** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
+/** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the compiled plan's `extensions`: each extension,
  * its class, its source directories, which join the APK's Kotlin, and the Maven coordinates it names, which join the
  * one locked Gradle graph (LLP 1133.008 D8 item 5). */
-export function androidImplementations(app) {
-  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
-  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
+export function androidImplementations(app, extensions) {
+  return moduleInterfaces(app).filter(i=>extensions[i.name.split('/').at(-1)] === i.name).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
     return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : [],manifest:impl.json.manifest ?? null,start:i.declaration?.start==='load'}];
@@ -1206,12 +1199,11 @@ export function androidImplementations(app) {
  * values `app.json` gives under `packages.<interface>.<target>`, for the keys the interface's `config` declares. A
  * key typed `env` names a variable (`{"env": "NAME"}`) whose value is read here and never written to the repo. A
  * required key that is absent throws its declared code; one required only at `release` throws only for a release. */
-export function packageConfig(app, target, { release = false } = {}) {
-  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+export function packageConfig(app, target, { extensions, release = false }) {
   let manifest = {};
   try { manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')); } catch { /* a plain Contract directory */ }
   const out = new Map();
-  for (const i of moduleInterfaces(app).filter(i => used.has(i.name) || usesInterface(i, named))) {
+  for (const i of moduleInterfaces(app).filter(i => extensions[i.name.split('/').at(-1)] === i.name)) {
     const declared = i.declaration?.config?.[target];
     if (!declared) continue;
     const given = manifest.packages?.[i.name]?.[target] ?? {}, config = {};
@@ -1232,9 +1224,9 @@ export function packageConfig(app, target, { release = false } = {}) {
 
 /** Each extension's web implementation, as bound (LLP 1133.001 D4):
  * extension name to the implementation's JavaScript entry. */
-export function webImplementations(app) {
+export function webImplementations(app, extensions) {
   const out=new Map();
-  for (const iface of moduleInterfaces(app)) {
+  for (const iface of moduleInterfaces(app).filter(i => extensions[i.name.split('/').at(-1)] === i.name)) {
     const web=implementationFor(app,iface,'web'), file=web?.json.sources?.javascript?.[0];
     if (file) out.set(iface.name.split('/').at(-1),resolve(web.dir,file));
   }

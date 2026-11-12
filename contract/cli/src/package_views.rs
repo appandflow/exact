@@ -12,7 +12,7 @@
 
 use contract_syntax::{Attr, Expr, Span};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// One package view, as the plan's `views` table carries it.
@@ -22,13 +22,40 @@ pub struct PackageView {
     /// The extension whose implementation makes it in each session: the
     /// interface's name after its scope.
     pub extension: String,
-    /// The package that declares it, for a refusal's message.
+    /// The full interface identity.
     pub package: String,
     pub displayed: bool,
     pub binds: Vec<String>,
     /// Its declared props' types and its events beyond the nine, which the
     /// lowering holds the tag's attributes to (LLP 1133.021 §9 items 1, 2).
     pub declared: contract_lower::DeclaredView,
+}
+
+/// Tags in the lowered program, including deferred branches but excluding
+/// components never instantiated. Declarations alone do not link a view.
+pub(crate) fn placed(plan: &exact_plan::Plan) -> BTreeSet<String> {
+    use exact_plan::{BindingKind, Opcode, StrId};
+    plan.nodes
+        .iter()
+        .flat_map(|n| n.bindings.iter())
+        .filter_map(|id| {
+            let binding = plan.binding(id);
+            if binding.kind != BindingKind::Prop
+                || binding.id != exact_kernel::PropId::NativeViewModuleName as u16
+            {
+                return None;
+            }
+            match exact_runner::vm::instructions(plan.code(binding.expr))
+                .collect::<Result<Vec<_>, _>>()
+                .as_deref()
+            {
+                Ok([value, end]) if value.op == Opcode::Str && end.op == Opcode::Return => {
+                    Some(plan.str(StrId(value.args[0] as u32)).to_owned())
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 pub struct DeclarationError {
@@ -48,9 +75,17 @@ pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, Declar
         match json["kind"].as_str() {
             Some("interface") => {
                 let extension = extension_of(json["name"].as_str().unwrap_or(&name));
-                found.extend(views(&json, &extension, &name)?);
+                found.extend(views(
+                    &json,
+                    &extension,
+                    json["name"].as_str().unwrap_or(&name),
+                )?);
                 for implementation in carried(&root) {
-                    found.extend(views(&implementation, &extension, &name)?);
+                    found.extend(views(
+                        &implementation,
+                        &extension,
+                        json["name"].as_str().unwrap_or(&name),
+                    )?);
                 }
             }
             Some("implementation") => {
@@ -61,14 +96,14 @@ pub fn declared(app_root: &Path) -> Result<BTreeMap<String, PackageView>, Declar
                 } else {
                     interface
                 };
-                found.extend(views(&json, &extension_of(interface), &name)?);
+                found.extend(views(&json, &extension_of(interface), interface)?);
             }
             _ => {}
         }
         for view in found {
             match out.get(&view.tag) {
                 // An interface's tag its implementation lists is the one view.
-                Some(seen) if seen.extension == view.extension => {}
+                Some(seen) if seen.package == view.package => {}
                 Some(seen) => {
                     return Err(DeclarationError {
                         id: "bake-view-twice",
