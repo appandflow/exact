@@ -745,13 +745,30 @@ export function androidIcons(manifest, dir, res) {
   return refs;
 }
 
+/** CI inputs shared by APK and App Bundle builds (LLP 1030.003 D6, D8). Refuse incomplete signing
+ * before compiling; a bundle must use an upload key. Passwords stay in the environment, never command arguments. */
+export function androidReleaseEnvironment(env = process.env, bundle = false) {
+  const code = env.EXACT_BUILD_NUMBER ?? '1', version = env.EXACT_VERSION ?? '0.1.0';
+  if (!/^[1-9]\d*$/.test(code) || Number(code) > 2100000000) throw new Error('EXACT_BUILD_NUMBER must be an integer from 1 to 2100000000 on Android');
+  if (!version.trim()) throw new Error('EXACT_VERSION must not be empty');
+  const keys = ['EXACT_KEYSTORE', 'EXACT_KEYSTORE_PASSWORD', 'EXACT_KEY_ALIAS', 'EXACT_KEY_PASSWORD'];
+  if (bundle || keys.some(key => env[key] !== undefined)) {
+    const missing = keys.filter(key => !env[key]);
+    if (missing.length) throw new Error(`Android signing needs ${missing.join(', ')}; set all four upload-keystore variables`);
+    if (!existsSync(resolve(env.EXACT_KEYSTORE)) || !statSync(resolve(env.EXACT_KEYSTORE)).isFile()) throw new Error('EXACT_KEYSTORE must name an existing keystore file');
+  }
+  return { ...env, EXACT_BUILD_NUMBER: code, EXACT_VERSION: version,
+    ...(env.EXACT_KEYSTORE ? { EXACT_KEYSTORE: resolve(env.EXACT_KEYSTORE) } : {}) };
+}
+
 /** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
  * is generated under `.shells/`) built for the phone's ABI and put, with the app's assets and its icon and banner
  * (`androidIcons`), where the Gradle shell packages them (host/android/app), then `:app:assembleRelease`. An app with
  * a GPU module (LLP 1009) is built as a Linux bake is (`buildBake`): the module first, then the library with the
  * module's digest baked in, so the module ships beside it and must reach the device byte for byte (the Gradle shell extracts it and keeps its symbols).
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
-export function buildApk(app, env, profile, writeLocks = false) {
+export function buildApk(app, env, profile, writeLocks = false, bundle = false) {
+  env = androidReleaseEnvironment(env, bundle);
   const crate = app.crate('android');
   if (!app.manifest.game && !crateManifest(app, 'android')) throw new Error(`${app.dir} has no android/ crate, the app's library for the Canvas host: bun exact.mjs update adds one to an app that names android in app.json (apps/shelf/android is one)`);
   // The icon and banner first, so a refused one costs no compile.
@@ -810,7 +827,7 @@ export function buildApk(app, env, profile, writeLocks = false) {
   try {
     // Without file watching Gradle reads its inputs to decide what is up to date; a watcher that missed an edit
     // shipped the reader's old classes once (LLP 1159.002 D1).
-    assembled = runGradle(['--no-watch-fs', ':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
+    assembled = runGradle(['--no-watch-fs', ...(env.CI ? ['--no-daemon'] : []), bundle ? ':app:bundleRelease' : ':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
       `-PexactDevelopment=${development ? '1' : '0'}`,
       `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
       ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...(icons.icon ? [`-PappIcon=${icons.icon}`] : []), ...(icons.banner ? [`-PappBanner=${icons.banner}`] : []), ...compose, ...extensionArgs(app, out, config, bound), ...graph.args], { env: { ...env, ANDROID_HOME: androidSdk(env) } });
@@ -819,8 +836,8 @@ export function buildApk(app, env, profile, writeLocks = false) {
     graph.done();
   }
   if (!assembled) return null;
-  const apk = readerApk(app);
-  const kept = keptLibrary(readFileSync(resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so')), zipEntry(readFileSync(apk), 'lib/arm64-v8a/libexactcanvas.so'), [dirs.app, dirs.canvas]);
+  const apk = bundle ? resolve(dirs.app, 'outputs/bundle/release/app-release.aab') : readerApk(app);
+  const kept = keptLibrary(readFileSync(resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so')), zipEntry(readFileSync(apk), `${bundle ? 'base/' : ''}lib/arm64-v8a/libexactcanvas.so`), [dirs.app, dirs.canvas]);
   if (kept) { console.error(`exact android: ${kept}`); return null; }
   writeFileSync(resolve(dirname(apk), 'exact-build.json'), JSON.stringify({ started, library: built(crate), workspace: app.workspace ?? app.dir,
     sources: [...READER_SOURCES, ...[resolve(app.dir, 'modules/android')].filter(existsSync)] }) + '\n');
@@ -1003,7 +1020,11 @@ if (import.meta.main && process.argv[2] === 'reverse') {
     process.exit(2);
   }
   // `--headless` wins: an app's `bun exact.mjs android --headless` asks for the Linux host its verb's `--apk` would replace.
-  const apkWanted = args.includes('--apk') && !args.includes('--headless');
+  const bundle = args.includes('--bundle');
+  if (bundle && (args.includes('--headless') || args.includes('--run'))) throw new Error('--bundle takes neither --headless nor --run');
+  if (args.includes('--no-install') && args.includes('--run')) throw new Error('--no-install takes no --run');
+  if (bundle) process.env.EXACT_UPDATE_TRUST = 'production';
+  const apkWanted = (bundle || args.includes('--apk')) && !args.includes('--headless');
   // The pinned toolchain's targets: the app's workspace builds with it, and rustup in the app's own directory, which
   // pins none, would answer for its default.
   // Without rustup (a toolchain installed by hand) Cargo names a missing target itself.
@@ -1026,11 +1047,11 @@ if (import.meta.main && process.argv[2] === 'reverse') {
   const env = { ...androidToolchainEnv(process.env, process.platform, linkApi), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
   if (apkWanted) {
     const started = Date.now();
-    const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'));
+    const apk = buildApk(app, env, bundle || args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'), bundle);
     if (!apk) process.exit(1);
     console.log(apk);
     // `--json`'s object once the install is done: `installed` names the device, or is null when none was ready.
-    const trust = process.env.EXACT_UPDATE_TRUST ?? 'development', install = args.includes('--install') || args.includes('--run');
+    const trust = process.env.EXACT_UPDATE_TRUST ?? 'development', install = !bundle && !args.includes('--no-install') && (args.includes('--install') || args.includes('--run'));
     let serial = null;
     const code = install ? installApk(app, apk, { run: args.includes('--run'), built: Date.now() - started, installed: (s) => { serial = s; } }) : 0;
     if (!code && args.includes('--json')) reportBuilt({ path: apk, target: 'android', trust, ...(install ? { installed: serial } : {}) });
