@@ -3197,6 +3197,10 @@ which require optional capabilities. `-exact-spring(…)` (a `transition` timing
 function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines have
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
+As in CSS, a `transition` or `animation` value's units, keywords and function
+names read in any ASCII case (`0.3S EASE` is `0.3s ease`), its numbers are CSS's
+(`1.s` and `infs` are no times), and a keyframes name keeps its case: in
+`animation="Spin 1s EASE"` the name is `Spin` and `EASE` is the easing.
 
 Transform springs retain velocity when interrupted. An SVG path's `d` instead
 plays the spring as an easing curve: retargeting starts from the displayed path

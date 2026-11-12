@@ -621,6 +621,37 @@ fn bound_transition_stacking_matches_kernel() {
     for count in [64, 65] {
         values.push(format!("200ms linear({})", vec!["0"; count].join(",")));
     }
+    // #49: every word in any ASCII case, and CSS's number, not Rust's or
+    // JavaScript's (`1.`, `inf`); the Kelvin sign is no `k` to either.
+    let cased: Vec<String> = values
+        .iter()
+        .flat_map(|v| {
+            let title: String = v
+                .split(' ')
+                .map(|w| {
+                    let mut c = w.chars();
+                    c.next().map_or(String::new(), |f| {
+                        f.to_ascii_uppercase().to_string() + c.as_str()
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            [v.to_ascii_uppercase(), title]
+        })
+        .collect();
+    values.extend(cased);
+    values.extend(
+        [
+            "opacity 1.s",
+            "opacity 1.5S",
+            "opacity infs",
+            "opacity 1s cubic-bezier(1., 0, 1, 1)",
+            "opacity 1s linear(0, 1.)",
+            "opacity 1s -exact-spring(1., 2, 3)",
+            "stro\u{212a}e 1s",
+        ]
+        .map(str::to_owned),
+    );
     let plan = fixture_plan("", "2>1>");
     let (_, expression) = crate::paint::binding(
         &plan,

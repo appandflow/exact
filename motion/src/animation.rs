@@ -20,7 +20,7 @@ use crate::property::{Property, Value};
 
 mod parse;
 mod schedule;
-pub use parse::{easing_css, link, value_css, LONGHANDS};
+pub use parse::{easing_css, is_easing, link, value_css, Role, Slots, LONGHANDS};
 
 /// Most animations one node may declare.
 pub const MAX_ANIMATIONS: usize = 8;

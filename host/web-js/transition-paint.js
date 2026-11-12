@@ -1,10 +1,12 @@
 // Embedded only for a bound transition. Mirrors motion/src/parse.rs and
 // Transition/Easing/SpringConfig::validate, including whole-list rejection.
 // src/paint.rs supplies accepted property names and their kernel policy.
+// Every word of a transition reads in any ASCII case and a number is CSS's,
+// as motion/src/word.rs reads them, so the text is folded first.
 v => {
   const properties = PROPERTIES, maxTransitions = MAX_TRANSITIONS, maxStops = MAX_LINEAR_STOPS;
   const trim = s => s.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
-  const number = s => /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![\s\S])/.test(s) ? Number(s) : NaN;
+  const number = s => /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?(?![\s\S])/.test(s) ? Number(s) : NaN;
   const split = (s, sep) => {
     const out = []; let depth = 0, start = 0;
     for (let i = 0; i < s.length; i++) {
@@ -91,7 +93,7 @@ v => {
     if (name === "-exact-spring") return n.length === 0 || (n.length === 3 && springValid(n)) ? 2 : 0;
     return 0;
   };
-  const text = trim(String(v ?? ""));
+  const text = trim(String(v ?? "")).replace(/[A-Z]+/g, c => c.toLowerCase());
   if (!text || text === "none") return false;
   const declarations = split(text, ",");
   if (declarations.length > maxTransitions) return false;

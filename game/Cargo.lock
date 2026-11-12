@@ -251,6 +251,9 @@ dependencies = [
 [[package]]
 name = "contract-syntax"
 version = "0.1.0"
+dependencies = [
+ "exact-motion",
+]
 
 [[package]]
 name = "contract-types"
