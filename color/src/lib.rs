@@ -43,6 +43,12 @@ pub enum Space {
     Rec2100Pq,
     Rec2100Hlg,
     Rec2100Linear,
+    /// An `hsl()` colour as written: hue in degrees, saturation and
+    /// lightness in percent. Only [`Parsed::Legacy`] holds one.
+    Hsl,
+    /// An `hwb()` colour as written: hue in degrees, whiteness and blackness
+    /// in percent, unclamped above. Only [`Parsed::Legacy`] holds one.
+    Hwb,
 }
 
 impl Space {
@@ -65,11 +71,16 @@ impl Space {
             Space::Rec2100Pq => "rec2100-pq",
             Space::Rec2100Hlg => "rec2100-hlg",
             Space::Rec2100Linear => "rec2100-linear",
+            Space::Hsl => "hsl",
+            Space::Hwb => "hwb",
         }
     }
 
     fn is_function(self) -> bool {
-        matches!(self, Space::Lab | Space::Lch | Space::Oklab | Space::Oklch)
+        matches!(
+            self,
+            Space::Lab | Space::Lch | Space::Oklab | Space::Oklch | Space::Hsl | Space::Hwb
+        )
     }
 
     /// A Rec. 2100 space, where values above SDR white are meaningful.
@@ -128,8 +139,11 @@ pub struct Wide {
 /// What a colour string parsed to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Parsed {
-    /// A legacy sRGB colour.
-    Legacy(Rgba8),
+    /// A legacy sRGB colour (hex, named, `rgb()`, `hsl()`, `hwb()`): its
+    /// 8-bit value, and the colour as written, which an interpolation reads
+    /// (CSS Color 4 §12): unrounded, in `hsl` or `hwb` for those functions,
+    /// with its `none`s.
+    Legacy(Rgba8, Wide),
     /// A modern colour in its own space.
     Wide(Wide),
     /// `currentColor`.
@@ -143,7 +157,7 @@ pub fn parse(input: &str) -> Option<Parsed> {
         return Some(Parsed::Current);
     }
     if s == "transparent" {
-        return Some(Parsed::Legacy(Rgba8 {
+        return Some(bytes(Rgba8 {
             r: 0,
             g: 0,
             b: 0,
@@ -151,7 +165,7 @@ pub fn parse(input: &str) -> Option<Parsed> {
         }));
     }
     if let Some(hex) = s.strip_prefix('#') {
-        return hex_color(hex).map(Parsed::Legacy);
+        return hex_color(hex).map(bytes);
     }
     if let Some(open) = s.find('(') {
         // `rgb (…)` is an identifier and a block, not a function (CSS Syntax 3 §4.3.4).
@@ -160,9 +174,19 @@ pub fn parse(input: &str) -> Option<Parsed> {
         if let Some(wide) = wide(name, body) {
             return Some(Parsed::Wide(wide));
         }
-        return legacy(name, body).map(Parsed::Legacy);
+        return legacy(name, body).map(|(c, w)| Parsed::Legacy(c, w));
     }
-    named::named(&s).map(|[r, g, b]| Parsed::Legacy(Rgba8 { r, g, b, a: 1.0 }))
+    named::named(&s).map(|[r, g, b]| bytes(Rgba8 { r, g, b, a: 1.0 }))
+}
+
+/// A colour written as its bytes (hex, named, `transparent`).
+fn bytes(c: Rgba8) -> Parsed {
+    let w = Wide::new(
+        Space::Srgb,
+        [c.r, c.g, c.b].map(|v| f64::from(v) / 255.0),
+        c.a,
+    );
+    Parsed::Legacy(c, w)
 }
 
 /// The CSS rule a colour function [`parse`] refuses breaks, for a
@@ -424,11 +448,23 @@ fn channel(v: f64) -> u8 {
     v.clamp(0.0, 255.0).round() as u8
 }
 
-fn legacy(name: &str, body: &str) -> Option<Rgba8> {
-    let (parts, a) = args(body)?;
+/// The 8-bit colour and the colour as written.
+fn legacy(name: &str, body: &str) -> Option<(Rgba8, Wide)> {
+    let (parts, alpha) = args(body)?;
     let c: Vec<Arg> = parts.iter().map(|p| component(p)).collect::<Option<_>>()?;
-    let a = alpha_value(a)?;
+    let a = alpha_value(alpha)?;
     let legacy = body.contains(',');
+    let mut missing = [false; 4];
+    for (i, part) in parts.iter().enumerate() {
+        missing[i] = *part == "none";
+    }
+    missing[3] = alpha == Some("none");
+    let written = |space, c| Wide {
+        space,
+        c,
+        alpha: a,
+        missing,
+    };
     match name {
         "rgb" | "rgba" => {
             // Legacy syntax: all numbers or all percentages.
@@ -437,16 +473,20 @@ fn legacy(name: &str, body: &str) -> Option<Rgba8> {
                 return None;
             }
             let v = |x: Arg| match x {
-                Arg::Num(n) => Some(n),
-                Arg::Pct(p) => Some(p * 255.0 / 100.0),
+                Arg::Num(n) => Some(n.clamp(0.0, 255.0)),
+                Arg::Pct(p) => Some((p * 255.0 / 100.0).clamp(0.0, 255.0)),
                 Arg::Angle(_) => None,
             };
-            Some(Rgba8 {
-                r: channel(v(c[0])?),
-                g: channel(v(c[1])?),
-                b: channel(v(c[2])?),
-                a,
-            })
+            let v = [v(c[0])?, v(c[1])?, v(c[2])?];
+            Some((
+                Rgba8 {
+                    r: channel(v[0]),
+                    g: channel(v[1]),
+                    b: channel(v[2]),
+                    a,
+                },
+                written(Space::Srgb, v.map(|x| x / 255.0)),
+            ))
         }
         "hsl" | "hsla" | "hwb" => {
             let (Arg::Num(h) | Arg::Angle(h)) = c[0] else {
@@ -462,20 +502,23 @@ fn legacy(name: &str, body: &str) -> Option<Rgba8> {
                 Arg::Num(_) | Arg::Angle(_) => None,
             };
             let (s, l) = (frac(c[1])?, frac(c[2])?);
-            let (r, g, b) = if name == "hwb" {
+            let ((r, g, b), space) = if name == "hwb" {
                 if legacy {
                     return None;
                 }
-                hwb(h, s, l)
+                (hwb(h, s, l), Space::Hwb)
             } else {
-                hsl(h, s, l)
+                (hsl(h, s, l), Space::Hsl)
             };
-            Some(Rgba8 {
-                r: channel(r * 255.0),
-                g: channel(g * 255.0),
-                b: channel(b * 255.0),
-                a,
-            })
+            Some((
+                Rgba8 {
+                    r: channel(r * 255.0),
+                    g: channel(g * 255.0),
+                    b: channel(b * 255.0),
+                    a,
+                },
+                written(space, [h.rem_euclid(360.0), s * 100.0, l * 100.0]),
+            ))
         }
         _ => None,
     }
@@ -575,7 +618,10 @@ impl Wide {
             }
         };
         let [a, b, c] = [0, 1, 2].map(|i| n(i, self.c[i]));
-        let mut text = if self.space.is_function() {
+        let pct = |t: String| if t == "none" { t } else { t + "%" };
+        let mut text = if matches!(self.space, Space::Hsl | Space::Hwb) {
+            format!("{}({a} {} {}", self.space.name(), pct(b), pct(c))
+        } else if self.space.is_function() {
             format!("{}({a} {b} {c}", self.space.name())
         } else {
             format!("color({} {a} {b} {c}", self.space.name())
@@ -627,6 +673,8 @@ impl Wide {
                 )
             }
             Space::Oklab => return oklab_to_linear(v[0], v[1], v[2]),
+            Space::Hsl => return MixSpace::Hsl.to_linear_srgb(v),
+            Space::Hwb => return MixSpace::Hwb.to_linear_srgb(v),
             Space::Oklch => {
                 let h = v[2].to_radians();
                 return oklab_to_linear(v[0], v[1] * libm::cos(h), v[1] * libm::sin(h));

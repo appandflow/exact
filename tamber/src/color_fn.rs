@@ -291,8 +291,10 @@ fn components(w: Wide, space: MixSpace) -> [f64; 3] {
     space.from_linear_srgb(w.linear_srgb())
 }
 
+/// Whether `w` is written in `space`'s components (an `hsl()` colour in
+/// `hsl`), so taken as it is.
 fn in_own_space(w: Wide, space: MixSpace) -> bool {
-    space_of(space) == w.space && !matches!(space, MixSpace::Hsl | MixSpace::Hwb)
+    space.own() == w.space
 }
 
 /// Components in `space` as a colour, hsl and hwb as sRGB. A relative
@@ -441,28 +443,9 @@ pub(crate) fn absolute(
         _ => format!("{name}({} {} {} / {})", n(c[0]), n(c[1]), n(c[2]), n(a)),
     };
     match exact_color::parse(&canonical) {
-        Some(Parsed::Legacy(c8)) => {
-            let exact = match space {
-                MixSpace::Srgb => Wide {
-                    space: Space::Srgb,
-                    c: c.map(|v| (v / 255.0).clamp(0.0, 1.0)),
-                    alpha: a.clamp(0.0, 1.0),
-                    missing: [false; 4],
-                },
-                // hsl() clamps its saturation and lightness to 100%; hwb()'s
-                // whiteness and blackness have no upper bound (CSS Color 4 §7, §8).
-                _ => {
-                    let top = if space == MixSpace::Hwb {
-                        f64::INFINITY
-                    } else {
-                        100.0
-                    };
-                    let s = [c[1].clamp(0.0, top), c[2].clamp(0.0, top)];
-                    wide_from(space, [c[0].rem_euclid(360.0), s[0], s[1]], a)
-                }
-            };
-            Ok(Folded::One(Half::Legacy(c8, exact)))
-        }
+        // The unquantised colour as written, which a further fold starts
+        // from: `hsl()` and `hwb()` in their own components.
+        Some(Parsed::Legacy(c8, exact)) => Ok(Folded::One(Half::Legacy(c8, exact))),
         Some(Parsed::Wide(w)) => Ok(Folded::One(Half::Wide(w))),
         _ => not(),
     }

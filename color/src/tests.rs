@@ -1,5 +1,13 @@
 use super::*;
 
+/// A legacy colour's 8-bit value.
+fn bytes(s: &str) -> Option<Rgba8> {
+    match parse(s) {
+        Some(Parsed::Legacy(c, _)) => Some(c),
+        _ => None,
+    }
+}
+
 fn wide(s: &str) -> Wide {
     match parse(s) {
         Some(Parsed::Wide(w)) => w,
@@ -68,21 +76,27 @@ fn the_matrices_are_the_standards_primaries() {
 fn every_form_parses_into_its_own_space_and_serialises() {
     assert_eq!(
         parse("red"),
-        Some(Parsed::Legacy(Rgba8 {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 1.0
-        }))
+        Some(Parsed::Legacy(
+            Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 1.0
+            },
+            Wide::new(Space::Srgb, [1.0, 0.0, 0.0], 1.0)
+        ))
     );
     assert_eq!(
         parse("hsl(120 100% 50%)"),
-        Some(Parsed::Legacy(Rgba8 {
-            r: 0,
-            g: 255,
-            b: 0,
-            a: 1.0
-        }))
+        Some(Parsed::Legacy(
+            Rgba8 {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 1.0
+            },
+            Wide::new(Space::Hsl, [120.0, 100.0, 50.0], 1.0)
+        ))
     );
     assert_eq!(parse("currentColor"), Some(Parsed::Current));
     for (text, space, c) in [
@@ -235,11 +249,11 @@ fn a_form_css_refuses_is_not_a_colour() {
     }
     assert_eq!(parse_profiled("color(--rec709 1. 0 0)"), None);
     assert_eq!(parse("rgb(--1 0 0)"), None);
-    let legacy = |r, g, b, a| Some(Parsed::Legacy(Rgba8 { r, g, b, a }));
-    assert_eq!(parse("rgb(none 0 0 / none)"), legacy(0, 0, 0, 0.0));
-    assert_eq!(parse("RGB(.5e1 +0 -0)"), legacy(5, 0, 0, 1.0));
-    assert_eq!(parse(" rgb(1e2 0 0) "), legacy(100, 0, 0, 1.0));
-    assert_eq!(parse("rgb( 255 , 0 , 0 , 50% )"), legacy(255, 0, 0, 0.5));
+    let legacy = |r, g, b, a| Some(Rgba8 { r, g, b, a });
+    assert_eq!(bytes("rgb(none 0 0 / none)"), legacy(0, 0, 0, 0.0));
+    assert_eq!(bytes("RGB(.5e1 +0 -0)"), legacy(5, 0, 0, 1.0));
+    assert_eq!(bytes(" rgb(1e2 0 0) "), legacy(100, 0, 0, 1.0));
+    assert_eq!(bytes("rgb( 255 , 0 , 0 , 50% )"), legacy(255, 0, 0, 0.5));
     assert_eq!(refusal("rgb(255 0 0 / 0.5)"), None);
     assert_eq!(refusal("not a colour"), None);
     // A rule is named only when it is certainly the one broken; any other
@@ -595,7 +609,7 @@ fn display_p3_bytes_are_css_conversion_clipped() {
             let c = w.display_p3_8();
             [c.r, c.g, c.b]
         }
-        Some(Parsed::Legacy(c)) => {
+        Some(Parsed::Legacy(c, _)) => {
             let c = srgb8_to_p3(c);
             [c.r, c.g, c.b]
         }
@@ -667,17 +681,10 @@ fn rec2100_components_round_trip_through_linear_srgb() {
     assert_eq!(crate::rec2100_from_linear_srgb(Space::Srgb, [0.0; 3]), None);
 }
 
-/// A colour as `mix` takes it: a legacy one as sRGB from its bytes, as the
-/// kernel keeps it.
+/// A colour as `mix` takes it: as written.
 fn mixable(s: &str) -> Wide {
     match parse(s) {
-        Some(Parsed::Wide(w)) => w,
-        Some(Parsed::Legacy(c)) => srgb(
-            f64::from(c.r) / 255.0,
-            f64::from(c.g) / 255.0,
-            f64::from(c.b) / 255.0,
-            c.a,
-        ),
+        Some(Parsed::Wide(w) | Parsed::Legacy(_, w)) => w,
         other => panic!("{s}: {other:?}"),
     }
 }
@@ -815,10 +822,58 @@ fn hwb_whiteness_and_blackness_are_not_clamped_above_100() {
         ("hsl(200 50% 150%)", [255; 3]),
     ] {
         let [r, g, b] = v;
-        assert_eq!(
-            parse(text),
-            Some(Parsed::Legacy(Rgba8 { r, g, b, a: 1.0 })),
-            "{text}"
-        );
+        assert_eq!(bytes(text), Some(Rgba8 { r, g, b, a: 1.0 }), "{text}");
     }
+}
+
+/// `rgb()`, `hsl()` and `hwb()` mix as written (CSS Color 4 §12): unrounded,
+/// in their own components, a gray's written hue acting as normal and `none`
+/// missing, as Chrome 156 mixes them.
+#[test]
+fn legacy_forms_mix_as_written() {
+    use MixSpace::*;
+    let w = mixable("hsl(none 50% 50% / none)");
+    assert_eq!(
+        (w.space, w.missing),
+        (Space::Hsl, [true, false, false, true])
+    );
+    assert_eq!(w.css(), "hsl(none 50% 50% / none)");
+    #[rustfmt::skip]
+    let cases = [
+        ("hsl(30 0% 50%)", "hsl(120 50% 50%)", Hsl, [0.5625, 0.625, 0.375], 1.0),
+        ("hwb(30 60% 40%)", "hwb(120 20% 20%)", Hwb, [0.625, 0.7, 0.4], 1.0),
+        ("hsl(none 50% 50%)", "hsl(120 50% 50%)", Hsl, [0.25, 0.75, 0.25], 1.0),
+        ("hsl(10 50% 50%)", "hsl(120 50% 50%)", Hsl, [0.708333, 0.75, 0.25], 1.0),
+        ("hsl(30 none 50%)", "hsl(120 50% 50%)", Hsl, [0.625, 0.75, 0.25], 1.0),
+        ("hsl(none 50% 50%)", "oklch(0.7 0.1 120)", Oklch, [0.626172, 0.131846, 120.0], 1.0),
+        ("hsl(30 50% none)", "oklch(0.7 0.1 120)", Oklch, [0.7, 0.05, 120.0], 1.0),
+        ("hsl(30 none 50%)", "oklch(0.7 0.1 120)", Oklch, [0.649089, 0.1, 120.0], 1.0),
+        ("hwb(none 20% 30%)", "lch(50 30 120)", Lch, [46.0317, 45.3977, 120.0], 1.0),
+        ("hwb(30 none 30%)", "hwb(120 20% 20%)", Hwb, [0.6125, 0.75, 0.2], 1.0),
+        ("hwb(none 20% 30%)", "hsl(120 50% 50%)", Hsl, [0.224306, 0.725694, 0.224306], 1.0),
+        ("hwb(0 200% 100%)", "hwb(0 0% 0%)", Hwb, [0.666667, 0.666667, 0.666667], 1.0),
+        ("rgb(none 0 0)", "rgb(255 255 255)", Srgb, [1.0, 0.5, 0.5], 1.0),
+        ("rgb(none 0 0 / none)", "rgb(255 255 255 / 0.5)", Srgb, [1.0, 0.5, 0.5], 0.5),
+        ("rgb(none 0 0)", "rgb(255 255 255)", Oklab, [0.499997, 0.0000227839, 0.0000100434], 1.0),
+        ("rgb(none 128 0)", "color(srgb 1 0 0)", SrgbLinear, [1.0, 0.10793, 0.0], 1.0),
+        ("red", "hsl(120 50% 50%)", Hsl, [0.875, 0.875, 0.125], 1.0),
+        ("rgb(12.6 0 0)", "hsl(120 50% 50%)", Hsl, [0.459118, 0.459118, 0.0655882], 1.0),
+    ];
+    chrome_mixes(&cases, 5e-4);
+}
+
+/// A component missing from both colours stays missing, so 0, whatever a
+/// conversion made of it (CSS Color 4 §12.4). Chrome 156: `color-mix(in
+/// display-p3, color(srgb none 1 0), color(display-p3 none 0 1))` is
+/// `color(display-p3 none 0.492614 0.649132)`.
+#[test]
+fn a_component_missing_from_both_stays_missing() {
+    use MixSpace::*;
+    #[rustfmt::skip]
+    let cases = [
+        ("color(srgb none 1 0)", "color(display-p3 none 0 1)", DisplayP3, [0.0, 0.492614, 0.649132], 1.0),
+        ("color(srgb none 1 0)", "color(display-p3 none 0 1)", Srgb, [0.0, 0.500073, 0.521041], 1.0),
+        ("oklch(none 0.1 30)", "lab(none 20 20)", Oklch, [0.0, 0.286536, 21.1934], 1.0),
+    ];
+    chrome_mixes(&cases, 5e-4);
 }

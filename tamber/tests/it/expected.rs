@@ -171,8 +171,31 @@ fn a_written_hue_on_a_gray_mixes() {
         ),
         ("oklch(from oklch(0.7 0 30) l 0.1 h)", "oklch(0.7 0.1 30)"),
         ("lch(from lch(50 0 30) l 30 h)", "lch(50 30 30)"),
+        // hsl() and hwb() in their own components, as written.
+        (
+            "color-mix(in hsl, hsl(30 0% 50%), hsl(120 50% 50%))",
+            "color(srgb 0.5625 0.625 0.375)",
+        ),
+        (
+            "color-mix(in hwb, hwb(30 60% 40%), hwb(120 20% 20%))",
+            "color(srgb 0.625 0.7 0.4)",
+        ),
+        (
+            "hsl(from hsl(30 0% 50%) h 50% l)",
+            "color(srgb 0.75 0.5 0.25)",
+        ),
     ] {
-        assert_eq!(fold(value).0, chrome, "{value}");
+        // As Chrome's value, to a rounding of the last bit.
+        let wide = |t: &str| match exact_color::parse(t) {
+            Some(exact_color::Parsed::Wide(w)) => w,
+            other => panic!("{t}: {other:?}"),
+        };
+        let (got, want) = (wide(&fold(value).0), wide(chrome));
+        let near = got.c.iter().zip(want.c).all(|(g, w)| (g - w).abs() < 1e-12);
+        assert!(
+            got.space == want.space && near,
+            "{value}: {got:?}, Chrome {chrome}"
+        );
     }
     let white = fold("color-mix(in oklch, #fff, oklch(0.7 0.2 120))").0;
     assert!(white.ends_with(" 120)"), "{white}");

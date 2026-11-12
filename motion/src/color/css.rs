@@ -105,7 +105,7 @@ pub fn parse(input: &str) -> Option<Parsed> {
 pub fn parse_exact(input: &str) -> Option<Parsed> {
     match exact_color::parse(input)? {
         exact_color::Parsed::Current => Some(Parsed::Current),
-        exact_color::Parsed::Legacy(c) => Some(Parsed::Color(rgba(c))),
+        exact_color::Parsed::Legacy(c, _) => Some(Parsed::Color(rgba(c))),
         exact_color::Parsed::Wide(w) => WIDE.get().and_then(|f| f(w)),
     }
 }

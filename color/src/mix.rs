@@ -140,9 +140,9 @@ impl MixSpace {
         )
     }
 
-    /// The colour space whose components are this space's, if there is one.
-    fn own(self) -> Option<Space> {
-        Some(match self {
+    /// The colour space whose components are this space's.
+    pub fn own(self) -> Space {
+        match self {
             MixSpace::Srgb => Space::Srgb,
             MixSpace::SrgbLinear => Space::SrgbLinear,
             MixSpace::DisplayP3 => Space::DisplayP3,
@@ -156,8 +156,9 @@ impl MixSpace {
             MixSpace::XyzD65 => Space::XyzD65,
             MixSpace::Lch => Space::Lch,
             MixSpace::Oklch => Space::Oklch,
-            MixSpace::Hsl | MixSpace::Hwb => return None,
-        })
+            MixSpace::Hsl => Space::Hsl,
+            MixSpace::Hwb => Space::Hwb,
+        }
     }
 
     fn hue_index(self) -> usize {
@@ -297,18 +298,10 @@ fn kinds(space: Space) -> [Kind; 3] {
     match space {
         Space::Lab | Space::Oklab => [Lightness, OppositeA, OppositeB],
         Space::Lch | Space::Oklch => [Lightness, Colorfulness, Hue],
+        Space::Hsl => [Hue, Colorfulness, Lightness],
+        Space::Hwb => [Hue, Whiteness, Blackness],
         // The RGB spaces, and XYZ, whose x, y and z are reds, greens and blues.
         _ => [Red, Green, Blue],
-    }
-}
-
-impl MixSpace {
-    fn kinds(self) -> [Kind; 3] {
-        match (self, self.own()) {
-            (_, Some(space)) => kinds(space),
-            (MixSpace::Hsl, None) => [Kind::Hue, Kind::Colorfulness, Kind::Lightness],
-            _ => [Kind::Hue, Kind::Whiteness, Kind::Blackness],
-        }
     }
 }
 
@@ -327,7 +320,7 @@ struct End {
 }
 
 fn endpoint(w: &Wide, space: MixSpace) -> End {
-    let written = space.own() == Some(w.space);
+    let written = space.own() == w.space;
     let c = if written {
         w.c
     } else {
@@ -339,7 +332,7 @@ fn endpoint(w: &Wide, space: MixSpace) -> End {
         missing[..3].copy_from_slice(&w.missing[..3]);
     } else {
         let from = kinds(w.space);
-        for (m, kind) in missing.iter_mut().zip(space.kinds()) {
+        for (m, kind) in missing.iter_mut().zip(kinds(space.own())) {
             *m = (0..3).any(|i| w.missing[i] && from[i] == kind);
         }
     }
@@ -402,7 +395,10 @@ pub fn mix(a: &Wide, b: &Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) {
         match (a.missing[i], b.missing[i]) {
             (true, false) => *va = *vb,
             (false, true) => *vb = *va,
-            _ => {}
+            // Missing from both, it stays missing, which is 0, whatever a
+            // conversion made of it.
+            (true, true) => (*va, *vb) = (0.0, 0.0),
+            (false, false) => {}
         }
     }
     let hi = space.hue_index();
