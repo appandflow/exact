@@ -1,6 +1,7 @@
 # `affected.mjs` reads a build script's module as test code when a test also includes it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `rustRole` gives `build` to the modules a build script declares (resolved beside it, as a target root's are) and no library root reaches, before test code claims them, so each selects what its `build.rs` selects.
 **Systems:** scripts/affected.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

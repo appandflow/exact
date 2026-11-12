@@ -6,7 +6,8 @@ import { dirname, resolve } from 'node:path';
 import { GLOBAL, Graph, Repo, auditProfile, cargoTests, commands, jsSources, rustLiterals, rustSource, select, suites } from './affected.mjs';
 import { classesReached } from '../host/apple/xctest.mjs';
 
-/** A repository of `files` (path → text) and Cargo packages (`{ name, dir, deps }`), with its metadata given. */
+/** A repository of `files` (path → text) and Cargo packages (`{ name, dir, deps }`), with its metadata given; a package
+ * with a `build.rs` among the files has a build script. */
 function fixture(files, packages) {
   const root = mkdtempSync(resolve(tmpdir(), 'affected-'));
   for (const [path, text] of Object.entries(files)) {
@@ -16,7 +17,8 @@ function fixture(files, packages) {
   const id = name => `path+file://${name}`;
   const metadata = {
     workspace_members: packages.map(p => id(p.name)),
-    packages: packages.map(p => ({ id: id(p.name), name: p.name, source: null, manifest_path: resolve(root, p.dir, 'Cargo.toml'), targets: [{ kind: ['lib'], test: true, src_path: resolve(root, p.dir, 'src/lib.rs') }], dependencies: [] })),
+    packages: packages.map(p => ({ id: id(p.name), name: p.name, source: null, manifest_path: resolve(root, p.dir, 'Cargo.toml'), targets: [{ kind: ['lib'], test: true, src_path: resolve(root, p.dir, 'src/lib.rs') },
+      ...(`${p.dir}/build.rs` in files ? [{ kind: ['custom-build'], test: false, src_path: resolve(root, p.dir, 'build.rs') }] : [])], dependencies: [] })),
     resolve: { nodes: packages.map(p => ({ id: id(p.name), deps: (p.deps ?? []).map(d => ({ pkg: id(d), dep_kinds: [{ kind: null }] })) })) },
   };
   const all = { ...files, ...Object.fromEntries(packages.map(p => [`${p.dir}/Cargo.toml`, ''])), 'Cargo.toml': '' };
@@ -115,6 +117,8 @@ test("Rust's test modules, #[path] and include_str! are what they say; a deleted
     // (A library module's directory holds its own test modules: those stay test code.)
     'core/src/presenter.rs': '#[cfg(test)]\nmod presenter_tests;\n', 'core/src/presenter/presenter_tests.rs': '', 'core/src/test_steps.rs': '', 'core/src/more_tests.rs': 'mod helper;\n',
     'core/src/more_tests/helper.rs': '', 'core/src/model.rs': '', 'core/tests/it.rs': '#[path = "../src/model.rs"]\nmod model;\n',
+    // (A module the build script declares, which a test includes too, is the build script's.)
+    'core/build.rs': 'mod engine_os;\nfn main() {}\n', 'core/engine_os.rs': '', 'core/tests/os.rs': '#[path = "../engine_os.rs"]\nmod engine_os;\n',
     'user/src/lib.rs': '', 'scripts/gone.test.mjs': "import { test } from 'bun:test';\ntest('g', () => readFileSync(resolve(ROOT, 'scripts/fixtures/gone.contract')));\n",
   }, [{ name: 'core', dir: 'core' }, { name: 'user', dir: 'user', deps: ['core'] }]);
   try {
@@ -127,6 +131,8 @@ test("Rust's test modules, #[path] and include_str! are what they say; a deleted
     expect(ids(graph, ['core/src/test_steps.rs'])).toEqual(['cargo:core', 'cargo:user']);
     // An include's bare name is beside the including file, and what the library includes a dependent's input
     expect(ids(graph, ['core/src/shipped.txt'])).toEqual(['cargo:core', 'cargo:user']);
+    expect(ids(graph, ['core/engine_os.rs'])).toEqual(ids(graph, ['core/build.rs']));
+    expect(ids(graph, ['core/engine_os.rs'])).toEqual(['cargo:core', 'cargo:user']);
   } finally { done(); }
   const deleted = fixture({ 'scripts/gone.test.mjs': "import { test } from 'bun:test';\ntest('g', () => readFileSync(resolve(ROOT, 'scripts/fixtures/gone.contract')));\n" }, []);
   try {

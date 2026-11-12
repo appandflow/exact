@@ -216,7 +216,7 @@ export function unitOf(path) {
  */
 export class Repo {
   #sources = new Map();
-  #testFiles = new Map();
+  #roles = new Map();
   constructor(root = ROOT, { files, metadata, also = [] } = {}) {
     this.root = root;
     const listed = new Set(files ?? git(['ls-files', '-z', '-co', '--exclude-standard'], root).split('\0').filter(Boolean));
@@ -292,21 +292,25 @@ export class Repo {
     return this.#sources.get(file);
   }
 
-  /** What a Rust file is to its package: `build` (its build script), `test` (only its tests compile it: an integration
-   * test, a bench, an example, or a module declared under `#[cfg(test)]` and what is under it) or `library`. */
+  /** What a Rust file is to its package: `build` (its build script and the modules only that declares), `test` (only its
+   * tests compile it: an integration test, a bench, an example, or a module declared under `#[cfg(test)]` and what is
+   * under it) or `library`. */
   rustRole(file, pkg) {
     if (file === join(pkg.dir, 'build.rs')) return 'build';
-    return this.#testFilesOf(pkg).has(file) ? 'test' : 'library';
+    const { test, build } = this.#rolesOf(pkg);
+    return test.has(file) ? 'test' : build.has(file) ? 'build' : 'library';
   }
 
-  #testFilesOf(pkg) {
-    if (this.#testFiles.has(pkg.dir)) return this.#testFiles.get(pkg.dir);
+  #rolesOf(pkg) {
+    if (this.#roles.has(pkg.dir)) return this.#roles.get(pkg.dir);
     const own = this.under(pkg.dir || '.').filter(f => f.endsWith('.rs') && this.ownerOf.get(f) === pkg.dir);
-    // The files the modules `f` declares: `mod name;` in lib.rs, main.rs or mod.rs is name.rs or name/mod.rs beside
-    // it, in a.rs a/name.rs or a/name/mod.rs, `#[path]`'s beside the declaring file. A test module's directory is all
-    // test code (what it declares inside an inline module is under it too); a library module's holds its test modules.
+    const targetRoots = new Set(pkg.targets.map(t => relative(this.root, t.src_path)));
+    // The files the modules `f` declares: `mod name;` in a target's root (`lib.rs`, `build.rs`) or a mod.rs is name.rs
+    // or name/mod.rs beside it, in a.rs a/name.rs or a/name/mod.rs, `#[path]`'s beside the declaring file. A test
+    // module's directory is all test code (what it declares inside an inline module is under it too); a library
+    // module's holds its test modules.
     const declared = (f, keep, sweep) => this.sources(f).mods.filter(keep).flatMap(({ name, path }) => {
-      const base = /(?:^|\/)(?:lib|main|mod)\.rs$/.test(f) ? dirname(f) : f.slice(0, -3);
+      const base = targetRoots.has(f) || /(?:^|\/)(?:lib|main|mod)\.rs$/.test(f) ? dirname(f) : f.slice(0, -3);
       const at = path ? [normalize(join(dirname(f), path))] : [join(base, `${name}.rs`), join(base, name, 'mod.rs')];
       return [...at.filter(p => this.fileSet.has(p)), ...(path || !sweep ? [] : this.under(join(base, name)).filter(p => p.endsWith('.rs')))];
     });
@@ -316,14 +320,16 @@ export class Repo {
       return seen;
     };
     // Test code: integration tests, benches, examples, the modules declared under #[cfg(test)], and what they declare.
-    // Test-only is what test code reaches and the library's own modules, from its targets' roots, do not.
-    const roots = pkg.targets.filter(t => !t.kind.some(k => ['test', 'bench', 'example', 'custom-build'].includes(k))).map(t => relative(this.root, t.src_path));
-    const library = reach(roots.filter(f => this.fileSet.has(f)), m => !m.test, false);
+    // Test-only is what test code reaches and the library's own modules, from its targets' roots, do not; of those,
+    // the build script's are its own.
+    const rootsOf = keep => pkg.targets.filter(t => keep(t.kind)).map(t => relative(this.root, t.src_path)).filter(f => this.fileSet.has(f));
+    const library = reach(rootsOf(kind => !kind.some(k => ['test', 'bench', 'example', 'custom-build'].includes(k))), m => !m.test, false);
+    const build = new Set([...reach(rootsOf(kind => kind.includes('custom-build')), m => !m.test, false)].filter(f => !library.has(f)));
     const tests = reach([...own.filter(f => /^(?:tests|benches|examples)\//.test(pkg.dir ? f.slice(pkg.dir.length + 1) : f)),
       ...own.flatMap(f => declared(f, m => m.test, true))], () => true, true);
-    const test = new Set([...tests].filter(f => !library.has(f)));
-    this.#testFiles.set(pkg.dir, test);
-    return test;
+    const roles = { test: new Set([...tests].filter(f => !library.has(f) && !build.has(f))), build };
+    this.#roles.set(pkg.dir, roles);
+    return roles;
   }
 
 }
