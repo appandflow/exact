@@ -1865,8 +1865,8 @@ stream (`the stream's mapper fell behind: …`). The web's wasm host maps each m
 now and refuses a promise. An `http:`/`https:` URL is read as server-sent
 events under `net.fetch`; a `ws:`/`wss:` URL is a WebSocket under
 `net.websocket` alone. Except for TypeScript sources on the web JS target and
-native hosts, described below, and Rust sources on native hosts ("Rust data
-sources", "A two-way socket"), sockets are receive-only. An event is
+native hosts, described below, and Rust sources on the web JS target and
+native hosts ("Rust data sources", "A two-way socket"), sockets are receive-only. An event is
 `{type, data, lastEventId, coalesced}`. Every message reaches the mapper, in
 the order it arrived, as the browser's `EventSource` dispatches every event: a
 mapper that folds deltas (an LLM's tokens) sees them all. Messages that
@@ -2170,9 +2170,9 @@ frames in order before ending with a `Refused` error.
 
 Natively `readyState` follows the events the mapper has seen, and
 publication also bounds the transport's buffer at 256 frames; LLP 1016.000
-D7 lists the differences. **Remaining host gap:** the web wasm target, Rust
-sources and worker-placed TypeScript do not provide the send path (on wasm
-the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
+D7 lists the differences. **Remaining host gap:** the web wasm target and
+worker-placed TypeScript do not provide the send path (on wasm the handle never
+opens); a Rust source's `Request::socket` is refused by name in both. No ambient `WebSocket` constructor is admitted. SSE
 remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
@@ -3454,8 +3454,8 @@ plan. Both map scoped names such as `Point__exact` to `PointExact`.
 
 ### A two-way socket
 
-On native hosts a Rust source sends on a WebSocket with TypeScript's rules
-(LLP 1016.003). Answer `Answer::Later(Request::socket(url))` for a `ws:` or
+On native hosts and the web JS target a Rust source sends on a WebSocket with
+TypeScript's rules (LLP 1016.003). Answer `Answer::Later(Request::socket(url))` for a `ws:` or
 `wss:` URL under a `net.websocket` grant. Its `parse` is the mapper: it gets
 an `Outcome::Message` whose `event` is `open`, then one for each frame in
 order (text in `data`, a binary frame in `binary`), then `Outcome::Closed {
@@ -3497,9 +3497,11 @@ stands. A refusal is an `Err` whose text names the DOM exception a
 TypeScript handle would throw: `InvalidStateError` for a socket not open, a
 handle from before the resource was asked again, or a send from a resource's
 answer; `QuotaExceededError` past 256 operations or 1 MiB a call, which
-fails a mapper's frame even when it ignores the error. The web refuses a
-Rust socket request by name, and a worker-placed source's socket only
-listens.
+fails a mapper's frame even when it ignores the error. The web's wasm host
+and a worker-placed source cannot hold the handle, so they refuse
+`Request::socket` by name rather than open a socket that only listens
+(`Request::socket is unavailable on the web's wasm host`, `… in a
+worker-placed source; place it on main`).
 
 ### Where data lives: app storage, not secrets
 

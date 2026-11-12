@@ -28,7 +28,7 @@ export function sendRequest(t, land, out, data, inflight, say) {
       done({ streamed: ms }, true);
     };
     const open = () => {
-      t.ctl = new AbortController(); t.ctl.forced = t.forced; t.ctl.recount = () => counted(t, inflight); t.ctl.active = () => t.held() && !t.r?.gone; t.ctl.resource = !!t.r; t.messages = t.coalesced = 0; Open.add(t); // `resource`: a socket it owns takes its mapper's replies (ts-stream.js)
+      t.ctl = new AbortController(); t.ctl.forced = t.forced; t.ctl.recount = () => counted(t, inflight); t.ctl.active = () => t.held() && !t.r?.gone; t.ctl.resource = !!t.r; t.ctl.owner = t.r; t.ctl.ticket = t.id; t.ctl.streamName = t.name; t.messages = t.coalesced = 0; Open.add(t); // `resource`: a socket it owns takes its mapper's replies (ts-stream.js); a Rust source's knows it by `owner` and `ticket` (rust-data.js)
       t.ctl.replied = () => { if (t.waiting) { t.waiting = false; counted(t, inflight); } longPollReplied(t); }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held, a reply for `clock held`
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, streamed, t.ctl)).then(done, failed);
     };
