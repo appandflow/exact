@@ -1,6 +1,7 @@
 # A cycle among a module's permissions (`requires`, `grantedBy`) compiles, and reading a state in it overflows the stack
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The compiler refuses a cycle among an interface's permissions through `grantedBy` and one target's `requires`, naming each step, and the runner's permission state stops at a name already on its path, so a cycle across interfaces reads a state rather than overflowing the stack.
 **Systems:** runner/src/runner/modules/permits.rs, contract/cli/src/declaration.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

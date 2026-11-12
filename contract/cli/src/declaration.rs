@@ -11,6 +11,8 @@ use contract_syntax::{
 use serde_json::{Map, Value};
 use std::path::Path;
 
+mod permissions;
+
 /// A refusal: its id and message; the caller adds the `use`'s span.
 type Refusal = (&'static str, String);
 
@@ -82,6 +84,9 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
             }
             groups(&json, &file).map_err(refuse)?;
+            if let Value::Array(declared) = &json["permission"] {
+                permissions::acyclic(declared).map_err(refuse)?;
+            }
             // An implementation made when the module loads, after first
             // pixel, rather than at its first call (LLP 1133.015 D16 item 1);
             // the hosts' builds read it from the interface.
