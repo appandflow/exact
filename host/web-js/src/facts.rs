@@ -55,12 +55,28 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
                     if !fields.contains(&field) {
                         return Err(format!("resource {resource}: `{source}` has no `{field}`"));
                     }
+                    if source == "exactViewport" && field == "segments" {
+                        let list = plan.type_(plan.field(f).ty);
+                        let record = list.elem.map(|t| plan.type_(t)).filter(|t| list.kind == exact_plan::TypeKind::List && t.kind == exact_plan::TypeKind::Record)
+                            .ok_or_else(|| format!("resource {resource}: exactViewport.segments needs a list of rectangle records"))?;
+                        for nested in record.fields.iter() {
+                            let nested = plan.field(nested);
+                            let name = plan.str(nested.name);
+                            if !["x", "y", "width", "height"].contains(&name)
+                                || plan.type_(nested.ty).kind != exact_plan::TypeKind::Number
+                            {
+                                return Err(format!("resource {resource}: exactViewport.segments has no numeric field `{name}`"));
+                            }
+                        }
+                    }
                     names.push(serde_json::to_string(field).unwrap());
                 }
                 let baked = plan.bytes(r.initial);
                 if source == "exactDelivery" && !baked.is_empty() {
                     let v = Value::from_bytes(baked).map_err(|e| e.to_string())?;
                     format!("[{}],{}", names.join(","), value_js(&v))
+                } else if source == "exactViewport" {
+                    format!("[{}],{}", names.join(","), surface_type_json(plan, r.ty))
                 } else {
                     format!("[{}]", names.join(","))
                 }

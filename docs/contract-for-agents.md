@@ -3656,6 +3656,17 @@ mode on the web, `fullscreen`, `window-controls-overlay` (the tall title row
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactViewport().devicePixelRatio` is `option<number>`: display pixels per
+logical point, updated when the display scale changes. It is `none` before a
+host reports its scale, including a server render and the terminal. It is the
+display's ratio; a game's render scale does not change it.
+`safeAreaTop`, `safeAreaRight`, `safeAreaBottom` and `safeAreaLeft` are numeric
+logical points with the same document-inset meaning as `env(safe-area-inset-*)`.
+`segments` is a list of rectangles with numeric `x`, `y`, `width` and `height`
+fields in the layout viewport's coordinates, ordered by row then column. With
+no fold it contains the whole viewport. Declare the fields your app uses in a
+segment shape and `segments: Segment[]` in its viewport shape. Insets and
+rectangles update when the host's document geometry changes.
 `exactViewport().pointer` and `.hover` are CSS's `pointer` (`fine`, `coarse`,
 `none`) and `hover` (`hover`, `none`) for the primary input: the web's media
 queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`

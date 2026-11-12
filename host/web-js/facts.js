@@ -13,7 +13,7 @@
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
 import { data, Resources, commit, R, Refusal } from "./rt.js";
-import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
+import { environment, displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
@@ -22,9 +22,13 @@ const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
 const CONTRAST = ["no-preference", "more", "less", "custom"];
 const GAMUT = ["srgb", "p3", "rec2020", "rec2020"];
 /** Every viewport fact, by the runner's names, as the page reads them now. */
-export function viewportFacts() {
+export function viewportFacts(geometry = false) {
   const p = preferences(), f = fold();
-  return { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
+  const env = geometry && globalThis.document?.body ? environment() : {};
+  const [safeAreaTop, safeAreaRight, safeAreaBottom, safeAreaLeft] = ["top", "right", "bottom", "left"].map(edge => env[`safe-area-inset-${edge}`] ?? 0);
+  const segments = (f.cols === 1 && f.rows === 1 ? [[0, 0, innerWidth, innerHeight]] : f.rects ?? [])
+    .map(([x, y, width, height]) => ({ x, y, width, height }));
+  return { width: innerWidth, height: innerHeight, safeAreaTop, safeAreaRight, safeAreaBottom, safeAreaLeft, segments, devicePixelRatio: Number.isFinite(globalThis.devicePixelRatio) && globalThis.devicePixelRatio > 0 ? globalThis.devicePixelRatio : null, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
     displayMode: displayMode(),
     prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
     devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
@@ -34,10 +38,15 @@ export function viewportFacts() {
     gpuTier: reporter()?.read()["gpu-tier"] ?? "high" }; // @ref LLP 1139.003 D2: the page facts' tier; this target has no GPU module, so the screen's class, or the agent's
 }
 export function viewport(readers) {
-  (data.reserved ??= {}).exactViewport = (_, a, name) => byName(readers, name, viewportFacts());
+  (data.reserved ??= {}).exactViewport = (_, a, name) => {
+    const [names, shape] = readers[name];
+    const facts = viewportFacts(names.some(n => n.startsWith("safeArea")));
+    return shape ? shaped(shape, facts, "viewport", name) : byName(readers, name, facts);
+  };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
   addEventListener("resize", changed);
+  globalThis.visualViewport?.addEventListener("resize", changed);
   onPreferences(changed);
   onFold(changed);
   viewportChanged = changed;

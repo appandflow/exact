@@ -1129,31 +1129,6 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The viewport's change into `batch`, after what it holds (`set_view`).
-    fn resize_inner(
-        &mut self,
-        width: f32,
-        height: f32,
-        mut batch: Batch,
-        error: Option<String>,
-    ) -> String {
-        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
-                                               // @ref LLP 1039 D2 — merge re-answer and relayout, once.
-        let receipt = match self.runner.set_viewport(width as f64, height as f64) {
-            Ok(receipt) => receipt,
-            Err(e) => return self.finish(batch, error.or(Some(format!("viewport: {e:?}")))),
-        };
-        self.viewport = (width, height);
-        self.height_targets_dirty = true;
-        self.presence.snap = true;
-        if let Some(receipt) = receipt {
-            let at_ms = self.now_ms;
-            return self.commit_into(&[Timed { at_ms, receipt }], error, batch);
-        }
-        let laid_out = self.layout(&mut batch).err();
-        self.finish(batch, error.or(laid_out))
-    }
-
     /// Content has settled: the tree and the motion engine give back what
     /// they hold beyond the live nodes ([`exact_kernel::Kernel::trim`]).
     pub fn trim(&mut self) {

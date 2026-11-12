@@ -514,6 +514,7 @@ pub struct Runner<D: DataSource> {
     delivery: crate::delivery::Delivery,
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
+    viewport_geometry: crate::viewport::Geometry,
     // @ref LLP 1069.000 D2 — visibility, connectivity, the share sheet.
     page: crate::page::Page,
     // @ref LLP 1027.000.000 — the date, once the host says it.
@@ -642,9 +643,13 @@ impl<D: DataSource> Runner<D> {
         snapshot: Vec<(String, Vec<u8>)>,
         delivery: crate::delivery::Delivery,
         // @ref LLP 1039 D2 — the layout size before settlement.
-        viewport: crate::Viewport,
+        mut viewport: crate::Viewport,
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
+        viewport.device_pixel_ratio = kernel
+            .reported_display_scale()
+            .map(f64::from)
+            .or(viewport.device_pixel_ratio);
         viewport.validate()?;
         // @ref LLP 1095 D9 — every platform colour the plan can show is known
         // before the host's first report, a branch not yet taken included.
@@ -768,6 +773,7 @@ impl<D: DataSource> Runner<D> {
         let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
         let booting = exact_kernel::style::roles::bind(&roles);
         root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text); // LLP 1115.000 D12.3
+        let viewport_geometry = crate::viewport::Geometry::of(&kernel);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -861,6 +867,7 @@ impl<D: DataSource> Runner<D> {
             extensions: Default::default(),
             delivery,
             viewport,
+            viewport_geometry,
             page: Default::default(),
             time: crate::time::launch_time(),
             live_times: Default::default(),

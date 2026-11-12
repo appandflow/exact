@@ -281,6 +281,7 @@ impl<D: DataSource> Bridge<D> {
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch());
         let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
@@ -328,6 +329,7 @@ impl<D: DataSource> Bridge<D> {
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let booted = exact_runner::time::launching_with(self.launch(), || {
             Host::boot_linked(
@@ -616,6 +618,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Document safe-area insets and row-major segment rectangles, in CSS pixels.
+    pub fn viewport_geometry(&mut self, len: usize) -> u32 {
+        let Ok((insets, rects)) = serde_json::from_slice::<([f32; 4], Vec<[f32; 4]>)>(
+            &self.input[..len.min(self.input.len())],
+        ) else {
+            return self.refuse("viewport geometry: expected [insets, rectangles]");
+        };
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("viewport geometry: not booted"),
+            |host| host.viewport_geometry(insets, rects),
+        );
+        self.emit(out)
+    }
+
     /// A 2D canvas's geometry from the page (LLP 1056 D4).
     pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
@@ -656,6 +672,7 @@ impl<D: DataSource> Bridge<D> {
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
@@ -1246,6 +1263,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_display_scale(scale: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_display_scale(scale))
+        }
+
+        /// The browser's document insets and segment rectangles in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_set_viewport_geometry(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().viewport_geometry(len as usize))
         }
 
         /// The aborts a realm heard between batches.

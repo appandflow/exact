@@ -1039,10 +1039,29 @@ impl<D: DataSource> Host<D> {
             left,
             ..kernel.env().clone()
         };
-        match kernel.set_env(env) {
-            Ok(true) => self.layout_unauthored().map(|_| true),
-            Ok(false) => Ok(false),
-            Err(e) => Err(format!("safe area: {e:?}")),
+        let restyled = kernel
+            .set_env(env)
+            .map_err(|e| format!("safe area: {e:?}"))?;
+        match self
+            .runner
+            .refresh_viewport_geometry()
+            .map_err(|e| format!("safe area: {e:?}"))?
+        {
+            Some(receipt) => {
+                self.presence.unauthored |= restyled;
+                match self.commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                ) {
+                    Some(error) => Err(error),
+                    None => Ok(true),
+                }
+            }
+            None if restyled => self.layout_unauthored().map(|_| true),
+            None => Ok(false),
         }
     }
 
@@ -1205,7 +1224,7 @@ impl<D: DataSource> Host<D> {
         };
         match self.runner.set_fold(fold) {
             Ok(Some(receipt)) => {
-                self.presence.unauthored = restyled;
+                self.presence.unauthored |= restyled;
                 self.commit(
                     &[Timed {
                         at_ms: self.now_ms,
