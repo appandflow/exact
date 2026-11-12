@@ -1,6 +1,7 @@
 # `Presenter.interacting` is written at every press and read by nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `Presenter.interacting` and its four writes are gone, and the dialog tests' press helper asserts what ends a contact instead: no bubbled press and no held pointer.
 **Systems:** host/apple/Sources/ExactKit/Mac/MouseEventsMac.swift, host/apple/Sources/ExactKit/Mac/MouseChainMac.swift, host/apple/Sources/ExactKit/Mac/PresenterMac.swift, host/apple/Sources/ExactKit/IOS/PresenterIOS.swift, host/apple/tests/ExactKitTests/DialogMacTests.swift
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
