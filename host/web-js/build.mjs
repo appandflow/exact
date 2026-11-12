@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { transformSync, parseSync } from 'rolldown/utils';
+import { transformSync, parseSync, Visitor } from 'rolldown/utils';
 import { copyGpuCache } from './gpu-cache.mjs';
 import { analyze } from './page-style.mjs';
 import { bundleHostModule, gateAgent, localImports, stageHostGlue } from './glue.mjs';
@@ -764,7 +764,7 @@ const scopedModule = (code, id, lower = false) => {
   // (LLP 1027.000 D3), an answer's own timers (D1) with every other timer
   // refused, the scheduler's yield (LLP 1141.001 D10), the browser's own
   // I/O refused, as the wasm target's realm refuses it, and code from a
-  // string, which throws as on Hermes (`eval`, which no import may bind, is imported as `__exact_eval`, below).
+  // string, which throws as on Hermes (`eval`, which no import may bind, is imported under a fresh name below).
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'scheduler', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto', 'AbortSignal',
     'Function'];
@@ -773,13 +773,21 @@ const scopedModule = (code, id, lower = false) => {
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
   // The stage's normalized configuration, never one found beside the file: a
   // mount's own `tsconfig.json` may extend a file outside the mount.
-  // `define` makes a bare `eval` (`eval(…)`, `(0, eval)(…)`) `__exact_eval`, which inject imports as ts-fetch.js's
+  const transformed = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'),
+    ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}) });
+  if (transformed.errors.length) throw new Error(transformed.errors.map(e => e.message).join('\n'));
+  // Choose the alias after JSX lowering, which turns tags and pragma references into identifiers.
+  const names = new Set();
+  new Visitor({ Identifier: node => names.add(node.name) }).visit(parseSync(id, transformed.code).program);
+  let evalName = '__exact_eval';
+  for (let suffix = 1; names.has(evalName); suffix++) evalName = `__exact_eval${suffix}`;
+  // `define` makes a free `eval` (`eval(…)`, `(0, eval)(…)`) this fresh name, which inject imports as ts-fetch.js's
   // stand-in: an import, so a parameter or local named `globalThis` cannot stand between. Rolldown's type comment says
   // define runs after inject; in one transform as here (rolldown 1.2.9), inject still imports the name define wrote.
   // Pinned by host/web-js/build.test.mjs "a page rendered at build runs no code from a string…".
-  const result = transformSync(id, code, { tsconfig: resolve(tsStage, '__exact_tsconfig.json'), ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), define: { eval: '__exact_eval' }, inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
+  const result = transformSync(id, transformed.code, { tsconfig: false, define: { eval: evalName }, inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, name === 'fetch' && fetchRefused ? 'ts-fetch-refused.js' : 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
-    __exact_eval: [resolve(gen, 'ts-fetch.js'), 'eval'], globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
+    [evalName]: [resolve(gen, 'ts-fetch.js'), 'eval'], globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };

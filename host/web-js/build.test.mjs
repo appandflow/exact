@@ -868,7 +868,7 @@ test("compiled Markdown goes before the shell's own entry, whatever the head's s
 test('a page rendered at build runs no code from a string, by any name or through a function\'s constructor', () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-strings-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  const dir = mkdtempSync(resolve(root, 'target/site-strings-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
   try {
     site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n\ncomponent App\n  resource note = note("x") as shape Note\n  view\n    column\n      text note.text\n');
     // A module that names only `eval`, never `globalThis`: its `eval` is the stand-in all the same (build.mjs `scopedModule`).
@@ -876,21 +876,152 @@ test('a page rendered at build runs no code from a string, by any name or throug
     writeFileSync(resolve(app, 'evals.ts'), "export const direct = () => eval('6*7'), indirect = () => (0, eval)('6*7');\n"
       + "export function captured(globalThis: { eval(source: string): unknown }) { return eval('1'); }\n"
       + "export function probe(globalThis: null) { return typeof eval; }\n");
-    writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nimport { captured, direct, indirect, probe } from './evals';\nexport const appId = 'test.site';\nexport const grants = '';\n"
+    // CommonJS permits a binding named `eval`; its call must stay local.
+    const local = resolve(app, 'node_modules/local-eval');
+    mkdirSync(local, { recursive: true });
+    writeFileSync(resolve(local, 'package.json'), JSON.stringify({ name: 'local-eval', version: '1.0.0', main: 'index.cjs', types: 'index.d.ts' }));
+    writeFileSync(resolve(local, 'index.cjs'), `exports.probe = function(eval) { return eval('1'); };`);
+    writeFileSync(resolve(local, 'index.d.ts'), 'export function probe(evaluate: (source: string) => number): number;\n');
+    writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nimport { captured, direct, indirect, probe } from './evals';\nimport { probe as local } from 'local-eval';\nexport const appId = 'test.site';\nexport const grants = '';\n"
       + "const tried = (f: () => unknown) => { try { return `ran ${String(f())}`; } catch (e) { return (e as Error).name; } };\n"
       + "const F = Function;\n"
       + "const sources: Sources = { note: (): Result<'note'> => ({ text: [tried(() => new Function('return 1')()), tried(() => new F('return 1')()), tried(() => Reflect.construct(Function, ['return 1'])), tried(() => globalThis.Function('return 1')),\n"
       + "  tried(direct), tried(indirect), tried(() => globalThis.eval('1')), tried(() => captured({ eval: () => 1 })), String(Function instanceof Function), String(eval instanceof Function),\n"
-      + "  tried(() => probe(null)),\n"
+      + "  tried(() => probe(null)), tried(() => local(() => 42)),\n"
 
       + "  tried(() => new ((function () {}).constructor as FunctionConstructor)('return 1')())].join(' ') }) };\n"
       + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
     const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
-    // Each spelling of `Function` and `eval` is the module's stand-in, through the build's own bindings (`scopedModule`).
-    expect(readFileSync(resolve(out, 'index.html'), 'utf8')).toContain(`>${Array(8).fill('SyntaxError').join(' ')} true true ran function EvalError<`);
+    // Free uses of `Function` and `eval` reach the module's stand-ins; a bound `eval` stays local.
+    expect(readFileSync(resolve(out, 'index.html'), 'utf8')).toContain(`>${Array(8).fill('SyntaxError').join(' ')} true true ran function ran 42 EvalError<`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 300_000);
+
+test('authored names cannot capture the eval stand-in in rendered pages or the page bundle', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/eval-bindings-'));
+  const app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  let browser, server;
+  try {
+    site(app, `shape Note
+  text: string
+
+routes nav
+  home "/" render=build
+
+component App
+  state phase: string = "build"
+  resource note = note(phase) as shape Note
+  action probe
+    phase = "page"
+  view
+    column
+      text note.text testId="result"
+      button "Probe" press=probe testId="probe"
+`);
+    const probes = {
+      'parameter.js': `export function probe(__exact_eval) { try { return eval('1'); } catch { return -1; } }`,
+      'module.js': `const __exact_eval = () => 42;
+export function probe() { try { return eval('1'); } catch { return -1; } }`,
+      'nested.js': `export function probe() {
+  const __exact_eval = () => 42;
+  return ((__exact_eval1) => {
+    const __exact_eval2 = () => 44;
+    try { return (0, eval)('1'); } catch { return -1; }
+  })(() => 43);
+}`,
+      'escaped.js': `export function probe(\\u005f_exact_eval, \\u005f_exact_eval1) {
+  try { return eval('1'); } catch { return -1; }
+}`,
+      'reference.js': `export function probe() {
+  try { eval('1'); } catch {}
+  return typeof __exact_eval;
+}`,
+      'jsx-member.jsx': `/** @jsx createElement */
+/** @jsxRuntime classic */
+const createElement = type => typeof type;
+export function probe(__exact_eval) {
+  try { eval('1'); } catch {}
+  try { return <__exact_eval1.Child />; } catch (e) { return e.name; }
+}`,
+      'jsx-bare.jsx': `/** @jsx createElement */
+/** @jsxRuntime classic */
+const createElement = type => typeof type;
+export function probe(__exact_eval) {
+  try { eval('1'); } catch {}
+  try { return <__exact_eval1 />; } catch (e) { return e.name; }
+}`,
+      'jsx-unsuffixed.jsx': `/** @jsx createElement */
+/** @jsxRuntime classic */
+const createElement = type => typeof type;
+export function probe() {
+  try { eval('1'); } catch {}
+  try { return <__exact_eval.Child />; } catch (e) { return e.name; }
+}`,
+      'jsx-factory.jsx': `/** @jsx __exact_eval1 */
+/** @jsxRuntime classic */
+export function probe(__exact_eval) {
+  try { return <div />; } catch (e) { return e.name; }
+}`,
+      'jsx-fragment.jsx': `/** @jsx createElement */
+/** @jsxFrag __exact_eval1 */
+/** @jsxRuntime classic */
+const createElement = type => typeof type;
+export function probe(__exact_eval) {
+  try { return <></>; } catch (e) { return e.name; }
+}`,
+    };
+    for (const [name, code] of Object.entries(probes)) {
+      if (!name.endsWith('.jsx')) { writeFileSync(resolve(app, name), code); continue; }
+      const pkg = name.slice(0, -4), at = resolve(app, 'node_modules', pkg);
+      mkdirSync(at, { recursive: true });
+      writeFileSync(resolve(at, 'package.json'), JSON.stringify({ name: pkg, version: '1.0.0', main: 'index.jsx', types: 'index.d.ts' }));
+      writeFileSync(resolve(at, 'index.jsx'), code);
+      writeFileSync(resolve(at, 'index.d.ts'), 'export function probe(evaluate?: () => number): string;\n');
+    }
+    writeFileSync(resolve(app, 'app.ts'), `import type { Answer } from './app.contract.d.ts';
+import { probe as parameter } from './parameter.js';
+import { probe as module } from './module.js';
+import { probe as nested } from './nested.js';
+import { probe as escaped } from './escaped.js';
+import { probe as reference } from './reference.js';
+import { probe as jsxMember } from 'jsx-member';
+import { probe as jsxBare } from 'jsx-bare';
+import { probe as jsxUnsuffixed } from 'jsx-unsuffixed';
+import { probe as jsxFactory } from 'jsx-factory';
+import { probe as jsxFragment } from 'jsx-fragment';
+export const appId = 'test.site';
+export const grants = '';
+export const answer: Answer = (_source, [phase]) => ({ text: [phase, parameter(() => 42), module(), nested(),
+  escaped(() => 42, () => 43), reference(), jsxMember(() => 42), jsxBare(() => 42), jsxUnsuffixed(),
+  jsxFactory(() => 42), jsxFragment(() => 42)].join(' ') });
+`);
+    const built = spawnSync(process.execPath, ['host/web-js/build.mjs', app, '--out', out], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8',
+    });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    const result = '-1 -1 -1 -1 undefined ReferenceError ReferenceError ReferenceError ReferenceError ReferenceError';
+    const html = readFileSync(resolve(out, 'index.html'), 'utf8');
+    expect(/data-testid="result"[^>]*>([^<]*)</.exec(html)?.[1]).toBe(`build ${result}`);
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      return new Response(Bun.file(resolve(out, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage(), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(server.url.href + '?agent=1');
+    await page.waitForFunction(() => globalThis.exact?.ready);
+    await page.evaluate(async () => { await exact.ready; });
+    expect(errors).toEqual([]);
+    await page.getByTestId('probe').click();
+    await page.waitForFunction(expected => document.querySelector('[data-testid=result]')?.textContent === expected, `page ${result}`);
+    expect(errors).toEqual([]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);
 
 function site(app, source) {
   mkdirSync(app, { recursive: true });
