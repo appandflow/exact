@@ -1,6 +1,7 @@
 # A recursive document watch walks its whole folder tree on the UI thread after every commit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A follow returns at once when its topics, grants and store folder are unchanged and the inotify thread has seen no folder made, moved or removed (nor a watch dropped), so an unchanged watch costs a commit nothing, and the walk runs only on Linux.
 **Systems:** host/linux/src/doc_watch.rs, host/linux/src/host.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
