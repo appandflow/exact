@@ -503,13 +503,13 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     let ans; Inspections.begin(r);
     try { ans = ask(source, a, name, false, forced); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
-      if (data.threwRead?.()) r.store = true;
+      if (data.threwRead?.()) r.store = true; for (const t of data.threwWatches?.() ?? []) (r.watches ??= new Set()).add(t); // a failed ask watched what it read, the shown answer's topics kept
       if (e instanceof Refusal && !(reconciling && e instanceof Failed)) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
       if (globalThis.__exactRender) hold();
       return fails(a, String(e?.message ?? e), failureCode(e), failureReason(e)); // its newest ask failed: an older one in flight is let go
     }
-    if (ans && ans.store) r.store = true;
+    if (ans && ans.store) r.store = true; r.watches = ans?.watches; // a fresh answer's topics replace the last's (LLP 1016.002 D2), a later turn's joining them
     if (ans && "v" in ans) {
       if (baked) say(revalidated(name, eq(ans.v, r.value)));
       try { take(ans.v, a, Ov.tick()); }
@@ -538,8 +538,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   })(), r.settled ?? r.asked, r.origin); flag(cur, !r.placeholder && !r.slept && r.settled !== undefined && r.asked !== undefined && equal(id(r.settled), id(r.asked))); return shown; }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks, r.placeholder, pend.n.v, r.asleep, r.slept],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; r.placeholder = x[18]; r.asleep = x[20]; r.slept = x[21]; write(pend.n, x[19]); write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks, r.placeholder, pend.n.v, r.asleep, r.slept, r.watches],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; r.placeholder = x[18]; r.asleep = x[20]; r.slept = x[21]; r.watches = x[22]; write(pend.n, x[19]); write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
     reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },

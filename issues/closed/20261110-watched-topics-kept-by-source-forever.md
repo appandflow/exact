@@ -1,6 +1,7 @@
 # A changed topic asks every resource of any source that ever watched it, on the JS target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** An answer's watched topics are kept on its call and taken by the resource it asked for, replaced at each fresh ask (a failed ask's added), so `announce` asks only the resources whose current answers watch the topic.
 **Systems:** host/web-js/ts-data.js, runner/src/runner/settlement.rs, runner/src/runner/time.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
