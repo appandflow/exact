@@ -34,6 +34,12 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("only HTTP may opt into independent transport");
         }
     }
+    // This host's sockets only listen (LLP 1016.000 D7): a Rust source's
+    // two-way socket is refused, never opened to only listen (LLP 1016.003).
+    // A TypeScript socket here asks for none.
+    if request.socket && request.listen.is_none() && !request.is_process() {
+        return Some("Request::socket is unavailable on the web's wasm host");
+    }
     // This host's sockets carry no idle timeout (LLP 1016.000 D11).
     if request.idle_timeout_ms.is_some() {
         return Some("an idle timeout is unavailable on the web's wasm host");

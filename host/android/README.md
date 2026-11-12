@@ -1305,7 +1305,17 @@ The cut was the smallest one. Left in the reader:
     view's scope. There is no native sheet detent, compact-width trait or zoom presentation to consult:
     iOS leaves the bar to the screen behind a medium sheet or an iPad sheet.
     There is also no native navigation/presentation transition completion to wait for, so the request changes
-    with committed state. `status-bar-animation` and `system-bars-hidden` are not applied on Android.
+    with committed state. `status-bar-animation` is not applied on Android.
+
+    `system-bars-hidden` resolves by the same walk, apart from the style: `false` is a declaration, so a
+    descendant's `false` shows the bars its ancestor hides, and a covering page that declares nothing shows them.
+    Bit 2 of the sixth chrome word carries it. `ExactActivity` hides the status and navigation bars with
+    `WindowInsetsController.hide(systemBars())` and `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`, as a hand-built
+    immersive screen does (API 29: `Legacy`'s sticky immersive flags), and shows them again when no declaration
+    hides them; it acts on a change only, so a chrome that moves the page does not hide bars a swipe has just
+    shown. The insets are the system's: hidden bars report none, so the safe area keeps only the display cutout's
+    and the page grows into the space the bars left (API 29's stable insets keep the bars'). `layout.statusBar`
+    reports `hidden` and `hiddenSource` beside the style.
 
     The software keyboard ends the page at its top, and the field being edited stays in view (once the page has been painted in the
     viewport the keyboard left: the boxes a reveal goes by are the last paint's). The keyboard's own slide is not followed

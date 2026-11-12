@@ -653,8 +653,8 @@ subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
 WebSocket globals remain refused. TypeScript on the web JS target and the
 native hosts has it; D7 lists the host deviations and what remains. Rust
-sources on the native hosts have it from a mutation and their own mapper
-(Charlie, 2026-11-11, "Fix it", on issue #92; LLP 1016.003). D7's
+sources on the native hosts and the web JS target have it from a mutation
+and their own mapper (Charlie, 2026-11-11, "Fix it", on issue #92; LLP 1016.003). D7's
 amendments let the mapper answer its own frames (2026-10-16) and an answer
 in flight send its own requests (2026-10-18).
 

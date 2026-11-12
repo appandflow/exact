@@ -298,8 +298,12 @@ impl Surfaces {
     }
 
     /// Each buffered canvas's newest finished frame, where a reader on
-    /// another thread finds it ([`buffer_frame`]).
-    fn publish_buffers(&mut self, only: Option<&BTreeSet<u32>>) {
+    /// another thread finds it ([`buffer_frame`]). Whether one still has a
+    /// complete frame to publish: the GPU finishes a frame after the turn
+    /// that submitted it, so a canvas that asked for no further frame needs
+    /// turns that only publish until it is out.
+    fn publish_buffers(&mut self, only: Option<&BTreeSet<u32>>) -> bool {
+        let mut owed = false;
         for (view, w) in &self.windows {
             if !w.attached || only.is_some_and(|views| !views.contains(view)) {
                 continue;
@@ -325,6 +329,7 @@ impl Surfaces {
                     b"gpu_buffer",
                 )(c.id, words.as_mut_ptr())
             };
+            owed |= unsafe { abi.symbol::<Read>(b"gpu_unpublished")(c.id) } != 0;
             if buffer.is_null() {
                 continue;
             }
@@ -346,6 +351,7 @@ impl Surfaces {
                 }),
             );
         }
+        owed
     }
 
     fn detach(&mut self, view: u32) {
@@ -538,7 +544,7 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         }
-        self.surfaces.publish_buffers(retry.then_some(&recorded));
-        wants
+        let owed = self.surfaces.publish_buffers(retry.then_some(&recorded));
+        wants || owed
     }
 }

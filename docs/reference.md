@@ -1806,8 +1806,7 @@ socket is asked, and starts again at its opening and at each message;
 protocol pings and pongs do not count, and nothing the app sends does. The
 mapper is then called once more, with `{ type: 'error', kind: 'Timeout',
 message: 'nothing arrived for 60000 ms' }`, after what it had already
-received (each message of a two-way socket; the newest of one the module
-only reads, which coalesces as always), and the stream is over; the app opens it again by refreshing the
+received (each message, in order), and the stream is over; the app opens it again by refreshing the
 resource. The time is real time on every host, under the driver too, so
 `clock +60000` ends no socket: test it with a short timeout against a peer
 that stays silent, and wait with `clock until state …`. Only a WebSocket
@@ -1861,14 +1860,24 @@ error and the resource keeps its last value. A stream let go (new arguments,
 `refresh`) lets go the call still pending, whose `scheduler.yield()` rejects
 with an `AbortError`. A mapper may await promises and `scheduler.yield()`;
 `fetch`, timers and storage are refused in it. At most 4096 messages, or 64 MiB
-of them, wait; one more ends the stream. The web's wasm host maps each message
+of them, wait behind it, however many arrived together; one more ends the
+stream (`the stream's mapper fell behind: …`). The web's wasm host maps each message
 now and refuses a promise. An `http:`/`https:` URL is read as server-sent
 events under `net.fetch`; a `ws:`/`wss:` URL is a WebSocket under
 `net.websocket` alone. Except for TypeScript sources on the web JS target and
-native hosts, described below, and Rust sources on native hosts ("Rust data
-sources", "A two-way socket"), sockets are receive-only. An event is
-`{type, data, lastEventId, coalesced}`; messages that arrive faster than they
-commit coalesce to the newest, counted in `coalesced`. The end is
+native hosts, described below, and Rust sources on the web JS target and
+native hosts ("Rust data sources", "A two-way socket"), sockets are receive-only. An event is
+`{type, data, lastEventId, coalesced}`. Every message reaches the mapper, in
+the order it arrived, as the browser's `EventSource` dispatches every event: a
+mapper that folds deltas (an LLM's tokens) sees them all. Messages that
+arrive together, in one network read or while the runtime is busy, are
+mapped one after another and commit once, as the last one's value, so a view
+updates once for them. At most 4096 of them, or 1 MiB of their data beyond one
+message's ceiling, wait for the runtime; one more ends the stream with
+`Refused` (`event stream receive queue exceeds 4096 events or 1 MiB`; a
+receive-only socket's says `4096 messages`) after the mapper has seen those
+waiting, so nothing is dropped unseen. `coalesced` is 0 for every event: only
+an upload's progress folds (below). The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
@@ -1937,8 +1946,8 @@ XMLHttpRequest's upload progress, `{type: 'progress', loaded, total,
 lengthComputable: true}`: `loaded` is the bytes the platform has written
 (URLSession's `didSendBodyData` on Apple, the portable transport's writes on
 Linux, Windows and Android, `xhr.upload` on the web), `total` the body's
-length, and the last has `loaded === total`. They coalesce to the newest, as a
-stream's messages do. The reply is read whole within the ceiling
+length, and the last has `loaded === total`. A newer one replaces one the
+runtime has not taken, counted in its `coalesced`: progress is a snapshot. The reply is read whole within the ceiling
 (`exactIndependentHttp.maxResponseBytes`, 1 MiB unless given) and ends the
 stream as `{type: 'load', status, data}`, whatever its status, as
 XMLHttpRequest's `load`. A failure ends it as any stream's `error` does, of kind
@@ -2161,9 +2170,9 @@ frames in order before ending with a `Refused` error.
 
 Natively `readyState` follows the events the mapper has seen, and
 publication also bounds the transport's buffer at 256 frames; LLP 1016.000
-D7 lists the differences. **Remaining host gap:** the web wasm target, Rust
-sources and worker-placed TypeScript do not provide the send path (on wasm
-the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
+D7 lists the differences. **Remaining host gap:** the web wasm target and
+worker-placed TypeScript do not provide the send path (on wasm the handle never
+opens); a Rust source's `Request::socket` is refused by name in both. No ambient `WebSocket` constructor is admitted. SSE
 remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
@@ -3445,8 +3454,8 @@ plan. Both map scoped names such as `Point__exact` to `PointExact`.
 
 ### A two-way socket
 
-On native hosts a Rust source sends on a WebSocket with TypeScript's rules
-(LLP 1016.003). Answer `Answer::Later(Request::socket(url))` for a `ws:` or
+On native hosts and the web JS target a Rust source sends on a WebSocket with
+TypeScript's rules (LLP 1016.003). Answer `Answer::Later(Request::socket(url))` for a `ws:` or
 `wss:` URL under a `net.websocket` grant. Its `parse` is the mapper: it gets
 an `Outcome::Message` whose `event` is `open`, then one for each frame in
 order (text in `data`, a binary frame in `binary`), then `Outcome::Closed {
@@ -3488,9 +3497,11 @@ stands. A refusal is an `Err` whose text names the DOM exception a
 TypeScript handle would throw: `InvalidStateError` for a socket not open, a
 handle from before the resource was asked again, or a send from a resource's
 answer; `QuotaExceededError` past 256 operations or 1 MiB a call, which
-fails a mapper's frame even when it ignores the error. The web refuses a
-Rust socket request by name, and a worker-placed source's socket only
-listens.
+fails a mapper's frame even when it ignores the error. The web's wasm host
+and a worker-placed source cannot hold the handle, so they refuse
+`Request::socket` by name rather than open a socket that only listens
+(`Request::socket is unavailable on the web's wasm host`, `… in a
+worker-placed source; place it on main`).
 
 ### Where data lives: app storage, not secrets
 
