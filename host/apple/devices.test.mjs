@@ -759,11 +759,16 @@ test('a Mac build signs push from a development or Developer ID profile that all
   const shipped = macProvisioning(app, compat, { release: true, method: 'developerid', find, log: () => {} });
   expect(shipped.profile).toBe(developerId);
   expect(shipped.entitlements['com.apple.developer.aps-environment']).toBe('production');
-  // The identity is the profile's team's: the development one by team; a Developer ID one of another team is refused.
-  expect(macProfileIdentity(development, 'X', { find: (team) => `identity of ${team}` })).toBe('identity of TESTTEAM00');
-  expect(macProfileIdentity(developerId, 'SHA', { distribution: true, teamOf: () => 'TESTTEAM00' })).toBe('SHA');
-  expect(() => macProfileIdentity(developerId, 'SHA', { distribution: true, teamOf: () => 'OTHERTEAM0' })).toThrow(/is team TESTTEAM00's; sign with that team's Developer ID/);
-  expect(() => macProfileIdentity(development, 'X', { widgets: { profiles: { app: { path: '/other', name: 'Widgets' } } }, find: () => 'X' })).toThrow(/one macOS profile must grant both/);
+  // The identity is the profile's team's, whichever names it: the development one by team, its certificate checked
+  // as an explicit EXACT_IDENTITY's is; a Developer ID one of another team is refused.
+  const teams = { DEV: ['TESTTEAM00', false], OTHER: ['OTHERTEAM0', false], SHA: ['TESTTEAM00', true] };
+  const teamOf = (sha1, distribution) => teams[sha1]?.[1] === distribution ? teams[sha1][0] : null;
+  expect(macProfileIdentity(development, 'X', { find: () => 'DEV', teamOf })).toBe('DEV');
+  expect(() => macProfileIdentity(development, 'X', { find: () => 'OTHER', teamOf })).toThrow(/is team TESTTEAM00's, and OTHER is not that team's Apple Development identity/);
+  expect(() => macProfileIdentity(development, 'X', { find: () => 'SHA', teamOf })).toThrow(/not that team's Apple Development identity/);
+  expect(() => macProfileIdentity(development, 'X', { find: () => '-', teamOf })).toThrow(/not that team's Apple Development identity/);
+  expect(macProfileIdentity(developerId, 'SHA', { distribution: true, teamOf })).toBe('SHA');
+  expect(() => macProfileIdentity(developerId, 'DEV', { distribution: true, teamOf })).toThrow(/is team TESTTEAM00's; sign with that team's Developer ID/);
   // No profile allows push: the build signs none and says what the app reports; a release ships so (§9 P7), where
   // a row a release must keep is refused.
   const none = (a, required, options) => macProfile(a, required, { ...options, installed: [noPush, iosOne], named: null, udid: 'TEST-MAC' });
@@ -779,4 +784,42 @@ test('a Mac build signs push from a development or Developer ID profile that all
   expect(() => macProfile(app, [], { installed, named: development, udid: 'OTHER-MAC' })).toThrow(/does not include this Mac/);
   // Nothing in the grants needs a profile: no provisioning at all.
   expect(macProvisioning(app, { reach: {}, inputs: { grantCeiling: 'device.notifications n' } }, { find: () => { throw new Error('asked'); } })).toBeNull();
+});
+
+// One profile serves the Mac widgets and the grants: the newest widget profile lacks push and an older one has both,
+// so the older is chosen for both and the identity stays the widgets' team's; with none that does both, nothing is
+// signed for the grants. An ad hoc build signs no profile's entitlements.
+test('a Mac build with widgets and push resolves one profile and one team for both (LLP 1133.010 D7)', async () => {
+  const { macSigning, macProfile } = await import('./presence.mjs');
+  const { macWidgetProfiles } = await import('./widgets.mjs');
+  const app = { id: 'com.example.profile' }, team = 'TESTTEAM00';
+  const compat = { reach: { profileEntitlements: ['com.apple.developer.aps-environment'] }, inputs: { grantCeiling: 'device.notifications n\ndevice.push' } };
+  const later = (p, days) => ({ ...p, expires: new Date(Date.now() + days * 864e5) });
+  const both = later(await fixtureProfile({ mac: true, devices: ['TEST-MAC'], push: 'development' }), 100);
+  const newest = later({ ...await fixtureProfile({ mac: true, devices: ['TEST-MAC'], push: null }), path: '/newest' }, 300);
+  const extension = await fixtureProfile({ mac: true, devices: ['TEST-MAC'], id: app.id + '.widgets' });
+  const widgetProfiles = (options) => macWidgetProfiles({ ...options, installed: [newest, both, extension], named: null, udid: 'TEST-MAC' });
+  const widgets = { team, profiles: widgetProfiles({ app, team }) };
+  expect(widgets.profiles.app).toBe(newest);
+  const otherTeam = { ...both, team: 'OTHERTEAM0', path: '/other' };
+  const find = (a, required, options) => macProfile(a, required, { ...options, installed: [otherTeam], named: null, udid: 'TEST-MAC' });
+  const signed = macSigning(app, compat, { current: 'DEV', widgets, find, widgetProfiles, log: () => {} });
+  expect(signed.provisioning.profile).toBe(both);
+  expect(signed.widgets.profiles.app).toBe(both);
+  expect(signed.widgets.profiles.extension).toBe(extension);
+  expect(signed.sha1).toBe('DEV');
+  expect(signed.provisioning.entitlements['com.apple.developer.team-identifier']).toBe(team);
+  // No profile of the widgets' team does both: the grants sign nothing, and another team's profile is never taken.
+  const said = [];
+  const alone = macSigning(app, compat, { current: 'DEV', widgets, find, log: (l) => said.push(l),
+    widgetProfiles: (options) => macWidgetProfiles({ ...options, installed: [newest, extension], named: null, udid: 'TEST-MAC' }) });
+  expect(alone).toEqual({ provisioning: null, widgets, sha1: 'DEV' });
+  expect(said[0]).toMatch(/with the Mac widgets' App Group and shared Keychain group for team TESTTEAM00 \(one profile signs both\)/);
+  // Without widgets the profile's team's identity signs.
+  const identityFor = (profile) => `identity of ${profile.team}`;
+  expect(macSigning(app, compat, { current: 'DEV', find, identityFor, log: () => {} }).sha1).toBe('identity of OTHERTEAM0');
+  // Ad hoc: nothing is signed, and the build says why.
+  const adHoc = [];
+  expect(macSigning(app, compat, { current: '-', find, identityFor, log: (l) => adHoc.push(l) }).provisioning).toBeNull();
+  expect(adHoc[0]).toMatch(/since this build is signed ad hoc \(EXACT_IDENTITY=-\)/);
 });

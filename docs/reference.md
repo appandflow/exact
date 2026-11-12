@@ -1033,7 +1033,8 @@ them all: a development profile that names this Mac for a development build, a
 Developer ID one for `exact release`. `EXACT_MAC_PROFILE=<path>` names one, and
 the build says why a named one does not fit. The build signs with that
 profile's team's identity (Apple Development, or `EXACT_DEVELOPER_ID` for a
-release, which must be of the same team), writes the application identifier,
+release; one `EXACT_IDENTITY` or `EXACT_DEVELOPER_ID` names must be of that
+kind and team, or the build is refused), writes the application identifier,
 the team and each entitlement (an environment `development` under a
 development profile, `production` otherwise), embeds the profile as
 `Contents/embedded.provisionprofile`, and always assembles the `.app`, where
@@ -1044,8 +1045,11 @@ for each grant, what the app then reports (`available: false`,
 `NotSupportedError`). A release build is refused (`grant-needs-profile`) for
 App Attest, the age range, a passkey or a locked secret that is not
 `optional`; one granting push ships without it, reporting push unavailable.
-The Mac widgets' profile, when the app has widgets with shared secrets, must
-be the same profile.
+An app with Mac widgets signs both under one profile, of the widgets' team,
+chosen among the profiles that grant the widgets' App Group and shared
+Keychain group and the grants' entitlements; with none that grants both, the
+grants sign nothing. An ad hoc build (`EXACT_IDENTITY=-`) signs no profile's
+entitlements.
 
 ### Native CI preparation
 

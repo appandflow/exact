@@ -8,7 +8,7 @@
 // development build signs none of them and says what each feature then
 // reports; a release build with a line it cannot keep is refused.
 import { installedProfiles, decodeProfile, profilesFor, byExpiry, signedEnvironment, allowsEntitlement, profileMisfit, macHardwareID, METHODS, identity } from './devices.mjs';
-import { widgetSigningTeam } from './widgets.mjs';
+import { widgetSigningTeam, macWidgetProfiles } from './widgets.mjs';
 
 const POLICIES = ['user-presence', 'biometry-any', 'biometry-current-set', 'device-credential'];
 
@@ -94,39 +94,62 @@ export function macProfileEntitlements(app, profile, needs, compat) {
 /** The provisioning a macOS build of `app` signs with (LLP 1133.010 D7): `{ profile, entitlements }`, or null where
  * nothing needs a profile or none fits. Without one, a development build says what it leaves unsigned and what the
  * app then reports, and a release (`release`) with a mandatory need is refused (`grant-needs-profile`). `method` is
- * the profile's kind: `development`, or `developerid` for a Developer ID release. */
-export function macProvisioning(app, compat, { release = false, method = 'development', log = console.log, find = macProfile } = {}) {
+ * the profile's kind: `development`, or `developerid` for a Developer ID release. `reason`: why no profile can sign,
+ * where it is not that none fits. */
+export function macProvisioning(app, compat, { release = false, method = 'development', log = console.log, find = macProfile, reason = null, beside = '' } = {}) {
   const needs = macProfileNeeds(compat);
   if (!needs.length) return null;
   const required = [...new Set(needs.map((n) => n.entitlement))];
-  const profile = find(app, required, { method });
+  const profile = reason ? null : find(app, required, { method });
   if (profile) {
     log(`macOS profile: "${profile.name}" (team ${profile.team}, ${METHODS[profile.method]}) signs ${required.join(', ')} for ${needs.map((n) => n.lines).join(', ')}.`);
     return { profile, entitlements: macProfileEntitlements(app, profile, needs, compat) };
   }
-  const why = `no ${METHODS[method]} macOS provisioning profile on this Mac for ${app.id}${method === 'development' ? ' that names this Mac' : ''} allows ${required.join(', ')}; in the Apple Developer portal, enable those capabilities for the App ID ${app.id}, make a ${METHODS[method]} macOS profile for it${method === 'development' ? ' that includes this Mac' : ''} and install it, or name one with EXACT_MAC_PROFILE (LLP 1133.010 D7)`;
+  const why = reason ?? `no ${METHODS[method]} macOS provisioning profile on this Mac for ${app.id}${method === 'development' ? ' that names this Mac' : ''} allows ${required.join(', ')}${beside}; in the Apple Developer portal, enable those capabilities for the App ID ${app.id}, make a ${METHODS[method]} macOS profile for it${method === 'development' ? ' that includes this Mac' : ''} and install it, or name one with EXACT_MAC_PROFILE (LLP 1133.010 D7)`;
   const refused = needs.filter((n) => n.mandatory);
   if (release && refused.length) throw new Error(`grant-needs-profile: ${refused.map((n) => n.lines).join(', ')}: ${why}.${refused.some((n) => n.entitlement === KEYCHAIN) ? ' Or write `optional` on each secret.keep line.' : ''}`);
   for (const n of needs) log(`${n.lines}: this build signs no ${n.entitlement}, since ${why}: ${n.effect}.`);
   return null;
 }
 
+/** The team of the signing identity `sha1`, as its certificate says, for the build's kind (Apple Development, or
+ * Developer ID Application for `distribution`); null when it is not one. */
+const certificateTeam = (sha1, distribution) => { try { return widgetSigningTeam(sha1, { distribution }); } catch { return null; } };
+
 /** The identity that signs under `profile`: one of the profile's team, or the system refuses the entitlements at
- * launch. A development build takes the team's Apple Development identity (EXACT_IDENTITY names one); a Developer ID
- * build keeps `current` (EXACT_DEVELOPER_ID), refused when it is another team's. The Mac widgets' profile, when the
- * app has one (`widgets`), must be this one. */
-export function macProfileIdentity(profile, current, { distribution = false, widgets = null, find = identity,
-  teamOf = (sha1) => { try { return widgetSigningTeam(sha1, { distribution: true }); } catch { return null; } } } = {}) {
-  if (widgets?.profiles && widgets.profiles.app.path !== profile.path) {
-    throw new Error(`host/apple: the Mac widgets sign under "${widgets.profiles.app.name}" and the app's grants need "${profile.name}"; one macOS profile must grant both (LLP 1133.010 D7)`);
+ * launch. A development build takes the team's Apple Development identity (`find`; EXACT_IDENTITY names one, whose
+ * certificate must be of that kind and team); a Developer ID build keeps `current` (EXACT_DEVELOPER_ID), refused when
+ * it is another team's. */
+export function macProfileIdentity(profile, current, { distribution = false, find = identity, teamOf = certificateTeam } = {}) {
+  const sha1 = distribution ? current : find(profile.team);
+  if (!sha1 || sha1 === '-' || teamOf(sha1, distribution) !== profile.team) {
+    throw new Error(distribution
+      ? `host/apple: the Developer ID profile "${profile.name}" is team ${profile.team}'s; sign with that team's Developer ID Application identity (EXACT_DEVELOPER_ID=<sha1>)`
+      : `host/apple: the macOS profile "${profile.name}" is team ${profile.team}'s, and ${sha1} is not that team's Apple Development identity; name one with EXACT_IDENTITY=<sha1> (security find-identity -v -p codesigning)`);
   }
-  if (!distribution) return find(profile.team);
-  if (!current || current === '-' || teamOf(current) !== profile.team) {
-    throw new Error(`host/apple: the Developer ID profile "${profile.name}" is team ${profile.team}'s; sign with that team's Developer ID Application identity (EXACT_DEVELOPER_ID=<sha1>)`);
-  }
-  return current;
+  return sha1;
 }
 
+/** How a macOS build of `app` signs, once its bake (`compat`) says what its grants need, resolved together:
+ * `{ provisioning, widgets, sha1 }`. With Mac widgets (`widgets`, from `macWidgetSigning`, of the identity `current`'s
+ * team) one profile serves both: it is chosen among the widgets' profiles that also allow the grants' needs, and the
+ * identity stays `current`, so the widgets' App Group and the profile are one team's. Without widgets the profile's
+ * team's identity signs (`macProfileIdentity`). An ad hoc development build (EXACT_IDENTITY=-) signs no profile's
+ * entitlements. */
+export function macSigning(app, compat, { current, widgets = null, release = false, distribution = false, log = console.log,
+  find = macProfile, widgetProfiles = macWidgetProfiles, identityFor = macProfileIdentity, adHoc = !distribution && current === '-' } = {}) {
+  let pair = null;
+  const together = (a, required) => {
+    pair = widgetProfiles({ app: a, team: widgets.team, distribution, log, also: (p) => required.every((name) => macAllows(p, a, name)) });
+    return pair?.app ?? null;
+  };
+  const reason = adHoc ? 'this build is signed ad hoc (EXACT_IDENTITY=-), and no profile\'s entitlements hold under an ad hoc signature (LLP 1133.010 D7)' : null;
+  const provisioning = macProvisioning(app, compat, { release, method: distribution ? 'developerid' : 'development', log, reason,
+    beside: widgets ? `, with the Mac widgets' App Group and shared Keychain group for team ${widgets.team} (one profile signs both)` : '', find: widgets ? together : find });
+  if (!provisioning) return { provisioning, widgets, sha1: current };
+  if (widgets) return { provisioning, widgets: { ...widgets, profiles: pair }, sha1: current };
+  return { provisioning, widgets, sha1: identityFor(provisioning.profile, current, { distribution }) };
+}
 /** The RP IDs a Mac needs an associated domain for: every `auth.passkey` line but `localhost`, which only the web admits. */
 export function passkeyLines(ceiling = '') {
   return String(ceiling).split('\n').map((line) => line.trim().split(/\s+/))

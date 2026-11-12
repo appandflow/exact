@@ -46,7 +46,9 @@ export function widgetSigningTeam(identity, { distribution = false, certificates
   throw new Error(`host/apple: Mac widgets need an ${kind} identity; name its SHA-1 or certificate name with EXACT_IDENTITY (security find-identity -v -p codesigning)`);
 }
 export { macHardwareID };
-export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log }) {
+/** `also`: what the app's own profile must allow besides (presence.mjs `macSigning`: its grants' profile entitlements),
+ * so one profile is chosen for both. */
+export function macWidgetProfiles({ app, team, distribution = false, installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null, udid, hardwareID = macHardwareID, log = console.log, also = () => true }) {
   if (named && !named.platforms?.includes('OSX')) {
     log(`Mac widgets: ignoring EXACT_PROFILE (${named.name}) for ${named.platforms?.join(', ') || 'another platform'}; shared secrets need macOS profiles (LLP 1126.001 §5 Q5).`);
     named = null;
@@ -56,7 +58,7 @@ export function macWidgetProfiles({ app, team, distribution = false, installed =
   const fits = (p, id) => p.platforms?.includes('OSX') && p.team === team && p.dev === !distribution && !profileMisfit(p, udid)
     && profilesFor(id, [p]).length && (p.groups.includes(group) || p.groups.includes(`${team}.*`))
     && (p.keychain.includes(`${p.prefix}.${app.id}`) || p.keychain.includes(`${p.prefix}.*`));
-  for (const owner of (named ? [named] : installed).filter(p => fits(p, app.id)).sort(byExpiry)) {
+  for (const owner of (named ? [named] : installed).filter(p => fits(p, app.id) && also(p)).sort(byExpiry)) {
     const extension = installed.filter(p => fits(p, widgetId(app)) && !profileMisfit(p, udid, owner)).sort(byExpiry)[0];
     if (extension) return { app: owner, extension, keychain: `${owner.prefix}.${app.id}` };
   }

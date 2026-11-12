@@ -60,7 +60,7 @@ import { bundleShaderLibraries } from './shader-libraries.mjs';
 import { appleBuildRefusal, guardFlags, reportBuilt } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, grantEntitlements, macProvisioning, macProfileIdentity, merchantEntitlement, signInEntitlement } from './presence.mjs';
+import { associatedDomains, entitlementValue, grantEntitlements, macSigning, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, declaredOrigin, interfaceStyle, localNetworking, memoryEntitlements, modulePlist, nfcKeys, startLocation, storeKeys, transportSecurity, updateActivation, withPackageKeys } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
@@ -627,7 +627,7 @@ async function main(args, lockHeld = false) {
     prof = widgets ? entryProfiles({ app, udid: ph?.udid, phoneName: ph?.name, required }).app : profile(ph?.udid, app.id, required, { phoneName: ph?.name });
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
-  const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
+  let macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
   if (!ios && widgets && !macWidgets) sha1 = null;
   if (!ios) widgets = !!macWidgets;
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
@@ -896,9 +896,11 @@ async function main(args, lockHeld = false) {
   const bakedCompat = buildReceipt.compat;
   // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
   const appleReach = modulePlist(app, tv ? tvReach(bakedCompat.reach) : bakedCompat.reach, tv ? 'tvos' : ios ? 'ios' : 'macos', buildReceipt.graph.extensions, buildReceipt.graph.contractSources);
-  // What only a macOS provisioning profile authorizes (LLP 1133.010 D7): signed with that profile's team.
-  const provisioning = ios ? null : macProvisioning(app, bakedCompat, { release: production || distribution, method: distribution ? 'developerid' : 'development' });
-  if (provisioning) sha1 = macProfileIdentity(provisioning.profile, sha1, { distribution, widgets: macWidgets });
+  // What only a macOS provisioning profile authorizes (LLP 1133.010 D7), resolved with the widgets' signing: one
+  // profile, one team, the identity of that team.
+  const signing = ios ? null : macSigning(app, bakedCompat, { current: sha1, widgets: macWidgets, release: production || distribution, distribution });
+  const provisioning = signing?.provisioning ?? null;
+  if (signing) { sha1 = signing.sha1; macWidgets = signing.widgets; }
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
