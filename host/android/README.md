@@ -100,7 +100,9 @@ one with its state carried, and the build channel brings the design server's liv
 registers the build, so the design tool sees it. A generation whose Rust pair changed is refused with the URL loop's
 message and the running app kept: the APK's Rust is baked in its library, so a Rust edit needs a new APK. A drive
 takes the same URL as `--url` (`agent.mjs android --reader --url http://127.0.0.1:<port>/ …`), which reverses the
-port itself. A production bake opens no build channel.
+port itself. Drives on the same adb server and device share mappings they create until the last drive releases
+them. Mappings set up outside a drive are kept; a conflicting destination refuses the drive. A production bake
+opens no build channel.
 
 It builds on a Mac as on the Linux build box (tried 2026-10-12 with an SDK under `~/android`: platform-tools, NDK
 27.1.12297006, a JDK, and `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` naming them). Gradle fetches what the
