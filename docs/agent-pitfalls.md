@@ -197,6 +197,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   is the size), or no `flex` and `flex-shrink=0`. (Stocks DIARY, about 15
   minutes; reproduced on the web and macOS, 2026-10-04.)
 
+- **A package view with `height=44` can shrink to zero in a crowded column.**
+  CSS's default `flex-shrink: 1` lets an overfull fixed-height column compress
+  its children, and `min-height: auto` holds a box only at its content's size:
+  a native leaf such as `exact-sign-in-button` has none, so it goes to 0, as an
+  empty `<div>` does on the web. Put the content in an auto-height column
+  inside a viewport-sized `scroll`, or give the leaf `flex-shrink=0`.
+  (Auth Fixture's provider buttons, iOS simulator, 2026-11-12.)
+
 - **A one-edge border draws a frame, and a drawer closed to `height=0` stays open
   a few pixels.** `border-top-width=1 border-style="solid"` on a 60 × 20 box drew a
   1 px top and 3 px sides and bottom (66 × 24); with `box-sizing="border-box"` and
