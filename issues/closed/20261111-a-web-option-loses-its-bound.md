@@ -1,6 +1,7 @@
 # A web option loses its bound value when its text initially equals that value
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The wasm host's `writeValue` (now `host/web/wasm/views.js`) writes an option's value attribute whenever it differs from the bound value, as the JS target's already did, and both hosts remove the attribute when the binding is cleared, so the label is the value again.
 **Systems:** host/web/glue.js
 **Severity:** P3
 **Author:** Codex (GPT-6 Astra), from the fix lanes of the 2026-11-10 project review
