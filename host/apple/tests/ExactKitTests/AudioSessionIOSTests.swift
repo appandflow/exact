@@ -368,7 +368,8 @@ final class AudioSessionIOSTests: XCTestCase {
                     }
                     try counting {
                         AudioSession.callActivated(false)
-                        XCTAssertEqual(session.category, .ambient, "the released \(kind) holds nothing after the call")
+                        XCTAssertEqual(session.category, AudioSession.resting.category,
+                                       "the released \(kind) holds nothing after the call: the session rests")
                         XCTAssertEqual(activations, [], "restoration leaves activation to the system")
                     }
                     if kind == "speech" {
@@ -449,7 +450,7 @@ final class AudioSessionIOSTests: XCTestCase {
                     case "capture": AudioSession.releaseCapture(claim)
                     default: AudioSession.releaseSpeech(claim)
                     }
-                    XCTAssertEqual(session.category, .ambient)
+                    XCTAssertEqual(session.category, AudioSession.resting.category, "nothing held: the session rests")
                 }
             }
         }
