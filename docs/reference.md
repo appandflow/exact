@@ -2185,7 +2185,7 @@ component App
       …
 ```
 
-The app depends on the package (`exact add notifications`, or
+The app depends on the package (`bun exact.mjs add notifications`, or
 `"@exact/notifications": "file:<exact2>/packages/notifications"`) and grants
 `device.notifications purpose.notifications` (a strings key, LLP 1069.008;
 iOS shows its own fixed prompt text): without the grant a post and the
@@ -2263,7 +2263,7 @@ component App
     send subscribed = subscribePush()
 ```
 
-The app depends on the package (`exact add push`) and grants both lines:
+The app depends on the package (`bun exact.mjs add push`) and grants both lines:
 
 ```text
 device.notifications purpose.notifications

@@ -1,6 +1,7 @@
 # `exact add` tells the author to run `bun exact.mjs add`, a verb an app's `exact.mjs` does not have
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The app's exact.mjs already forwarded add (bcecabe0); its advice, the three diagnostics and the guide now spell it bun exact.mjs add, and its success line bun exact.mjs docs, verbs the app runs.
 **Systems:** scripts/exact.mjs (add), scripts/app-cli.mjs (appVerbs), scripts/help.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

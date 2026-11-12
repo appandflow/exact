@@ -880,7 +880,7 @@ pub(super) fn check_command(
                 "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
             None if matches!(name, "showNotification" | "closeNotification" | "setAppBadge" | "clearAppBadge") => format!(
-                "`{name}` is `@exact/notifications`' (LLP 1133.004): `exact add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
+                "`{name}` is `@exact/notifications`' (LLP 1133.004): `bun exact.mjs add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
