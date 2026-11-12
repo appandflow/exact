@@ -1,6 +1,7 @@
 # On iOS an `inert` row of a native menu is enabled and its press runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A row that is inert at or above it is a disabled `UIAction` in the native menu (an inert submenu opener a dimmed action), and choosing it presses nothing.
 **Systems:** host/apple/Sources/ExactKit/IOS/MenuItemsIOS.swift (MenuHost.items)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
