@@ -1,6 +1,7 @@
 # A timer cannot wait for a frame, a UI update or the end of a scroll
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1147 built what this asks: `every` and `after` take `wait=frame|update|scrollend|idle`, with `max=` bounding the scroll and idle waits and a 100 ms cap on the frame and update waits, on every host; precise timing stays the default.
 **Systems:** Contract timers (`every`, `after`), Apple host clock (`SessionClock.swift`, `SessionClockTimer.swift`, `ExactCore/Owner.swift`), web host timers (`host/web-js/rt.js`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Lexy's iPhone Duo scroll traces
