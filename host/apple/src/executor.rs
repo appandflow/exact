@@ -1,7 +1,7 @@
-//! Bounded native I/O (LLP 1016 / 1041). Unannotated requests and native
-//! continuations share one FIFO. Explicit independent HTTP uses six workers
-//! with separate transports; their held sockets cannot occupy the ordered lane.
-use exact_runner::{Outcome, RequestOut, Work};
+//! Bounded native I/O (LLP 1016 / 1041 / 1162). Reads and parallel sends
+//! overlap on six shared HTTP workers while retaining ordered delivery.
+//! Independent HTTP shares them; its held sockets cannot occupy the ordered worker.
+use exact_runner::{CompletionTiming, Outcome, RequestOut, Work};
 use std::ffi::c_void;
 #[path = "executor_core.rs"]
 mod core;
@@ -37,7 +37,7 @@ impl Launch {
 }
 
 impl Executor {
-    /// Start one ordered owner and six independent HTTP owners. Bindings are
+    /// Start one ordered owner and six shared HTTP owners. Bindings are
     /// never shared between owners. Retired but unfinished workers remain
     /// charged against a process limit; exhaustion refuses new work.
     pub fn start(
@@ -54,17 +54,35 @@ impl Executor {
         wake: Option<(WakeFn, *mut c_void)>,
         launch: Launch,
     ) -> Self {
+        Self::start_with(wake, launch, |wake| {
+            core::Core::start_switched(bindings, grants, wake)
+        })
+    }
+    /// [`Executor::start`] with every owner's transport made by `host`. A
+    /// read runs on a shared owner (LLP 1162 D1), so a transport given only
+    /// to the ordered owner's `bindings` would not see it.
+    pub fn start_on(
+        bindings: Option<ibex2::host::Bindings>,
+        grants: &str,
+        wake: Option<(WakeFn, *mut c_void)>,
+        host: impl Fn() -> ibex2::host::Host + Send + Sync + 'static,
+    ) -> Self {
+        Self::start_with(wake, Launch::here(), |wake| {
+            core::Core::start_on(bindings, grants, wake, std::sync::Arc::new(host))
+        })
+    }
+    fn start_with(
+        wake: Option<(WakeFn, *mut c_void)>,
+        launch: Launch,
+        core: impl FnOnce(Box<dyn Fn() + Send + Sync>) -> core::Core,
+    ) -> Self {
         exact_runner::local_network::launch_once(local_network_prompts);
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
-        let core = core::Core::start_switched(
-            bindings,
-            grants,
-            Box::new(move || {
-                if let Some((f, ctx)) = wake {
-                    f(ctx as *mut c_void);
-                }
-            }),
-        );
+        let core = core(Box::new(move || {
+            if let Some((f, ctx)) = wake {
+                f(ctx as *mut c_void);
+            }
+        }));
         // The Mac starts programs for data code; iOS and tvOS do not (LLP
         // 1133.007 §8). There `bundle:/` is the trees the app declared and
         // `home:` is absent (D6).
@@ -123,7 +141,7 @@ impl Executor {
         self.core.begin_pump();
     }
     /// Take at most one result; remaining outcomes schedule another pump.
-    pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
+    pub fn drain(&self) -> Vec<(u64, Outcome, Option<CompletionTiming>)> {
         self.core.drain()
     }
     /// Wake the presenter for a refusal retained on a runner ticket.
@@ -182,7 +200,7 @@ pub trait Io {
     /// [`Executor::begin_pump`].
     fn begin_pump(&self);
     /// [`Executor::drain`].
-    fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)>;
+    fn drain(&self) -> Vec<(u64, Outcome, Option<CompletionTiming>)>;
     /// [`Executor::notify`].
     fn notify(&self);
     /// [`Executor::waker`].
@@ -229,7 +247,7 @@ impl Io for Executor {
     fn begin_pump(&self) {
         Executor::begin_pump(self)
     }
-    fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
+    fn drain(&self) -> Vec<(u64, Outcome, Option<CompletionTiming>)> {
         Executor::drain(self)
     }
     fn notify(&self) {

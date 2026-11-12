@@ -448,80 +448,88 @@ fn a_ceiling_open_streams_leave_no_room_for_is_refused_when_made() {
 
 #[test]
 fn a_queued_read_crowded_out_by_a_later_stream_is_refused() {
-    let (core, fixture, woke) = setup();
-    core.run(
-        job(
-            1,
-            Request::get("https://example.test/hold").independent_http(40 << 20),
-        ),
-        None,
-    )
-    .unwrap();
-    fixture.wait_held(1);
+    for class in [
+        RequestClass::Ordered,
+        RequestClass::Read,
+        RequestClass::Parallel(0),
+    ] {
+        let (core, fixture, woke) = setup();
+        core.run(
+            job(
+                1,
+                Request::get("https://example.test/hold").independent_http(40 << 20),
+            ),
+            None,
+        )
+        .unwrap();
+        fixture.wait_held(1);
 
-    let mut read = Request::get("https://example.test/read").independent_http(64 << 20);
-    read.timeout_ms = Some(30_000);
-    core.run(job(2, read), None).unwrap();
-    assert_eq!(core.shared.state.lock().unwrap().jobs[1][0].ticket, 2);
+        let mut read = Request::get("https://example.test/read").independent_http(64 << 20);
+        read.timeout_ms = Some(30_000);
+        let mut request = job(2, read);
+        request.class = class;
+        core.run(request, None).unwrap();
+        assert_eq!(core.shared.state.lock().unwrap().jobs[1][0].ticket, 2);
 
-    let Answer::Later(stream) =
-        Answer::stream(Request::get("https://example.test/hold").independent_http(8 << 20))
-    else {
-        unreachable!()
-    };
-    core.run(job(3, stream), None).unwrap();
-    fixture.wait_held(2);
+        let Answer::Later(stream) =
+            Answer::stream(Request::get("https://example.test/hold").independent_http(8 << 20))
+        else {
+            unreachable!()
+        };
+        core.run(job(3, stream), None).unwrap();
+        fixture.wait_held(2);
 
-    let outcomes = collect(&core, &woke, 1);
-    assert!(
-        matches!(&outcomes[0], (2, Outcome::Failed { kind: FailureKind::Refused, message })
-            if message == "native response ceiling exceeds the lane budget held by open streams"),
-        "{outcomes:?}"
-    );
-
-    // A smaller successor can run while both earlier transports stay held.
-    core.run(
-        job(
-            4,
-            Request::get("https://example.test/after").independent_http(1 << 20),
-        ),
-        None,
-    )
-    .unwrap();
-    let outcomes = collect(&core, &woke, 1);
-    assert!(matches!(&outcomes[0], (4, Outcome::Response(r)) if r.body == b"done"));
-    {
-        let state = core.shared.state.lock().unwrap();
-        assert_eq!(state.counts, [0, 2]);
-        assert_eq!(state.streams, 1);
-        assert_eq!(
-            state.bytes[1],
-            state.running.iter().map(|r| r.charge).sum::<usize>()
+        let outcomes = collect(&core, &woke, 1);
+        assert!(
+            matches!(&outcomes[0], (2, Outcome::Failed { kind: FailureKind::Refused, message })
+                if message == "native response ceiling exceeds the lane budget held by open streams"),
+            "{outcomes:?}"
         );
-        assert!(state.jobs[1].is_empty());
-        assert!(state.completed[1].is_empty());
-    }
-    assert_eq!(
-        fixture.state.lock().unwrap().2,
-        [
-            "https://example.test/hold",
-            "https://example.test/hold",
-            "https://example.test/after"
-        ]
-    );
 
-    fixture.release();
-    let mut tickets: Vec<_> = collect(&core, &woke, 2)
-        .into_iter()
-        .map(|(t, _)| t)
-        .collect();
-    tickets.sort();
-    assert_eq!(tickets, [1, 3]);
-    until_settled(&core);
-    let state = core.shared.state.lock().unwrap();
-    assert_eq!(state.counts, [0, 0]);
-    assert_eq!(state.bytes, [0, 0]);
-    assert_eq!(state.streams, 0);
+        // A smaller successor can run while both earlier transports stay held.
+        core.run(
+            job(
+                4,
+                Request::get("https://example.test/after").independent_http(1 << 20),
+            ),
+            None,
+        )
+        .unwrap();
+        let outcomes = collect(&core, &woke, 1);
+        assert!(matches!(&outcomes[0], (4, Outcome::Response(r)) if r.body == b"done"));
+        {
+            let state = core.shared.state.lock().unwrap();
+            assert_eq!(state.counts, [0, 2]);
+            assert_eq!(state.streams, 1);
+            assert_eq!(
+                state.bytes[1],
+                state.running.iter().map(|r| r.charge).sum::<usize>()
+            );
+            assert!(state.jobs[1].is_empty());
+            assert!(state.completed[1].is_empty());
+        }
+        assert_eq!(
+            fixture.state.lock().unwrap().2,
+            [
+                "https://example.test/hold",
+                "https://example.test/hold",
+                "https://example.test/after"
+            ]
+        );
+
+        fixture.release();
+        let mut tickets: Vec<_> = collect(&core, &woke, 2)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        tickets.sort();
+        assert_eq!(tickets, [1, 3]);
+        until_settled(&core);
+        let state = core.shared.state.lock().unwrap();
+        assert_eq!(state.counts, [0, 0]);
+        assert_eq!(state.bytes, [0, 0]);
+        assert_eq!(state.streams, 0);
+    }
 }
 
 #[test]

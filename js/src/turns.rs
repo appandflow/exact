@@ -23,13 +23,18 @@ impl Module {
     }
 
     /// Whether anything in the module may yet settle a waiting answer: a
-    /// fetch, a storage step, a stream, a yield. The module's storage queued or in flight counts, an answer's or the
+    /// fetch, a storage step, a stream, a yield, or a re-ask still owed after
+    /// progress: it may own an unclaimed fetch (LLP 1162 D2).
+    /// The module's storage queued or in flight counts, an answer's or the
     /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
         !self.streams.is_empty()
             || self.host.module_outstanding > 0
             || self.background.state.queued + self.background.state.in_flight > 0
-            || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
+            || self
+                .parked
+                .iter()
+                .any(|(_, p)| p.ticket != WAITING || p.progress < self.progress)
     }
 
     /// Ask a waiting answer again when something landed since it parked,
@@ -55,13 +60,19 @@ impl Module {
     /// ticket in a module turn, and the answer parks on its timer, asked
     /// again at once. On the main thread only: a worker runs one turn to its
     /// end.
-    pub(crate) fn timer_first(&mut self, f: &InFlight<'_>) -> Option<(u64, Request)> {
+    pub(crate) fn timer_first(
+        &mut self,
+        f: &InFlight<'_>,
+        fetch: Option<u64>,
+    ) -> Option<(u64, Request)> {
         if !self.main_thread {
             return None;
         }
         let key = Module::key(Some(f.target), f.source, f.args);
         let at = self.parked.iter().position(|(k, p)| {
-            *k == key && !matches!(p.ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET)
+            *k == key
+                && fetch.is_none_or(|fetch| p.ticket == fetch)
+                && !matches!(p.ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET)
         })?;
         let (call, ticket) = (self.parked[at].1.call, self.parked[at].1.ticket);
         let adopted = self.engine.as_mut()?.call(
