@@ -1294,12 +1294,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 if handled {
                     self.edit_menu = menu;
                 } else {
-                    p.hardware_key(
-                        &code,
-                        &key,
-                        event.state == ElementState::Pressed,
-                        event.repeat,
-                    );
+                    let down = event.state == ElementState::Pressed;
+                    let text = event.text.as_deref();
+                    crate::keyboard::press(p, (&code, &key), text, down, event.repeat);
                 }
             }
             WindowEvent::Ime(event) => {

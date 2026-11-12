@@ -1,6 +1,7 @@
 # On Windows a dead key followed by Space types a space, and followed by a letter it cannot join types the letter alone
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The Windows host types a key's `text` when it differs from the logical key (a dead key's accent before Space or a letter it does not combine with) while the app's `key` handlers still hear the logical key, and names a dead key `"Dead"`.
 **Systems:** host/windows/src/window.rs
 **Severity:** P2
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review

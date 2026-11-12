@@ -230,9 +230,10 @@ pub struct Presenter<D: DataSource> {
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
-    /// The keys whose down a shortcut took at a world's canvas: their up
-    /// belongs to no handler and no world (b6 review B1).
+    /// The keys whose down a shortcut took at a world's canvas: their up belongs to no handler and no world (b6 review B1).
     pub(crate) shortcut_keys: std::collections::BTreeSet<String>,
+    /// What the key being pressed types, when not its name (`hardware_key_typing`).
+    pub(crate) key_text: Option<String>,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
@@ -535,6 +536,7 @@ impl<D: DataSource> Presenter<D> {
             url_opener: None,
             held: 0,
             shortcut_keys: Default::default(),
+            key_text: None,
             controls: BTreeMap::new(),
             chosen: BTreeMap::new(),
             menu: None,
@@ -812,8 +814,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// After anything that may have committed: images follow the tree,
-    /// offsets stay in range, focus stays on a live input, the picture is
-    /// stale.
+    /// offsets stay in range, focus stays on a live input, the picture is stale.
     pub(crate) fn after_commit(&mut self) -> Option<String> {
         self.dirty |= self.brush.paint_epoch != Some(self.host.kernel().epoch());
         self.finish_commit()
@@ -988,8 +989,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// The document's extent: the roots' frames, never smaller than the
-    /// viewport (`fitDocument`, LLP 1010 §3).
+    /// The document's extent: the roots' frames, never smaller than the viewport (`fitDocument`, LLP 1010 §3).
     fn document(&self) -> (f32, f32) {
         self.display
             .document()
