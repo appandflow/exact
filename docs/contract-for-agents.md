@@ -1325,6 +1325,83 @@ documentation requires (LLP 1146; the IDs are `packages/oauth/test/PROVIDERS.md`
 
 Every option, with what it does, is in `@exact/oauth`'s `index.d.ts`.
 
+**Tokens outside HTTP.**
+
+Use `provider.accessToken(store)` in data code when the intended API takes
+its access token somewhere `provider.fetch` cannot reach: a third-party SDK,
+or a message after a WebSocket opens, on a host whose mapper receives a
+socket handle. Prefer `provider.fetch` for HTTP requests. An OpenID Connect
+service such as Convex instead takes `provider.idToken(store)`, with that
+service configured to trust the issuer and audience. An ID token is not an
+API access token.
+
+Like `idToken`, `accessToken` synchronously answers what the store holds now,
+or `null` when signed out. It reads no clock and makes no refresh of its own.
+When the service reports expiry (a socket's authentication failure or an SDK's
+error), await `provider.refresh(store)`, check its `ok`, and ask for the token
+again. This uses the same refresh as `provider.fetch` after an API refusal;
+concurrent callers refreshing the same held token make one refresh. A failed
+refresh that keeps the session leaves the old token; one that ends it leaves
+`null`. Handle the failure before attempting authentication again.
+
+Both tokens are credentials. Keep them in data code; never return them in
+a Contract answer, put them in state, or log them. Answers are kept and
+shown by the agent. The return types warn about this in their documentation;
+they are ordinary strings, with no compiler warning or runtime filter that
+prevents a credential from entering an answer (LLP 1018 D5, LLP 1157 D7).
+
+With a token in hand, the caller owns where and how it is sent:
+
+- Send it only to the API it was issued for, over an encrypted connection.
+  `provider.fetch` checks the destination against `apis`; the getter cannot
+  check what the caller or SDK does with the returned string.
+- Never put it in a URL. [RFC 9700 §4.3.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.3.2)
+  prohibits passing access tokens by the URI query method described in
+  [RFC 6750 §2.3](https://www.rfc-editor.org/rfc/rfc6750.html#section-2.3).
+- Ask for the token again when authenticating or reconnecting. Do not hold
+  a copy across a refresh or sign-out. The caller handles the service's
+  authentication failure and reconnect protocol. `provider.fetch` still refuses
+  `ws:` and `wss:`.
+
+If the API requires a credential on the handshake URL, it refuses an
+unauthenticated upgrade before `open`; a first message cannot authenticate it.
+Use the ticket exchange:
+call `provider.fetch` over HTTPS for a short-lived, single-use ticket, then open
+`fetch('wss://…?ticket=…', { exactStream })` synchronously in a fresh source call.
+Keep the ticket in data code and obtain a new one for each reconnect. See the
+socket-ticket recipe under `docs/recipes/socket-ticket`.
+
+The following excerpt is only for an API that accepts the upgrade without a
+credential, then accepts an `authenticate` message and reports expiry with
+`token_expired`. It needs a mapper with a usable socket handle: worker-placed
+TypeScript sources and the web's wasm target do not support this send path
+(see `docs/reference.md`, socket sending). The app has checked that
+`wss://api.example.com/live` is the intended API and granted `net.websocket`
+for it. Add these sources to the app's `Sources` object:
+
+```ts
+live: (_args, store) => {
+  let expired = false;
+  return fetch('wss://api.example.com/live', {
+    exactStream(event, socket) {
+      if (event.type === 'open') {
+        const token = provider.accessToken(store);
+        if (token) socket.send(JSON.stringify({ type: 'authenticate', token }));
+      }
+      if (event.type === 'message' && event.data === 'token_expired') expired = true;
+      return { expired };
+    },
+  });
+},
+renew: async (_args, store) => await provider.refresh(store),
+```
+
+When `live.expired` becomes true, the app sends the `renew` mutation. After
+its successful answer, it refreshes the `live` resource to reconnect; the
+next `open` asks for the token again and sends it as the first message.
+The token never enters the URL, subprotocols or a Contract answer. Adapt the
+message and refusal handling to the service; do not retry indefinitely.
+
 **An app's own sign-in screens.** A provider that lets an app sign the person
 in with its own screens (ForgeRock's authentication trees) still issues an
 authorization code. The app sends the authorization request as the provider
