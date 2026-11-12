@@ -3,8 +3,11 @@
 // fill and its size: no props, no handlers), and the count of its presses.
 component App
   state n = 0
+  state expanded = false
   action go
     n = n + 1
+  action reveal
+    expanded = not expanded
   view
     main testId="root" width=400 height=400 background-color="#ffffff"
       box testId="card" press=go width=200 height=100 background-color="#ffffff"
@@ -15,3 +18,11 @@ component App
       box testId="hover-scale" width=100 height=100 background-color="#ff0000" transition="scale 150ms linear"
         :hover
           scale=1.2
+      button testId="reveal-range" press=reveal
+        text "Reveal range"
+      column testId="range-section" width=240 overflow="hidden" -exact-layout-transition="220ms linear"
+        if expanded
+          column testId="inserted-range" padding="12px 0px"
+            text "Volume" color="#ff0000"
+            input testId="inserted-slider" type="range" value=0.3 min=0 max=1 step=0.01 width="100%" margin-top=8
+        column testId="range-following" height=90 background-color="#0000ff" z-index=1 -exact-layout-transition="220ms linear"
