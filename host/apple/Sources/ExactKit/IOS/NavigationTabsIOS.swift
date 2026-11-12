@@ -816,7 +816,7 @@ extension NavigationHost {
     /// Each batch: the tablist's `-exact-tab-accessory` child, shown and not
     /// `display: none`, is the bar's bottom accessory; none, the bar has none.
     /// iOS 26, and only where the system bar takes the tablist's place.
-    func syncAccessory(_ tabs: NavigationTabs) {
+    func syncAccessory(_ tabs: NavigationTabs, animated: Bool = true) {
         #if os(iOS)
         guard #available(iOS 26.0, *) else { return }
         let list = tabs.tablist
@@ -840,7 +840,7 @@ extension NavigationHost {
         tabAccessory = node
         let made = (accessory as? UITabAccessory) ?? UITabAccessory(contentView: view)
         accessory = made
-        container.setBottomAccessory(made, animated: container.view.window != nil)
+        container.setBottomAccessory(made, animated: animated && container.view.window != nil)
         reportCovers()
         presenter.owners.publish()
         #endif
