@@ -1,6 +1,7 @@
 # The harness's "Thinking… (Ns" line starts each turn at the seconds every earlier turn took
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A prompt sent while idle sets the busy line's seconds back to 0 and records the session's output tokens, so the line counts the running turn's time and tokens.
 **Systems:** apps/harness (terminal.contract)
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
