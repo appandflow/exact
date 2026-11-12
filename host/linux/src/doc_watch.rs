@@ -287,7 +287,7 @@ mod inotify {
             }
             let mut changed = Vec::new();
             {
-                let folders = shared.folders.lock().unwrap_or_else(|e| e.into_inner());
+                let mut folders = shared.folders.lock().unwrap_or_else(|e| e.into_inner());
                 let header = std::mem::size_of::<libc::inotify_event>();
                 let mut at = 0usize;
                 while at + header <= read as usize {
@@ -302,6 +302,12 @@ mod inotify {
                         } else {
                             folder.join(std::ffi::OsStr::from_bytes(name))
                         });
+                    }
+                    // The kernel removed the watch: its folder was deleted or its
+                    // filesystem unmounted (inotify(7), IN_IGNORED). Forgotten, a
+                    // folder made again at the path is watched anew.
+                    if event.mask & libc::IN_IGNORED != 0 {
+                        folders.remove(&event.wd);
                     }
                     at += header + event.len as usize;
                 }
@@ -377,6 +383,37 @@ mod tests {
         assert!(watch.watched().is_empty());
         drop(watch);
         documents::forget(7301);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A subfolder of a recursive watch removed and made again between two
+    /// follows is watched again at the second (inotify(7): the kernel drops
+    /// a deleted folder's watch and says so with IN_IGNORED).
+    #[test]
+    fn a_folder_removed_and_made_again_is_watched_again() {
+        let root = std::env::temp_dir().join(format!("exact-linux-remade-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("notes/sub")).unwrap();
+        let folder = documents::mint(&root.join("notes"), 7303).unwrap();
+        let topics = [documents::watch_topic(&folder, true)];
+        let mut watch = DocWatch::announcing(7303, exact_runner::Native::default());
+        watch.follow(&topics, "fs.read doc:/");
+        let sub = root.join("notes/sub");
+        let watched = |watch: &DocWatch| {
+            let folders = watch.shared.folders.lock().unwrap();
+            folders.iter().find(|(_, f)| **f == sub).map(|(wd, _)| *wd)
+        };
+        let before = watched(&watch).expect("the subfolder is watched");
+        std::fs::remove_dir(&sub).unwrap();
+        std::fs::create_dir(&sub).unwrap();
+        let start = Instant::now();
+        while watched(&watch) == Some(before) && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(watched(&watch), None, "the dead watch is forgotten");
+        watch.follow(&topics, "fs.read doc:/");
+        assert!(watched(&watch).is_some(), "the new subfolder is watched");
+        drop(watch);
+        documents::forget(7303);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

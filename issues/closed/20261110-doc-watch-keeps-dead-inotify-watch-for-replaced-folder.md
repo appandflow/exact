@@ -1,6 +1,7 @@
 # A watched folder removed and made again before the next commit is never watched again on Linux
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The inotify reader forgets a watch descriptor when the kernel reports IN_IGNORED, so the next follow watches a folder made again at that path.
 **Systems:** host/linux/src/doc_watch.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
