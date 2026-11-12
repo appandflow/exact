@@ -451,3 +451,17 @@ fn a_negative_literal_and_an_exponent_keep_their_spelling() {
     assert!(after.contains("min=-1e300 max=2.5E-3 step=4e+2"), "{after}");
     assert!(after.contains("margin-top=-8"), "{after}");
 }
+
+#[test]
+fn midi_hex_bytes_stay_whole() {
+    let src = r#"test "MIDI bytes"
+    tap midi "keys" 90 3c 00 08 4C 0e ff
+    expect midi sent "synth" 90 3c 64 at 500
+    expect midi missing "synth" 80 4c 00
+    tap midi "clock" clock 120 2000
+"#;
+    let out = preserved(src);
+    assert!(out.contains("90 3c 00 08 4C 0e ff"));
+    assert!(out.contains("90 3c 64 at 500"));
+    assert!(out.contains("80 4c 00"));
+}
