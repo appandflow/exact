@@ -105,6 +105,19 @@ fn scrolls(o: Overflow) -> bool {
     matches!(o, Overflow::Scroll | Overflow::Auto)
 }
 
+/// The axes a `touch-action` gives to the platform's panning, horizontal
+/// and vertical: `auto` and `manipulation` both, else those it names.
+fn gives(action: exact_kernel::TouchAction) -> (bool, bool) {
+    let action = action.pans().name();
+    let names = |axis: &[&str]| {
+        matches!(action, "auto" | "manipulation") || axis.iter().any(|a| action.contains(a))
+    };
+    (
+        names(&["pan-x", "pan-left", "pan-right"]),
+        names(&["pan-y", "pan-up", "pan-down"]),
+    )
+}
+
 impl<D: DataSource> Presenter<D> {
     /// The page as a scroller: the document past the viewport.
     pub(super) fn page_scroller(&self) -> Scroller {
@@ -236,7 +249,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.input_live(key) {
             return (false, false);
         }
-        let mut claims = (false, false);
+        let mut claims = self.touch_kept(key);
         for candidate in self.candidates(key) {
             let (x, y) = match candidate {
                 Candidate::Arrange(_) | Candidate::Height { .. } => (false, true),
@@ -244,23 +257,39 @@ impl<D: DataSource> Presenter<D> {
                 Candidate::Transform(_) | Candidate::Group(_) => (true, true),
                 // A `pan` hears what its `touch-action` does not give to
                 // scrolling, as a browser cancels a pointer it pans with.
-                Candidate::Pan(key) => {
-                    let action = kernel
-                        .node_by_key(key)
-                        .map_or("auto", |n| n.style.touch_action.pans().name());
-                    let gives = |axis: &[&str]| {
-                        matches!(action, "auto" | "manipulation")
-                            || axis.iter().any(|a| action.contains(a))
-                    };
-                    (
-                        !gives(&["pan-x", "pan-left", "pan-right"]),
-                        !gives(&["pan-y", "pan-up", "pan-down"]),
-                    )
-                }
+                Candidate::Pan(key) => kernel.node_by_key(key).map_or((false, false), |n| {
+                    let gives = gives(n.style.touch_action);
+                    (!gives.0, !gives.1)
+                }),
             };
             claims = (claims.0 || x, claims.1 || y);
         }
         claims
+    }
+
+    /// The axes a finger on `hit` keeps from the platform's panning: those
+    /// the `touch-action` of some node from `hit` out to its nearest scroll
+    /// container, inclusive, does not give to it (Pointer Events 3, §11
+    /// "Determining supported touch behavior"). A browser pans along none
+    /// of them and so cancels no pointer for a move along one: the page goes
+    /// on hearing it.
+    pub(super) fn touch_kept(&self, hit: exact_kernel::NodeKey) -> (bool, bool) {
+        let kernel = self.host.kernel();
+        let mut kept = (false, false);
+        let mut at = kernel.node_by_key(hit);
+        while let Some(node) = at {
+            let gives = gives(node.style.touch_action);
+            kept = (kept.0 || !gives.0, kept.1 || !gives.1);
+            // A scroll container is a box whose overflow is not `visible`
+            // or `clip` (CSS Overflow 3 §3).
+            let (x, y) = crate::paint::effective_overflow(&node);
+            let contains = |o: Overflow| !matches!(o, Overflow::Visible | Overflow::Clip);
+            if contains(x) || contains(y) {
+                break;
+            }
+            at = node.parent.and_then(|id| kernel.node(id));
+        }
+        kept
     }
 
     /// Scroll `id` to `to`, clamped to its travel on the axes it scrolls

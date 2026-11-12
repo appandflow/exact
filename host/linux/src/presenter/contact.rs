@@ -81,6 +81,14 @@ pub(super) struct Contact {
     focus_blocked: bool,
     /// The canvas that owns this contact and sees its down, moves and up.
     canvas: Option<ViewId>,
+    /// The axes the `touch-action` under the down keeps from the platform's
+    /// panning ([`Presenter::touch_kept`]), read once, as a browser reads it
+    /// at the touch's start.
+    touch: (bool, bool),
+    /// Whether a finger stays the page's past the slop, decided at its
+    /// first move past it and kept, as the reader decides once whose the
+    /// drag is.
+    kept: Option<bool>,
 }
 impl<D: DataSource> Presenter<D> {
     pub(super) fn input_live(&self, key: NodeKey) -> bool {
@@ -605,6 +613,8 @@ impl<D: DataSource> Presenter<D> {
                     focus_before_down: None,
                     focus_blocked: false,
                     canvas: None,
+                    touch: (false, false),
+                    kept: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
                 });
@@ -661,6 +671,8 @@ impl<D: DataSource> Presenter<D> {
                 focus_before_down: None,
                 focus_blocked: false,
                 canvas: Some(canvas),
+                touch: (false, false),
+                kept: None,
             });
             return Ok(true);
         }
@@ -706,6 +718,8 @@ impl<D: DataSource> Presenter<D> {
             focus_before_down: None,
             focus_blocked: false,
             canvas: None,
+            touch: self.touch_kept(hit),
+            kept: None,
         });
         self.set_collection_interaction(Some(view));
         Ok(true)
@@ -935,10 +949,20 @@ impl<D: DataSource> Presenter<D> {
                     self.begin_swipe(key, ways, now_ms)
                 }
                 _ => {
+                    // A finger is the platform's to pan with past the slop,
+                    // except along an axis its `touch-action` keeps; which,
+                    // by its first move past it, for the rest of the touch.
+                    let touch = contact.touch;
+                    let kept = *contact
+                        .kept
+                        .get_or_insert_with(|| match dx.abs() > dy.abs() {
+                            true => touch.0,
+                            false => touch.1,
+                        });
                     if (contact.press_activates && contact.feedback.is_some())
                         || (contact.candidate.is_none()
                             && contact.retained.is_none()
-                            && !self.contact_is_direct())
+                            && (!self.contact_is_direct() || kept))
                     {
                         self.contact = Some(contact);
                     } else {
