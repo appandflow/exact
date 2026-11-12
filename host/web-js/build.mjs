@@ -608,6 +608,8 @@ const emptyGrantAdmission = () => {
     admittingGrant: '() => null', admitsNetwork: '() => false', admitsSecret: '() => false', coversPath: '() => false',
     // Scoped to any source name, the empty set declares what it declares whole: nothing.
     sameGrantDeclaration: "(set, source) => typeof source === 'string'",
+    // No grant admits a WebSocket stream, so no protocol is ever offered to one.
+    socketProtocols: "(value) => { if (value === undefined) return []; throw new TypeError('exactProtocols: no grant admits a WebSocket stream'); }",
   };
   const missing = grantNames.filter(name => !(name in answers));
   if (missing.length) throw new Error(`host/web/grant-admission.js: admission exports ${missing.join(', ')}, which build.mjs's empty-set admission does not answer`);
