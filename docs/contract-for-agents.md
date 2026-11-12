@@ -3804,10 +3804,10 @@ CSS's `env(keyboard-inset-height)`. It is the keyboard's layout guide on iOS (a
 dialog sheet's field included, though the page under the sheet is not avoided and
 the agent's `layout.env` then says 0), the IME's inset on Android, and on the web
 `navigator.virtualKeyboard.boundingRect` where the page overlays the keys, else how
-far the visual viewport falls short of the page's height before the keys: on a touch
-device the height read while no text field had the focus, in that orientation
-(`resizes-content` shrinks both viewports), and on a desktop the visual viewport's
-own shortfall, so a window resized with a field focused is not keys; 0 with no
+far the visual viewport falls short of the layout viewport's bottom
+(`innerHeight - visualViewport.height - visualViewport.offsetTop`). Under
+`resizes-content` without the VirtualKeyboard API the keys shrink the page itself
+(its `height` is the shorter one) and nothing covers it: 0. It is 0 with no
 keyboard, and on macOS, desktop Linux and Windows. It changes in the commit
 that shrinks the viewport, so `height + keyboardHeight` holds still while the keys
 move. With a hardware keyboard iOS still shows a short bar of its own, and this is

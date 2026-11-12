@@ -474,8 +474,12 @@ export const pageGeometry = () => {
 const resizeRunner = () => {
   if (host.wasm && host.incarnation && innerWidth > 0 && innerHeight > 0) {
     const told = host.wasm.exact_set_viewport_geometry && document.body ? writeIn(pageGeometry()) : 0;
-    host.toldSize = `${innerWidth}x${innerHeight}`;
-    applyBatch(presence.resize(JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)))));
+    const batch = JSON.parse(readOut(host.wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits(), told)));
+    // Only a size the runner took is told: a refused one is asked again, never followed by geometry alone.
+    if (!batch.error) {
+      host.toldSize = `${innerWidth}x${innerHeight}`;
+    }
+    applyBatch(presence.resize(batch));
   }
 };
 // The window's `resize` comes here alone: the page's facts follow the size, never before it.

@@ -29,7 +29,7 @@ function page() {
     writeIn: text => { calls.push(['write', text]); return text.length; },
     incarnation: 1, syncViewportFit: () => {},
     wasm: {
-      exact_resize: (w, h, _now, _prefs, len) => { calls.push(['resize', w, h, len]); return '{}'; },
+      exact_resize: (w, h, _now, _prefs, len) => { calls.push(['resize', w, h, len]); return state.refuse ? '{"ops":[],"error":"viewport: InvalidViewport"}' : '{}'; },
       exact_set_viewport_geometry: len => { calls.push(['geometry', state.innerWidth, state.innerHeight, len]); return '{}'; },
       exact_set_page: () => '{}',
     },
@@ -75,4 +75,25 @@ test('the keys moving at the told size send the geometry alone', () => {
   p.calls.length = 0;
   p.visualViewport.dispatchEvent(new Event('resize'));
   expect(told(p.calls)).toEqual([['geometry', 402, 874, 18]]);
+});
+
+test('a refused size is not taken as told: the geometry never follows it alone', () => {
+  const p = page();
+  p.window.dispatchEvent(new Event('resize'));
+  p.calls.length = 0;
+  p.state.refuse = true;
+  p.rotate();
+  p.window.dispatchEvent(new Event('resize'));
+  p.visualViewport.dispatchEvent(new Event('resize'));
+  const after = told(p.calls);
+  expect(after.length).toBeGreaterThan(0);
+  expect(after.every(c => c[0] === 'resize' && c[1] === 874)).toBe(true);
+  // Taken at last: the geometry alone follows at that size.
+  p.state.refuse = false;
+  p.calls.length = 0;
+  p.visualViewport.dispatchEvent(new Event('resize'));
+  expect(told(p.calls)[0]).toEqual(['resize', 874, 402, 17]);
+  p.calls.length = 0;
+  p.visualViewport.dispatchEvent(new Event('resize'));
+  expect(told(p.calls)).toEqual([['geometry', 874, 402, 17]]);
 });

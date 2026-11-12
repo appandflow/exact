@@ -18,47 +18,17 @@ export function environment() {
     ...foldEnv()
   };
 }
-/** `env(keyboard-inset-height)` (LLP 1039 D9): the VirtualKeyboard API's rect where the page overlays the keyboard, else how far the visual viewport, its zoom aside, falls short of the layout viewport's height before the keys. Under `interactive-widget=resizes-content` the keys shrink the layout viewport too, so on a device that has software keyboards (a coarse pointer) its height before them is the one read while no text field had the focus, in this orientation, or, rotated with the keys up, the other orientation's carried across through the screen. A device with a fine pointer takes a shorter window for a shorter window, never for keys. */
+/** `env(keyboard-inset-height)` (LLP 1039 D9), as the browser reports it: the VirtualKeyboard API's rect where the page overlays the keyboard, else how far the visual viewport falls short of the layout viewport's bottom. Under `interactive-widget=resizes-content` without the VirtualKeyboard API the keys shrink the page itself, which then has nothing over it: 0. */
 export function keyboardInset(platform = globalThis) {
   const rect = platform.navigator?.virtualKeyboard?.boundingRect;
   if (rect?.height > 0) {
     return r2(rect.height);
   }
   const vv = platform.visualViewport;
-  if (!vv) {
-    return 0;
-  }
-  const { innerWidth: width, innerHeight: height } = platform;
-  const visible = vv.height * (vv.scale || 1);
-  if (!platform.matchMedia?.("(pointer: coarse)").matches) {
-    return r2(Math.max(0, height - visible));
-  }
-  const screen = platform.screen, long = Math.max(screen?.width ?? 0, screen?.height ?? 0), short = Math.min(screen?.width ?? 0, screen?.height ?? 0);
-  // The orientation by the width, which the keys never change.
-  const portrait = long > 0 ? width < (long + short) / 2 : width <= height;
-  if (!typing(platform)) {
-    keysless[portrait ? "portrait" : "landscape"] = { width, height };
-    // The browser's own bars, what the screen's side has over the page: the same in either orientation.
-    keysless.bars = long > 0 ? (portrait ? long : short) - height : null;
-  }
-  const seen = keysless[portrait ? "portrait" : "landscape"];
-  const before = seen?.width === width ? seen.height : keysless.bars != null && long > 0 ? (portrait ? long : short) - keysless.bars : height;
-  return r2(Math.max(0, Math.max(before, height) - visible));
+  return vv ? r2(Math.max(0, platform.innerHeight - vv.height - vv.offsetTop)) : 0;
 }
-const keysless = { portrait: null, landscape: null, bars: null };
-const KEYLESS_INPUTS = new Set(["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"]);
-/** Whether the focus is in a field a software keyboard types into. */
-function typing(platform) {
-  const active = platform.document?.activeElement;
-  if (!active) {
-    return false;
-  }
-  return active.isContentEditable === true || active.tagName === "TEXTAREA" || active.tagName === "INPUT" && !KEYLESS_INPUTS.has(active.type);
-}
-/** `changed` when the keyboard may have moved beyond a resize: the VirtualKeyboard API's `geometrychange`. The window's own `resize`, while nothing is typed into, reads the height the keys are measured against. */
+/** `changed` when the keyboard moves without a resize: the VirtualKeyboard API's `geometrychange`. */
 export function onKeyboard(changed, platform = globalThis) {
-  keyboardInset(platform);
-  platform.addEventListener?.("resize", () => keyboardInset(platform));
   platform.navigator?.virtualKeyboard?.addEventListener?.("geometrychange", changed);
 }
 // Read CSS when the JS fold interfaces are absent (LLP 1078 D6). Share agent substitutes with agent-navigation.js; they change facts, not CSS env() resolution (D7).
