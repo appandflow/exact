@@ -580,10 +580,15 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // asks whether it goes now (`validateToolbarItem`), as it does a
         // menu: at a stack's root it does not, and the item is disabled.
         // A one-screen app's stack holds no toolbar until a push gives it
-        // somewhere to go back to (`backPossible`); then it stays.
+        // somewhere to go back to (`backPossible`) or, after Back, forward
+        // to (`forwardPossible`); then it stays.
         let navigation = presenter.navigation
-        let held = navigation.hasStack && (heldForBack || navigation.barRoute && navigation.backPossible)
-        let back = held && navigation.backInToolbar
+        let held = navigation.hasStack && (heldForBack || navigation.barRoute && (navigation.backPossible || navigation.forwardPossible))
+        // Under a cover the bar is the page's beneath it, and its Back slot
+        // stays: the cover's push leaves nothing ahead, which alone would
+        // take a group that Forward held.
+        let slotted = order.contains(Self.historyIdentifier) || order.contains(Self.backIdentifier)
+        let back = held && (navigation.backInToolbar || navigation.covered && slotted)
         // A window whose sidebar is the app's root tab bar (LLP 1115.002 D3)
         // has a toolbar for it: the sidebar's button, then the separator
         // that follows its divider, ahead of Back and the rest, which so

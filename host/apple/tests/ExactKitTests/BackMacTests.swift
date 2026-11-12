@@ -602,56 +602,83 @@ final class BackSessionMacTests: XCTestCase {
     /// back to: no chevron at `/`, and with no header to project, no
     /// toolbar. A push of that location with a query gives it a Back, and
     /// the toolbar that came with it stays when Back takes it away, so the
-    /// title bar changes once. An app with a second route keeps Back at its
-    /// root, disabled (`testAVisitWithNoAuthoredControlGoesBackByNavigateOrTheRunnersBack`).
+    /// title bar changes once. Back at `/` leaves the pushed visit ahead:
+    /// the back/forward group stays, Back disabled and Forward enabled,
+    /// until a new push leaves nothing ahead. A root that offers Back alone
+    /// (`navigationHistory="back"`) has nothing ahead to show, and its Back
+    /// goes at `/`. An app with a second route keeps Back at its root,
+    /// disabled (`testAVisitWithNoAuthoredControlGoesBackByNavigateOrTheRunnersBack`).
     func testAnAppWithOneLocationHasNoBackUntilSomethingIsPushed() throws {
         _ = NSApplication.shared
-        let source = """
-        routes nav
-          home "/"
+        for history in ["", "back"] {
+            let source = """
+            routes nav
+              home "/"
 
-        component App
-          action more
-            nav = push(nav, "/?page=2")
-          view
-            main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-              for e in stack(nav) key=e.id
-                column navigationKey=`${e.id}` position="absolute" inset=0
-                  text e.url
-                  button press=more testId="more"
-                    text "More"
+            component App
+              action more
+                nav = push(nav, "/?page=2")
+              view
+                main navigationKey=`${top(nav).id}` navigationBack="back"\(history.isEmpty ? "" : " navigationHistory=\"\(history)\"") width="100%" height="100%"
+                  for e in stack(nav) key=e.id
+                    column navigationKey=`${e.id}` position="absolute" inset=0
+                      text e.url
+                      button press=more testId="more"
+                        text "More"
 
-        """
-        let session = ExactApp.shared.makeSession()
-        defer { session.destroy() }
-        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
-        let view = ExactView(session: session)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = view
-        let content = try XCTUnwrap(window.contentView).frame.size
-        let p = session.presenter
-        XCTAssertTrue(p.navigation.oneLocation)
-        XCTAssertTrue(view.attachWindowToolbar(to: window))
-        XCTAssertNil(window.toolbar, "one location and no header: no toolbar, no chevron")
-        XCTAssertFalse(p.navigation.backInToolbar)
-        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
-        XCTAssertNotNil(p.navigation.pushedRoute, "the query's visit is pushed")
-        let toolbar = try XCTUnwrap(window.toolbar, "a push gives the stack a Back")
-        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [WindowToolbarHost.historyIdentifier])
-        XCTAssertTrue(p.toolbar.backEnabled)
-        let pushed = try XCTUnwrap(window.contentView).frame.size
-        XCTAssertEqual(pushed, content, "the content keeps its size as the toolbar comes")
-        XCTAssertTrue(p.navigation.goBack())
-        XCTAssertNil(p.navigation.pushedRoute)
-        XCTAssertTrue(window.toolbar === toolbar, "the toolbar stays at the root")
-        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [], "with no chevron in it")
-        XCTAssertEqual(window.contentView?.frame.size, pushed)
-        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
-        XCTAssertTrue(window.toolbar === toolbar, "and the next push keeps it")
-        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [WindowToolbarHost.historyIdentifier])
-        view.detachWindowToolbar()
+            """
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = view
+            let content = try XCTUnwrap(window.contentView).frame.size
+            let p = session.presenter
+            let slot = history.isEmpty ? WindowToolbarHost.historyIdentifier : WindowToolbarHost.backIdentifier
+            XCTAssertTrue(p.navigation.oneLocation)
+            XCTAssertTrue(view.attachWindowToolbar(to: window))
+            XCTAssertNil(window.toolbar, "one location and no header: no toolbar, no chevron")
+            XCTAssertFalse(p.navigation.backInToolbar)
+            p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
+            XCTAssertNotNil(p.navigation.pushedRoute, "the query's visit is pushed")
+            let toolbar = try XCTUnwrap(window.toolbar, "a push gives the stack a Back")
+            XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [slot])
+            XCTAssertTrue(p.toolbar.backEnabled)
+            let pushed = try XCTUnwrap(window.contentView).frame.size
+            XCTAssertEqual(pushed, content, "the content keeps its size as the toolbar comes")
+            XCTAssertTrue(p.navigation.goBack())
+            XCTAssertNil(p.navigation.pushedRoute)
+            XCTAssertTrue(window.toolbar === toolbar, "the toolbar stays at the root")
+            XCTAssertEqual(window.contentView?.frame.size, pushed)
+            if history.isEmpty {
+                XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [slot], "Forward still goes, so the group stays")
+                XCTAssertFalse(p.toolbar.backEnabled)
+                XCTAssertTrue(p.toolbar.forwardEnabled, "the visit Back left is ahead")
+                let group = try XCTUnwrap(toolbar.items.first as? NSToolbarItemGroup)
+                group.selectedIndex = 1
+                XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(group.action), to: group.target, from: group))
+                XCTAssertNotNil(p.navigation.pushedRoute, "Forward pushes it again")
+                XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [slot])
+                XCTAssertTrue(p.toolbar.backEnabled)
+                XCTAssertFalse(p.toolbar.forwardEnabled)
+                XCTAssertTrue(p.navigation.goBack())
+                // A new push from `/` leaves nothing ahead, and Back from it leaves it ahead.
+                p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
+                XCTAssertFalse(p.toolbar.forwardEnabled)
+                XCTAssertTrue(p.navigation.goBack())
+                XCTAssertTrue(p.toolbar.forwardEnabled)
+            } else {
+                XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [], "with no chevron in it: nothing ahead is offered")
+                XCTAssertFalse(p.navigation.forwardPossible)
+            }
+            p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "more" }).id)
+            XCTAssertTrue(window.toolbar === toolbar, "and the next push keeps it")
+            XCTAssertEqual(toolbar.items.map(\.itemIdentifier), [slot])
+            view.detachWindowToolbar()
+        }
     }
 
     func testACoverKeepsTheUnderlyingPagesBackSlotAndHeaderItemsInPlace() throws {
@@ -713,11 +740,11 @@ final class BackSessionMacTests: XCTestCase {
             }
             for pushed in [false, true] {
                 if pushed { try press("more") }
-                let toolbar = try XCTUnwrap(window.toolbar), back = p.toolbar.backSlot
-                let order = toolbar.items.map(\.itemIdentifier), frames = try itemFrames()
-                let hasBack = !oneLocation || pushed
+                let toolbar = try XCTUnwrap(window.toolbar)
+                var order = toolbar.items.map(\.itemIdentifier), frames = try itemFrames()
+                var hasBack = !oneLocation || pushed
                 XCTAssertEqual(order.contains(WindowToolbarHost.historyIdentifier), hasBack)
-                if hasBack { XCTAssertEqual(back.isEnabled, pushed) }
+                if hasBack { XCTAssertEqual(p.toolbar.backEnabled, pushed); XCTAssertFalse(p.toolbar.forwardEnabled) }
                 XCTAssertTrue(frames.allSatisfy { $0.width > 0 })
                 let page = try XCTUnwrap(p.toolbar.header?.route)
                 for kind in ["modal", "fullscreen"] {
@@ -729,19 +756,28 @@ final class BackSessionMacTests: XCTestCase {
                     XCTAssertTrue(p.toolbar.header?.route === page)
                     XCTAssertEqual(toolbar.items.map(\.itemIdentifier), order, "\(kind) keeps Back's slot")
                     XCTAssertEqual(try itemFrames(), frames, "\(kind) leaves the neighboring items in place")
-                    if hasBack { XCTAssertFalse(back.isEnabled) }
-                    XCTAssertFalse(p.toolbar.validateToolbarItem(back))
+                    if hasBack { XCTAssertFalse(p.toolbar.backEnabled); XCTAssertFalse(p.toolbar.forwardEnabled) }
+                    XCTAssertFalse(p.toolbar.validateToolbarItem(p.toolbar.backSlot))
                     XCTAssertFalse(p.navigation.goBack(), "the window's Back cannot dismiss the cover")
                     XCTAssertEqual(p.navigation.agentBack()?.refused, "")
                     waitFor("the cover closes") { window.attachedSheet == nil }
                     XCTAssertTrue(p.toolbar.header?.route === page)
-                    XCTAssertEqual(toolbar.items.map(\.itemIdentifier), order)
-                    XCTAssertEqual(try itemFrames(), frames)
-                    if hasBack { XCTAssertEqual(back.isEnabled, pushed) }
+                    // The closed cover is ahead, which Forward opens again: the bar holds the group from here.
+                    XCTAssertTrue(toolbar.items.map(\.itemIdentifier).contains(WindowToolbarHost.historyIdentifier))
+                    XCTAssertEqual(p.toolbar.backEnabled, pushed)
+                    XCTAssertTrue(p.toolbar.forwardEnabled)
+                    if hasBack {
+                        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), order)
+                        XCTAssertEqual(try itemFrames(), frames)
+                    }
+                    order = toolbar.items.map(\.itemIdentifier); frames = try itemFrames(); hasBack = true
                 }
             }
+            // Back leaves the pushed page ahead: the group stays for its Forward.
             XCTAssertTrue(p.navigation.goBack())
-            XCTAssertEqual(window.toolbar?.items.contains { $0.itemIdentifier == WindowToolbarHost.historyIdentifier }, !oneLocation)
+            XCTAssertEqual(window.toolbar?.items.contains { $0.itemIdentifier == WindowToolbarHost.historyIdentifier }, true)
+            XCTAssertFalse(p.toolbar.backEnabled)
+            XCTAssertTrue(p.toolbar.forwardEnabled)
             view.detachWindowToolbar()
         }
     }
