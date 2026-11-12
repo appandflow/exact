@@ -56,6 +56,7 @@ const { appleArtifacts, assertAppleIdentity } = await import('../host/apple/buil
 const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
+const { appleCrossReport, CROSS_IOS_ROWS, hasCrossSdk, iosSimulatorTarget } = await import('../host/apple/sdk.mjs');
 const { chromium } = await import('./agent-launch.mjs');
 const { androidLockCommand, androidSdk, androidSdkPackages, androidSdkFix, androidJavaEnv, androidJavaFix, androidToolchainEnv } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
@@ -75,14 +76,15 @@ export const executableIn = (bundle, app) => resolve(bundle, 'Contents/MacOS', a
 export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
 export const installedAt = (app) => resolve(APPLICATIONS, `${appleExecutableName(app)}.app`);
-/** The targets a Mac cross-compiles its Apple destinations for, each needing the pinned toolchain's Rust std and, for
- * TypeScript, a Hermes bundle; each is needed only for its destination (and only with Xcode). */
+
+/** The targets this host cross-compiles its Apple destinations for, each needing the pinned toolchain's Rust std and, for
+ * TypeScript, a Hermes bundle, and only for its destination: on a Mac with Xcode; on Linux with the cross SDK (an ARM simulator). */
 export function appleCrossTargets(os = process.platform, cpu = process.arch) {
-  if (os !== 'darwin') return [];
+  if (!['darwin', 'linux'].includes(os)) return [];
   return [
-    { target: cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim', destination: 'iOS Simulator' },
+    { target: os === 'linux' ? iosSimulatorTarget(process.env.EXACT_IOS_SIM_ARCH ?? 'arm64').target : cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim', destination: 'iOS Simulator' },
     { target: 'aarch64-apple-ios', destination: 'iOS device' },
-    { target: 'aarch64-apple-tvos-sim', destination: 'tvOS Simulator' },
+    ...(os === 'darwin' ? [{ target: 'aarch64-apple-tvos-sim', destination: 'tvOS Simulator' }] : []),
   ];
 }
 /** The cross targets `setup` installs: the simulators', and the iOS device's wherever a device build can run (Xcode
@@ -93,7 +95,7 @@ export const appleSetupTargets = (os = process.platform, cpu = process.arch, dev
  * Xcode the Apple build selects (host/apple/devices.mjs `useXcode`: Xcode.app
  * when xcode-select names the Command Line Tools) is the one asked. */
 function iphoneosSdk(os = process.platform) {
-  if (os !== 'darwin') return false;
+  if (os !== 'darwin') return os === 'linux' && hasCrossSdk('iphoneos');
   const selected = spawnSync('xcode-select', ['-p'], {encoding: 'utf8'}).stdout?.trim() ?? '';
   const xcode = '/Applications/Xcode.app/Contents/Developer';
   const env = !process.env.DEVELOPER_DIR && selected.includes('CommandLineTools') && existsSync(xcode) ? {...process.env, DEVELOPER_DIR: xcode} : process.env;
@@ -413,7 +415,7 @@ export async function setup({check = false, platform = null, device = false} = {
     if (proxy) throw new Error(`${proxy}, then rerun exact setup`);
     // The nightly builds the web's wasm: with -Zbuild-std from rust-src for size, and without it (a --wasm dev build) from its own wasm32 std.
     // A game's web bake lints its logic on the same nightly, so it takes clippy too.
-    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src', '--component', 'clippy', '--target', 'wasm32-unknown-unknown']);
+    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src', '--component', 'llvm-tools', '--component', 'clippy', '--target', 'wasm32-unknown-unknown']);
     webToolchainEnv(process.env); // Fetch the nightly standard library's locked sources too.
     if (output('wasm-bindgen', ['--version']) !== `wasm-bindgen ${bindgen}`)
       run('cargo', [`+${pin.channel}`, 'install', 'wasm-bindgen-cli', '--version', bindgen, '--locked', '--force']);
@@ -495,7 +497,7 @@ export function platformRowNames(platform, { os = process.platform, cpu = proces
   const host = `Hermes bundle (${hermesTarget(os, cpu)})`, ios = device ? 'aarch64-apple-ios' : appleCrossTargets(os, cpu)[0]?.target;
   const rows = platform === 'android' ? [...androidSdkPackages().map(p => p.name), 'Android NDK', 'Android JDK'] : ({
     web: ['Bun', 'node_modules', 'Chrome'],
-    ios: ['Xcode', 'iOS SDK', `Hermes bundle (${ios})`, `Rust ${ios}`],
+    ios: [...(os === 'linux' ? CROSS_IOS_ROWS : ['Xcode', 'iOS SDK']), `Hermes bundle (${ios})`, `Rust ${ios}`],
     macos: ['Xcode', host],
     linux: [host],
   }[platform] ?? []);
@@ -606,7 +608,7 @@ export function sdkReport(env = process.env, { only = null, device = false, tv =
       .filter(([, onPath, xcode]) => onPath && xcode && !['/usr/bin', dirname(xcode)].includes(dirname(realpathSync(onPath))));
     rows.push(row('clang and swift on PATH', other.length ? other.map(([tool, onPath]) => `${tool}: ${onPath}`).join(', ') : "Xcode's", "Xcode's (/usr/bin or xcrun --find)", !other.length,
       `put /usr/bin before ${[...new Set(other.map(([, onPath]) => dirname(onPath)))].join(' and ')} on PATH, or unset the toolchain manager's override`, 'iOS and macOS builds'));
-  }
+  } else if (process.platform === 'linux' && want(...CROSS_IOS_ROWS)) rows.push(...appleCrossReport(env));
   // Native builds and captures take tens of gigabytes; a full disk fails them midway (LLP 1156.000 D3).
   if (!only) { const room = freeSpace(homedir()); if (room) rows.push(row('Free disk', `${room.gb} GB`, `${ROOM_GB} GB for a cold native build`, room.gb >= ROOM_GB, room.text, 'native builds')); }
   const hostName = `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`;
@@ -1362,7 +1364,8 @@ async function main(argv) {
     const rest = flags.filter((_, i) => i !== at && i !== at + 1 || at < 0);
     if (rest.some(flag => !['--check', '--device'].includes(flag)) || at >= 0 && (!flags.includes('--check') || !['ios', 'macos', 'android', 'web', 'linux', 'windows'].includes(platform)) || flags.includes('--device') && platform !== 'ios')
       throw new Error('Usage: exact setup [--check [--platform ios|macos|android|web|linux|windows [--device]]]');
-    if (['ios', 'macos'].includes(platform) && process.platform !== 'darwin') throw new Error(`${platform} needs a Mac with Xcode`);
+    // iOS also builds on Linux with the cross SDK, whose rows the check reports (app-shells.mjs bringPlatform agrees).
+    if (platform === 'macos' && process.platform !== 'darwin' || platform === 'ios' && !['darwin', 'linux'].includes(process.platform)) throw new Error(`${platform} needs a Mac with Xcode${platform === 'ios' ? ', or Linux with the Apple cross SDK' : ''}`);
     return setup({check:flags.includes('--check'), platform, device:flags.includes('--device')});
   }
   if (verb === 'list') return list();

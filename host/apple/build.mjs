@@ -12,6 +12,7 @@
 //   bun host/apple/build.mjs --device [crate] --unsigned                    iOS, an ad-hoc .app, no installation
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
+//   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned --development  the same, of the development build
 //   bun host/apple/build.mjs [crate] --bundle --distribution                 macOS, the bundle `exact release` signs
 // Add --url <http(s) app URL> to connect any of these clients to the same
 // address as the browser (LLP 1030.000 §7): with --run it is the launch
@@ -39,7 +40,11 @@
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, dropLeftoverCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
 import { assembleMac, assembleIOS, buildIntents, shortcutKeys } from './bundle.mjs';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from './toolchain.mjs';
+import { metalToolchainInstructions } from './metal.mjs';
+import { metalVersion, svgFilterLibrary, svgFilterLibraryName } from './svg-filter.mjs';
+export { metalVersion, svgFilterLibrary, svgFilterLibraryName };
+import { distributionToolchain } from './sdk.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -65,7 +70,7 @@ import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleCargo } from '../../scripts/cargo-check.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
-import { stripForDistribution, stripProductionExecutable, appleComposition, appleProduction, appleLaunchFrameworks, appleLaunchLinkArgs, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
+import { stripForDistribution, stripProductionExecutable, appleComposition, appleProduction, appleLaunchFrameworks, appleLaunchLinkArgs, assertCapabilityFrameworks, assertLinkedSdk, iosSimulatorTarget, linksByPlan } from './link.mjs';
 export { appIcon, appleEmbedOnly, iosAssets, documentTypes, exportedTypes, importedTypes, stripForDistribution, stripProductionExecutable };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, chooseSimulator, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode, appleEmbedOnly, appleSdkName, compilesSwiftHost, xcodeRefusal } from './devices.mjs';
 import { fileURLToPath } from 'node:url';
@@ -130,9 +135,8 @@ export const bundleId = (crate = 'caltrain-apple') => resolveApp(crate).id;
 const withoutSdkRoot = (env) => { delete env.SDKROOT; return env; };
 /** The one Swift package (LLP 1031 D6): ExactKit and the four executables. */
 export const pkg = resolve(root, 'host/apple');
-/** The simulator's Rust target and Swift triple on this machine. */
-export const iosTarget = process.arch === 'arm64' ? 'aarch64-apple-ios-sim' : 'x86_64-apple-ios';
-export const iosTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios17.0-simulator`;
+/** The simulator's Rust target and Swift triple; a cross builder can name its simulator's CPU. */
+export const { target: iosTarget, triple: iosTriple } = iosSimulatorTarget();
 /** The Apple TV simulator's Rust target (arm64 only: Rust ships no x86_64-apple-tvos std). */
 export const tvosTarget = 'aarch64-apple-tvos-sim', tvosDeviceTarget = 'aarch64-apple-tvos';
 const newer = (a, b) => (a.split('.').map(Number).reduce((x, n, i) => x || n - (b.split('.').map(Number)[i] ?? 0), 0) > 0 ? a : b);
@@ -146,27 +150,9 @@ export function deploymentTargets(app) {
     macos: newer(String(app.manifest.host?.macos?.minimumOS ?? '14.0'), '14.0'),
   };
 }
-/** `host/apple/metal/SvgFilter.metal` compiled for `sdkName` into `out`
- *  (`ExactSvgFilter.metallib`, @ref LLP 1055.000 D14): a filter picture's
- *  kernels, compiled here and not at run time, where the first launch after
- *  an install paid 113–264 ms inside the commit that shows it. The host
- *  tests need Xcode's Metal toolchain for it (`required`); an app built
- *  without it gets `null`, and its filter pictures draw with Core Image. */
-export function svgFilterLibrary(sdkName, minimum, out, required = false) {
-  const install = 'xcodebuild -downloadComponent MetalToolchain', missing = read('xcrun', ['-sdk', sdkName, 'metal', '--version']).status !== 0;
-  if (missing && required) throw new Error(`host/apple: this build compiles the SVG filter kernels with Xcode's Metal toolchain, which is not installed. Install it with \`${install}\``);
-  if (missing) return console.warn(`host/apple: no Metal toolchain, so no ${svgFilterLibraryName}: SVG filter pictures draw with Core Image. Install it with \`${install}\`.`), null;
-  const flag = { iphoneos: `-mios-version-min=${minimum}`, iphonesimulator: `-mios-simulator-version-min=${minimum}`, appletvos: `-mtvos-version-min=${minimum}`, appletvsimulator: `-mtvos-simulator-version-min=${minimum}`, macosx: `-mmacosx-version-min=${minimum}` }[sdkName];
-  const air = out.replace(/\.metallib$/, '') + '.air';
-  run('xcrun', ['-sdk', sdkName, 'metal', '-std=metal3.0', flag, '-c', resolve(root, 'host/apple/metal/SvgFilter.metal'), '-o', air], { stdio: 'pipe' });
-  run('xcrun', ['-sdk', sdkName, 'metallib', air, '-o', out], { stdio: 'pipe' });
-  rmSync(air, { force: true });
-  return out;
-}
-export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
 /** The Swift triple for an app's iOS build. */
 export const iosTripleFor = (app, device, tv = false) =>
-  tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
+  tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${iosTriple.split('-')[0]}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
 export const moduleTripleFor = (app, ios, device = false, tv = false) =>
   ios ? iosTripleFor(app, device, tv) : `${macTriple}${deploymentTargets(app).macos}`;
@@ -470,22 +456,10 @@ export const infoPlist = (app, device = false, { executable = appleExecutableNam
  * counters, EXACT_VERSION and EXACT_BUILD_NUMBER (the version and build
  * numbers App Store Connect requires to rise). */
 export function distributionKeys(sdkName = 'iphoneos') {
-  const xcode = read('xcodebuild', ['-version']).stdout ?? '';
-  const [major, minor = '0', patch = '0'] = (/Xcode (\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(xcode) ?? []).slice(1);
-  const sdk = (flag) => read('xcrun', ['--sdk', sdkName, flag]).stdout.trim();
-  const sdkVersion = sdk('--show-sdk-version');
-  const sdkBuild = sdk('--show-sdk-build-version');
   return {
     CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1',
     CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
-    DTCompiler: 'com.apple.compilers.llvm.clang.1_0',
-    DTPlatformBuild: sdkBuild,
-    DTPlatformVersion: sdkVersion,
-    DTSDKBuild: sdkBuild,
-    DTSDKName: `${sdkName}${sdkVersion}`,
-    DTXcode: `${major.padStart(2, '0')}${minor}${patch}`,
-    DTXcodeBuild: /Build version (\S+)/.exec(xcode)?.[1] ?? '',
-    BuildMachineOSBuild: read('sw_vers', ['-buildVersion']).stdout.trim(),
+    ...distributionToolchain(sdkName),
     // A device requirement: a simulator bundle on an Intel Mac is x86_64.
     ...(sdkName.endsWith('simulator') ? {} : { UIRequiredDeviceCapabilities: ['arm64'] }),
     // What iOS assumes when the key is absent, written out: App Store Connect
@@ -582,6 +556,7 @@ export function copyAppleGpuProducts(capture, destination, artifacts, archive = 
 
 async function main(args, lockHeld = false) {
   const refusal = appleBuildRefusal(args);
+  if (process.platform === 'linux' && !args.includes('--no-install')) args = [...args, '--no-install']; // nothing to install to
   if (refusal) { console.error(refusal); process.exitCode = 1; return; }
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
@@ -598,7 +573,10 @@ async function main(args, lockHeld = false) {
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
   const unsigned = args.includes('--unsigned');
   // What leaves this machine: an .ipa, or the Mac bundle `exact release` signs and notarises.
-  const distribution = !!ipa || args.includes('--distribution');
+  // `--development` packages the development build `--run` installs (host-dev, development trust): an
+  // agent's own iteration build that a service re-signs, not an artifact to distribute.
+  const developmentArchive = args.includes('--development');
+  const distribution = (!!ipa && !developmentArchive) || args.includes('--distribution');
   // What is stamped `release` or `archive` (buildinfo.mjs) bakes production trust, as --release does, so the stamp and
   // the trust every production policy reads (compat.json's `embedded.trust`) cannot disagree.
   if (distribution && process.env.EXACT_UPDATE_TRUST !== 'production') {
@@ -614,7 +592,7 @@ async function main(args, lockHeld = false) {
   // What the manifest and the app's files refuse is said before Cargo: an app with an update store ships into a stream,
   // so the bake refuses a production build without its receipt; packaging refuses a missing icon (assets.mjs).
   const store = `deploy.store.${ios ? 'ios' : 'macos'}`, streamed = app.manifest.deploy?.store?.[ios ? 'ios' : 'macos'] !== '0';
-  const refused = [...(distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1' ? [`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`] : []), ...appleRefusals(app, tv ? 'tvos' : ios ? 'ios' : 'macos', { archive: !!ipa })];
+  const refused = [...(distribution && streamed && !process.env.EXACT_UPDATE_RECEIPT && process.env.EXACT_UPDATE_GENESIS !== '1' ? [`${app.name}: what is distributed bakes production trust, and with an update store (${store} is not "0") it belongs to a stream: set EXACT_UPDATE_RECEIPT to its authenticated publisher receipt (scripts/deploy.mjs), or EXACT_UPDATE_GENESIS=1 to start a new stream`] : []), ...appleRefusals(app, tv ? 'tvos' : ios ? 'ios' : 'macos', { archive: distribution })];
   const sdkName = appleSdkName(tv ? 'tvos' : ios ? 'ios' : 'macos', device); // the SDK this build compiles with
   if (process.platform === 'darwin' && compilesSwiftHost(args)) refused.push(...[xcodeRefusal(sdkName)].filter(Boolean));
   if (refused.length) { console.error(refused.join('\n')); process.exitCode = 1; return; }
@@ -723,7 +701,8 @@ async function main(args, lockHeld = false) {
   const swiftWhole = production || distribution;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
-  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O']),
+  // A development archive (--development) ships no dSYM, so SwiftPM writes no debug info for dsymutil to gather (~5 s).
+  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O']), ...(args.includes('--development') ? ['-debug-info-format', 'none'] : []),
     ...(production && optimize === 'size' ? ['-Xswiftc', '-Osize', '-Xswiftc', '-Xfrontend', '-Xswiftc', '-internalize-at-link'] : [])];
   if (ios) {
     swiftArgs.push(
@@ -831,8 +810,8 @@ async function main(args, lockHeld = false) {
   const moduleLibDir = resolve(moduleTarget, target, cargoProfile);
   mkdirSync(moduleTarget, { recursive: true });
   startSweep(moduleTarget);
-  const metalTools = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']), metal = metalTools.status === 0;
-  if (!metal) console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
+  const metalTools = metalVersion('macosx'), metal = metalTools.status === 0;
+  if (!metal) console.warn(`host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. ${metalToolchainInstructions()}`);
   // A development build takes a module some checkout of this machine has
   // already compiled from these bytes, and keeps each one it compiles itself
   // (modules.mjs): a fresh checkout's first build is 106 → 79 s on the M4.
@@ -1117,7 +1096,7 @@ async function main(args, lockHeld = false) {
   // What the arm cache must see change: the flags, and each library's bytes.
   const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
-  const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
+  const simulatorArch = iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64', iosArch = device ? 'arm64' : simulatorArch;
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch, packagesIn = packageDir) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...(packages.length ? ['-I', packagesIn, ...packageObjects(packagesIn)] : []), ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', moduleTripleFor(app, false)];
   // Each package's Swift module for this target, before the app's module links it: once, and only when an arm
@@ -1162,16 +1141,21 @@ async function main(args, lockHeld = false) {
   // simulator (UIKit will not start without one: any booted, else one booted here and shut down after), a macOS dylib dlopened
   // here. A route with no slice, or whose probe does not compile, load or run, falls through; a roster read is final. tvOS has
   // the macOS route alone, and no first-frame tag. The first route compiles beside the build, a later one only when needed.
-  let rosterKeys = {};
-  const routes = !(modulesBuilt && modules.tags.length && typeof Bun !== 'undefined') ? [] : !ios ? [{ via: 'macOS', built: modulesBuilt, placed: async () => true }]
-    : rosterRoutes({ tv, device, packageDir, missingSlice: (variant) => (modules.frameworks ?? []).find(fw => { try { frameworkSlice(fw, variant !== false, variant, macArch); return false; } catch { return true; } }) }).map(route => ({ ...route, built: resolve(webBuildDir, route.variant === false ? 'probe-' + modulesLoadName : `probe-roster-${route.variant === true ? 'simulator' : route.variant}`) }));
+  let rosterKeys = {}; if (process.platform === 'linux') rmSync(resolve(linkRoot, 'native-probes.json'), { force: true });
+  // On Linux no route's probe can run (no simulator, Catalyst or macOS loader): a development build without a simulator
+  // qualification (EXACT_NATIVE_ROSTERS) takes the manifest's roster, as it would after every route failed, without
+  // compiling three probes for it (85 s of a build with native modules).
+  const probeless = process.platform === 'linux' && !production && !distribution && !process.env.EXACT_NATIVE_ROSTERS;
+  if (probeless && modules.tags.length) console.log('host/apple: on Linux the manifest\'s native-module roster stands unprobed (EXACT_NATIVE_ROSTERS qualifies one)');
+  const routes = probeless || !(modulesBuilt && modules.tags.length && typeof Bun !== 'undefined') ? [] : !ios ? [{ via: 'macOS', built: modulesBuilt, placed: async () => true }]
+    : rosterRoutes({ tv, device, packageDir, missingSlice: (variant) => (modules.frameworks ?? []).find(fw => { try { frameworkSlice(fw, variant !== false, variant, variant === true ? simulatorArch : macArch); return false; } catch { return true; } }) }).map(route => ({ ...route, built: resolve(webBuildDir, route.variant === false ? 'probe-' + modulesLoadName : `probe-roster-${route.variant === true ? 'simulator' : route.variant}`) }));
   const compileProbe = ({ variant, built, packages: packagesIn }, probeMain = resolve(linkRoot, 'ExactRosterProbe.swift')) => {
     if (variant === false) { packageTargets.set(packagesIn, ['macosx', macTarget]); return arm(moduleArgs('macosx', macTarget, built, false, false, macArch, packagesIn), [...moduleSources, ...packageSources], built, frameworkStamp(false, false, macArch) + packageStamp, true, true); }
     writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
     const on = variant === true ? 'iphonesimulator' : 'macosx', catalyst = variant !== true && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
-    const target = catalyst ? ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`] : ['-target', `${macArch}-apple-ios${targets.ios}-simulator`, '-sdk', read('xcrun', ['--sdk', on, '--show-sdk-path']).stdout.trim()];
+    const target = catalyst ? ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`] : ['-target', `${simulatorArch}-apple-ios${targets.ios}-simulator`, '-sdk', read('xcrun', ['--sdk', on, '--show-sdk-path']).stdout.trim()];
     if (!packageTargets.has(packagesIn)) packageTargets.set(packagesIn, [on, target]);
-    return arm(moduleArgs(on, [...target, probeMain], built, true, variant, macArch, packagesIn).filter(a => a !== '-emit-library'), [...moduleSources, ...packageSources, probeMain], built, frameworkStamp(true, variant, macArch) + packageStamp, true, true);
+    return arm(moduleArgs(on, [...target, probeMain], built, true, variant, variant === true ? simulatorArch : macArch, packagesIn).filter(a => a !== '-emit-library'), [...moduleSources, ...packageSources, probeMain], built, frameworkStamp(true, variant, variant === true ? simulatorArch : macArch) + packageStamp, true, true);
   };
   const firstRoute = routes.find(r => !r.lacking); if (firstRoute && !firstRoute.placed) try { firstRoute.placed = compileProbe(firstRoute); } catch (e) { firstRoute.placed = () => { throw e; }; }
   const serviceDylibs = launchServices(launchModules(app.dir, app.manifest), webBuildDir); for (const svc of serviceDylibs) arms.push(arm(['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), ...serviceArgs(svc), ...(ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget)], svc.sources, svc.built, '', true));
@@ -1192,7 +1176,7 @@ async function main(args, lockHeld = false) {
     let swiftBinDir = existsSync(answer) ? readFileSync(answer, 'utf8') : '';
     if (!swiftBinDir || !existsSync(swiftBinDir)) {
       const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
-      if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
+      if (located.status !== 0) throw new Error(`swift output path: ${located.error?.message ?? (located.signal ? `swift ended by ${located.signal}` : located.stderr)}`);
       swiftBinDir = located.stdout.trim();
       if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
       mkdirSync(swiftBuildRoot, { recursive: true });
@@ -1256,6 +1240,7 @@ async function main(args, lockHeld = false) {
       try {
         const placed = route.placed ?? compileProbe(route), compiled = await placed();
         if (compiled !== true) throw failed('compile', readFileSync(compiled, 'utf8'), log);
+        if (process.platform === 'linux' && route.variant === true) writeFileSync(resolve(linkRoot, 'native-probes.json'), JSON.stringify({ version: 1, probes: [{ app: app.name, appId: app.id, file: basename(placed.cached), cachePath: relative(root, placed.cached), probeSha256: createHash('sha256').update(readFileSync(placed.cached)).digest('hex') }] }));
         let text = keptRoster(placed.cached); if (text === undefined && !route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(route.built, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
         else if (text === undefined && route.variant === 'maccatalyst') text = ran(read(route.built, [], { timeout: 60_000 }), log);
         else if (text === undefined) { // the iOS simulator named (--sim, EXACT_SIM; a name that is none is not this route's), else any booted
@@ -1275,7 +1260,8 @@ async function main(args, lockHeld = false) {
       if (firstFrame.length && !tv) rosterKeys = { ExactFirstFrameModules: firstFrame };
     } else if (routes.length) {
       const why = `host/apple: cannot qualify ${app.id}'s ${tv ? 'tvOS' : ios ? 'iOS' : 'macOS'} native-module roster.\n${causes.map(c => `  ${c}`).join('\n')}\n${noSimulator ? 'Install an iOS Simulator runtime (xcodebuild -downloadPlatform iOS), or add an iPhone simulator in Xcode' : 'Give each xcframework a slice for one route, or fix the failure a route names'}, and rebuild.${logs.length ? `\nLogs: ${logs.join(', ')}` : ''}`;
-      if (production) throw new Error(`${why}\nA production build does not take the manifest's roster: a missing factory would pass, and no tag would join the first frame.`);
+      const qualification = process.platform === 'linux' && existsSync(resolve(linkRoot, 'native-probes.json')) ? `\nOn Linux, set EXACT_NATIVE_ROSTERS to a simulator qualification for the compiled probe listed in ${resolve(linkRoot, 'native-probes.json')} (README.md).` : '';
+      if (production) throw new Error(`${why}${qualification}\nA production build does not take the manifest's roster: a missing factory would pass, and no tag would join the first frame.`);
       console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
     }
     // A roster read that lacks a tag's factory fails here: another route is not tried.
@@ -1341,7 +1327,7 @@ async function main(args, lockHeld = false) {
     mkdirSync(dirname(ipa), { recursive: true });
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
-    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)${frameworkSymbols.count ? `, ${frameworkSymbols.dir} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)` : ''}`);
+    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped ? `${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)` : 'kept (development)'}${frameworkSymbols.count ? `, ${frameworkSymbols.dir} (${frameworkSymbols.count} frameworks, ${(frameworkSymbols.saved / 1048576).toFixed(1)} MB off them)` : ''}`);
     if (args.includes('--json')) reportBuilt({ path: ipa, ...built() }); return;
   }
   if (unsigned || args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (${unsigned ? '--unsigned' : '--no-install'})`); if (args.includes('--json')) reportBuilt({ path: paths.bundle, ...built() }); return; }
