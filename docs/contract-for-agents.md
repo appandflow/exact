@@ -2132,7 +2132,10 @@ body up to 64 MiB whatever its `Content-Type` and its status, as a browser's `<i
 (a 404 that is an image draws; one that is not is `HTTP 404`), and keep an HTTP cache on disk;
 the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
 draws on the web only; on Apple it is an `error`. A tinted remote image on the web
-needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
+needs CORS headers, or it is an `error` too. A terminal entry reads a PNG from a path
+beneath its own directory, an absolute path or a `data:` URL, a regular file of at most
+64 MiB; it downloads nothing and has no app directories yet, so an `http(s)` or `app:/`
+source is an `error` there. A drive sees both after `clock +<ms>
 real`; `clock settle` can return just before them.
 
 ### Sound, MIDI and media

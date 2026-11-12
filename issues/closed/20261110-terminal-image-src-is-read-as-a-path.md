@@ -1,6 +1,7 @@
 # The terminal host reads an `image` `src` as a filesystem path, whole, on its commit path
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The terminal reads an `image` source on a thread of its own, as a regular file of at most 64 MiB opened without blocking, a `data:` URL, or a path beneath the entry's directory; it refuses `http(s)` and `app:/` by name (QUEUE.md has what they wait on) and sends `load` or `error` once per source.
 **Systems:** host/terminal (`image.rs`, `host.rs`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
