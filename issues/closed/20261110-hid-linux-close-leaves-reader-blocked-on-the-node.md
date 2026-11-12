@@ -1,6 +1,7 @@
 # On Linux, closing a HID device leaves its reader thread and the node open until the device's next report
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The reader polls its node beside a socket whose other end the open holds, so a close wakes it and its thread and node end at once, and a stopped reader logs and announces nothing.
 **Systems:** packages/hid/linux/lib.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
