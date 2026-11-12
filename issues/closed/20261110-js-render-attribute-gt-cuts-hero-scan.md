@@ -1,6 +1,7 @@
 # A `>` in an attribute is written unescaped by the Bun render, and its hero image scan ends the tag there
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `dom.js` writes `<` and `>` in an attribute value as `&lt;` and `&gt;`, as `document.rs` and HTML's serializer do, so `heroImage` reads every attribute of a tag and preloads the image the page shows first.
 **Systems:** host/web-js/dom.js, host/web-js/render.mjs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
