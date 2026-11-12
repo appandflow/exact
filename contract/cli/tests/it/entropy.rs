@@ -129,11 +129,19 @@ impl DataSource for Writer {
         &mut self,
         store: &mut Store,
         source: &str,
-        _: &[Value],
+        args: &[Value],
     ) -> Result<Answer, DataError> {
         *self.asks.entry(source.into()).or_default() += 1;
         match source {
             "token" => store.observe_entropy(),
+            // Draws; once `enabled`, reads the secret too, and answers the same.
+            "maybe" => {
+                store.observe_entropy();
+                if args[0] == Value::Bool(true) {
+                    store.get("session");
+                }
+                return Ok(Answer::Now(Value::str("token")));
+            }
             "session" => {
                 store.get("session");
             }
@@ -141,9 +149,10 @@ impl DataSource for Writer {
                 store.observe_entropy();
                 store.get("session");
             }
-            "connect" | "watch" => {}
+            "connect" | "watch" | "follow" | "trail" => {}
             "signIn" => {
-                store.set("session", "ada")?;
+                // A new value each time, so each write changes the store.
+                store.set("session", &format!("ada {}", self.asks["signIn"]))?;
                 return Ok(Answer::Now(Value::record(vec![Value::Bool(true)])));
             }
             other => return Err(DataError::UnknownSource(other.into())),
@@ -216,4 +225,59 @@ fn a_reload_carries_which_readers_only_drew() {
     .unwrap();
     assert_eq!(asks(&mut reloaded), [0; 5], "every answer was carried");
     assert_eq!(sign_in(&mut reloaded), [0, 1, 1, 0, 1]);
+}
+
+const LATER: &str = r#"
+shape Flag
+  ok: bool
+
+component App
+  state enabled = false
+  resource id = maybe(enabled) as shape string
+  resource live = follow(id) as shape string
+  derive key = `${id}!`
+  resource trailed = trail(key) as shape string
+  mutation signedIn as shape Flag
+
+  action enable
+    enabled = true
+  action signIn
+    send signedIn = signIn()
+
+  view
+    column
+      text live testId="live"
+      text trailed testId="trailed"
+"#;
+
+/// An upstream answer that starts reading the store and gives the same value
+/// leaves its dependent's cached arguments as they were; the dependent is
+/// asked again by a store write from then on all the same.
+#[test]
+fn an_argument_that_starts_reading_the_store_makes_its_dependent_ask_again() {
+    let plan = contract::bake(contract::compile(LATER).unwrap(), Writer::default()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Writer::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // `follow` takes `id` directly, `trail` through a derive.
+    let asks = |r: &mut Runner<Writer>| {
+        ["maybe", "follow", "trail"].map(|s| r.data().asks.get(s).copied().unwrap_or(0))
+    };
+    let before = asks(&mut r);
+    r.act("signIn", vec![]).unwrap();
+    assert_eq!(asks(&mut r), before, "each only drew");
+    r.act("enable", vec![]).unwrap();
+    let enabled = asks(&mut r);
+    assert_eq!(
+        enabled,
+        [before[0] + 1, before[1], before[2]],
+        "the same answer: both keep their arguments"
+    );
+    r.act("signIn", vec![]).unwrap();
+    assert_eq!(asks(&mut r), enabled.map(|n| n + 1));
 }
