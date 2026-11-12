@@ -1,6 +1,7 @@
 # Which packages an app uses is read from its raw text, so strings and comments add and drop packages
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The bake reads `app.ts`'s imports from its syntax tree (Oxc, through `rolldown/utils`) and the compiler from JavaScript tokens, so a string, template, regular expression or comment neither adds nor hides a package; the text search for an interface's use (`usesInterface`) was already gone, replaced by the compiled plan's `extensions` in 5659b182.
 **Systems:** contract/cli/src/sources/data.rs (the data-code import walk), js/bake/src/typescript.mjs (`usedPackages`, `usesInterface`, and their callers `appleImplementations`, `androidImplementations`, `packageConfig`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from Grok 4.7's whole-project review (2026-11-10)
