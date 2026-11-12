@@ -125,6 +125,13 @@ Shelf (`apps/shelf`) is the app that defines "Android works", and its data is `a
 library links `exact-js` and with it the lean Hermes VM, from the pinned Ibex release's Android Hermes bundle, which
 `exact setup` installs and verifies as it does the other targets' (LLP 1107 §4.1). One built from an Ibex checkout
 with `bun scripts/hermes-android.mjs build` takes its place (`agent-android.mjs` hands it to Cargo).
+The local builder selects API 29, the oldest supported Android, for both Hermes and ICU.
+An API-30 bundle can import `pthread_cond_clockwait`, which Android 10 lacks;
+changing only the app's linker cannot remove that dependency. The headless linker
+continues to read the selected bundle's API from `hermes-input-receipt.json`.
+The published v5 pin still names the API-30 archive. Replacing it requires a new
+`expo/ibex` release and its verified archive digests; a local build does not publish
+or change that pin.
 
 **The Canvas host needed nothing for it.** It boots through the Linux host's own door
 (`app::boot_presenter_with_painter`), so the module is made, activated after the first frame is recorded
