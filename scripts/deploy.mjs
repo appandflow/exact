@@ -694,13 +694,15 @@ export function channelOf(manifest) {
   return names.length === 1 ? names[0] : 'prod';
 }
 
-/** Native deployment targets, including binary-only L=0: what `deploy.store` and `deploy.binaries` name, else what `host` names (LLP 1153 D1.1). Classification decides the carrier before touching a stream. */
-export function nativePlatforms(manifest) {
+/** Native deployment targets, including binary-only L=0: what `deploy.store` and `deploy.binaries` name, else what `host` names (LLP 1153 D1.1). An explicit selection omits unselected targets before validation. */
+export function nativePlatforms(manifest, selection = []) {
   const deploy = manifest.deploy ?? {};
   const named = [...new Set([...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})])].filter((p) => p !== 'web');
-  const unknown = named.filter((p) => !PLATFORMS.includes(p));
+  const candidates = named.length ? named : Object.keys(manifest.host ?? {});
+  const selected = candidates.filter((p) => !selection.length || selection.includes(p));
+  const unknown = named.filter((p) => selected.includes(p) && !PLATFORMS.includes(p));
   if (unknown.length) refuse(`app.json names the platform${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} under deploy; this repo builds ${PLATFORMS.join(', ')}`);
-  return PLATFORMS.filter((p) => p !== 'web' && (named.length ? named : Object.keys(manifest.host ?? {})).includes(p));
+  return PLATFORMS.filter((p) => p !== 'web' && selected.includes(p));
 }
 /** Whether the manifest names a native platform, under `host` or `deploy`; one that names none ships the web root alone, with no stream and no envelope, and its deploy bakes nothing (LLP 1153 D1.5, D3.6). */
 export const namesNative = (manifest) => [manifest.host, manifest.deploy?.store, manifest.deploy?.binaries].some((table) => Object.keys(table ?? {}).some((p) => p !== 'web'));
@@ -1316,7 +1318,7 @@ async function deployCaptured(opts, capsule) {
   // An origin that holds only update streams (AppDrop) publishes no web root.
   if (origin.servesWeb === false && (opts.only === 'origin' || opts.platform.includes('web'))) refuse(`${origin.describe()} holds update streams, not a web app: publish the web root to another origin`);
   const wantOrigin = origin.servesWeb !== false && opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
-  const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
+  const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest, opts.platform);
   if (!wantOrigin && !platforms.length) refuse(`nothing to classify: ${opts.only ? `--only ${opts.only}` : ''} ${opts.platform.length ? `--platform ${opts.platform.join(',')}` : ''} leaves no row`);
   const log = (text) => process.stderr.write(`${text}\n`);
 

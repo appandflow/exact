@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertCapturedContractSources, contractCompiler, disposeSnapshot, installedContractPackage, materializeSnapshot, namesNative, nativePlatforms, snapshotOf, sourcePathspec, unrelocatableContractDependency } from './deploy.mjs';
+import { assertCapturedContractSources, classify, contractCompiler, disposeSnapshot, installedContractPackage, materializeSnapshot, namesNative, nativePlatforms, snapshotOf, sourcePathspec, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
 import { pinned } from './test-workspace.mjs';
 const {changedPaths, failures, owners, retainSkippedFailures} = asyncLane;
@@ -23,6 +23,41 @@ test('a deploy ships the native platforms the manifest names, and a manifest nam
   expect(nativePlatforms({ deploy: { store: { web: '0' }, binaries: { macos: true } } })).toEqual(['macos']);
   for (const manifest of [{ host: { ios: {} } }, { host: { android: {} } }, { deploy: { binaries: { macos: true } } }]) expect(namesNative(manifest)).toBe(true);
   expect(() => nativePlatforms({ deploy: { store: { tvos: '0' } } })).toThrow(/names the platform tvos under deploy/);
+});
+
+test('an explicit deploy platform omits unsupported targets before classification', async () => {
+  const manifest = JSON.parse(readFileSync(new URL('../apps/shelf/app.json', import.meta.url), 'utf8'));
+  expect(() => nativePlatforms(manifest)).toThrow(/names the platform windows under deploy/);
+  expect(() => nativePlatforms(manifest, [])).toThrow(/names the platform windows under deploy/);
+  expect(() => nativePlatforms(manifest, ['ios', 'windows'])).toThrow(/names the platform windows under deploy/);
+  const opts = { platform: ['ios'] }, platforms = nativePlatforms(manifest, opts.platform);
+  expect(platforms).toEqual(['ios']);
+  expect(nativePlatforms(manifest, ['linux', 'ios', 'ios'])).toEqual(['ios', 'linux']);
+  expect(nativePlatforms(manifest, ['web'])).toEqual([]);
+  const iosAndWindows = { host: manifest.host, deploy: { store: { ios: '0', windows: '0' } } };
+  expect(nativePlatforms(iosAndWindows, ['macos'])).toEqual([]);
+  expect(nativePlatforms({ deploy: { binaries: { ios: true, windows: true } } }, ['ios'])).toEqual(['ios']);
+  expect(nativePlatforms({ host: manifest.host }, ['ios'])).toEqual(['ios']);
+
+  const id = '1'.repeat(64);
+  const table = await classify({ app: { id: manifest.id, displayName: manifest.name, manifest }, opts,
+    origin: { kind: 'fixture', describe: () => 'fixture' }, channel: 'prod', release: 'fixture',
+    snapshot: { commit: 'fixture', dirty: false, changes: [] },
+    compat: { ios: { id, inputs: { platform: 'ios', store: { L: manifest.deploy.store.ios } } } },
+    platforms, wantOrigin: false });
+  expect(table.dryRun).toBe(true);
+  expect(table.rows).toEqual([{ kind: 'binary', platform: 'ios', compatibilityId: id, action: 'binary',
+    reason: 'store.L=0: links no update store; deliver changes in the platform binary' }]);
+});
+
+test('deploy refuses unsupported requested platforms before capturing or building', () => {
+  for (const selection of [['windows'], ['ios', 'windows'], ['tvos']]) {
+    const result = spawnSync(process.execPath, [resolve(import.meta.dir, 'deploy.mjs'), 'shelf',
+      ...selection.flatMap((platform) => ['--platform', platform])], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(`--platform ${selection.at(-1)}: one of web, ios, macos, linux`);
+  }
 });
 
 // LLP 1153 D3: a deploy's snapshot takes the app's ignored files as source, but not a web build in `dist` nor what it
