@@ -1,6 +1,7 @@
 # docs/agent-pitfalls.md: a stale-build entry and a large-title sentence no longer hold, two entries give a wrong cause, and seven describe what the compiler now warns of
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The pitfalls list drops the entries the compiler now warns of (keeping, for px widths and `width="100%"` with padding, only what the warning misses), says a button is a block that shrinks to fit, and states which app-folder files are build inputs; the large-title sentence stays, because `PushedTitleIOSTests` fails on an iOS 27.0 simulator on this commit (a pushed level-1 route's bar is 54 points, not 106).
 **Systems:** docs/agent-pitfalls.md, docs/contract-for-agents.md
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
