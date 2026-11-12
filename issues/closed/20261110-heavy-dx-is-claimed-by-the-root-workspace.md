@@ -1,6 +1,7 @@
 # Cargo refuses the Dioxus bench crate: it sits inside the root workspace without being a member
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** `bench/dioxus/heavy-dx/Cargo.toml` declares an empty `[workspace]`, as the egui and GPUI bench crates do, so Cargo runs in the crate and resolves its committed `Cargo.lock` with `--locked`.
 **Systems:** bench/dioxus/heavy-dx, Cargo.toml
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
