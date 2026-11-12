@@ -310,7 +310,9 @@ extension NavigationHost {
     /// batch showed (`selection`).
     var headerRoute: (root: NodeView, route: NodeView, pushed: Bool)? {
         // A stack that splits: one of its two routes owns the window.
-        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, routes.owner !== split.shown?.list) }
+        // A detail is pushed only above where its pane begins: the base
+        // detail has no Back (LLP 1115.002 D4).
+        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, routes.owner !== split.shown?.list && windowRoute?.pushed == true) }
         return windowRoute
     }
 
@@ -331,11 +333,11 @@ extension NavigationHost {
     /// the window's title and its whole header is the bar's. The other is
     /// beside it: its heading stays the first line of its pane, and its
     /// buttons are the bar's over its own column, after the separator that
-    /// follows the divider. Which is which is `SplitHost.listOwnsWindow`.
+    /// follows the divider. Which is which is `SplitHost.listOwns`.
     var splitHeaderRoutes: (root: NodeView, owner: NodeView, beside: NodeView?)? {
         guard split.active, let shown = split.shown else { return nil }
         guard let detail = shown.detail else { return (shown.root, shown.list, nil) }
-        return split.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
+        return split.listOwns ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
     }
 }
 #endif
