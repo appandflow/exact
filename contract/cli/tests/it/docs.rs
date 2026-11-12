@@ -1,6 +1,7 @@
 //! Every example in the guides compiles (LLP 1086 D10): each fenced
 //! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
-//! 1116 D3) and `README.md` compiles with no diagnostics, and each
+//! 1116 D3) and `README.md` compiles with no errors, those a builder copies
+//! (README's, the recipes', start-here's) with no warnings either, and each
 //! `contract-test` block parses. A deliberately partial block is fenced
 //! `text`. A `tamber` block is checked as a design, and is the design of
 //! the `contract` blocks after it in its section (LLP 1121 D2). Every
@@ -48,6 +49,16 @@ pub(crate) fn documents() -> Vec<PathBuf> {
     docs.sort();
     docs.insert(0, root.join("README.md"));
     docs
+}
+
+/// Whether a document's examples are ones a builder copies into an app:
+/// `README.md`'s, a recipe's and the start-here guides'.
+fn copied(doc: &Path) -> bool {
+    doc == Path::new("README.md")
+        || doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
+        || doc
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("start-here"))
 }
 
 /// The fenced blocks of every document, in order. A heading outside a fence
@@ -306,6 +317,16 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
                 }
                 if let Err(all) = contract::compile_path_source_all(&path, &block.body, false) {
                     for e in all {
+                        failures.push(format!("{}: [{}] {}", at(e.span.line), e.id, e.message));
+                    }
+                }
+                // `verify` counts a warning as a problem, so an example a
+                // builder copies as written must draw none; information it
+                // only says. The reference guides show some warnings on purpose.
+                if copied(&block.doc) {
+                    std::fs::write(&path, &block.body).unwrap();
+                    let warnings = contract::compile_path_all_warned(&path, false).1;
+                    for e in warnings.iter().filter(|w| !contract::information(w)) {
                         failures.push(format!("{}: [{}] {}", at(e.span.line), e.id, e.message));
                     }
                 }

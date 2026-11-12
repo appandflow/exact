@@ -413,7 +413,7 @@ component Todos
             text "Add"
       section
         for t in todos key=t.id
-          row testId=`todo-${t.id}`
+          row delete=remove(t.id) testId=`todo-${t.id}`
             input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
             text t.title flex=1
             button press=remove(t.id) destructive=true testId=`remove-${t.id}`

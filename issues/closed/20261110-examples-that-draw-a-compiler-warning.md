@@ -1,6 +1,7 @@
 # Four examples a builder copies draw a compiler warning, which `verify` counts as a problem
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Each example does what its warning asks (README's rows swipe to delete, the timer's readout is the list's first row, the poll's options keep ids, the seed goes after with), and the docs test now fails on a warning in an example a builder copies.
 **Systems:** README.md, docs/recipes/timers.md, docs/recipes/editable-rows.md, docs/recipes/random-and-shuffle.md, contract/cli/tests/it/docs.rs
 **Severity:** P3
 **Author:** Claude (Fable 5.2), from the 2026-11-10 project review
