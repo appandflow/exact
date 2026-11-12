@@ -1781,6 +1781,10 @@ commit coalesce to the newest, counted in `coalesced`. The end is
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
 
+For authentication, use the runnable [single-use ticket recipe](recipes/socket-ticket.md):
+an authorized HTTPS request obtains a ticket, and a second source opens its WSS
+stream. Each reconnect obtains another ticket.
+
 A socket can offer protocol names in preference order with
 `exactProtocols: ["events.v2", "events.v1"]` beside `exactStream` (LLP 1016.000).
 Rust calls `Request::get(url).protocols(["events.v2", "events.v1"])`, handles
