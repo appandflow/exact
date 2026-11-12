@@ -49,6 +49,15 @@ function own(el, cs) {
   return m.translateSelf(-ox, -oy);
 }
 
+// `el`'s paint onto its stand-in `box`, a border box with no padding: its translate as `el` resolves it, in px, since a
+// percentage of the stand-in's own box (its moving size, and never `el`'s `transform-box`) would put it elsewhere.
+function paint(box, el, cs) {
+  for (const k of PAINT) box.style[k] = cs[k];
+  if (cs.translate === 'none') return;
+  const [x, y] = translation(el, cs.translate, cs), z = cs.translate.match(/calc\([^)]*\)|\S+/g)?.[2];
+  box.style.translate = `${x}px ${y}px${z ? ` ${z}` : ''}`;
+}
+
 // The linear part (rotation, scale, skew) of a matrix.
 const linear = m => new DOMMatrix([m.a, m.b, m.c, m.d, 0, 0]);
 
@@ -168,7 +177,7 @@ function createPresence(root) {
       reveal(f);
       f.animation.effect.target = null;
       const cs = getComputedStyle(el);
-      for (const k of PAINT) sf.box.style[k] = cs[k];
+      paint(sf.box, el, cs);
       if (placed) {
         const place = measure(), [x, y] = place(el, viewParent(el)), [ax, ay] = place(sf.stand, viewParent(el));
         sf.box.style.left = `${x - ax}px`; sf.box.style.top = `${y - ay}px`;
@@ -226,7 +235,7 @@ function createPresence(root) {
     el.before(stand);
     const [x, y] = place(el, viewParent(el)), [ax, ay] = place(stand, viewParent(el));
     box.style.cssText = `position:absolute;left:${x - ax}px;top:${y - ay}px;box-sizing:border-box;margin:0`;
-    for (const k of PAINT) box.style[k] = cs[k];
+    paint(box, el, cs);
     stand.append(box);
     return { stand, box, hidden: new Map(), clips: cs.overflowX !== 'visible' || cs.overflowY !== 'visible', clipPath: cs.clipPath, radius: cs.borderRadius };
   }
