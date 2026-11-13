@@ -79,6 +79,7 @@ extension NavigationHost {
         #endif
         container.setTabs(made, animated: false)
         if made.indices.contains(selected) { container.selectedTab = made[selected] }
+        crownSearchTab(container)
         let search = Self.searchTab(tabs)
         presenter.session?.log("navigation: the tabs are UITabs (\(sidebarAdapts(tabs, unsaid: unsaid) ? "a sidebar on a regular width" : "a tab bar")\(search.map { ", tab \($0) the search tab" } ?? ""))")
         // The search tab's form is its root's field's: build its panel now, after this first frame, so the bar knows
@@ -141,7 +142,20 @@ extension NavigationHost {
         for (index, nav) in navs.enumerated() { writeBuiltTab(index, item: nav.tabBarItem, title: nav.title ?? "") }
         container.setTabs(made, animated: false)
         if made.indices.contains(routerTab) { container.selectedTab = made[routerTab] }
+        crownSearchTab(container)
         return true
+    }
+
+    /// iOS 27 draws apart the one tab its controller names prominent, a
+    /// search tab whose field does not activate on selection included: the
+    /// search tab is that tab (measured on the iOS 27.0 simulator, where it
+    /// is otherwise drawn among the others).
+    func crownSearchTab(_ container: UITabBarController) {
+        #if os(iOS)
+        guard #available(iOS 27.0, *), let search = builtTabs.first(where: { $0 is UISearchTab }) as? UITab,
+              container.prominentTabIdentifier != search.identifier else { return }
+        container.setProminentTabIdentifier(search.identifier, animated: false)
+        #endif
     }
 
     /// What tab `index` shows of its face on its `UITab`: the title, the
