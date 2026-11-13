@@ -1823,6 +1823,24 @@
       "name": "rel",
       "kind": "str",
       "_comment": "@ref LLP 1141.002 D1: HTML's rel, a set of space-separated tokens read ASCII case-insensitively. On a `link` or `form`, HTML's meaning, written into the web DOM. On a root tab, the token `search` names the app's search tab (`Kernel::root_tabs`), which iOS 18 and later show as a `UISearchTab`; the web's tab button carries no rel."
+    },
+    {
+      "id": 400,
+      "name": "panHold",
+      "kind": "float",
+      "_comment": "`-exact-pan-hold` on a node with `pan`: milliseconds the finger rests before the pan begins (a long press that keeps going), so a tap inside stays a press. The pan then reports from where the hold began, with one zero delta as it begins, and `panrelease` with the finger's velocity. On the system tab bar the hold wins the touch from the bar's own press-and-slide. iOS; other hosts begin the pan as they would without it."
+    },
+    {
+      "id": 401,
+      "name": "tabMinimize",
+      "kind": "str",
+      "_comment": "`-exact-tab-minimize` on a tablist: `on-scroll-down`, `on-scroll-up`, `never` or `automatic` (the default), UIKit's tabBarMinimizeBehavior on iOS 26: the bar collapses to the selected tab while content scrolls. Other hosts ignore it."
+    },
+    {
+      "id": 402,
+      "name": "tabAccessory",
+      "kind": "bool",
+      "_comment": "`-exact-tab-accessory` on a child of a tablist: on iOS 26 the system tab bar's bottom accessory (UITabAccessory), above the bar and inline beside it as the bar minimizes. Exact lays the child out as a root in the size UIKit gives the accessory, so `position: absolute; inset: 0` fills it. While the node is absent or `display: none` the bar has no accessory. Other hosts, and iOS where the authored tablist shows, keep it an ordinary child of the tablist."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback. refused: keywords the wire carries and the compiler refuses an author, because no presenter builds them (LLP 1043.000 §3 D1); `contract vocab` lists the others. No wire reads it, so it is outside the digest.",

@@ -105,6 +105,7 @@ extension NavigationHost {
             tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
             if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
+            installBarExtras(container, tabs)
             // A path's glyph is sized by the idiom and the size class: the items again as either changes (and
             // once the bar is in its window, whose traits it then has).
             container.tabBar.registerForTraitChanges([UITraitUserInterfaceIdiom.self, UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
@@ -197,6 +198,7 @@ extension NavigationHost {
         }
         if let more, primaryNavigation === more { primaryNavigation = tabStack(routerTab) as? UINavigationController }
         releaseMore()
+        releaseAccessory()
         container.delegate = nil
         tablistRoot = nil
         tablistHidBar = false
@@ -253,6 +255,7 @@ extension NavigationHost {
             }
         }
         followSidebar(p)
+        syncAccessory(tabs)
         let navs = tabs.panels.compactMap { tabStacks[$0.id] }
         guard navs.count == tabs.panels.count else { return }
         // Write each other tab's routes where UIKit holds them: in More's
@@ -733,6 +736,7 @@ extension NavigationHost {
         releaseMore()
         if tabsHatched, tabController != nil { presenter.session?.natives.tabsHatch(tabController, event: 1) }
         if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHatch(nil, event: 3) }
+        releaseAccessory()
         if let holder = tabOwner {
             (holder as? UITabBarController)?.delegate = nil
             holder.willMove(toParent: nil)

@@ -226,7 +226,12 @@ extension NavigationHost {
         if let list = adoptedTablist.flatMap({ presenter.views[$0] }) {
             measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
             if adopts(tablist: list) {
-                for node in Self.covered(list, keeping: tabPanels.compactMap { presenter.views[$0] }) { wanted[node.id] = .whole }
+                let kept = tabPanels.compactMap { presenter.views[$0] }
+                // With a bottom accessory (TabBarExtrasIOS) the tablist is laid out in an empty block and its other
+                // children are the bar's; the accessory child is laid out in the accessory's block.
+                let covered = tabAccessory == nil ? Self.covered(list, keeping: kept)
+                    : list.container.subviews.compactMap { $0 as? NodeView }.filter { $0 !== tabAccessory }.flatMap { Self.covered($0, keeping: kept) }
+                for node in covered { wanted[node.id] = .whole }
             }
             else if tablistAppearanceNone, list.style["display"]?.string != "none",
                     wantsWholeView, presenter.viewportFit != "cover",

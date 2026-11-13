@@ -604,6 +604,7 @@ extension NavigationHost {
            tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
             tablistHidBar = false
+            syncAccessoryWithBar(animated: nav.view.window != nil)
         }
     }
 
@@ -643,6 +644,7 @@ extension NavigationHost {
         } else if tablistHidBar {
             if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
             tablistHidBar = false
+            syncAccessoryWithBar(animated: animated)
         }
     }
 

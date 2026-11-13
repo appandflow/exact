@@ -464,6 +464,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
     var tablistAppearanceNone = false
+    /// The tab bar's bottom accessory (`-exact-tab-accessory`, TabBarExtrasIOS).
+    let barExtras = TabBarExtras()
     /// Where the authored tablist was when its covers were last measured.
     var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the
@@ -554,7 +556,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// controllers; newly added or no-longer-declared nodes use normal mounting.
     /// A route's logical parent is the root or, with tabs, its tabpanel.
     func ownsContainment(of node: NodeView, under parent: NodeView) -> Bool {
-        (parent === container || (parent !== container && logicalChildren[parent.id] != nil)) &&
+        if node === tabAccessory, parent.id == adoptedTablist { return true }
+        return (parent === container || (parent !== container && logicalChildren[parent.id] != nil)) &&
             container?.props["navigationBack"] != nil &&
             node.props["navigationKey"] != nil && controllers[node.id]?.node === node
     }
@@ -588,6 +591,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func prepare(_ batch: Batch) {
         checkOwned()
         presenter.elements.checkOwned()
+        prepareExtras(batch)
         guard let top = navigation?.topViewController as? RouteController else { return }
         if batch.ops.contains(where: { $0.op == .destroy && $0.id == top.node.id }) {
             top.freeze()

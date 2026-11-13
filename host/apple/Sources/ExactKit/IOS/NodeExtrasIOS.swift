@@ -98,7 +98,7 @@ final class NodeExtras {
     var layoutResize: CGSize = .zero
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
-    var layoutPanRecognizer: UIPanGestureRecognizer?
+    var layoutPanRecognizer: UIGestureRecognizer?
     var layoutPanOrigin: CGPoint = .zero
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed: Bool = false
@@ -303,7 +303,7 @@ extension NodeView {
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
     var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }
     var surface: SurfaceLayer? { get { extras?.surface } set { if newValue != nil || extras != nil { more.surface = newValue } } }
-    var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
+    var layoutPanRecognizer: UIGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }
     var swipeRecognizer: UIPanGestureRecognizer? { get { extras?.swipeRecognizer } set { if newValue != nil || extras != nil { more.swipeRecognizer = newValue } } }
     var swipeDownX: CGFloat? { get { extras?.swipeDownX } set { if newValue != nil || extras != nil { more.swipeDownX = newValue } } }
