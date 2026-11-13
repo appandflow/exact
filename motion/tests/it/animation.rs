@@ -684,3 +684,18 @@ fn an_inactive_timeline_has_no_effect_and_a_missing_one_keeps_its_time() {
     e.advance(3.25).unwrap();
     assert!((opacity(&mut e).unwrap() - 0.25).abs() < 1e-9);
 }
+
+#[test]
+fn a_keyframe_rotate_takes_an_axis() {
+    let k = Keyframes::parse("from{rotate:y 32deg}to{rotate:0 1 0 -8deg}").unwrap();
+    assert_eq!(
+        k,
+        Keyframes::parse("from{rotate:32deg}to{rotate:-8deg}").unwrap()
+    );
+    for bad in ["w 3deg", "0 1 3deg", "a b c 3deg", "y"] {
+        assert!(
+            Keyframes::parse(&format!("to{{rotate:{bad}}}")).is_err(),
+            "{bad}"
+        );
+    }
+}

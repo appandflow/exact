@@ -779,8 +779,19 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
             };
             Value::four(x, y, px, py)
         }
+        // An axis before the angle (`y 32deg`) is accepted and not kept: the
+        // angle turns about the node's own `rotate` axis, so a node that
+        // turns in 3D names that axis in its own `rotate` too.
         Property::Rotate => {
-            let n = word::strip_unit(value, "deg").unwrap_or(value);
+            let angle = match value.split_whitespace().collect::<Vec<_>>()[..] {
+                [angle] => angle,
+                ["x" | "y" | "z", angle] => angle,
+                [x, y, z, angle] if [x, y, z].iter().all(|n| exact_num::parse_f64(n).is_ok()) => {
+                    angle
+                }
+                _ => return Err(bad()),
+            };
+            let n = word::strip_unit(angle, "deg").unwrap_or(angle);
             Value::scalar(exact_num::parse_f64(n.trim()).map_err(|_| bad())?)
         }
         Property::Scale | Property::Opacity => {
