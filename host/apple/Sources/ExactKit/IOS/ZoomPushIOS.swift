@@ -39,10 +39,61 @@ extension NavigationHost {
         top.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
             guard let self, let route, let preceding, presenter.views[preceding.id] === preceding,
                   let name = route.props["navigationSource"] else { return nil }
-            return presenter.views.values.filter {
+            let source = presenter.views.values.filter {
                 $0.props["id"] == name && $0.window != nil && ($0 === preceding || $0.isDescendant(of: preceding))
             }.min(by: { $0.id < $1.id })
+            if let source { prepareZoomSource(source, in: preceding) }
+            return source
         })
+    }
+
+    /// UIKit's zoom draws its source view's layer inside the container it morphs, clipped to that container's
+    /// rounded shape, so an outer `box-shadow`, which lies outside the source's bounds, shows as a hard band
+    /// under the card and then an outline round it. A `perspective` on a box holding the source shows the same
+    /// band in black on the swipe back, though the source lies flat in it. Until the transition ends
+    /// (`restoreZoomSource`), the source casts no outer shadow and the boxes up to its route hold it flat; a
+    /// source turned in that space zooms as if it were not.
+    func prepareZoomSource(_ source: NodeView, in route: NodeView) {
+        restoreZoomSource()
+        source.shadowCaster?.isHidden = true
+        zoomState.source = source
+        var next = source.superview
+        while let view = next, view !== route {
+            if let box = view as? NodeView, box.number("perspective") > 0 {
+                box.container.layer.sublayerTransform = CATransform3DIdentity
+                zoomState.flattened.append(box)
+            }
+            next = view.superview
+        }
+    }
+
+    func restoreZoomSource() {
+        zoomState.source?.shadowCaster?.isHidden = false
+        zoomState.source = nil
+        for box in zoomState.flattened { box.applyPerspective() }
+        zoomState.flattened = []
+    }
+
+    /// The zoom's swipe back is decided as the finger lifts, and UIKit ends it most of a second later, after
+    /// its tail. The app follows it at the lift, as it follows the Back button at once, so the tab bar's
+    /// accessory a pushed route hid returns with the tail and not after it.
+    func followZoomSwipe(_ transition: UIViewControllerTransitionCoordinator) {
+        guard #available(iOS 18.0, *), let source = transition.viewController(forKey: .from) as? RouteController,
+              source.preferredTransition != nil else { return }
+        transition.notifyWhenInteractionChanges { [weak self, weak source] context in
+            guard let self, let source, !context.isCancelled, source.key == selectedKey, source.search == nil,
+                  !presenter.modals.inTransition, presenter.views[source.node.id] === source.node else { return }
+            zoomState.followedPop = source
+            goBack()
+        }
+    }
+
+    /// The zoom's tail still draws a followed pop's route through portals: its picture goes in outside the
+    /// tail's animation, which would otherwise grow it from nothing.
+    func prepareFollowedPop(_ batch: Batch) {
+        if let leaving = zoomState.followedPop, batch.ops.contains(where: { $0.op == .destroy && $0.id == leaving.node.id }) {
+            UIView.performWithoutAnimation { leaving.freeze() }
+        }
     }
 }
 #endif

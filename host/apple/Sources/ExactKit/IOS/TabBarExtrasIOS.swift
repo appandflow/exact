@@ -16,6 +16,14 @@ final class TabBarExtras {
     var snapshot: UIView?
 }
 
+/// A zoom swipe back the app followed as the finger lifted, until UIKit ends it, and a zoom's source and the
+/// boxes holding it that were flattened while UIKit's zoom draws it (ZoomPushIOS).
+final class ZoomState {
+    weak var followedPop: RouteController?
+    weak var source: NodeView?
+    var flattened: [NodeView] = []
+}
+
 /// The view UIKit sizes for the tab bar's bottom accessory: the accessory node's
 /// containing block, told again whenever UIKit gives it another size (the bar
 /// minimizing puts the accessory inline beside it).
@@ -65,9 +73,12 @@ extension NavigationHost {
         return [list: .size(.zero), node.id: .size(view.bounds.size)]
     }
 
-    /// Before a batch applies: what it destroys of the accessory.
+    /// Before a batch applies: what it destroys of the accessory and of a followed zoom pop (ZoomPushIOS).
     func prepareExtras(_ batch: Batch) {
         prepareAccessory(batch)
+        #if os(iOS)
+        prepareFollowedPop(batch)
+        #endif
     }
 
     /// A picture of an accessory node the batch destroys.

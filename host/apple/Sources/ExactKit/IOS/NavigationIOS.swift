@@ -466,6 +466,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tablistAppearanceNone = false
     /// The tab bar's bottom accessory (`-exact-tab-accessory`, TabBarExtrasIOS).
     let barExtras = TabBarExtras()
+    /// A zoom's swipe back followed at the lift and its source held flat (ZoomPushIOS).
+    let zoomState = ZoomState()
     /// Where the authored tablist was when its covers were last measured.
     var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the
@@ -1290,6 +1292,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let swipe: Swipe? = transition.initiallyInteractive
             ? (transition.viewController(forKey: .from) as? RouteController).map { ($0.node, $0.key, navigationController.viewControllers.count + 1) }
             : nil
+        #if os(iOS)
+        if transition.initiallyInteractive { followZoomSwipe(transition) }
+        #endif
         transition.animate(alongsideTransition: nil) { [weak self, weak navigationController] context in
             guard let self, let navigationController else { return }
             transitionEnded(navigationController, swipe: swipe, cancelled: context.isCancelled)
@@ -1345,6 +1350,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// (`morePopTab`).
     private func transitionEnded(_ navigationController: UINavigationController,
                                  swipe: Swipe?, cancelled: Bool) {
+        #if os(iOS)
+        restoreZoomSource()
+        #endif
         // Finish the departed search field while its authored handlers still exist
         if !cancelled, navigationController === navigation,
            let written = stacks[ObjectIdentifier(navigationController)]?.written {
@@ -1413,6 +1421,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             #endif
         }
         if showsMoresList(navigationController) { return followMoresList(navigationController, popped: poppedKeys) }
+        if zoomState.followedPop != nil { zoomState.followedPop = nil; lastTransition = "completed"; return }
         let sourceKey = source.flatMap { presenter.views[$0.node.id] === $0.node ? $0.key : nil }
         // Replaced in place while the finger was down: the source's node is gone and the app's
         // stack is as deep as it was when the swipe began.

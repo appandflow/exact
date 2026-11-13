@@ -101,5 +101,44 @@ final class ZoomAlignmentIOSTests: XCTestCase {
         XCTAssertTrue(landing.dismissal(begins: true))
         XCTAssertNil(landing.answer(open))
     }
+
+    /// UIKit's zoom draws its source inside the container it morphs, so the
+    /// source's outer shadow would show clipped there, and a perspective on a
+    /// box holding it draws a black band there on a swipe back. While a zoom
+    /// draws the source its shadow is hidden and the boxes up to its route
+    /// hold it flat; both come back when the transition ends.
+    func testAZoomSourceCastsNoShadowAndLiesFlatUntilTheTransitionEnds() throws {
+        let p = Presenter(), host = NavigationHost(presenter: p)
+        func node(_ id: UInt32, _ kind: String, in parent: NodeView?) -> NodeView {
+            let n = NodeView(id: id, kind: kind, presenter: p)
+            p.views[id] = n
+            parent?.container.addSubview(n)
+            n.frame = CGRect(x: 0, y: 0, width: 240, height: 350)
+            return n
+        }
+        let route = node(10, "view", in: nil), hanger = node(11, "view", in: route)
+        hanger.applyStyle(["perspective": 600])
+        hanger.applyPerspective()
+        let cards = [node(1, "image", in: hanger), node(2, "image", in: route)]
+        for card in cards {
+            card.applyStyle(["box_shadow": [["o": [0, 16], "b": 36, "s": 0, "c": [0, 0, 0, 41]]], "border_radius": 22])
+            card.layer.displayIfNeeded()
+        }
+        let tilted = hanger.container.layer.sublayerTransform
+        XCTAssertEqual(tilted.m34, -1 / 600, accuracy: 1e-9)
+        let first = try XCTUnwrap(cards[0].shadowCaster), second = try XCTUnwrap(cards[1].shadowCaster)
+        XCTAssertFalse(first.isHidden)
+        host.prepareZoomSource(cards[0], in: route)
+        XCTAssertTrue(first.isHidden, "no shadow while the zoom draws its source")
+        XCTAssertTrue(CATransform3DIsIdentity(hanger.container.layer.sublayerTransform), "held flat")
+        cards[0].applyStyle(["box_shadow": [["o": [0, 16], "b": 36, "s": 0, "c": [0, 0, 0, 41]]], "border_radius": 24])
+        XCTAssertTrue(cards[0].shadowCaster?.isHidden == true, "a restyle meanwhile keeps it hidden")
+        host.prepareZoomSource(cards[1], in: route)
+        XCTAssertFalse(first.isHidden, "a zoom from another source gives the first its shadow back")
+        XCTAssertTrue(CATransform3DEqualToTransform(hanger.container.layer.sublayerTransform, tilted), "and its perspective")
+        XCTAssertTrue(second.isHidden)
+        host.restoreZoomSource()
+        XCTAssertFalse(second.isHidden, "back when the transition ends")
+    }
 }
 #endif
