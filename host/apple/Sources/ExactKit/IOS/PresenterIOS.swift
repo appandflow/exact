@@ -153,8 +153,7 @@ package final class Presenter {
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy`
-    /// is what applies).
+    /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy` is what applies).
     private(set) var interactiveWidget: String?
     /// Keyboard avoidance defaults to resizing the editing route's layout block,
     /// or the viewport of an ordinary page. Visual resizing instead insets its
