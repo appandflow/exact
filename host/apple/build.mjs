@@ -369,6 +369,11 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
+  // `host.ios.iCloudKeyValue`: the app's own iCloud key-value store, named `$(TeamIdentifierPrefix)<bundle id>`
+  // (Apple, "Synchronizing app preferences with iCloud"); an extension or a clip has none.
+  if (ios.iCloudKeyValue === true && !app.clipParent && !app.widgetAppId && !app.widgetHost && !app.widgetTV) {
+    dict['com.apple.developer.ubiquity-kvstore-identifier'] = dict['application-identifier'];
+  }
   for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
   Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
