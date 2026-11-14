@@ -1297,7 +1297,7 @@ public final class ExactSession {
     var launchPlace: LaunchPlace
     /// The zone's offset last told (`followOffset`, before each advance, so a
     /// DST change reaches the timer after it; `tellAgentOffset`).
-    var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
+    var toldOffset: Double?, toldEpoch: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
     /// (`pointer: none` on tvOS sets a different layout).
