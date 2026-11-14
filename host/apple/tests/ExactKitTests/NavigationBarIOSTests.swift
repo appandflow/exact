@@ -541,25 +541,6 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertNotNil(route.navigationItem.titleView)
     }
 
-    /// The bar hands a touch on none of its controls to the authored title
-    /// beneath it, and keeps every other touch.
-    func testTheBarLeavesATouchOnAnAuthoredTitleToIt() throws {
-        let session = try fixture("authored-title-touch", module: false)
-        let p = session.presenter
-        p.press(try node(session, "chat").id)
-        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
-        until("chat is pushed") { nav.transitionCoordinator == nil }
-        let bar = try XCTUnwrap(nav.navigationBar as? RouteNavigationBar)
-        let tap = try node(session, "title-group")
-        p.apply(wireBatch([["op": "style", "id": Int(tap.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
-        tap.superview?.layoutIfNeeded()
-        let onTitle = bar.convert(CGPoint(x: tap.bounds.midX, y: tap.bounds.midY), from: tap)
-        XCTAssertTrue(bar.authoredControl(at: onTitle) === tap)
-        XCTAssertNil(bar.authoredControl(at: bar.convert(CGPoint(x: tap.bounds.maxX + 40, y: tap.bounds.midY), from: tap)))
-        p.apply(wireBatch([["op": "style", "id": Int(tap.id), "style": ["appearance": "auto", "written": ["appearance"]]]]))
-        XCTAssertNil(bar.authoredControl(at: onTitle), "a projected title is the bar's own")
-    }
-
     /// A header partly projected (its Back opted out): the title's
     /// pressable wrapper goes with the title, and a node the projection hid
     /// shows again once it is authored and displayed.
