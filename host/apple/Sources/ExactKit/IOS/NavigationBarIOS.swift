@@ -23,6 +23,39 @@ struct HatchSource: Equatable {
     let bar: BarSource, back: String, navigation: ObjectIdentifier, dataset: String, scroll: ObjectIdentifier?
 }
 
+/// UIKit's bar, which hands a touch that lands on none of its own controls
+/// to an authored control of the shown route's header (`appearance="none"`)
+/// beneath it: a title the page draws itself where the bar is clear. UIKit's
+/// bar otherwise takes every touch in its frame.
+final class RouteNavigationBar: UINavigationBar {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        guard let hit, !Self.isControl(hit, below: self), authoredControl(at: point) != nil else { return hit }
+        return nil
+    }
+
+    /// The shown route's authored header control under `point`, in the bar's
+    /// coordinates.
+    func authoredControl(at point: CGPoint) -> NodeView? {
+        guard let route = (delegate as? UINavigationController)?.topViewController as? RouteController,
+              let ids = route.projectedSource?.authored, let views = route.host?.presenter.views else { return nil }
+        for id in ids {
+            guard let node = views[id], node.window != nil, node.window === window, !node.isHidden, node.alpha > 0.01 else { continue }
+            if node.bounds.contains(node.convert(point, from: self)) { return node }
+        }
+        return nil
+    }
+
+    private static func isControl(_ view: UIView, below bar: UIView) -> Bool {
+        var at: UIView? = view
+        while let v = at, v !== bar {
+            if v is UIControl || v is UISearchBar { return true }
+            at = v.superview
+        }
+        return false
+    }
+}
+
 /// The delegate Exact gives each navigation controller it builds: Exact's
 /// own handling first, then the app's delegate, which receives straight
 /// anything Exact does not implement — a custom transition's animator.
@@ -450,7 +483,7 @@ extension NavigationHost {
     /// `publish` records the controller where Exact keeps it before the
     /// hatch runs, which may ask for it again (`HeldStackIOS`'s `realize`).
     func makeNavigation(first: NodeView?, publish: (UINavigationController) -> Void = { _ in }) -> UINavigationController {
-        let nav = UINavigationController()
+        let nav = UINavigationController(navigationBarClass: RouteNavigationBar.self, toolbarClass: nil)
         stackCount += 1
         let stack = NavigationStack(showsBar: true, order: stackCount)
         stack.proxy.host = self
