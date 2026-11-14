@@ -10,6 +10,7 @@ extension ExactSession {
             tellAgentOffset()
         } else {
             toldOffset = nil
+            toldEpoch = nil
             offsetHeld = nil
             followOffset()
         }
@@ -19,19 +20,26 @@ extension ExactSession {
     }
     /// The machine zone's offset, told when it moved. `offsetHeld` is the
     /// zone it was read in and when to read it again: until then, in that
-    /// zone, a frame's check reads no calendar.
+    /// zone, a frame's check reads no calendar. The date at the clock's zero
+    /// is told again when it slips by more than a second:
+    /// `CACurrentMediaTime` stops while the device sleeps, and the wall
+    /// clock can be set.
     func followOffset() {
         guard launchPlace.epoch == nil else { return }
         let zone = TimeZone.autoupdatingCurrent, wall = Date()
-        if let held = offsetHeld, held.zone == zone.identifier, wall < held.until { return }
+        let slipped = toldEpoch.map { abs(wall.timeIntervalSince1970 * 1000 - now() - $0) > 1000 } ?? false
+        if !slipped, let held = offsetHeld, held.zone == zone.identifier, wall < held.until { return }
         // An hour at most: a zone's rules can move its offset at a time that
         // is no daylight-saving transition.
         let hour = wall.addingTimeInterval(3600)
         offsetHeld = (zone.identifier, min(zone.nextDaylightSavingTimeTransition(after: wall) ?? hour, hour))
         let date = dateNow()
-        guard date.offset != toldOffset else { return }
+        guard slipped || date.offset != toldOffset else { return }
+        let batch = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        apply(batch)
+        guard !batch.busy, !batch.held else { offsetHeld = nil; return }
         toldOffset = date.offset
-        apply(runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset))
+        toldEpoch = date.epoch
     }
     /// The date at the clock's zero and the zone's offset now: the drive's
     /// under the agent (at the virtual instant), the machine's otherwise.

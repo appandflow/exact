@@ -100,6 +100,7 @@ extension ExactSession {
     func deliverNativeTimer() {
         guard state != .destroyed, clock == nil, !ExactEnv.agentFreezes, !applying, !ownerInFlight,
               let timer = taskTimers.take() else { return }
+        followOffset()
         if ExactSession.asyncFills {
             advanceInFlight = true
             let captured = generation
