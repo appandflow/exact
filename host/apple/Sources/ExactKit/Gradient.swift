@@ -244,19 +244,48 @@ struct Gradient {
     /// Core Graphics quantizes hard stops inside a ramp: an expanded hatch
     /// alternates narrow and wide stripes. Give each continuous run its own
     /// endpoints, where Core Graphics clips at the actual stop positions.
+    /// Core Graphics shades each run over the whole clip, whatever the
+    /// run's extent: a diagonal hatch over a screen, hundreds of runs, held
+    /// the main thread for over a second. So the clip is cut into tiles on
+    /// the device's pixel grid and each tile shades only the runs that cross
+    /// it; a run all transparent paints nothing and is left out.
     private func paintAxialRuns(_ ctx: CGContext, start a: CGPoint, end b: CGPoint, locations: [CGFloat], colors: [CGColor], cuts: [Int], dark: Bool) {
         let edges = [0] + cuts + [locations.count]
         let space = CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB)
         func point(_ t: CGFloat) -> CGPoint { CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
+        var runs: [(low: CGFloat, high: CGFloat, gradient: CGGradient, options: CGGradientDrawingOptions)] = []
         for (first, end) in zip(edges, edges.dropFirst()) {
             let low = locations[first], high = locations[end - 1]
-            guard high > low else { continue }
+            guard high > low, colors[first..<end].contains(where: { $0.alpha > 0 }) else { continue }
             let positions = locations[first..<end].map { ($0 - low) / (high - low) }
             guard let gradient = CGGradient(colorsSpace: space, colors: Array(colors[first..<end]) as CFArray, locations: positions) else { continue }
             var options: CGGradientDrawingOptions = []
             if first == 0 { options.insert(.drawsBeforeStartLocation) }
             if end == locations.count { options.insert(.drawsAfterEndLocation) }
-            ctx.drawLinearGradient(gradient, start: point(low), end: point(high), options: options)
+            runs.append((low, high, gradient, options))
+        }
+        let along = CGPoint(x: b.x - a.x, y: b.y - a.y), squared = along.x * along.x + along.y * along.y
+        let reach = ctx.boundingBoxOfClipPath, device = ctx.userSpaceToDeviceSpaceTransform
+        // A few runs shade faster over the whole clip than through hundreds of tiles; a rotated
+        // device grid would make tiles overlap, painting a translucent run twice.
+        guard runs.count > 8, squared > 0, !reach.isNull, !reach.isInfinite, device.b == 0, device.c == 0 else {
+            for run in runs { ctx.drawLinearGradient(run.gradient, start: point(run.low), end: point(run.high), options: run.options) }
+            return
+        }
+        let grid = ctx.convertToDeviceSpace(reach).integral, side: CGFloat = 32
+        for y in stride(from: grid.minY, to: grid.maxY, by: side) {
+            for x in stride(from: grid.minX, to: grid.maxX, by: side) {
+                let tile = ctx.convertToUserSpace(CGRect(x: x, y: y, width: min(side, grid.maxX - x), height: min(side, grid.maxY - y)))
+                let ts = [CGPoint(x: tile.minX, y: tile.minY), CGPoint(x: tile.maxX, y: tile.minY), CGPoint(x: tile.minX, y: tile.maxY), CGPoint(x: tile.maxX, y: tile.maxY)]
+                    .map { (($0.x - a.x) * along.x + ($0.y - a.y) * along.y) / squared }
+                let low = ts.min()!, high = ts.max()!
+                ctx.saveGState()
+                ctx.clip(to: tile)
+                for run in runs where (run.high >= low || run.options.contains(.drawsAfterEndLocation)) && (run.low <= high || run.options.contains(.drawsBeforeStartLocation)) {
+                    ctx.drawLinearGradient(run.gradient, start: point(run.low), end: point(run.high), options: run.options)
+                }
+                ctx.restoreGState()
+            }
         }
     }
 
