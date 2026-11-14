@@ -447,6 +447,22 @@ extension NavigationHost {
         }
     }
 
+    /// A bar item's face and badge are images drawn for one scheme
+    /// (`ChipFace.dark`, `BadgeFace`): a new scheme projects each stack's
+    /// bars again, a turn later, once the header's views have the new traits
+    /// too. A stack still showing an ended route (a sheet animating away) is
+    /// left alone.
+    func schemeChanged() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for nav in allNavigations {
+                let routes = nav.stackRoutes.compactMap { $0 as? RouteController }
+                guard !routes.isEmpty, routes.allSatisfy({ self.controllers[$0.node.id] === $0 }) else { continue }
+                prepareRoutes(routes, in: nav)
+            }
+        }
+    }
+
     /// `publish` records the controller where Exact keeps it before the
     /// hatch runs, which may ask for it again (`HeldStackIOS`'s `realize`).
     func makeNavigation(first: NodeView?, publish: (UINavigationController) -> Void = { _ in }) -> UINavigationController {

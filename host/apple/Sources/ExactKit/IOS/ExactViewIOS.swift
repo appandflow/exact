@@ -134,7 +134,7 @@ public final class ExactView: UIView {
     /// Paint motion resolves `light-dark()` by this view's appearance.
     /// A system appearance change reaches the view as a trait change too:
     /// `prefers-color-scheme` is told again.
-    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences(); session.natives.scopesChanged() }
+    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences(); session.natives.scopesChanged(); session.presenter.navigation.schemeChanged() }
     /// An app or window tint changed: `AccentColor` is reported again.
     public override func tintColorDidChange() { super.tintColorDidChange(); session.reportColors() }
 
