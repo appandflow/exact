@@ -86,6 +86,15 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         #if os(iOS)
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (c: RouteController, _: UITraitCollection) in c.reopenTitle() }
         #endif
+        // A bar item's face and badge are images drawn for one scheme
+        // (`ChipFace.dark`, `BadgeFace`): a new scheme projects the bar again,
+        // a turn later, once the header's views have the new traits too.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (c: RouteController, _: UITraitCollection) in
+            DispatchQueue.main.async { [weak c] in
+                guard let c, let host = c.host, let stack = c.stack else { return }
+                host.prepareRoutes(stack.stackRoutes.compactMap { $0 as? RouteController }, in: stack)
+            }
+        }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
