@@ -543,13 +543,15 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// is mounted in, apart from the hiding a presentation over it gives its
     /// navigation; and a `color-scheme`, the presented controller's
     /// appearance, which UIKit carries to its sheet and everything in it.
-    /// After every batch, a transition running or not.
+    /// The route's own `color-scheme` comes first, so a sheet that paints
+    /// its own surface has its bar, title and close button in that surface's
+    /// scheme. After every batch, a transition running or not.
     func inheritFromAncestors() {
         for layer in layers where layer.controller.isViewLoaded { inherit(layer) }
     }
 
     private func inherit(_ layer: Presentation) {
-        var hidden = false, inert = false, scheme = UIUserInterfaceStyle.unspecified
+        var hidden = false, inert = false, scheme = layer.route.colorScheme
         var at = presenter.eventParent(of: layer.route)
         while let view = at {
             if let node = view as? NodeView {
