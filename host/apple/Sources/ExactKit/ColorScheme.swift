@@ -40,7 +40,7 @@ extension NodeView {
         ColorSchemes.changed(self)
     }
 
-    private var colorScheme: UIUserInterfaceStyle {
+    var colorScheme: UIUserInterfaceStyle {
         switch style["color_scheme"]?.string {
         case "dark": .dark
         case "light": .light

@@ -1093,6 +1093,11 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(field.traitCollection.userInterfaceStyle, .dark, "the root's color-scheme reaches the sheet")
         p.apply(wireBatch([["op": "style", "id": Int(root.id), "style": ["color_scheme": "light"]]]))
         XCTAssertEqual(field.traitCollection.userInterfaceStyle, .light)
+        let route = try node(session, "route-sheet")
+        p.apply(wireBatch([["op": "style", "id": Int(route.id), "style": ["color_scheme": "dark"]]]))
+        XCTAssertEqual(controller.traitCollection.userInterfaceStyle, .dark, "the route's own color-scheme is its sheet's, over the root's")
+        p.apply(wireBatch([["op": "style", "id": Int(route.id), "style": [:]]]))
+        XCTAssertEqual(controller.traitCollection.userInterfaceStyle, .light, "dropped, the root's again")
     }
 
     /// A node that leaves with an exit animation takes its subtree with it,
