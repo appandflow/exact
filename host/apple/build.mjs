@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
+import { associatedDomains, entitlementValue, iCloudKeyValueEntitlement, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, localNetworking, nfcKeys, startLocation, transportSecurity, updateActivation } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests, onlyClasses } from './xctest.mjs';
@@ -369,13 +369,8 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
-  // `host.ios.iCloudKeyValue`: the app's own iCloud key-value store, named `$(TeamIdentifierPrefix)<bundle id>`
-  // (Apple, "Synchronizing app preferences with iCloud"); an extension or a clip has none.
-  if (ios.iCloudKeyValue === true && !app.clipParent && !app.widgetAppId && !app.widgetHost && !app.widgetTV) {
-    dict['com.apple.developer.ubiquity-kvstore-identifier'] = dict['application-identifier'];
-  }
   for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
-  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
+  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }), iCloudKeyValueEntitlement(app, dict['application-identifier']));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
 };
 
