@@ -35,9 +35,11 @@ extension ExactSession {
         offsetHeld = (zone.identifier, min(zone.nextDaylightSavingTimeTransition(after: wall) ?? hour, hour))
         let date = dateNow()
         guard slipped || date.offset != toldOffset else { return }
+        let batch = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        apply(batch)
+        guard !batch.busy, !batch.held else { offsetHeld = nil; return }
         toldOffset = date.offset
         toldEpoch = date.epoch
-        apply(runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset))
     }
     /// The date at the clock's zero and the zone's offset now: the drive's
     /// under the agent (at the virtual instant), the machine's otherwise.
