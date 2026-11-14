@@ -86,15 +86,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         #if os(iOS)
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (c: RouteController, _: UITraitCollection) in c.reopenTitle() }
         #endif
-        // A bar item's face and badge are images drawn for one scheme
-        // (`ChipFace.dark`, `BadgeFace`): a new scheme projects the bar again,
-        // a turn later, once the header's views have the new traits too.
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (c: RouteController, _: UITraitCollection) in
-            DispatchQueue.main.async { [weak c] in
-                guard let c, let host = c.host, let stack = c.stack else { return }
-                host.prepareRoutes(stack.stackRoutes.compactMap { $0 as? RouteController }, in: stack)
-            }
-        }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (c: RouteController, _: UITraitCollection) in c.host?.schemeChanged(c) }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -413,6 +405,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private(set) weak var container: NodeView?
     private var routeIDs: [UInt32] = []
     private(set) var controllers: [UInt32: RouteController] = [:]
+    /// The stacks whose bars a new scheme projects again on the next turn (`schemeChanged`).
+    private var reschemed = Set<ObjectIdentifier>()
     /// Each route owner's logical children (the root's, each tabpanel's),
     /// while UIKit containment holds the route views.
     var logicalChildren: [UInt32: [UInt32]] = [:]
@@ -890,6 +884,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
         let at = root.subviews.firstIndex { $0 === next }!
         if at == 0 || root.subviews[at - 1] !== owner { root.insertSubview(owner, belowSubview: next) }
+    }
+
+    /// A bar item's face and badge are images drawn for one scheme
+    /// (`ChipFace.dark`, `BadgeFace`): a new scheme projects the bars of a
+    /// live route's stack again, once for the stack however many of its
+    /// routes hear it, a turn later, once the header's views have the new
+    /// traits too. A stack whose routes have ended (a sheet still animating
+    /// away) is left alone.
+    func schemeChanged(_ c: RouteController) {
+        guard controllers[c.node.id] === c, let stack = c.stack, reschemed.insert(ObjectIdentifier(stack)).inserted else { return }
+        DispatchQueue.main.async { [weak self, weak stack] in
+            guard let self, let stack else { return }
+            reschemed.remove(ObjectIdentifier(stack))
+            let routes = stack.stackRoutes.compactMap { $0 as? RouteController }
+            guard !routes.isEmpty, routes.allSatisfy({ self.controllers[$0.node.id] === $0 }) else { return }
+            prepareRoutes(routes, in: stack)
+        }
     }
 
     /// A route's controller leaves for good: its header paints again and the
