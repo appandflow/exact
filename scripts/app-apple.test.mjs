@@ -411,6 +411,17 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
 });
 
+test('iCloudKeyValue signs the app\'s own key-value store under its application identifier', async () => {
+  const {entitlements} = await import('../host/apple/build.mjs');
+  const app = {id:'com.exact.test',manifest:{host:{ios:{iCloudKeyValue:true}}}};
+  const key = '<key>com.apple.developer.ubiquity-kvstore-identifier</key>';
+  assert.match(entitlements(app, 'TEAM', false), new RegExp(`${key}<string>TEAM.com.exact.test</string>`));
+  assert.match(entitlements(app, 'TEAM', true, null, {prefix:'PREFIX'}), new RegExp(`${key}<string>PREFIX.com.exact.test</string>`));
+  assert.match(entitlements(app, null, true, null, {simulator:true}), new RegExp(`${key}<string>SIMULATORX.com.exact.test</string>`));
+  assert.doesNotMatch(entitlements({...app, widgetAppId:app.id, id:app.id+'.widget'}, 'TEAM', false), /ubiquity-kvstore/);
+  assert.doesNotMatch(entitlements({...app, manifest:{host:{ios:{}}}}, 'TEAM', false), /ubiquity-kvstore/);
+});
+
 test('an App Clip is its parent\'s app under a second identity: NSAppClip, the parent identifier and appclips: domains', async () => {
   const { appClip, entitlements, infoPlist } = await import('../host/apple/build.mjs');
   const flat = (s) => s.replace(/\s+/g, '');

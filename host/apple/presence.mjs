@@ -105,6 +105,13 @@ export function macPasskeys(app, ceiling, { release = false, log = console.log }
 /** The `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or
  * with a profile whose entitlements (`allows`) include Apple Pay's. Elsewhere (an ad hoc Mac build) Apple Pay is
  * unavailable, and a profile without it would refuse the build. */
+// `host.ios.iCloudKeyValue`: the app's own iCloud key-value store, named `$(TeamIdentifierPrefix)<bundle id>`
+// (Apple, "Synchronizing app preferences with iCloud"); an extension or a clip has none.
+export function iCloudKeyValueEntitlement(app, applicationIdentifier) {
+  const own = app.manifest.host?.ios?.iCloudKeyValue === true && !app.clipParent && !app.widgetAppId && !app.widgetHost && !app.widgetTV;
+  return own ? { 'com.apple.developer.ubiquity-kvstore-identifier': applicationIdentifier } : {};
+}
+
 export function merchantEntitlement(reach, { simulator = false, team = null, allows = [] } = {}) {
   const merchants = reach?.payments?.merchantIds ?? [];
   const signable = (simulator && !team) || allows.includes('com.apple.developer.in-app-payments');
