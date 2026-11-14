@@ -733,7 +733,10 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
-        presenter.onPress = { [unowned self] id in applyInput(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now())) }
+        presenter.onPress = { [unowned self] id in
+            if clock == nil { followOffset() }
+            applyInput(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now()))
+        }
         // A text field's `input` and `change` carry the selection the edit
         // left, its `select` the one the person or a script made
         // (`FieldSelections`).
@@ -1295,7 +1298,7 @@ public final class ExactSession {
 
     /// Drawn once per launch and kept across a dev reload's new runner; its `formatLocale` follows the Region and the hour cycle (`formatLocaleChanged`).
     var launchPlace: LaunchPlace
-    /// The zone's offset last told (`followOffset`, before each advance, so a
+    /// The zone's offset and the date at the clock's zero last told (`followOffset`, before each advance, press and timer, so a
     /// DST change reaches the timer after it; `tellAgentOffset`).
     var toldOffset: Double?, toldEpoch: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// Before a first boot the runtime keeps them, so the first frame is laid

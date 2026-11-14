@@ -395,6 +395,7 @@ extension ExactSession {
     /// notification, in the same turn.
     func tellPage() {
         guard booted, state != .destroyed else { return }
+        if clock == nil { followOffset() }
         #if canImport(UIKit)
         // Out of the foreground, a press hands nothing on (PressHandoffIOS).
         if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
