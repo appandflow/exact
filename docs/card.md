@@ -77,7 +77,7 @@ tags: attributes; on events. Every tag also takes CSS style attributes and colou
   time: datetime format
   progress: value max start end
   list: listStyle appearance virtualized refreshing scroll-start; on reachstart reachend refresh
-  scroll: scrollTop navigationScroll keyboardDismissMode; on scroll scrollend
+  scroll: scrollTop navigationScroll keyboardDismissMode zoomScale; on scroll scrollend
   dialog: closedby; on cancel close
 
 parts: use X from "exact:content"; an option is none or some(…)
