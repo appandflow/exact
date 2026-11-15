@@ -383,6 +383,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         super.init()
         traceObservers = SheetTrace.watch(self)
     }
+    deinit { traceObservers.forEach(NotificationCenter.default.removeObserver) }
 
     #if os(iOS)
     /// Why a word of a bound `navigationDetent` is dropped.
@@ -840,10 +841,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             return false
         }
         let refuses = refusesDismissal(of: layer.route)
-        // UIKit asks every frame of a drag: a line only when the answer or what it read changes.
-        let line = "shouldDismiss \(!refuses) \(traceState(layer))"
-        if line != lastAsked { SheetTrace.note(line) }
-        lastAsked = line
+        // UIKit asks every frame of a drag: the line, which reads the runtime, only when this key changes.
+        let asked = "\(refuses) \(layer.controller.isModalInPresentation) \(layer.route.id) \(presenter.navigation.selectedKey ?? "") \(presenter.navigation.isInactiveRoute(containing: layer.route))"
+        if asked != lastAsked { SheetTrace.note("shouldDismiss \(!refuses) \(traceState(layer))") }
+        lastAsked = asked
         return !refuses
     }
     private var lastAsked: String?

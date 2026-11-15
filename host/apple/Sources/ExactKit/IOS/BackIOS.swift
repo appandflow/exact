@@ -96,7 +96,7 @@ extension NavigationHost {
     var traceBack: String {
         let route = selectedRoute
         let beneath = route?.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) }
-        return "selected=\(selectedKey ?? "nil") selectedRoute=\(route.map { "#\($0.id)" } ?? "nil") control=\(backControl.map { "#\($0.id)" } ?? "nil") declared=\(route.map(declaresBack) ?? false) beneath=\(beneath ?? "nil") servingMain=\(Owner.shared.isServingMain) window=\(presenter.session?.view?.window != nil)"
+        return "selected=\(selectedKey ?? "nil") selectedRoute=\(route.map { "#\($0.id)" } ?? "nil") control=\(backControl.map { "#\($0.id)" } ?? "nil") declared=\(route.map(declaresBack) ?? false) beneath=\(beneath.map { $0.isEmpty ? "empty" : "some" } ?? "nil") servingMain=\(Owner.shared.isServingMain) window=\(presenter.session?.view?.window != nil)"
     }
 
     /// Why Back does not go from the selected route, for the journal.
