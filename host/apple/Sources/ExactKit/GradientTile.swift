@@ -29,9 +29,11 @@ extension Gradient {
     /// The period, when the gradient is a repeating linear one whose
     /// period and place along the line do not change with the box: no
     /// percentage stop and no `to <corner>`, which it checks by resolving
-    /// at two sizes.
+    /// at two sizes. A percentage that an earlier length stop clamps at
+    /// both sizes is free at a larger one, so any percentage is refused
+    /// first: the kernel writes colours as hex, so a `%` is a stop.
     func period(dark: Bool) -> Period? {
-        guard css?.hasPrefix("repeating-linear-gradient(") == true else { return nil }
+        guard let css, css.hasPrefix("repeating-linear-gradient("), !css.contains("%") else { return nil }
         let boxes = [CGRect(x: 0, y: 0, width: 1000, height: 1000), CGRect(x: 0, y: 0, width: 1037, height: 1291)]
         let periods = boxes.compactMap { box in resolved(in: box, dark: dark)?.cycle(in: box, dark: dark) }
         guard periods.count == 2, periods[0].matches(periods[1]) else { return nil }

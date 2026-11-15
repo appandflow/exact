@@ -64,6 +64,7 @@ final class GradientTileTests: XCTestCase {
 
     func testWhatATileCannotSayStaysDrawn() {
         for css in ["repeating-linear-gradient(45deg, red 0 10%, blue 10% 20%)",
+                    "repeating-linear-gradient(90deg, red 0px 20px, blue 1% 30px)",
                     "repeating-linear-gradient(to top right, red 0 2px, blue 2px 5px)",
                     "linear-gradient(45deg, red, blue)"] {
             XCTAssertNil(Self.gradient(css).period(dark: false), css)
