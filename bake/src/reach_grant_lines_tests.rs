@@ -186,3 +186,43 @@ fn apple_metadata_advice_emits_the_key_on_the_named_bundle() {
     );
     print!("{output}");
 }
+
+/// The languages the Apple Info.plist names move the id where the plist names
+/// them; a translation edit does not, nor one table, nor another platform.
+#[test]
+fn the_plists_languages_are_in_the_id() {
+    use super::tests::{app, compat};
+    let id = |platform: &str, tables: &[(&str, &str)]| {
+        let mut c = compat("net.fetch https://x/");
+        super::derive(&app(tables).0, platform, None, &mut c).unwrap();
+        crate::compat::localizations(platform, &mut c);
+        (c.id, c.inputs.get("localizations").cloned())
+    };
+    let (two, inputs) = id(
+        "ios",
+        &[("en", r#"{"t": "T"}"#), ("fr", r#"{"t": "Titre"}"#)],
+    );
+    assert_eq!(
+        inputs,
+        Some(serde_json::json!({"base": "en", "locales": ["en", "fr"]}))
+    );
+    assert_ne!(two, "old");
+    assert_eq!(
+        id(
+            "ios",
+            &[("en", r#"{"t": "T"}"#), ("fr", r#"{"t": "Le titre"}"#)]
+        )
+        .0,
+        two
+    );
+    assert_ne!(
+        id("ios", &[("en", "{}"), ("fr", "{}"), ("de", "{}")]).0,
+        two
+    );
+    assert_eq!(id("macos", &[("en", "{}"), ("fr", "{}")]).1, inputs);
+    assert_eq!(
+        id("web", &[("en", "{}"), ("fr", "{}")]),
+        ("old".into(), None)
+    );
+    assert_eq!(id("ios", &[("en", "{}")]), ("old".into(), None));
+}

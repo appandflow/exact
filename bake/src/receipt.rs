@@ -701,6 +701,10 @@ fn artifact_graph(
     if inputs.get("grantPurposes").is_some() {
         requires.insert("grantPurposes".into(), inputs["grantPurposes"].clone());
     }
+    // The installed Info.plist's languages (`reach.rs`): a bundle that adds or drops one is a binary release.
+    if inputs.get("localizations").is_some() {
+        requires.insert("localizations".into(), inputs["localizations"].clone());
+    }
     let rust = assets
         .iter()
         .any(|asset| asset["name"] == "rust/app.module.json");
