@@ -152,6 +152,32 @@ final class ModalStackIOSTests: XCTestCase {
         XCTAssertEqual(primary.viewControllers, background)
     }
 
+    /// Each answer to UIKit's swipe down goes to the sheet trace with the terms it read.
+    func testTheSheetTraceRecordsEachDismissalAnswerAndWhatItRead() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "the trace answers UIKit's presented sheet")
+        }
+        let session = try fixture("sheet-trace", plan: "EXACT_PUSHED_TITLE_PLAN", fullScreen: true)
+        let p = session.presenter, agent = Agent(session: session)
+        let file = try XCTUnwrap(AppFiles.url(SheetTrace.path))
+        try? FileManager.default.removeItem(at: file)
+        try press(session, "home-open-inline")
+        until("the background stack settles") { !agent.nativeInFlight() }
+        try press(session, "inline-open-sheet")
+        until("the sheet's own navigation settles") { p.navigation.modalNavigation != nil && !agent.nativeInFlight() }
+        let sheet = try XCTUnwrap(presented().last?.presentationController)
+        XCTAssertTrue(p.modals.presentationControllerShouldDismiss(sheet))
+        try press(session, "sheet-open-long")
+        until("the push inside the sheet settles") { p.navigation.modalNavigation?.viewControllers.count == 2 && !agent.nativeInFlight() }
+        XCTAssertTrue(p.modals.presentationControllerShouldDismiss(sheet))
+        let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains { $0.contains(" present route=#") && $0.contains("modal=false") }, "the presentation and its flag")
+        let answers = lines.filter { $0.contains(" shouldDismiss true ") }
+        XCTAssertEqual(answers.count, 2, "a line only when what the answer read changes: \(answers)")
+        XCTAssertTrue(answers.first?.contains("inactive=false") == true)
+        XCTAssertTrue(answers.last?.contains("inactive=true sheetDismissal=true") == true, "the push inside the sheet: \(answers)")
+    }
+
     func testBackHistoryUsesTheChosenDestinationInThePrimaryStack() throws {
         guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
             throw missing("scene", "native Back history uses UIKit's completed transition")
