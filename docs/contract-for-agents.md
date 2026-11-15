@@ -4819,7 +4819,9 @@ On Apple platforms the tables are the bundle's localizations, base first, so the
 system's own words and the direction of the chrome it draws (bars, the Mac's
 split view, sidebar and toolbar) follow the table it picks. AppKit mirrors a
 window only on a Mac whose system language is right to left, as it does for any
-hand-built app, while the content follows the table everywhere.
+hand-built app, while the content follows the table everywhere. Because the
+binary names its languages, adding or dropping a table is a new binary there;
+editing a translation still ships as an update.
 
 #### Folds on iOS
 

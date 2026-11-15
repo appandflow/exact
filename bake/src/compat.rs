@@ -380,6 +380,7 @@ pub fn compatibility_id_pinned(
         }
     }
     crate::reach::derive(app_dir, platform, plan.as_ref(), &mut compat)?;
+    localizations(platform, &mut compat);
     if target.contains("android") {
         crate::channels::derive(app_dir, &manifest.json, &mut compat)?;
     }
@@ -477,6 +478,19 @@ fn source_scopes(compat: &mut Compat, javascript: &str, rust: &str) {
     compat.inputs["javascriptGrants"] = serde_json::Value::String(javascript.into());
     compat.inputs["rustGrants"] = serde_json::Value::String(rust.into());
     compat.id = compatibility_digest(&compat.inputs);
+}
+
+/// The Apple Info.plist names the app's languages (`localizationKeys` in
+/// `host/apple/build.mjs`, from `reach.locales`), so adding or dropping a table
+/// is a binary change; a translation's text is not. An app with one table keeps
+/// the id it had.
+pub(crate) fn localizations(platform: &str, compat: &mut Compat) {
+    let tables = compat.reach["locales"].as_array().map_or(0, Vec::len);
+    if tables > 1 && matches!(platform, "ios" | "macos") {
+        compat.inputs["localizations"] =
+            serde_json::json!({"base": compat.reach["base"], "locales": compat.reach["locales"]});
+        compat.id = compatibility_digest(&compat.inputs);
+    }
 }
 
 pub(crate) fn compatibility_digest(inputs: &serde_json::Value) -> String {
