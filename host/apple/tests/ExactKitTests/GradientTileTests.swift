@@ -62,6 +62,21 @@ final class GradientTileTests: XCTestCase {
         }
     }
 
+    /// A phone-sized box takes few tiles and fewer pictures, including
+    /// for a period a hair off a whole number of pixels.
+    func testAPhoneSizedBoxTakesFewTiles() {
+        let hatch = "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
+        for scale: CGFloat in [1, 2, 3] {
+            for css in Self.hatch + Self.grid + [Self.contrast, hatch] {
+                let period = Self.gradient(css).period(dark: false)!, rect = CGRect(x: 0, y: 0, width: 402, height: 874)
+                let at = period.layout(box: rect, bounds: rect, scale: scale)!, pictures = Self.keys(period, size: rect.size, scale: scale).count
+                print("tiles \(css) at \(scale)x: \(at.width)×\(at.height) px, \(at.columns * at.rows) tiles, \(pictures) pictures")
+                XCTAssertLessThanOrEqual(at.columns * at.rows, 120, "\(css) at \(scale)x")
+                XCTAssertLessThanOrEqual(pictures, 32, "\(css) at \(scale)x")
+            }
+        }
+    }
+
     func testWhatATileCannotSayStaysDrawn() {
         for css in ["repeating-linear-gradient(45deg, red 0 10%, blue 10% 20%)",
                     "repeating-linear-gradient(90deg, red 0px 20px, blue 1% 30px)",

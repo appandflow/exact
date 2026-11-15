@@ -430,8 +430,12 @@ extension NodeView {
     func paintGradient(_ ctx: CGContext, clip: CGPath) {
         guard surface == nil, !cssVisibilityHidden else { return }
         #if os(iOS)
-        // A fixed gradient is the layer's (LLP 1066 D7), and tiles are their layers'.
-        if gradientLayered && boxGradient != nil || gradientTiles?.layer != nil { return }
+        // A fixed gradient is the layer's (LLP 1066 D7).
+        if gradientLayered && boxGradient != nil { return }
+        #endif
+        #if os(iOS) || os(tvOS)
+        // Tiles are their layers' (`GradientTilesIOS.swift`).
+        if gradientTiles?.layer != nil { return }
         #endif
         // The last layer first, so the first is on top (LLP 1077 D5).
         for g in Gradient.layers(style["background_image"], tint: gradientTint).reversed() {

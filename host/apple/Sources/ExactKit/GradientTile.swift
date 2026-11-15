@@ -88,11 +88,11 @@ extension Gradient.Period {
             && zip(locations, other.locations).allSatisfy { abs($0 - $1) < 1e-4 }
     }
 
-    /// A tile's device pixels along each axis: the whole number of pixels
-    /// up to 512 that comes closest to whole periods, so that tiles next to
-    /// each other fall at the same place in a period and share a picture;
-    /// 256 along an axis the stripes run along, or one too long to repeat
-    /// within 512.
+    /// A tile's device pixels along each axis: a whole number of pixels
+    /// that comes closest to whole periods, so that tiles fall at nearly
+    /// the same place in a period and share pictures, grown to about 256
+    /// so a box needs few tiles; 256 along an axis the stripes run along,
+    /// or one too long to repeat within 512.
     func tile(scale: CGFloat) -> (width: Int, height: Int) {
         func side(_ share: CGFloat) -> Int {
             let limit = 512
@@ -104,8 +104,7 @@ extension Gradient.Period {
                 let error = abs(exact - CGFloat(pixels)) / CGFloat(pixels)
                 if error < best.error - 1e-12 { best = (pixels, error) }
             }
-            // Fewer, larger tiles where a small one repeats exactly.
-            return best.pixels * max(1, (best.error < 1e-6 ? 256 : 1) / best.pixels)
+            return best.pixels * max(1, 256 / best.pixels)
         }
         return (side(direction.x), side(direction.y))
     }
@@ -126,7 +125,9 @@ extension Gradient.Period {
 
     /// The tiles start from the device pixel of the corner the line starts
     /// at, so a size that moves that corner by whole pixels moves them and
-    /// leaves each tile's picture as it was.
+    /// leaves each tile's picture as it was. A size that moves it within a
+    /// pixel changes every tile's phase and draws their pictures again; a
+    /// sheet dragged on the iOS simulator was sized in whole pixels.
     func layout(box: CGRect, bounds: CGRect, scale: CGFloat) -> Layout? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let (w, h) = tile(scale: scale), (tw, th) = (CGFloat(w), CGFloat(h)), u = direction
