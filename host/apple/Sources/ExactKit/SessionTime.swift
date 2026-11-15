@@ -28,11 +28,14 @@ extension ExactSession {
     /// runner's own threshold). The date moves when the clock is set, and
     /// through a sleep, since the session's clock (`CACurrentMediaTime`,
     /// `mach_absolute_time`) stops while the system sleeps and the date does
-    /// not. Runs before each advance and frame; `dateChanged` runs it on a
-    /// system notice.
+    /// not. Runs before each advance, frame, press, native timer and page
+    /// notice, and again after a refused `setTime`; `dateChanged` runs it on
+    /// a system notice.
     func followOffset() {
         guard let date = dateMoved() else { return }
-        apply(runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset))
+        let batch = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        apply(batch)
+        if batch.busy || batch.held { (toldEpoch, offsetHeld) = (nil, nil) }
     }
     /// `followOffset`'s date, nil when neither moved. `offsetHeld` is the
     /// zone the offset was read in and when to read it again: until then, in
